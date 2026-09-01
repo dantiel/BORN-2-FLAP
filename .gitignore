@@ -23,3 +23,8 @@ __pycache__/
 # Generated aerodynamic datasets
 data/generated/
 reports/generated/
+first-flap.csv
+
+# Standalone CMake builds
+build/
+cmake-build-*/

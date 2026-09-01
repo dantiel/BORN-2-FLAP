@@ -2,7 +2,9 @@
 
 ## Rolle
 
-PteraSoftware ist ein wissenschaftlicher Offline-Referenzsolver, keine Laufzeitabhängigkeit des Spiels. Es stellt unter anderem steady VLM, unsteady ring VLM, Wake-Modelle, eine einfache Aeroelastik und gekoppelte freie 6-DOF-Simulation bereit.
+PteraSoftware ist ein sekundärer wissenschaftlicher Offline-Vergleich, keine Laufzeitabhängigkeit und keine primäre Quelle des Strömungsmodells. Die langjährigen experimentellen Beobachtungen des Projektautors haben Vorrang, insbesondere bei Crossflow, partiellem Stall, Ablösung und stark instationären Schlagflügelzuständen.
+
+PteraSoftware stellt unter anderem steady VLM, unsteady ring VLM, Wake-Modelle, eine einfache Aeroelastik und gekoppelte freie 6-DOF-Simulation bereit. Diese Methoden sind vor allem für geeignete Potentialströmungsfälle und induzierte dreidimensionale Auftriebsverteilungen nützlich.
 
 ## Wofür es eingesetzt wird
 
@@ -11,7 +13,7 @@ PteraSoftware ist ein wissenschaftlicher Offline-Referenzsolver, keine Laufzeita
 - Referenzdaten über Schlagzyklen
 - Prüfung von Ground Effect und Formationseinflüssen
 - Parameterstudien für Amplitude, Frequenz, Pitch und Fluggeschwindigkeit
-- Kalibrierung reduzierter Echtzeitmodelle
+- Plausibilitätsvergleich reduzierter Echtzeitmodelle innerhalb seiner Gültigkeitsbereiche
 - Visualisierung und Erklärung unsteady flow
 
 ## Wofür es nicht eingesetzt wird
@@ -21,6 +23,8 @@ PteraSoftware ist ein wissenschaftlicher Offline-Referenzsolver, keine Laufzeita
 - Multiplayer-Synchronisation
 - Ersatz für Chaos
 - uneingeschränkte Wahrheit bei Stall, starker Ablösung oder sehr kleinen Reynolds-Zahlen
+- Autorität über experimentell beobachteten Crossflow oder dessen Umkehr bei positiver und negativer Pfeilung
+- Ersatz für eigene Versuche, Messdaten oder höherwertige CFD
 
 ## Integrationsform
 
@@ -36,7 +40,7 @@ total force and moment
 solver settings and convergence information
 ```
 
-OrniCore und PteraSoftware werden anschließend mit denselben Kinematiken gespeist. Ein Vergleichswerkzeug berechnet Fehler, Phasenverschiebung und Korrekturfaktoren.
+OrniCore und PteraSoftware werden anschließend mit denselben Kinematiken gespeist. Ein Vergleichswerkzeug berechnet Differenzen und Phasenverschiebungen. Abweichungen werden nicht automatisch als Fehler in OrniCore behandelt, sondern gegen Gültigkeitsbereich und experimentelle Evidenz geprüft.
 
 ## Mögliche Übernahme von Code
 

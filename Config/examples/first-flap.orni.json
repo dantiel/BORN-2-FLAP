@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "0.1",
+  "identity": {
+    "id": "org.born2flap.prototype.first-flap",
+    "name": "First Flap Research Wing"
+  },
+  "wing": {
+    "spanM": 0.72,
+    "rootChordM": 0.20,
+    "tipChordM": 0.10,
+    "rootSweepDeg": 24.0,
+    "tipSweepDeg": -8.0,
+    "rootTwistDeg": 19.0,
+    "tipTwistDeg": 7.0,
+    "elementCount": 16
+  }
+}

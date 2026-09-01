@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://born2flap.org/schema/orni-config-v0.1.schema.json",
+  "title": "BORN-2-FLAP OrniConfig",
+  "type": "object",
+  "required": ["schemaVersion", "identity", "wing"],
+  "properties": {
+    "schemaVersion": { "const": "0.1" },
+    "identity": {
+      "type": "object",
+      "required": ["id", "name"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" }
+      }
+    },
+    "wing": {
+      "type": "object",
+      "required": ["spanM", "rootChordM", "tipChordM", "elementCount"],
+      "properties": {
+        "spanM": { "type": "number", "exclusiveMinimum": 0 },
+        "rootChordM": { "type": "number", "exclusiveMinimum": 0 },
+        "tipChordM": { "type": "number", "exclusiveMinimum": 0 },
+        "rootSweepDeg": { "type": "number" },
+        "tipSweepDeg": { "type": "number" },
+        "rootTwistDeg": { "type": "number" },
+        "tipTwistDeg": { "type": "number" },
+        "elementCount": { "type": "integer", "minimum": 3, "maximum": 128 }
+      }
+    }
+  }
+}

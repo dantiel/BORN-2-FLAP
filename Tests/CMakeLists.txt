@@ -1,0 +1,4 @@
+add_executable(ornicore_tests OrniCoreTests.cpp)
+target_link_libraries(ornicore_tests PRIVATE OrniCore)
+target_compile_features(ornicore_tests PRIVATE cxx_std_20)
+add_test(NAME ornicore_tests COMMAND ornicore_tests)

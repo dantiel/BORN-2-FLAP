@@ -14,6 +14,8 @@ Ergebnisse:
 - CI für OrniCore und Headless Tests
 - Coding Style, Einheiten und Koordinatensystem dokumentieren
 - minimale OrniConfig-v1-Spezifikation
+- strukturierte Erfassung der vorhandenen experimentellen Strömungsbeobachtungen
+- verbindliche Vorzeichenkonvention für positive/negative Pfeilung und Crossflow
 
 Abschlusskriterium: Ein leerer Unreal-Build und OrniCore-Tests laufen reproduzierbar auf der primären Entwicklungsplattform.
 
@@ -37,6 +39,9 @@ Ergebnisse:
 - Fixed-Step 240 Hz
 - Blade Elements und grundlegende Polaren
 - Flügelkinematik und Kräfte pro Element
+- persistenter Ablösezustand pro Element und partieller dynamischer Stall
+- dreidimensionale Geschwindigkeitszerlegung und vorzeichenbehafteter Crossflow
+- Transportkopplung zwischen benachbarten Flügelelementen
 - Rumpfwiderstand, Wind und Gravitation
 - Kraft-, Moment- und Leistungs-Telemetrie
 - analytische und numerische Tests
@@ -58,18 +63,20 @@ Ergebnisse:
 
 Abschlusskriterium: Externe Testpersonen können ohne Entwicklerhilfe lernen, eine Runde absolvieren und sinnvolles Feedback zum Fluggefühl geben.
 
-## Phase 4: Wissenschaftliche Kalibrierung
+## Phase 4: Experimentelle Kalibrierung und wissenschaftlicher Vergleich
 
 Ergebnisse:
 
-- OrniConfig-zu-PteraSoftware-Konverter
+- formalisierte Regeln und Datensätze aus den eigenen Experimenten
+- reproduzierbare Crossflow-, Stall- und Wiederanlegungsfälle
+- OrniConfig-zu-PteraSoftware-Konverter für geeignete Vergleichsfälle
 - standardisierte Parameter-Sweeps
 - Vergleichsberichte OrniCore/Ptera
 - Added Mass und Rotationszirkulation
 - erste Flügelpaar-Interferenzkorrektur
 - dokumentierte Gültigkeitsbereiche
 
-Abschlusskriterium: Die wichtigsten Kräfte und Phasenlagen stimmen in definierten Referenzfällen innerhalb begründeter Toleranzen überein.
+Abschlusskriterium: Richtung, Transport und Wirkung von Crossflow sowie Stall- und Wiederanlegungsdynamik entsprechen den dokumentierten Experimenten innerhalb begründeter Toleranzen. Ptera-Vergleiche sind separat nach Gültigkeitsbereich bewertet.
 
 ## Phase 5: Hangar und Konstruktion
 
@@ -112,9 +119,11 @@ Abschlusskriterium: Spieler können ohne Dateiänderung einen flugfähigen eigen
 7. Golden-Master-Exporter im Configurator planen.
 8. ONDAS-Wellenform als erste reine C++-Komponente portieren.
 9. Headless Servo-Trace gegen Configurator vergleichen.
-10. einen einzelnen starren Flügel mit acht Blade Elements implementieren.
-11. Kräfte im Unreal-Debug-View visualisieren.
-12. Performancebudget auf Zielhardware messen.
+10. Experimentkatalog für Pfeilung, Crossflow, Stall und Wiederanlegung anlegen.
+11. einen einzelnen starren Flügel mit 12 bis 24 gekoppelten Elementen implementieren.
+12. lokalen Ablösegrad und Crossflow-Zustand implementieren.
+13. Kräfte und Strömungszustände im Unreal-Debug-View visualisieren.
+14. Performancebudget auf Zielhardware messen.
 
 ## Definition of Done für Physikfeatures
 

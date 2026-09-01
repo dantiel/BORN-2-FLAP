@@ -21,8 +21,9 @@ Konfigurationen aus dem OrniFlight Configurator sollen optional importiert werde
 - Unreal Engine 5.7 als zunächst festgelegte Produktionsbasis
 - Chaos für Starrkörper, Kollisionen und Weltinteraktion
 - eigener C++-Kern `OrniCore` für Aerodynamik, Kinematik und Flugregelung
-- quasi-stationäre Blade-Element-Methode mit gezielten instationären Korrekturen
-- PteraSoftware als Offline-Referenzsolver und virtueller Windkanal
+- segmentiertes dreidimensionales Flügelmodell mit dynamischem partiellem Stall und spannweitem Crossflow
+- experimentelle Strömungsbeobachtungen des Projektautors als primäre Grundlage des reduzierten Echtzeitmodells
+- PteraSoftware ausschließlich als sekundärer Offline-Vergleich in geeigneten Potentialströmungsfällen
 - versioniertes JSON-Austauschformat zwischen Configurator, Werkzeugen und Spiel
 
 ## Dokumentation
@@ -30,6 +31,8 @@ Konfigurationen aus dem OrniFlight Configurator sollen optional importiert werde
 - [Produktvision](docs/product-vision.md)
 - [Systemarchitektur](docs/architecture.md)
 - [Physikkonzept](docs/physics.md)
+- [Experimentelles Aerodynamikmodell](docs/experimental-aerodynamics.md)
+- [First-Flap-Prototyp](docs/first-flap-prototype.md)
 - [Configurator-Integration](docs/configurator-integration.md)
 - [PteraSoftware-Strategie](docs/pterasoftware.md)
 - [Ornithopter-Editor](docs/ornithopter-editor.md)
@@ -39,8 +42,21 @@ Konfigurationen aus dem OrniFlight Configurator sollen optional importiert werde
 
 ## Projektstatus
 
-Konzept- und Planungsphase. Das erste technische Ziel ist ein minimaler, testbarer Vertical Slice: ein importierter Ornithopter, ein Fluggebiet, RC-Eingabe, ONDAS-Regelung, eine erste Blade-Element-Physik und vollständige Telemetrie.
+Der engine-unabhängige First-Flap-Prototyp ist implementiert. Er simuliert einen segmentierten Flügel mit festem 240-Hz-Zeitschritt, lokalem dynamischem Stall, vorzeichenbehaftetem Crossflow, Transport zwischen benachbarten Elementen und CSV-Telemetrie.
+
+## First Flap bauen
+
+Voraussetzungen sind ein C++20-Compiler und CMake ab Version 3.18.
+
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+cmake --build build --parallel
+cmake -E chdir build ctest --output-on-failure
+./build/Source/FirstFlap/first_flap first-flap.csv
+```
+
+Die CSV-Datei enthält pro Tick und Flügelelement unter anderem Anstellwinkel, Reynolds-Zahl, Crossflow, Ablösegrad, Lift und Drag. Das ausführbare Programm ist ein Forschungs- und Architekturprototyp; seine Koeffizienten sind noch nicht experimentell kalibriert.
 
 ## Lizenz
 
-Die endgültige Projektlizenz wird vor dem ersten Quellcode-Import festgelegt. MIT oder Apache-2.0 sind die bevorzugten Kandidaten. Unreal Engine und Drittanbieter-Assets behalten ihre jeweiligen separaten Lizenzen.
+Der eigene Quellcode steht unter der [MIT-Lizenz](LICENSE). Unreal Engine und Drittanbieter-Assets behalten ihre jeweiligen separaten Lizenzen.
