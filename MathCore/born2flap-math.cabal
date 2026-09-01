@@ -1,0 +1,21 @@
+cabal-version: 3.0
+name: born2flap-math
+version: 0.1.0.0
+build-type: Simple
+
+library
+  exposed-modules:
+      Born2Flap.Math.Types
+      Born2Flap.Math.Control
+      Born2Flap.Math.Wing
+  hs-source-dirs: src
+  build-depends: base >=4.17 && <5
+  default-language: GHC2021
+  ghc-options: -Wall -Wcompat -O2
+
+test-suite math-properties
+  type: exitcode-stdio-1.0
+  main-is: Main.hs
+  hs-source-dirs: test
+  build-depends: base >=4.17 && <5, born2flap-math
+  default-language: GHC2021

@@ -1,0 +1,14 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+$LOAD_PATH.unshift File.expand_path("../lib", __dir__)
+require "born2flap"
+
+brain = Born2Flap::Brain.new
+brain.command(:native_ready, math_backend: :haskell)
+brain.tick
+puts brain.view_model.inspect
+
+brain.command(:navigate, to: :free_flight)
+brain.tick
+puts brain.view_model.inspect

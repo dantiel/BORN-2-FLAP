@@ -1,0 +1,13 @@
+{
+  "FileVersion": 3,
+  "EngineAssociation": "5.7",
+  "Category": "Games",
+  "Description": "BORN-2-FLAP ornithopter flight simulator prototype",
+  "Modules": [
+    {
+      "Name": "Born2Flap",
+      "Type": "Runtime",
+      "LoadingPhase": "Default"
+    }
+  ]
+}

@@ -20,7 +20,9 @@ Konfigurationen aus dem OrniFlight Configurator sollen optional importiert werde
 
 - Unreal Engine 5.7 als zunächst festgelegte Produktionsbasis
 - Chaos für Starrkörper, Kollisionen und Weltinteraktion
-- eigener C++-Kern `OrniCore` für Aerodynamik, Kinematik und Flugregelung
+- Ruby als bewusstes Brain für App-Zustand, Menüs, Regeln, Plugins und Orchestrierung
+- Haskell als kanonischer Mathematikkern für Aerodynamik, Kinematik, Steuerung und Stabilisierung
+- C/C++ für Unreal, Chaos, Plattformanbindung, FFI und den vorläufigen getesteten Physik-Fallback
 - segmentiertes dreidimensionales Flügelmodell mit dynamischem partiellem Stall und spannweitem Crossflow
 - experimentelle Strömungsbeobachtungen des Projektautors als primäre Grundlage des reduzierten Echtzeitmodells
 - PteraSoftware ausschließlich als sekundärer Offline-Vergleich in geeigneten Potentialströmungsfällen
@@ -39,6 +41,7 @@ Konfigurationen aus dem OrniFlight Configurator sollen optional importiert werde
 - [Spielmodi und Training](docs/game-design.md)
 - [Implementierungsplan](docs/implementation-plan.md)
 - [Offene Entscheidungen](docs/open-questions.md)
+- [ADR: Sprach- und Laufzeitarchitektur](docs/decisions/0001-language-and-runtime-architecture.md)
 
 ## Projektstatus
 
@@ -56,6 +59,26 @@ cmake -E chdir build ctest --output-on-failure
 ```
 
 Die CSV-Datei enthält pro Tick und Flügelelement unter anderem Anstellwinkel, Reynolds-Zahl, Crossflow, Ablösegrad, Lift und Drag. Das ausführbare Programm ist ein Forschungs- und Architekturprototyp; seine Koeffizienten sind noch nicht experimentell kalibriert.
+
+## Ruby-Brain testen
+
+```sh
+ruby -I Brain/lib Brain/test/brain_test.rb
+ruby -I Brain/lib Brain/bin/brain_demo
+```
+
+## Haskell-Math-Core testen
+
+Mit GHC und Cabal:
+
+```sh
+cd MathCore
+cabal test all
+```
+
+## Unreal-Prototyp
+
+Das vorbereitete Unreal-5.7-Projekt liegt unter [`Unreal/Born2Flap`](Unreal/Born2Flap). Es enthält Chaos-Pawn, Kamera, Eingaben und eine dynamische C-ABI-Bridge zum Haskell-Backend. Unreal Editor und GHC sind auf dem aktuellen Entwicklungsrechner noch nicht installiert; diese beiden Teile sind deshalb scaffolded, aber noch nicht lokal gebaut.
 
 ## Lizenz
 

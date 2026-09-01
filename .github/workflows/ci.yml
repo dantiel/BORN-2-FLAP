@@ -19,3 +19,25 @@ jobs:
         run: cmake --build build --config Release --parallel
       - name: Test
         run: cmake -E chdir build ctest -C Release --output-on-failure
+
+  ruby-brain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+      - name: Test Ruby brain
+        run: ruby -I Brain/lib Brain/test/brain_test.rb
+
+  haskell-math:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: haskell-actions/setup@v2
+        with:
+          ghc-version: "9.6"
+          cabal-version: "3.10"
+      - name: Test Haskell math core
+        working-directory: MathCore
+        run: cabal test all
