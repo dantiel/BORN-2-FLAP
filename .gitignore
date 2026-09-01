@@ -1,0 +1,25 @@
+# Unreal Engine
+Binaries/
+Build/
+DerivedDataCache/
+Intermediate/
+Saved/
+.vs/
+*.sln
+*.VC.db
+*.VC.opendb
+
+# IDE and OS
+.idea/
+.vscode/
+.DS_Store
+
+# Python offline tools
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+
+# Generated aerodynamic datasets
+data/generated/
+reports/generated/
