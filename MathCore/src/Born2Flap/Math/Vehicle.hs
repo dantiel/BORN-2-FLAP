@@ -180,10 +180,10 @@ transportSeparation _side input results = zipWith update [0 ..] results
       let fraction = (fromIntegral i + 0.5) / fromIntegral stripCount
           sweep = radians (lerp 24 (-8) fraction)
           speed = max 0.05 (magnitude (bodyVelocityMS input))
-      -- Strip indices always run root-to-tip, on both wings. Signed sweep therefore
-      -- determines transport direction without an additional world-side sign.
-      crossSpeed = unMetresPerSecond (crossflowBaseline 0.32 (Radians sweep)
-                         (MetresPerSecond speed))
+          -- Strip indices always run root-to-tip, on both wings. Signed sweep therefore
+          -- determines transport direction without an additional world-side sign.
+          crossSpeed = unMetresPerSecond (crossflowBaseline 0.32 (Radians sweep)
+                           (MetresPerSecond speed))
           upstream = if crossSpeed >= 0 then i - 1 else i + 1
           current = separationAt i
           courant = clamp 0 0.45 (abs crossSpeed * dt / dr)
