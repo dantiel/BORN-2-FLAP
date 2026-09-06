@@ -84,12 +84,12 @@ stepVehicle input state
           force = addVec wingForce (addVec bodyDrag tailForce)
           moment = addVec wingMoment tailMoment
           separations = map (stripSeparation . resultState) wingResults
-          maximum = maximum (0 : separations)
+          maximumSeparation = maximum (0 : separations)
           stalled = firstIndex (> 0.60) separations
           power = sum (map resultPower wingResults)
           flags = if all finite (vecValues force ++ vecValues moment ++ [power]) then 0 else 2
           output = if flags == 0
-                     then VehicleOutput force moment power maximum stalled flags
+                     then VehicleOutput force moment power maximumSeparation stalled flags
                      else zeroOutput flags
       in (output, VehicleState time leftNext rightNext)
   where
