@@ -8,6 +8,7 @@ Saved/
 *.sln
 *.VC.db
 *.VC.opendb
+*.xcworkspace/
 
 # IDE and OS
 .idea/
@@ -28,3 +29,4 @@ first-flap.csv
 # Standalone CMake builds
 build/
 cmake-build-*/
+Testing/

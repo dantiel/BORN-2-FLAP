@@ -38,6 +38,8 @@ ABorn2FlapFlightPawn::ABorn2FlapFlightPawn()
     AutoPossessPlayer = EAutoReceiveInput::Player0;
 }
 
+ABorn2FlapFlightPawn::~ABorn2FlapFlightPawn() = default;
+
 void ABorn2FlapFlightPawn::BeginPlay()
 {
     Super::BeginPlay();
@@ -69,8 +71,11 @@ void ABorn2FlapFlightPawn::StepMath(double DeltaTimeSeconds)
         return;
     }
 
-    const FVector LinearVelocity = Body->GetPhysicsLinearVelocity() / 100.0;
-    const FVector AngularVelocity = Body->GetPhysicsAngularVelocityInRadians();
+    const FTransform BodyTransform = Body->GetComponentTransform();
+    const FVector LinearVelocity = BodyTransform.InverseTransformVectorNoScale(
+        Body->GetPhysicsLinearVelocity() / 100.0);
+    const FVector AngularVelocity = BodyTransform.InverseTransformVectorNoScale(
+        Body->GetPhysicsAngularVelocityInRadians());
     B2F_VehicleInput Input{};
     Input.delta_time_s = DeltaTimeSeconds;
     Input.linear_velocity_m_s[0] = LinearVelocity.X;
@@ -90,8 +95,10 @@ void ABorn2FlapFlightPawn::StepMath(double DeltaTimeSeconds)
         return;
     }
 
-    const FVector ForceN(Output.force_n[0], Output.force_n[1], Output.force_n[2]);
-    const FVector MomentNm(Output.moment_n_m[0], Output.moment_n_m[1], Output.moment_n_m[2]);
+    const FVector BodyForceN(Output.force_n[0], Output.force_n[1], Output.force_n[2]);
+    const FVector BodyMomentNm(Output.moment_n_m[0], Output.moment_n_m[1], Output.moment_n_m[2]);
+    const FVector ForceN = BodyTransform.TransformVectorNoScale(BodyForceN);
+    const FVector MomentNm = BodyTransform.TransformVectorNoScale(BodyMomentNm);
     // Convert each fixed-step load to an impulse so multiple math steps in one
     // rendered frame do not accidentally multiply a frame-scoped force.
     Body->AddImpulse(ForceN * (100.0 * DeltaTimeSeconds), NAME_None, false);

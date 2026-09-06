@@ -17,6 +17,8 @@ public class Born2Flap : ModuleRules
             "Slate", "SlateCore", "UMG"
         });
 
+        PrivateIncludePaths.Add(ModuleDirectory);
+
         PublicIncludePaths.Add(Path.GetFullPath(
             Path.Combine(ModuleDirectory, "../../../../Native/include")));
     }

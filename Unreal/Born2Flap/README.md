@@ -25,6 +25,7 @@ Ohne diese Bibliothek startet das Projekt, wendet aber absichtlich keine erfunde
 
 1. Unreal Engine 5.7 installieren.
 2. Projektdateien für `Born2Flap.uproject` generieren.
-3. Haskell-C-ABI vollständig implementieren und paketieren.
+3. Haskell-Shared-Library mit GHC 9.6/Cabal 3.10 bauen und aus dem Cabal-Buildordner
+   nach `Binaries/ThirdParty/` kopieren.
 4. mruby als Unreal-Modul einbetten und das Ruby-View-Model mit UMG verbinden.
 5. eine eigene Testmap mit Boden, Licht und PlayerStart als `.umap` speichern.

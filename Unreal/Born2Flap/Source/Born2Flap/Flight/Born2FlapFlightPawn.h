@@ -2,13 +2,12 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Pawn.h"
+#include "Math/Born2FlapMathBridge.h"
 #include "Born2FlapFlightPawn.generated.h"
 
 class UCameraComponent;
 class USpringArmComponent;
 class UStaticMeshComponent;
-class FBorn2FlapMathBridge;
-
 UCLASS()
 class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
 {
@@ -16,6 +15,7 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
 
 public:
     ABorn2FlapFlightPawn();
+    virtual ~ABorn2FlapFlightPawn() override;
     virtual void BeginPlay() override;
     virtual void Tick(float DeltaSeconds) override;
     virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
