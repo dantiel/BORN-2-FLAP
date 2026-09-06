@@ -5,6 +5,8 @@
 #include "Components/StaticMeshComponent.h"
 #include "DrawDebugHelpers.h"
 #include "GameFramework/SpringArmComponent.h"
+#include "GameFramework/PlayerController.h"
+#include "InputCoreTypes.h"
 #include "Math/Born2FlapMathBridge.h"
 #include "UObject/ConstructorHelpers.h"
 
@@ -50,6 +52,29 @@ void ABorn2FlapFlightPawn::BeginPlay()
 void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
+
+    // Keep a direct keyboard fallback for standalone game mode. This also
+    // makes the prototype usable when no Enhanced Input action asset exists.
+    if (APlayerController* PlayerController = Cast<APlayerController>(GetController()))
+    {
+        const float KeyboardThrottle =
+            (PlayerController->IsInputKeyDown(EKeys::W) ? 1.0f : 0.0f) -
+            (PlayerController->IsInputKeyDown(EKeys::S) ? 1.0f : 0.0f);
+        const float KeyboardRoll =
+            (PlayerController->IsInputKeyDown(EKeys::D) ? 1.0f : 0.0f) -
+            (PlayerController->IsInputKeyDown(EKeys::A) ? 1.0f : 0.0f);
+        const float KeyboardPitch =
+            (PlayerController->IsInputKeyDown(EKeys::Up) ? 1.0f : 0.0f) -
+            (PlayerController->IsInputKeyDown(EKeys::Down) ? 1.0f : 0.0f);
+        const float KeyboardYaw =
+            (PlayerController->IsInputKeyDown(EKeys::Right) ? 1.0f : 0.0f) -
+            (PlayerController->IsInputKeyDown(EKeys::Left) ? 1.0f : 0.0f);
+        if (FMath::Abs(KeyboardThrottle) > KINDA_SMALL_NUMBER) ThrottleInput = KeyboardThrottle;
+        if (FMath::Abs(KeyboardRoll) > KINDA_SMALL_NUMBER) RollInput = KeyboardRoll;
+        if (FMath::Abs(KeyboardPitch) > KINDA_SMALL_NUMBER) PitchInput = KeyboardPitch;
+        if (FMath::Abs(KeyboardYaw) > KINDA_SMALL_NUMBER) YawInput = KeyboardYaw;
+    }
+
     AccumulatorSeconds = FMath::Min(AccumulatorSeconds + DeltaSeconds, 0.1);
     while (AccumulatorSeconds >= MathStepSeconds)
     {

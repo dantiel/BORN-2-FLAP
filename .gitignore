@@ -28,5 +28,17 @@ first-flap.csv
 
 # Standalone CMake builds
 build/
+build-*/
 cmake-build-*/
 Testing/
+
+# Haskell compiler outputs
+MathCore/dist-newstyle/
+MathCore/**/*.hi
+MathCore/**/*.o
+MathCore/**/*_stub.h
+
+# Native/Unreal generated import libraries
+*.exp
+*.lib
+*.obj

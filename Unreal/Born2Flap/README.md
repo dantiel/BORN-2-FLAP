@@ -1,6 +1,6 @@
 # Unreal-Prototyp
 
-Dieses Projekt ist für Unreal Engine 5.7 vorbereitet.
+Dieses Projekt ist für Unreal Engine 5.8.2 vorbereitet.
 
 ## Aktueller Zustand
 
@@ -8,7 +8,9 @@ Dieses Projekt ist für Unreal Engine 5.7 vorbereitet.
 - Chaos-Rigid-Body mit Chase Camera
 - Eingabe für Throttle, Roll, Pitch und Yaw
 - fester 240-Hz-Aufruf der Mathematik-Bridge
-- dynamisches Laden des Haskell-Backends über `born2flap_math.h`
+- dynamisches Laden der Math-C-ABI über `born2flap_math.h`
+- direkte Tastatursteuerung für den Standalone-Prototyp (`W/S`, `A/D`, Pfeiltasten)
+- einfache Laufzeit-Testszene mit Boden und Licht
 - sichtbare Kraftvektoren und klarer Fehlertext bei fehlendem Backend
 
 Der Haskell-Build muss seine Plattformbibliothek hier ablegen:
@@ -19,13 +21,15 @@ Binaries/ThirdParty/libborn2flap_math.dylib
 Binaries/ThirdParty/libborn2flap_math.so
 ```
 
-Ohne diese Bibliothek startet das Projekt, wendet aber absichtlich keine erfundene Ersatzkraft an.
+Ohne diese Bibliothek startet das Projekt, zeigt aber einen Fehlertext und wendet keine Math-Kraft an.
 
 ## Noch erforderlich
 
-1. Unreal Engine 5.7 installieren.
+1. Unreal Engine 5.8.2 installieren.
 2. Projektdateien für `Born2Flap.uproject` generieren.
-3. Haskell-Shared-Library mit GHC 9.6/Cabal 3.10 bauen und aus dem Cabal-Buildordner
-   nach `Binaries/ThirdParty/` kopieren.
+3. Die Haskell-Shared-Library mit dem dokumentierten GHC/Cabal-Setup bauen und nach
+   `Binaries/ThirdParty/` kopieren.
 4. mruby als Unreal-Modul einbetten und das Ruby-View-Model mit UMG verbinden.
 5. eine eigene Testmap mit Boden, Licht und PlayerStart als `.umap` speichern.
+
+Der vollständige Windows-Installations- und Buildpfad ist in [`docs/windows-development.md`](../../docs/windows-development.md) dokumentiert.

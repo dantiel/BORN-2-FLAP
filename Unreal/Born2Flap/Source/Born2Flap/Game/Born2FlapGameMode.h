@@ -11,4 +11,5 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
 
 public:
     ABorn2FlapGameMode();
+    virtual void BeginPlay() override;
 };

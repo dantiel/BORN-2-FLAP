@@ -42,6 +42,7 @@ Konfigurationen aus dem OrniFlight Configurator sollen optional importiert werde
 - [Implementierungsplan](docs/implementation-plan.md)
 - [Offene Entscheidungen](docs/open-questions.md)
 - [ADR: Sprach- und Laufzeitarchitektur](docs/decisions/0001-language-and-runtime-architecture.md)
+- [Windows-Entwicklungsumgebung](docs/windows-development.md)
 
 ## Projektstatus
 
@@ -78,7 +79,7 @@ cabal test all
 
 ## Unreal-Prototyp
 
-Das vorbereitete Unreal-5.7-Projekt liegt unter [`Unreal/Born2Flap`](Unreal/Born2Flap). Es enthält Chaos-Pawn, Kamera, Eingaben und eine dynamische C-ABI-Bridge zum Haskell-Backend. Unreal Editor und GHC sind auf dem aktuellen Entwicklungsrechner noch nicht installiert; diese beiden Teile sind deshalb scaffolded, aber noch nicht lokal gebaut.
+Das Unreal-5.8.2-Projekt liegt unter [`Unreal/Born2Flap`](Unreal/Born2Flap). Es enthält aktuell eine beleuchtete Testszene mit physikalischem Pawn, Kamera, Boden, Tastatursteuerung und C-ABI-Bridge. Der reproduzierbare Windows-Installations- und Buildpfad steht in [Windows-Entwicklungsumgebung](docs/windows-development.md).
 
 ## Lizenz
 
