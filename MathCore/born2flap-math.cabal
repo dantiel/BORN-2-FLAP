@@ -9,6 +9,7 @@ library
       Born2Flap.Math.Control
       Born2Flap.Math.Wing
       Born2Flap.Math.Vehicle
+      Born2Flap.Math.Simulation
   hs-source-dirs: src
   build-depends: base >=4.17 && <5
   default-language: GHC2021
@@ -22,6 +23,7 @@ foreign-library born2flap_math
     ghc-options: -dynamic
   other-modules:
       Born2Flap.Math.FFI
+      Born2Flap.Math.Simulation
       Born2Flap.Math.Types
       Born2Flap.Math.Vehicle
       Born2Flap.Math.Wing

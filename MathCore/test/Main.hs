@@ -4,9 +4,13 @@ import Born2Flap.Math.Types
 import Born2Flap.Math.Wing
 import Born2Flap.Math.Control
 import Born2Flap.Math.Vehicle
+import Born2Flap.Math.Simulation
 
 main :: IO ()
 main = do
+  let rollback = runSimulation (putState (99 :: Int) >> abort "failure") 7
+                   :: Either String ((), Int)
+  if rollback == Left "failure" then pure () else fail "transaction must not expose failed state"
   let MetresPerSecond positive = crossflowBaseline 0.3 (Radians 0.4) (MetresPerSecond 8)
       MetresPerSecond negative = crossflowBaseline 0.3 (Radians (-0.4)) (MetresPerSecond 8)
   if positive > 0 && negative < 0 && abs (positive + negative) < 1.0e-12
@@ -37,6 +41,30 @@ main = do
   if all allFinite outputs && all (\output -> maxSeparation output >= 0 && maxSeparation output <= 1) outputs
     then pure ()
     else fail "vehicle loads must remain finite and separation bounded"
+  let (_, warmed) = last samples
+      changedThrottle = input { throttleCommand = 0.1 }
+      (_, changedState) = stepVehicle changedThrottle warmed
+      expectedPhase = vehiclePhase warmed + stepSeconds input * 2 * pi * (1.2 + 3.8 * 0.1)
+      phaseError = atan2 (sin (vehiclePhase changedState - expectedPhase))
+                         (cos (vehiclePhase changedState - expectedPhase))
+      invalidInputs =
+        [ input { stepSeconds = 0 }, input { stepSeconds = 0.06 }
+        , input { throttleCommand = 0 / 0 }, input { bodyRatesRadS = Vec3 (1 / 0) 0 0 }
+        , input { bodyVelocityMS = Vec3 0 (0 / 0) 0 }
+        ]
+  if abs phaseError < 1e-12 && abs (vehiclePhase changedState) <= pi
+    then pure () else fail "throttle change must integrate a bounded continuous phase"
+  mapM_ (\bad -> let (rejected, unchanged) = stepVehicle bad warmed
+                 in if outputFlags rejected /= 0 && unchanged == warmed
+                    then pure () else fail "invalid input must roll back all state") invalidInputs
+  let stationary = input { bodyVelocityMS = Vec3 0 0 0, pitchCommand = 0, yawCommand = 0 }
+      (neutral, _) = stepVehicle stationary defaultVehicle
+      (deflected, _) = stepVehicle (stationary { pitchCommand = 1, yawCommand = 1 }) defaultVehicle
+  if totalForceN neutral == totalForceN deflected && totalMomentNm neutral == totalMomentNm deflected
+    then pure () else fail "stationary tail must not generate control forces without flow"
+  if all (\o -> abs (y (totalForceN o)) < 1e-10 && abs (x (totalMomentNm o)) < 1e-10
+                && abs (z (totalMomentNm o)) < 1e-10) outputs
+    then pure () else fail "symmetric wings must cancel lateral loads and roll/yaw moments"
   let rollInput = input { rollCommand = 0.8 }
       (rollOutput, _) = stepVehicle rollInput defaultVehicle
   if abs (x (totalMomentNm rollOutput)) > 1.0e-6
