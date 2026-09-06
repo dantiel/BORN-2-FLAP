@@ -38,6 +38,9 @@ jobs:
         with:
           ghc-version: "9.6"
           cabal-version: "3.10"
+      - name: Build Haskell math core and native ABI
+        working-directory: MathCore
+        run: cabal build all
       - name: Test Haskell math core
         working-directory: MathCore
         run: cabal test all

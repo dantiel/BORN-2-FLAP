@@ -31,16 +31,16 @@ data AxisOutput = AxisOutput
 
 stepAxis :: Seconds -> AxisInput -> AxisController -> AxisOutput
 stepAxis (Seconds dt) input state =
-  let error = setpoint input - measurement input
+  let controlError = setpoint input - measurement input
       nextIntegral = clamp (negate (integralLimit state)) (integralLimit state)
-        (integralState state + error * dt)
-      derivative = if dt > 0 then (error - previousError state) / dt else 0
-      output = proportionalGain state * error
+        (integralState state + controlError * dt)
+      derivative = if dt > 0 then (controlError - previousError state) / dt else 0
+      output = proportionalGain state * controlError
              + integralGain state * nextIntegral
              + derivativeGain state * derivative
       nextState = state
         { integralState = nextIntegral
-        , previousError = error
+        , previousError = controlError
         }
   in AxisOutput output nextState
   where
