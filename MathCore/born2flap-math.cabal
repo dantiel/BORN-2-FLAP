@@ -16,7 +16,10 @@ library
 
 foreign-library born2flap_math
   type: native-shared
-  options: standalone
+  if os(windows)
+    options: standalone
+  else
+    ghc-options: -dynamic
   other-modules:
       Born2Flap.Math.FFI
       Born2Flap.Math.Types
