@@ -27,11 +27,11 @@ foreign-library born2flap_math
       Born2Flap.Math.Types
       Born2Flap.Math.Vehicle
       Born2Flap.Math.Wing
-      Born2Flap.Math.FFI
+  c-sources: cbits/bridge.c
   hs-source-dirs: src
   build-depends: base >=4.17 && <5
   default-language: GHC2021
-  ghc-options: -Wall -Wcompat -O2
+  ghc-options: -Wall -Wcompat -O2 -optl-Wl,--export-all-symbols
 
 test-suite math-properties
   type: exitcode-stdio-1.0

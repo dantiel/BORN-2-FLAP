@@ -84,7 +84,7 @@ Pop-Location
   -Project="$PWD\Unreal\Born2Flap\Born2Flap.uproject" -WaitMutex
 ```
 
-Der Unreal-Prototyp erwartet `Unreal/Born2Flap/Binaries/ThirdParty/born2flap_math.dll`. Der aktuelle Build enthält eine native C-ABI-Bridge mit den sechs Funktionen aus `Native/include/born2flap_math.h`; der Haskell Math Core wird separat mit Cabal getestet.
+Der Unreal-Prototyp erwartet `Unreal/Born2Flap/Binaries/ThirdParty/born2flap_math.dll`. `cabal build flib:born2flap_math` erzeugt die Haskell-DLL. `MathCore/cbits/bridge.c` exportiert die sechs Funktionen aus `Native/include/born2flap_math.h` und initialisiert die GHC-Runtime, bevor Unreal den Haskell-Fahrzeugzustand verwendet.
 
 ## Bekannte Grenzen
 

@@ -39,6 +39,7 @@ bool FBorn2FlapMathBridge::Load()
     if (!LibraryHandle)
     {
         Status = FString::Printf(TEXT("Haskell math backend missing: %s"), *LibraryPath);
+        UE_LOG(LogTemp, Error, TEXT("%s"), *Status);
         return false;
     }
 
@@ -52,12 +53,7 @@ bool FBorn2FlapMathBridge::Load()
     if (!AbiVersion || !RuntimeInit || !RuntimeShutdown || !CreateVehicle || !DestroyVehicle || !StepVehicle)
     {
         Status = TEXT("Haskell math backend has an incomplete C ABI");
-        Unload();
-        return false;
-    }
-    if (AbiVersion() != B2F_MATH_ABI_VERSION)
-    {
-        Status = TEXT("Haskell math backend ABI mismatch");
+        UE_LOG(LogTemp, Error, TEXT("%s"), *Status);
         Unload();
         return false;
     }
@@ -65,6 +61,13 @@ bool FBorn2FlapMathBridge::Load()
     if (!bRuntimeInitialized)
     {
         Status = TEXT("Haskell runtime initialization failure");
+        Unload();
+        return false;
+    }
+
+    if (AbiVersion() != B2F_MATH_ABI_VERSION)
+    {
+        Status = TEXT("Haskell math backend ABI mismatch");
         Unload();
         return false;
     }
@@ -78,6 +81,7 @@ bool FBorn2FlapMathBridge::Load()
     }
 
     Status = TEXT("Haskell math backend ready");
+    UE_LOG(LogTemp, Display, TEXT("%s: %s"), *Status, *LibraryPath);
     return true;
 }
 

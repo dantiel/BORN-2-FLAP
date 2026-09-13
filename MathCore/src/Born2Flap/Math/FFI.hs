@@ -13,12 +13,12 @@ import Foreign.Ptr
 import Foreign.StablePtr
 import Foreign.Storable
 
-foreign export ccall b2f_math_abi_version :: IO Word32
-foreign export ccall b2f_math_runtime_init :: IO Int32
-foreign export ccall b2f_math_runtime_shutdown :: IO ()
-foreign export ccall b2f_math_create_default_vehicle :: IO (Ptr ())
-foreign export ccall b2f_math_destroy_vehicle :: Ptr () -> IO ()
-foreign export ccall b2f_math_step_vehicle :: Ptr () -> Ptr () -> Ptr () -> IO Int32
+foreign export ccall "hs_b2f_math_abi_version" b2f_math_abi_version :: IO Word32
+foreign export ccall "hs_b2f_math_runtime_init" b2f_math_runtime_init :: IO Int32
+foreign export ccall "hs_b2f_math_runtime_shutdown" b2f_math_runtime_shutdown :: IO ()
+foreign export ccall "hs_b2f_math_create_default_vehicle" b2f_math_create_default_vehicle :: IO (Ptr ())
+foreign export ccall "hs_b2f_math_destroy_vehicle" b2f_math_destroy_vehicle :: Ptr () -> IO ()
+foreign export ccall "hs_b2f_math_step_vehicle" b2f_math_step_vehicle :: Ptr () -> Ptr () -> Ptr () -> IO Int32
 
 b2f_math_abi_version :: IO Word32
 b2f_math_abi_version = pure 1
