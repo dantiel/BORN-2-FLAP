@@ -19,6 +19,7 @@ foreign-library born2flap_math
   type: native-shared
   if os(windows)
     options: standalone
+    ghc-options: -optl-Wl,--export-all-symbols
   else
     ghc-options: -dynamic
   other-modules:
@@ -31,7 +32,7 @@ foreign-library born2flap_math
   hs-source-dirs: src
   build-depends: base >=4.17 && <5
   default-language: GHC2021
-  ghc-options: -Wall -Wcompat -O2 -optl-Wl,--export-all-symbols
+  ghc-options: -Wall -Wcompat -O2
 
 test-suite math-properties
   type: exitcode-stdio-1.0
