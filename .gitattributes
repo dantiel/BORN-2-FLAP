@@ -1,0 +1,25 @@
+# Cross-platform line-ending hygiene (Mac <-> Windows development).
+# Pinning EOL per file type prevents CRLF/LF corruption when the same
+# repo is checked out on macOS and Windows.
+
+# Scripts: bash breaks on CRLF, PowerShell prefers CRLF
+*.sh      text eol=lf
+*.ps1     text eol=crlf
+*.bat     text eol=crlf
+
+# Source: keep LF for consistent diffs across OSes
+*.hs      text eol=lf
+*.c       text eol=lf
+*.cpp     text eol=lf
+*.h       text eol=lf
+*.hpp     text eol=lf
+*.rb      text eol=lf
+
+# Binary assets: never line-ending-normalize
+*.uasset  binary
+*.umap    binary
+*.dylib   binary
+*.dll     binary
+*.so      binary
+*.png     binary
+*.jpg     binary

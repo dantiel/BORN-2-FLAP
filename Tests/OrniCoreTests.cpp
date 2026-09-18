@@ -70,6 +70,37 @@ void loadsRemainFinite() {
     }
 }
 
+void liftDragOrientation() {
+    ornicore::WingGeometry geometry;
+    geometry.rootTwistDeg = 12.0;
+    geometry.tipTwistDeg = 12.0;
+    geometry.rootSweepDeg = 0.0;
+    geometry.tipSweepDeg = 0.0;
+    ornicore::Kinematics stationary;
+    stationary.frequencyHz = 0.0;
+    ornicore::Environment environment;  // forwardAirspeedMS = 5.0
+    ornicore::WingSimulation simulation(geometry, stationary, environment);
+    const auto result = settle(simulation, 240);
+    // Positive alpha (12 deg twist, no flap) must yield lift up (+z) and drag
+    // opposing forward motion (-x).
+    require(result.loads.forceN.z > 0.0,
+            "positive angle of attack must produce upward lift");
+    require(result.loads.forceN.x < 0.0,
+            "drag must oppose forward motion (dissipative)");
+}
+
+void zeroSweepNeutralCrossflow() {
+    ornicore::WingGeometry geometry;
+    geometry.rootSweepDeg = 0.0;
+    geometry.tipSweepDeg = 0.0;
+    ornicore::WingSimulation simulation(geometry, {});
+    const auto result = simulation.step(1.0 / 240.0);
+    for (const auto& element : result.elements) {
+        require(std::abs(element.spanwiseVelocityMS) < 1e-12,
+                "zero sweep must produce no baseline crossflow");
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -77,6 +108,8 @@ int main() {
         crossflowReversesWithSweep();
         stallIsLocalAndContinuous();
         loadsRemainFinite();
+        liftDragOrientation();
+        zeroSweepNeutralCrossflow();
         std::cout << "All OrniCore tests passed\n";
         return EXIT_SUCCESS;
     } catch (const std::exception& exception) {

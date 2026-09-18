@@ -42,3 +42,8 @@ MathCore/**/*_stub.h
 *.exp
 *.lib
 *.obj
+
+# Coding-agent local state (never commit)
+.aether/
+.aethercodex
+.tm-ai/
