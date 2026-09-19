@@ -5,7 +5,7 @@ module Born2Flap.Math.Vehicle
   ( VehicleInput(..)
   , VehicleOutput(..)
   , VehicleState
-  , vehiclePhase
+  , vehicleOscillator
   , defaultVehicle
   , stepVehicle
   ) where
@@ -13,6 +13,9 @@ module Born2Flap.Math.Vehicle
 import Born2Flap.Math.Types
 import Born2Flap.Math.Simulation
 import Born2Flap.Math.Wing (crossflowBaseline, relaxSeparation)
+import Born2Flap.Math.Waveform
+  ( OscillatorState(..), defaultOscillator, advanceOscillator
+  , limiarFromFerocities, shapeWaveWithDerivative )
 
 data VehicleInput = VehicleInput
   { stepSeconds :: !Double
@@ -41,7 +44,7 @@ data StripState = StripState
   } deriving stock (Eq, Show)
 
 data VehicleState = VehicleState
-  { vehiclePhase :: !Double
+  { vehicleOscillator :: !OscillatorState
   , leftStrips :: ![StripState]
   , rightStrips :: ![StripState]
   } deriving stock (Eq, Show)
@@ -60,7 +63,7 @@ emptyStrip :: StripState
 emptyStrip = StripState 0 0 0 0
 
 defaultVehicle :: VehicleState
-defaultVehicle = VehicleState 0 (replicate stripCount emptyStrip) (replicate stripCount emptyStrip)
+defaultVehicle = VehicleState defaultOscillator (replicate stripCount emptyStrip) (replicate stripCount emptyStrip)
 
 stepVehicle :: VehicleInput -> VehicleState -> (VehicleOutput, VehicleState)
 stepVehicle input state =
@@ -83,14 +86,24 @@ stepVehicleUnchecked input state
       (zeroOutput 2, state)
   | otherwise =
       let throttle = clamp 0 1 (throttleCommand input)
-          phase = wrapAngle (vehiclePhase state + dt * 2 * pi * (1.2 + 3.8 * throttle))
           rates = bodyRatesRadS input
           -- Rate damping is deliberately inside the deterministic math core.
           rollMix = clamp (-1) 1 (rollCommand input - 0.22 * vx rates)
           pitchMix = clamp (-1) 1 (pitchCommand input - 0.18 * vy rates)
           yawMix = clamp (-1) 1 (yawCommand input - 0.16 * vz rates)
-          (leftResults, leftNext) = stepWing (-1) phase throttle rollMix input (leftStrips state)
-          (rightResults, rightNext) = stepWing 1 phase throttle rollMix input (rightStrips state)
+          -- Waveform drive: throttle sets the beat (cadence) and base ferocity;
+          -- pitch biases stroke vs return ferocity (thrust timing), matching the
+          -- firmware's balance→ferocity-asymmetry coupling.
+          cadenceTarget = 2 * pi * (1.2 + 3.8 * throttle)
+          baseFerocity = 1 + 7 * throttle
+          strokeFerocity = clamp 0 8 (baseFerocity + 0.6 * pitchMix)
+          returnFerocity = clamp 0 8 (baseFerocity - 0.6 * pitchMix)
+          limiarShared = limiarFromFerocities strokeFerocity returnFerocity
+          (phase, nextOscillator) = advanceOscillator cadenceTarget 1 0 dt (vehicleOscillator state)
+          (pulse, pulseDeriv) = shapeWaveWithDerivative phase strokeFerocity returnFerocity limiarShared 0 0 0
+          pulseRate = pulseDeriv * oscCadence nextOscillator
+          (leftResults, leftNext) = stepWing (-1) pulse pulseRate throttle rollMix input (leftStrips state)
+          (rightResults, rightNext) = stepWing 1 pulse pulseRate throttle rollMix input (rightStrips state)
           wingResults = leftResults ++ rightResults
           wingForce = foldr (addVec . resultForce) zeroVec wingResults
           wingMoment = foldr (addVec . resultMoment) zeroVec wingResults
@@ -111,18 +124,16 @@ stepVehicleUnchecked input state
           output = if flags == 0
                      then VehicleOutput force moment power maximumSeparation stalled flags
                      else zeroOutput flags
-      in (output, VehicleState phase leftNext rightNext)
+      in (output, VehicleState nextOscillator leftNext rightNext)
   where
     dt = stepSeconds input
 
-stepWing :: Double -> Double -> Double -> Double -> VehicleInput -> [StripState]
+stepWing :: Double -> Double -> Double -> Double -> Double -> VehicleInput -> [StripState]
          -> ([StripResult], [StripState])
-stepWing side phase throttle rollMix input states =
-  let frequency = 1.2 + 3.8 * throttle
-      amplitude = radians (12 + 38 * throttle) * clamp 0.55 1.35 (1 - side * 0.22 * rollMix)
-      omega = 2 * pi * frequency
-      stroke = amplitude * sin phase
-      strokeRate = amplitude * omega * cos phase
+stepWing side pulse pulseRate throttle rollMix input states =
+  let amplitude = radians (12 + 38 * throttle) * clamp 0.55 1.35 (1 - side * 0.22 * rollMix)
+      stroke = amplitude * pulse
+      strokeRate = amplitude * pulseRate
       raw = zipWith (stepStrip side stroke strokeRate input) [0 ..] states
       transported = transportSeparation side input raw
   in (transported, map resultState transported)
@@ -259,9 +270,6 @@ smoothStep edge0 edge1 value =
 
 radians :: Double -> Double
 radians degrees = degrees * pi / 180
-
-wrapAngle :: Double -> Double
-wrapAngle angle = atan2 (sin angle) (cos angle)
 
 firstIndex :: (a -> Bool) -> [a] -> Int
 firstIndex predicate = go 0

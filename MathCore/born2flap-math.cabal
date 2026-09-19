@@ -8,6 +8,7 @@ library
       Born2Flap.Math.Types
       Born2Flap.Math.Control
       Born2Flap.Math.Wing
+      Born2Flap.Math.Waveform
       Born2Flap.Math.Vehicle
       Born2Flap.Math.Simulation
   hs-source-dirs: src
@@ -28,6 +29,7 @@ foreign-library born2flap_math
       Born2Flap.Math.Types
       Born2Flap.Math.Vehicle
       Born2Flap.Math.Wing
+      Born2Flap.Math.Waveform
   c-sources: cbits/bridge.c
   hs-source-dirs: src
   build-depends: base >=4.17 && <5
