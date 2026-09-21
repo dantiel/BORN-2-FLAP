@@ -249,8 +249,11 @@ void ABorn2FlapFlightPawn::StepMath(double DeltaTimeSeconds)
     }
 
     const FVector BodyForceN(Output.force_n[0], Output.force_n[1], Output.force_n[2]);
+    // The placeholder fuselage has very little roll inertia. Use a gentler
+    // moment envelope while tuning the aeroelastic model; otherwise a normal
+    // wing hinge transient spins the test body before lift can build.
     const FVector BodyMomentNm = FVector(Output.moment_n_m[0], Output.moment_n_m[1], Output.moment_n_m[2])
-        .GetClampedToMaxSize(25.0);
+        .GetClampedToMaxSize(0.35);
     const FVector ForceN = BodyTransform.TransformVectorNoScale(BodyForceN).GetClampedToMaxSize(500.0);
     const FVector MomentNm = BodyTransform.TransformVectorNoScale(BodyMomentNm);
     LastForceN = ForceN;
