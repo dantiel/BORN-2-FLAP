@@ -1,4 +1,5 @@
 #include <HsFFI.h>
+#include <stdatomic.h>
 
 #if defined(_WIN32)
 #define B2F_EXPORT __declspec(dllexport)
@@ -7,6 +8,7 @@
 #endif
 
 static int b2f_rts_started = 0;
+static atomic_flag b2f_init_lock = ATOMIC_FLAG_INIT;
 
 extern HsWord32 hs_b2f_math_abi_version(void);
 extern HsInt32 hs_b2f_math_runtime_init(void);
@@ -19,10 +21,12 @@ extern void hs_b2f_math_destroy_firmware_vehicle(HsPtr context);
 extern HsInt32 hs_b2f_math_step_firmware_vehicle(HsPtr context, HsPtr pilot, HsPtr body, HsPtr output);
 
 B2F_EXPORT HsWord32 b2f_math_abi_version(void) {
-    return hs_b2f_math_abi_version();
+    /* Version probing must be safe before the RTS starts. */
+    return 2;
 }
 
 B2F_EXPORT HsInt32 b2f_math_runtime_init(void) {
+    while (atomic_flag_test_and_set_explicit(&b2f_init_lock, memory_order_acquire)) {}
     if (!b2f_rts_started) {
         int argc = 1;
         char programName[] = "born2flap_math";
@@ -31,15 +35,13 @@ B2F_EXPORT HsInt32 b2f_math_runtime_init(void) {
         hs_init(&argc, &argv);
         b2f_rts_started = 1;
     }
-    return hs_b2f_math_runtime_init();
+    atomic_flag_clear_explicit(&b2f_init_lock, memory_order_release);
+    return 1;
 }
 
 B2F_EXPORT void b2f_math_runtime_shutdown(void) {
-    hs_b2f_math_runtime_shutdown();
-    if (b2f_rts_started) {
-        hs_exit();
-        b2f_rts_started = 0;
-    }
+    /* Process-lifetime RTS: destroy contexts individually. GHC cannot safely
+       restart after hs_exit. Hosts MUST keep this library loaded until exit. */
 }
 
 B2F_EXPORT HsPtr b2f_math_create_default_vehicle(void) {

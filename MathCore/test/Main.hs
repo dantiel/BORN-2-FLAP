@@ -17,6 +17,28 @@ import Born2Flap.Math.FirmwareVehicle
 
 main :: IO ()
 main = do
+  let strip moment = StripResult emptyStrip (Vec3 0 0 1) moment 0 0
+      leftTorque = hingeTorque (-1) [strip (Vec3 (-2) 90 0)]
+      rightTorque = hingeTorque 1 [strip (Vec3 2 90 0)]
+  if leftTorque == 2 && rightTorque == 2 then pure ()
+    else fail "mirrored flap hinges must project signed X torque, ignoring pitch torque"
+  let fwStep dt vel s = stepFirmwareVehicle defaultRcChannels defaultFirmwareParams
+                        defaultServoSpec defaultBatterySpec dt vel (Vec3 0 0 0) s
+      badCases = [(0, Vec3 5 0 0), (0/0, Vec3 5 0 0), (0.01, Vec3 (1/0) 0 0)]
+  mapM_ (\(dt, vel) -> let (o,s) = fwStep dt vel defaultFirmwareVehicleState
+                       in if outputFlags o /= 0 && s == defaultFirmwareVehicleState
+                          then pure () else fail "firmware failure must preserve all state") badCases
+  let flap = defaultRcChannels {rcThrottle = 1811}
+      batteryStep battery s = stepFirmwareVehicle flap defaultFirmwareParams defaultServoSpec
+                               battery (1/240) (Vec3 5 0 0) (Vec3 0 0 0) s
+      (_, full) = batteryStep defaultBatterySpec defaultFirmwareVehicleState
+      (_, empty) = batteryStep defaultBatterySpec (defaultFirmwareVehicleState {fvBatterySoc = 0})
+      loaded = defaultFirmwareVehicleState {fvLeftHingeTorqueNm = 0.5, fvRightHingeTorqueNm = 0.5}
+      (_, lowR) = batteryStep (defaultBatterySpec {batteryInternalResistanceOhm = 0}) loaded
+      (_, highR) = batteryStep (defaultBatterySpec {batteryInternalResistanceOhm = 0.8}) loaded
+  if servoAngleDeg (fvServoLeft empty) == 0 && abs (servoAngleDeg (fvServoLeft full)) > 0
+     && abs (servoRateDegPerSec (fvServoLeft highR)) < abs (servoRateDegPerSec (fvServoLeft lowR))
+    then pure () else fail "empty battery and voltage sag must reduce powered motion"
   let rollback = runSimulation (putState (99 :: Int) >> abort "failure") 7
                    :: Either String ((), Int)
   if rollback == Left "failure" then pure () else fail "transaction must not expose failed state"

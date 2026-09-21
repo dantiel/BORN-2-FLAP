@@ -146,13 +146,20 @@ b2f_math_step_firmware_vehicle contextPointer pilotPointer bodyPointer outputPoi
       context <- readIORef contextRef
       pilot <- peekPilot pilotPointer
       body <- peekBody bodyPointer
+      if all (\v -> not (isNaN v || isInfinite v))
+           [piThrottle pilot, piRoll pilot, piPitch pilot, piYaw pilot]
+        then pure () else ioError (userError "nonfinite pilot input")
       let rc = pilotToRc pilot
           (output, nextState) = stepFirmwareVehicle rc (fwcParams context) (fwcServo context)
                                   (fwcBattery context) (bodyDelta body) (bodyVel body)
                                   (bodyRates body) (fwcState context)
-      writeIORef contextRef context { fwcState = nextState }
-      pokeFwOutput outputPointer output nextState
-      pure 1
+      if outputFlags output /= 0
+        then pure 0
+        else do
+          -- Force/marshal before committing: an exception must not poison the context.
+          pokeFwOutput outputPointer output nextState
+          writeIORef contextRef context { fwcState = nextState }
+          pure 1
     failure :: SomeException -> IO Int32
     failure _ = pure 0
 
