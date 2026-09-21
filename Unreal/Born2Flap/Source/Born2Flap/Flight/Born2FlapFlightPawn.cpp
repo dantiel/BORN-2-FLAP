@@ -22,7 +22,10 @@ ABorn2FlapFlightPawn::ABorn2FlapFlightPawn()
     SetRootComponent(Body);
     Body->SetSimulatePhysics(true);
     Body->SetLinearDamping(0.05f);
-    Body->SetAngularDamping(0.10f);
+    // Keep the first prototype controllable while the aerodynamic model is
+    // still being tuned.  The math core supplies the flight moments; Chaos
+    // damping prevents a transient from turning into an unbounded spin.
+    Body->SetAngularDamping(1.20f);
     Body->SetMassOverrideInKg(NAME_None, 1.2f, true);
 
     static ConstructorHelpers::FObjectFinder<UStaticMesh> BodyMesh(TEXT("/Engine/BasicShapes/Cube.Cube"));
@@ -39,6 +42,8 @@ ABorn2FlapFlightPawn::ABorn2FlapFlightPawn()
     CameraBoom->TargetArmLength = 500.0f;
     CameraBoom->bEnableCameraLag = true;
     CameraBoom->CameraLagSpeed = 7.0f;
+    CameraBoom->bInheritPitch = false;
+    CameraBoom->bInheritRoll = false;
 
     Camera = CreateDefaultSubobject<UCameraComponent>(TEXT("Camera"));
     Camera->SetupAttachment(CameraBoom);
@@ -119,6 +124,7 @@ void ABorn2FlapFlightPawn::BeginPlay()
 void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
+    TelemetryAccumulatorSeconds += DeltaSeconds;
 
     // Direct keyboard fallback so the prototype is flyable without an
     // Enhanced Input action asset.
@@ -136,10 +142,12 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         const float KeyboardYaw =
             (PlayerController->IsInputKeyDown(EKeys::Right) ? 1.0f : 0.0f) -
             (PlayerController->IsInputKeyDown(EKeys::Left) ? 1.0f : 0.0f);
-        if (FMath::Abs(KeyboardThrottle) > KINDA_SMALL_NUMBER) ThrottleInput = KeyboardThrottle;
-        if (FMath::Abs(KeyboardRoll) > KINDA_SMALL_NUMBER) RollInput = KeyboardRoll;
-        if (FMath::Abs(KeyboardPitch) > KINDA_SMALL_NUMBER) PitchInput = KeyboardPitch;
-        if (FMath::Abs(KeyboardYaw) > KINDA_SMALL_NUMBER) YawInput = KeyboardYaw;
+        // Assign every frame, including zero.  Leaving the previous non-zero
+        // value in place made a short key press apply forever.
+        ThrottleInput = KeyboardThrottle;
+        RollInput = KeyboardRoll;
+        PitchInput = KeyboardPitch;
+        YawInput = KeyboardYaw;
     }
 
     AccumulatorSeconds = FMath::Min(AccumulatorSeconds + DeltaSeconds, 0.1);
@@ -147,6 +155,20 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     {
         StepMath(MathStepSeconds);
         AccumulatorSeconds -= MathStepSeconds;
+    }
+
+    if (TelemetryAccumulatorSeconds >= 1.0)
+    {
+        TelemetryAccumulatorSeconds = 0.0;
+        const FVector Position = Body->GetComponentLocation();
+        const FVector Velocity = Body->GetPhysicsLinearVelocity();
+        const FVector AngularVelocity = Body->GetPhysicsAngularVelocityInRadians();
+        UE_LOG(LogTemp, Display,
+            TEXT("FlightTelemetry pos=(%.1f,%.1f,%.1f)cm vel=(%.1f,%.1f,%.1f)cm/s ang=(%.2f,%.2f,%.2f)rad/s input=(%.2f,%.2f,%.2f,%.2f)"),
+            Position.X, Position.Y, Position.Z,
+            Velocity.X, Velocity.Y, Velocity.Z,
+            AngularVelocity.X, AngularVelocity.Y, AngularVelocity.Z,
+            ThrottleInput, RollInput, PitchInput, YawInput);
     }
 
     if (MathBridge && !MathBridge->IsReady())
@@ -170,10 +192,32 @@ void ABorn2FlapFlightPawn::StepMath(double DeltaTimeSeconds)
     }
 
     const FTransform BodyTransform = Body->GetComponentTransform();
+    const FVector WorldPosition = BodyTransform.GetLocation();
+    const FVector WorldVelocity = Body->GetPhysicsLinearVelocity();
+    const FVector WorldAngularVelocity = Body->GetPhysicsAngularVelocityInRadians();
+    const auto IsFiniteVector = [](const FVector& Value)
+    {
+        return FMath::IsFinite(Value.X) && FMath::IsFinite(Value.Y) && FMath::IsFinite(Value.Z);
+    };
+    const bool bNumericalEscape =
+        !IsFiniteVector(WorldPosition) || !IsFiniteVector(WorldVelocity) || !IsFiniteVector(WorldAngularVelocity) ||
+        WorldPosition.SizeSquared() > FMath::Square(500000.0) ||
+        WorldVelocity.SizeSquared() > FMath::Square(50000.0) ||
+        WorldAngularVelocity.SizeSquared() > FMath::Square(25.0);
+    if (bNumericalEscape)
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("FlightSafetyReset pos=%s vel=%s ang=%s"),
+            *WorldPosition.ToString(), *WorldVelocity.ToString(), *WorldAngularVelocity.ToString());
+        Body->SetWorldLocationAndRotation(FVector(0.0, 0.0, 200.0), FRotator::ZeroRotator, false, nullptr, ETeleportType::TeleportPhysics);
+        Body->SetPhysicsLinearVelocity(FVector::ZeroVector);
+        Body->SetPhysicsAngularVelocityInRadians(FVector::ZeroVector);
+        return;
+    }
     const FVector LinearVelocity = BodyTransform.InverseTransformVectorNoScale(
-        Body->GetPhysicsLinearVelocity() / 100.0);
+        WorldVelocity / 100.0);
     const FVector AngularVelocity = BodyTransform.InverseTransformVectorNoScale(
-        Body->GetPhysicsAngularVelocityInRadians());
+        WorldAngularVelocity);
 
     B2F_PilotInput Pilot{};
     Pilot.throttle = ThrottleInput;
@@ -197,8 +241,9 @@ void ABorn2FlapFlightPawn::StepMath(double DeltaTimeSeconds)
     }
 
     const FVector BodyForceN(Output.force_n[0], Output.force_n[1], Output.force_n[2]);
-    const FVector BodyMomentNm(Output.moment_n_m[0], Output.moment_n_m[1], Output.moment_n_m[2]);
-    const FVector ForceN = BodyTransform.TransformVectorNoScale(BodyForceN);
+    const FVector BodyMomentNm = FVector(Output.moment_n_m[0], Output.moment_n_m[1], Output.moment_n_m[2])
+        .GetClampedToMaxSize(25.0);
+    const FVector ForceN = BodyTransform.TransformVectorNoScale(BodyForceN).GetClampedToMaxSize(500.0);
     const FVector MomentNm = BodyTransform.TransformVectorNoScale(BodyMomentNm);
     // Convert each fixed-step load to an impulse so multiple math steps in one
     // rendered frame do not multiply a frame-scoped force.

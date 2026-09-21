@@ -58,6 +58,7 @@ private:
     // ── Math backend + pilot state ─────────────────────────────────
     TUniquePtr<FBorn2FlapMathBridge> MathBridge;
     double AccumulatorSeconds = 0.0;
+    double TelemetryAccumulatorSeconds = 0.0;
     float ThrottleInput = 0.0f;
     float RollInput = 0.0f;
     float PitchInput = 0.0f;
