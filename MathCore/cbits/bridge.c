@@ -14,6 +14,9 @@ extern void hs_b2f_math_runtime_shutdown(void);
 extern HsPtr hs_b2f_math_create_default_vehicle(void);
 extern void hs_b2f_math_destroy_vehicle(HsPtr context);
 extern HsInt32 hs_b2f_math_step_vehicle(HsPtr context, HsPtr input, HsPtr output);
+extern HsPtr hs_b2f_math_create_firmware_vehicle(HsPtr config);
+extern void hs_b2f_math_destroy_firmware_vehicle(HsPtr context);
+extern HsInt32 hs_b2f_math_step_firmware_vehicle(HsPtr context, HsPtr pilot, HsPtr body, HsPtr output);
 
 B2F_EXPORT HsWord32 b2f_math_abi_version(void) {
     return hs_b2f_math_abi_version();
@@ -49,4 +52,16 @@ B2F_EXPORT void b2f_math_destroy_vehicle(HsPtr context) {
 
 B2F_EXPORT HsInt32 b2f_math_step_vehicle(HsPtr context, HsPtr input, HsPtr output) {
     return hs_b2f_math_step_vehicle(context, input, output);
+}
+
+B2F_EXPORT HsPtr b2f_math_create_firmware_vehicle(HsPtr config) {
+    return hs_b2f_math_create_firmware_vehicle(config);
+}
+
+B2F_EXPORT void b2f_math_destroy_firmware_vehicle(HsPtr context) {
+    hs_b2f_math_destroy_firmware_vehicle(context);
+}
+
+B2F_EXPORT HsInt32 b2f_math_step_firmware_vehicle(HsPtr context, HsPtr pilot, HsPtr body, HsPtr output) {
+    return hs_b2f_math_step_firmware_vehicle(context, pilot, body, output);
 }

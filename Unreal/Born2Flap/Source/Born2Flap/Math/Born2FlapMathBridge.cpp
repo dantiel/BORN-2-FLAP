@@ -46,11 +46,15 @@ bool FBorn2FlapMathBridge::Load()
     const AbiVersionFn AbiVersion = LoadExport<AbiVersionFn>(LibraryHandle, TEXT("b2f_math_abi_version"));
     const RuntimeInitFn RuntimeInit = LoadExport<RuntimeInitFn>(LibraryHandle, TEXT("b2f_math_runtime_init"));
     RuntimeShutdown = LoadExport<RuntimeShutdownFn>(LibraryHandle, TEXT("b2f_math_runtime_shutdown"));
-    const CreateVehicleFn CreateVehicle = LoadExport<CreateVehicleFn>(LibraryHandle, TEXT("b2f_math_create_default_vehicle"));
-    DestroyVehicle = LoadExport<DestroyVehicleFn>(LibraryHandle, TEXT("b2f_math_destroy_vehicle"));
-    StepVehicle = LoadExport<StepVehicleFn>(LibraryHandle, TEXT("b2f_math_step_vehicle"));
+    const CreateFirmwareVehicleFn CreateFirmwareVehicle =
+        LoadExport<CreateFirmwareVehicleFn>(LibraryHandle, TEXT("b2f_math_create_firmware_vehicle"));
+    DestroyFirmwareVehicle =
+        LoadExport<DestroyFirmwareVehicleFn>(LibraryHandle, TEXT("b2f_math_destroy_firmware_vehicle"));
+    StepFirmwareVehicle =
+        LoadExport<StepFirmwareVehicleFn>(LibraryHandle, TEXT("b2f_math_step_firmware_vehicle"));
 
-    if (!AbiVersion || !RuntimeInit || !RuntimeShutdown || !CreateVehicle || !DestroyVehicle || !StepVehicle)
+    if (!AbiVersion || !RuntimeInit || !RuntimeShutdown || !CreateFirmwareVehicle ||
+        !DestroyFirmwareVehicle || !StepFirmwareVehicle)
     {
         Status = TEXT("Haskell math backend has an incomplete C ABI");
         UE_LOG(LogTemp, Error, TEXT("%s"), *Status);
@@ -72,24 +76,26 @@ bool FBorn2FlapMathBridge::Load()
         return false;
     }
 
-    Context = CreateVehicle();
+    // Default component selection (servo + battery); nullptr selects the
+    // firmware defaults. Callers with selectable components can pass a config.
+    Context = CreateFirmwareVehicle(nullptr);
     if (!Context)
     {
-        Status = TEXT("Haskell math backend could not create a vehicle context");
+        Status = TEXT("Haskell math backend could not create a firmware vehicle context");
         Unload();
         return false;
     }
 
-    Status = TEXT("Haskell math backend ready");
+    Status = TEXT("Haskell firmware backend ready");
     UE_LOG(LogTemp, Display, TEXT("%s: %s"), *Status, *LibraryPath);
     return true;
 }
 
 void FBorn2FlapMathBridge::Unload()
 {
-    if (Context && DestroyVehicle)
+    if (Context && DestroyFirmwareVehicle)
     {
-        DestroyVehicle(Context);
+        DestroyFirmwareVehicle(Context);
     }
     Context = nullptr;
     if (bRuntimeInitialized && LibraryHandle && RuntimeShutdown)
@@ -98,8 +104,8 @@ void FBorn2FlapMathBridge::Unload()
     }
     bRuntimeInitialized = false;
     RuntimeShutdown = nullptr;
-    DestroyVehicle = nullptr;
-    StepVehicle = nullptr;
+    DestroyFirmwareVehicle = nullptr;
+    StepFirmwareVehicle = nullptr;
     if (LibraryHandle)
     {
         FPlatformProcess::FreeDllHandle(LibraryHandle);
@@ -107,7 +113,9 @@ void FBorn2FlapMathBridge::Unload()
     }
 }
 
-bool FBorn2FlapMathBridge::Step(const B2F_VehicleInput& Input, B2F_VehicleOutput& Output) const
+bool FBorn2FlapMathBridge::Step(
+    const B2F_PilotInput& Pilot, const B2F_BodyState& Body, B2F_FirmwareOutput& Output) const
 {
-    return Context && StepVehicle && StepVehicle(Context, &Input, &Output) != 0;
+    return Context && StepFirmwareVehicle &&
+        StepFirmwareVehicle(Context, &Pilot, &Body, &Output) != 0;
 }

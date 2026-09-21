@@ -8,11 +8,34 @@ module Born2Flap.Math.Vehicle
   , vehicleOscillator
   , defaultVehicle
   , stepVehicle
+  , StripState(..)
+  , StripResult(..)
+  , stripCount
+  , emptyStrip
+  , initialStrips
+  , stepWingWithStroke
+  , addVec
+  , crossVec
+  , scaleVec
+  , magnitude
+  , zeroVec
+  , vx, vy, vz
+  , radians
   ) where
+
+import Data.List (zipWith5)
 
 import Born2Flap.Math.Types
 import Born2Flap.Math.Simulation
 import Born2Flap.Math.Wing (crossflowBaseline, relaxSeparation)
+import Born2Flap.Math.Planform
+  ( WingShape(..), defaultBirdWing, shapeChord
+  , shapeSweepRad, shapeTwistRad, shapeAspectRatio, shapeSection, shapeStructure )
+import Born2Flap.Math.Section
+  ( SectionProfile(..), zeroLiftAngle, sectionPitchMomentCoeff
+  , membraneCamberTarget, relaxCamber )
+import Born2Flap.Math.Structure
+  ( StructureProfile(..), integrateFlapBeam, integrateTwist, relaxDeflection )
 import Born2Flap.Math.Waveform
   ( OscillatorState(..), defaultOscillator, advanceOscillator
   , limiarFromFerocities, shapeWaveWithDerivative )
@@ -41,6 +64,10 @@ data StripState = StripState
   , stripPreviousAlpha :: !Double
   , stripPreviousNormalVelocity :: !Double
   , stripLevStrength :: !Double
+  , stripCamber :: !Double   -- ^ current camber @f/c@ (rest camber + membrane billow)
+  , stripBendM :: !Double    -- ^ out-of-plane flap deflection [m] (tip up +)
+  , stripBendSlope :: !Double  -- ^ flap deflection slope [rad]
+  , stripTwistAero :: !Double  -- ^ aeroelastic twist [rad] (nose-up +)
   } deriving stock (Eq, Show)
 
 data VehicleState = VehicleState
@@ -54,16 +81,26 @@ data StripResult = StripResult
   , resultForce :: !Vec3
   , resultMoment :: !Vec3
   , resultPower :: !Double
+  , resultSectionMoment :: !Double  -- ^ sectional pitching moment [N·m] (nose-up +)
   } deriving stock (Eq, Show)
 
 stripCount :: Int
 stripCount = 16
 
 emptyStrip :: StripState
-emptyStrip = StripState 0 0 0 0
+emptyStrip = StripState 0 0 0 0 0 0 0 0
+
+-- | Strips initialised to the rest camber of the default wing (so the membrane
+-- model starts from the built-in camber line, not a flat plate).
+initialStrips :: [StripState]
+initialStrips =
+  [ StripState 0 0 0 0 (spRestCamber (shapeSection defaultBirdWing fraction)) 0 0 0
+  | i <- [0 .. stripCount - 1]
+  , let fraction = (fromIntegral i + 0.5) / fromIntegral stripCount
+  ]
 
 defaultVehicle :: VehicleState
-defaultVehicle = VehicleState defaultOscillator (replicate stripCount emptyStrip) (replicate stripCount emptyStrip)
+defaultVehicle = VehicleState defaultOscillator initialStrips initialStrips
 
 stepVehicle :: VehicleInput -> VehicleState -> (VehicleOutput, VehicleState)
 stepVehicle input state =
@@ -112,7 +149,12 @@ stepVehicleUnchecked input state
           tailArm = Vec3 (-0.48) 0 0
           tailVelocity = addVec (bodyVelocityMS input) (crossVec rates tailArm)
           tailQArea = 0.5 * 1.225 * 0.035 * magnitude tailVelocity * magnitude tailVelocity
-          tailForce = scaleVec tailQArea (Vec3 0 (-yawMix) (-pitchMix))
+          -- Fixed tailplane incidence: a small, always-on DOWN force (negative z
+          -- lift) proportional to dynamic pressure, providing pitch trim; the
+          -- stick adds control lift on top of it.
+          tailTrimDownforce = -0.18 * tailQArea
+          tailForce = addVec (scaleVec tailQArea (Vec3 0 (-yawMix) (-pitchMix)))
+                             (Vec3 0 0 tailTrimDownforce)
           tailMoment = crossVec tailArm tailForce
           force = addVec wingForce (addVec bodyDrag tailForce)
           moment = addVec wingMoment tailMoment
@@ -134,20 +176,35 @@ stepWing side pulse pulseRate throttle rollMix input states =
   let amplitude = radians (12 + 38 * throttle) * clamp 0.55 1.35 (1 - side * 0.22 * rollMix)
       stroke = amplitude * pulse
       strokeRate = amplitude * pulseRate
-      raw = zipWith (stepStrip side stroke strokeRate input) [0 ..] states
+  in stepWingWithStroke side stroke strokeRate input states
+
+-- | Step one wing given the *actual* flap angle [rad] and flap rate [rad/s],
+-- independent of how they were produced (firmware mixer + servo, or the
+-- legacy throttle drive). This is the primitive the firmware-emulation loop
+-- uses to close the aero→servo-load feedback.
+stepWingWithStroke :: Double -> Double -> Double -> VehicleInput -> [StripState]
+                   -> ([StripResult], [StripState])
+stepWingWithStroke side stroke strokeRate input states =
+  let raw = zipWith (stepStrip side stroke strokeRate input) [0 ..] states
       transported = transportSeparation side input raw
-  in (transported, map resultState transported)
+      deformed = applyStructure input transported
+  in (deformed, map resultState deformed)
 
 stepStrip :: Double -> Double -> Double -> VehicleInput -> Int -> StripState -> StripResult
 stepStrip side stroke strokeRate input index old =
   let dt = stepSeconds input
+      wp = defaultBirdWing
       fraction = (fromIntegral index + 0.5) / fromIntegral stripCount
-      spanM = 0.72
+      spanM = wsSpanM wp
       dr = spanM / fromIntegral stripCount
       radius = dr * (fromIntegral index + 0.5)
-      chord = lerp 0.20 0.10 fraction
-      sweep = radians (lerp 24 (-8) fraction)
-      twist = radians (lerp 19 7 fraction)
+      chord = shapeChord wp fraction
+      sweep = shapeSweepRad wp fraction
+      twist = shapeTwistRad wp fraction
+      profile = shapeSection wp fraction
+      camberPrev = stripCamber old
+      aeroTwist = stripTwistAero old
+      bend = stripBendM old
       velocity = bodyVelocityMS input
       rates = bodyRatesRadS input
       -- Body axes: +x forward, +y right, +z up. Both wings share vertical stroke motion.
@@ -156,30 +213,35 @@ stepStrip side stroke strokeRate input index old =
       chordVelocity = max 0.05 (vx velocity)
       normalVelocity = negate (vz velocity + rotationalZ + flapVelocityZ)
       planarSpeed = max 0.05 (sqrt (chordVelocity * chordVelocity + normalVelocity * normalVelocity))
-      alpha = twist + atan2 (-normalVelocity) chordVelocity
+      -- Aeroelastic twist adds to the geometric incidence: a load-induced washout
+      -- reduces the local angle of attack, closing the bending→aerodynamics loop.
+      alpha = twist + aeroTwist + atan2 (-normalVelocity) chordVelocity
+      alphaEff = alpha - zeroLiftAngle camberPrev
       alphaRate = (alpha - stripPreviousAlpha old) / dt
       reynolds = planarSpeed * chord / 1.48e-5
       stallAngle = radians (clamp 10 18 (16 - 1.4 * logBase 10 (max 1 (150000 / reynolds))))
       dynamicDelay = clamp (-0.16) 0.16 (0.018 * alphaRate)
       target = smoothStep (stallAngle - radians 3) (stallAngle + radians 4)
-                 (abs alpha - dynamicDelay)
+                (abs alphaEff - dynamicDelay)
       separating = target > stripSeparation old
       tau = if separating then 0.045 else 0.090
       UnitInterval relaxed = relaxSeparation (Seconds dt) (Seconds tau)
                                (clamp01 (stripSeparation old)) (clamp01 target)
-      levTarget = if abs alpha > stallAngle && alphaRate * alpha > 0 then 1 else 0
+      levTarget = if abs alphaEff > stallAngle && alphaRate * alphaEff > 0 then 1 else 0
       levRelax = 1 - exp (-dt / if levTarget > stripLevStrength old then 0.025 else 0.080)
       lev = clamp 0 1 (stripLevStrength old + levRelax * (levTarget - stripLevStrength old))
       crossSpeed = unMetresPerSecond (crossflowBaseline 0.32 (Radians sweep)
                        (MetresPerSecond planarSpeed))
-      attachedCl = clamp (-1.9) 1.9 (2 * pi * alpha)
-      separatedCl = 1.05 * sin (2 * alpha)
+      attachedCl = clamp (-1.9) 1.9 (2 * pi * alphaEff)
+      separatedCl = 1.05 * sin (2 * alphaEff)
       rotationalCl = clamp (-0.65) 0.65 (0.5 * chord * alphaRate / planarSpeed)
-      cl = lerp attachedCl separatedCl relaxed + rotationalCl + signum alpha * 0.45 * lev
-      aspectRatio = spanM * spanM / (spanM * 0.15)
+      cl = lerp attachedCl separatedCl relaxed + rotationalCl + signum alphaEff * 0.45 * lev
+      camberNext = relaxCamber dt (spMembraneTau profile) camberPrev
+                     (membraneCamberTarget profile attachedCl)
+      aspectRatio = shapeAspectRatio wp
       inducedCd = cl * cl / (pi * 0.82 * aspectRatio)
       attachedCd = 0.025 + inducedCd
-      separatedCd = 0.20 + 1.20 * sin alpha * sin alpha
+      separatedCd = 0.20 + 1.20 * sin alphaEff * sin alphaEff
       cd = lerp attachedCd separatedCd relaxed
       sideCd = 0.018 + 0.08 * relaxed
       area = chord * dr
@@ -194,22 +256,27 @@ stepStrip side stroke strokeRate input index old =
       normalAcceleration = (normalVelocity - stripPreviousNormalVelocity old) / dt
       addedMass = clamp (-25) 25 (-1.225 * pi * chord * chord * dr * normalAcceleration / 4)
       force = addVec quasiForce (Vec3 0 0 addedMass)
-      position = Vec3 0 (side * radius * cos stroke) (radius * sin stroke)
-      moment = crossVec position force
+      -- The bending deflection adds to the rigid flap position, so the moment
+      -- arm reflects the deformed (not the rigid) wing.
+      position = Vec3 0 (side * radius * cos stroke) (radius * sin stroke + bend)
+      cm0 = sectionPitchMomentCoeff camberPrev (spReflex profile)
+      sectionPitchMoment = cm0 * q * chord * chord * dr
+      moment = addVec (crossVec position force) (Vec3 0 sectionPitchMoment 0)
       power = abs (vz force * flapVelocityZ)
-      next = StripState relaxed alpha normalVelocity lev
-  in StripResult next force moment power
+      next = StripState relaxed alpha normalVelocity lev camberNext bend
+               (stripBendSlope old) aeroTwist
+  in StripResult next force moment power sectionPitchMoment
 
 transportSeparation :: Double -> VehicleInput -> [StripResult] -> [StripResult]
 transportSeparation _side input results = zipWith update [0 ..] results
   where
     dt = stepSeconds input
-    dr = 0.72 / fromIntegral stripCount
+    dr = wsSpanM defaultBirdWing / fromIntegral stripCount
     count = length results
     separationAt i = stripSeparation . resultState $ results !! clampInt 0 (count - 1) i
     update i result =
       let fraction = (fromIntegral i + 0.5) / fromIntegral stripCount
-          sweep = radians (lerp 24 (-8) fraction)
+          sweep = shapeSweepRad defaultBirdWing fraction
           speed = max 0.05 (magnitude (bodyVelocityMS input))
           -- Strip indices always run root-to-tip, on both wings. Signed sweep therefore
           -- determines transport direction without an additional world-side sign.
@@ -223,6 +290,36 @@ transportSeparation _side input results = zipWith update [0 ..] results
           newSeparation = clamp 0 1 (current + advected + diffusion)
           oldState = resultState result
       in result { resultState = oldState { stripSeparation = newSeparation } }
+
+-- | Structural pass: compute the quasi-static cantilever deflection/twist from
+-- the just-computed aerodynamic loads, relax the strip deformation state toward
+-- it, and (implicitly, via the state) feed the deformed shape into the next
+-- aero step. Root is clamped; the tip is free.
+applyStructure :: VehicleInput -> [StripResult] -> [StripResult]
+applyStructure input results =
+  let dt = stepSeconds input
+      wp = defaultBirdWing
+      count = length results
+      dr = wsSpanM wp / fromIntegral stripCount
+      fracs = [ (fromIntegral i + 0.5) / fromIntegral stripCount | i <- [0 .. count - 1] ]
+      structures = map (shapeStructure wp) fracs
+      forces = map (vz . resultForce) results
+      sectionMoments = map resultSectionMoment results
+      (targetBend, targetSlope) = integrateFlapBeam forces (map stBendEI structures) dr
+      targetTwist = integrateTwist sectionMoments (map stTwistGJ structures) dr
+      maxBend = 0.35 * wsSpanM wp
+      maxTwist = radians 15
+      update result structure bend slope twist =
+        let old = resultState result
+            nextBend = clamp (-maxBend) maxBend
+                          (relaxDeflection dt (stTauBend structure) (stripBendM old) bend)
+            nextSlope = relaxDeflection dt (stTauBend structure) (stripBendSlope old) slope
+            nextTwist = clamp (-maxTwist) maxTwist
+                          (relaxDeflection dt (stTauTwist structure) (stripTwistAero old) twist)
+        in result { resultState = old { stripBendM = nextBend
+                                      , stripBendSlope = nextSlope
+                                      , stripTwistAero = nextTwist } }
+  in zipWith5 update results structures targetBend targetSlope targetTwist
 
 zeroOutput :: Int -> VehicleOutput
 zeroOutput flags = VehicleOutput zeroVec zeroVec 0 0 (-1) flags

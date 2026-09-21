@@ -2,8 +2,10 @@
 
 #include "Camera/CameraComponent.h"
 #include "Components/InputComponent.h"
+#include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "DrawDebugHelpers.h"
+#include "Engine/Engine.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "GameFramework/PlayerController.h"
 #include "InputCoreTypes.h"
@@ -14,6 +16,8 @@ ABorn2FlapFlightPawn::ABorn2FlapFlightPawn()
 {
     PrimaryActorTick.bCanEverTick = true;
 
+    // Physics root: the fuselage collision body. Visual detail is layered on
+    // as child components in BuildGeometry().
     Body = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Body"));
     SetRootComponent(Body);
     Body->SetSimulatePhysics(true);
@@ -25,8 +29,10 @@ ABorn2FlapFlightPawn::ABorn2FlapFlightPawn()
     if (BodyMesh.Succeeded())
     {
         Body->SetStaticMesh(BodyMesh.Object);
-        Body->SetRelativeScale3D(FVector(1.5, 0.35, 0.25));
+        Body->SetRelativeScale3D(FVector(1.6f, 0.34f, 0.26f));
     }
+
+    BuildGeometry();
 
     CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
     CameraBoom->SetupAttachment(Body);
@@ -42,6 +48,67 @@ ABorn2FlapFlightPawn::ABorn2FlapFlightPawn()
 
 ABorn2FlapFlightPawn::~ABorn2FlapFlightPawn() = default;
 
+void ABorn2FlapFlightPawn::BuildGeometry()
+{
+    // Nose cone: UE's cone points along +Z by default; pitch -90° lays its
+    // apex forward (+X) so it reads as a beak/nose.
+    static ConstructorHelpers::FObjectFinder<UStaticMesh> ConeMesh(TEXT("/Engine/BasicShapes/Cone.Cone"));
+    if (ConeMesh.Succeeded())
+    {
+        Nose = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Nose"));
+        Nose->SetupAttachment(Body);
+        Nose->SetStaticMesh(ConeMesh.Object);
+        Nose->SetRelativeLocation(FVector(0.95f, 0.0f, 0.0f));
+        Nose->SetRelativeRotation(FRotator(-90.0f, 0.0f, 0.0f));
+        Nose->SetRelativeScale3D(FVector(0.34f, 0.34f, 0.6f));
+        Nose->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    }
+
+    // Tail: horizontal stabiliser (elevator) + vertical fin (rudder).
+    static ConstructorHelpers::FObjectFinder<UStaticMesh> CubeMesh(TEXT("/Engine/BasicShapes/Cube.Cube"));
+    if (CubeMesh.Succeeded())
+    {
+        TailHorizontal = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("TailHorizontal"));
+        TailHorizontal->SetupAttachment(Body);
+        TailHorizontal->SetStaticMesh(CubeMesh.Object);
+        TailHorizontal->SetRelativeLocation(FVector(-1.15f, 0.0f, 0.02f));
+        TailHorizontal->SetRelativeScale3D(FVector(0.45f, 0.55f, 0.03f));
+        TailHorizontal->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+        TailVertical = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("TailVertical"));
+        TailVertical->SetupAttachment(Body);
+        TailVertical->SetStaticMesh(CubeMesh.Object);
+        TailVertical->SetRelativeLocation(FVector(-1.15f, 0.0f, 0.20f));
+        TailVertical->SetRelativeScale3D(FVector(0.40f, 0.03f, 0.35f));
+        TailVertical->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+        // Wings hinge on shoulder pivots so the flap rotation happens around
+        // the root chord, not the wing's centre. Wing extends outward from the
+        // shoulder; the shoulder scene component carries the flap roll.
+        RightShoulder = CreateDefaultSubobject<USceneComponent>(TEXT("RightShoulder"));
+        RightShoulder->SetupAttachment(Body);
+        RightShoulder->SetRelativeLocation(FVector(0.0f, 0.18f, 0.05f));
+
+        LeftShoulder = CreateDefaultSubobject<USceneComponent>(TEXT("LeftShoulder"));
+        LeftShoulder->SetupAttachment(Body);
+        LeftShoulder->SetRelativeLocation(FVector(0.0f, -0.18f, 0.05f));
+
+        RightWing = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("RightWing"));
+        RightWing->SetupAttachment(RightShoulder);
+        RightWing->SetStaticMesh(CubeMesh.Object);
+        RightWing->SetRelativeLocation(FVector(0.0f, 0.45f, 0.0f));
+        RightWing->SetRelativeScale3D(FVector(0.50f, 0.90f, 0.04f));
+        RightWing->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+        LeftWing = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("LeftWing"));
+        LeftWing->SetupAttachment(LeftShoulder);
+        LeftWing->SetStaticMesh(CubeMesh.Object);
+        LeftWing->SetRelativeLocation(FVector(0.0f, -0.45f, 0.0f));
+        LeftWing->SetRelativeScale3D(FVector(0.50f, 0.90f, 0.04f));
+        LeftWing->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    }
+}
+
 void ABorn2FlapFlightPawn::BeginPlay()
 {
     Super::BeginPlay();
@@ -53,8 +120,8 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
 
-    // Keep a direct keyboard fallback for standalone game mode. This also
-    // makes the prototype usable when no Enhanced Input action asset exists.
+    // Direct keyboard fallback so the prototype is flyable without an
+    // Enhanced Input action asset.
     if (APlayerController* PlayerController = Cast<APlayerController>(GetController()))
     {
         const float KeyboardThrottle =
@@ -87,6 +154,12 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         DrawDebugString(GetWorld(), GetActorLocation() + FVector(0, 0, 100),
             MathBridge->GetStatus(), nullptr, FColor::Yellow, 0.0f, true);
     }
+    else if (GEngine)
+    {
+        GEngine->AddOnScreenDebugMessage(2, 0.0f, FColor::White,
+            FString::Printf(TEXT("flap L=%+.1f R=%+.1f deg | flapping=%d | SoC=%.1f%%"),
+                LastLeftFlapDeg, LastRightFlapDeg, bIsFlapping ? 1 : 0, LastSoc * 100.0f));
+    }
 }
 
 void ABorn2FlapFlightPawn::StepMath(double DeltaTimeSeconds)
@@ -101,21 +174,24 @@ void ABorn2FlapFlightPawn::StepMath(double DeltaTimeSeconds)
         Body->GetPhysicsLinearVelocity() / 100.0);
     const FVector AngularVelocity = BodyTransform.InverseTransformVectorNoScale(
         Body->GetPhysicsAngularVelocityInRadians());
-    B2F_VehicleInput Input{};
-    Input.delta_time_s = DeltaTimeSeconds;
-    Input.linear_velocity_m_s[0] = LinearVelocity.X;
-    Input.linear_velocity_m_s[1] = LinearVelocity.Y;
-    Input.linear_velocity_m_s[2] = LinearVelocity.Z;
-    Input.angular_velocity_rad_s[0] = AngularVelocity.X;
-    Input.angular_velocity_rad_s[1] = AngularVelocity.Y;
-    Input.angular_velocity_rad_s[2] = AngularVelocity.Z;
-    Input.throttle = ThrottleInput;
-    Input.roll = RollInput;
-    Input.pitch = PitchInput;
-    Input.yaw = YawInput;
 
-    B2F_VehicleOutput Output{};
-    if (!MathBridge->Step(Input, Output))
+    B2F_PilotInput Pilot{};
+    Pilot.throttle = ThrottleInput;
+    Pilot.roll = RollInput;
+    Pilot.pitch = PitchInput;
+    Pilot.yaw = YawInput;
+
+    B2F_BodyState BodyState{};
+    BodyState.delta_time_s = DeltaTimeSeconds;
+    BodyState.linear_velocity_m_s[0] = LinearVelocity.X;
+    BodyState.linear_velocity_m_s[1] = LinearVelocity.Y;
+    BodyState.linear_velocity_m_s[2] = LinearVelocity.Z;
+    BodyState.angular_velocity_rad_s[0] = AngularVelocity.X;
+    BodyState.angular_velocity_rad_s[1] = AngularVelocity.Y;
+    BodyState.angular_velocity_rad_s[2] = AngularVelocity.Z;
+
+    B2F_FirmwareOutput Output{};
+    if (!MathBridge->Step(Pilot, BodyState, Output))
     {
         return;
     }
@@ -125,14 +201,34 @@ void ABorn2FlapFlightPawn::StepMath(double DeltaTimeSeconds)
     const FVector ForceN = BodyTransform.TransformVectorNoScale(BodyForceN);
     const FVector MomentNm = BodyTransform.TransformVectorNoScale(BodyMomentNm);
     // Convert each fixed-step load to an impulse so multiple math steps in one
-    // rendered frame do not accidentally multiply a frame-scoped force.
+    // rendered frame do not multiply a frame-scoped force.
     Body->AddImpulse(ForceN * (100.0 * DeltaTimeSeconds), NAME_None, false);
-    Body->AddAngularImpulseInRadians(
-        MomentNm * (10000.0 * DeltaTimeSeconds), NAME_None, false);
+    Body->AddAngularImpulseInRadians(MomentNm * (10000.0 * DeltaTimeSeconds), NAME_None, false);
+
+    LastLeftFlapDeg = static_cast<float>(Output.left_flap_deg);
+    LastRightFlapDeg = static_cast<float>(Output.right_flap_deg);
+    LastSoc = static_cast<float>(Output.battery_soc);
+    bIsFlapping = (Output.flags & 1u) != 0;
+
+    ApplyFlapAngles(LastLeftFlapDeg, LastRightFlapDeg);
 
     const FVector Start = Body->GetComponentLocation();
     DrawDebugDirectionalArrow(GetWorld(), Start, Start + ForceN * 30.0,
         20.0f, FColor::Cyan, false, 0.0f, 0, 2.0f);
+}
+
+void ABorn2FlapFlightPawn::ApplyFlapAngles(float LeftDeg, float RightDeg)
+{
+    const float LeftRoll = LeftDeg * FlapVisualGain;
+    const float RightRoll = -RightDeg * FlapVisualGain;
+    if (LeftShoulder)
+    {
+        LeftShoulder->SetRelativeRotation(FRotator(0.0f, 0.0f, LeftRoll));
+    }
+    if (RightShoulder)
+    {
+        RightShoulder->SetRelativeRotation(FRotator(0.0f, 0.0f, RightRoll));
+    }
 }
 
 void ABorn2FlapFlightPawn::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)

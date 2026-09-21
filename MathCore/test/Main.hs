@@ -4,10 +4,16 @@ import Born2Flap.Math.Types
 import Born2Flap.Math.Wing
 import Born2Flap.Math.Control
 import Born2Flap.Math.Vehicle
+import Born2Flap.Math.Planform
+import Born2Flap.Math.Section
+import Born2Flap.Math.Structure
 import Born2Flap.Math.Simulation
 import Born2Flap.Math.Waveform
   ( OscillatorState(..), defaultOscillator, advanceOscillator
   , limiarFromFerocities, shapeWave, shapeWaveWithDerivative )
+import Born2Flap.Math.Firmware
+import Born2Flap.Math.Servo
+import Born2Flap.Math.FirmwareVehicle
 
 main :: IO ()
 main = do
@@ -31,6 +37,44 @@ main = do
   if command result > 0 && integralState (controller result) <= 0.5
     then pure ()
     else fail "controller must respond positively and respect its integral bound"
+  let wing = defaultBirdWing
+      wpArea = shapeArea wing
+      chords = map (shapeChord wing) [0, 0.25, 0.5, 0.75, 1.0]
+      wpAR = shapeAspectRatio wing
+      stations = wsStations wing
+      rootChord = if null stations then 0 else ssChordM (head stations)
+      tipChord = if null stations then 0 else ssChordM (last stations)
+      strips = shapeStationsAt wing 16
+  if wpArea > 0 && wpAR > 3 && wpAR < 12 && all (> 0) chords
+     && shapeChord wing 0 == rootChord
+     && shapeChord wing 1 == tipChord
+     && shapeTwistRad wing 1 < shapeTwistRad wing 0
+     && shapeSweepRad wing 0 > 0 && shapeSweepRad wing 1 > shapeSweepRad wing 0
+     && length strips == 16 && all ((> 0) . spanChord) strips
+    then pure ()
+    else fail "default wing must be a proper tapered, washed-out, back-swept shape"
+  let camber = 0.05
+      plainMoment = sectionPitchMomentCoeff camber 0.0
+      reflexedMoment = sectionPitchMomentCoeff camber 0.4
+      cupped = relaxCamber 0.01 0.05 0.05
+                 (membraneCamberTarget defaultBirdHandSection 1.0)
+  if zeroLiftAngle camber < 0
+     && abs (sectionPitchMomentCoeff 0 0.9) < 1.0e-12
+     && plainMoment < reflexedMoment && reflexedMoment < 0
+     && cupped > 0.05
+    then pure ()
+    else fail "section model must couple camber to lift, reflex to trim, membrane to load"
+  let structDr = 0.05
+      structForces = replicate 8 1.0
+      structEIs = replicate 8 2.0
+      (bendDefl, bendSlope) = integrateFlapBeam structForces structEIs structDr
+      structMoms = replicate 8 (-0.1)
+      structGJs = replicate 8 1.0
+      twistDefl = integrateTwist structMoms structGJs structDr
+  if last bendDefl > 0 && last bendSlope > 0
+     && last twistDefl < 0 && and (zipWith (<=) bendDefl (tail bendDefl))
+    then pure ()
+    else fail "cantilever beam must bend tip-up under up-load and twist nose-down under nose-down moment"
   let input = VehicleInput (1 / 240) (Vec3 5 0 0) (Vec3 0 0 0) 0.7 0 0 0
       samples = take 1200 (tail (iterate (\(_, state) -> stepVehicle input state)
                                    (zeroVehicleOutput, defaultVehicle)))
@@ -93,8 +137,87 @@ main = do
     then pure () else fail "analytic wave derivative must match finite differences"
   let (_, osc1) = advanceOscillator 12 1 0 (1 / 240) defaultOscillator
   if oscPhase osc1 >= 0 && oscPhase osc1 < 2 * pi && oscDebtVel osc1 == 0
-    then putStrLn "MathCore properties passed"
+    then pure ()
     else fail "beat-locked oscillator must stay on-grid at nominal demand"
+  -- Firmware mixer: glide at rest, flapping at full throttle with correct freq.
+  let (glide, _) = computeServoMixer defaultRcChannels defaultFirmwareParams defaultFirmwareState (1 / 240)
+  if not (mixIsFlapping glide) && mixFlapHz glide == 0 && mixLeftWingDeg glide == 100
+    then pure ()
+    else fail "neutral channels must hold glide at neutral servo angle"
+  let flapRc = defaultRcChannels { rcThrottle = 1811 }
+      (flap, flapState) = computeServoMixer flapRc defaultFirmwareParams defaultFirmwareState (1 / 240)
+  if mixIsFlapping flap && mixFlapHz flap > 0 && mixThrottlePct flap == 1
+     && mixLeftFlapDevDeg flap /= 0 && mixRightFlapDevDeg flap /= 0
+    then pure ()
+    else fail "full throttle must flap with positive frequency and deflection"
+  -- Flapping hysteresis: dropping to just below the on-threshold stays flapping.
+  let lowThrottle = defaultRcChannels { rcThrottle = 300 }
+      (hystOut, _) = computeServoMixer lowThrottle defaultFirmwareParams flapState (1 / 240)
+  if mixIsFlapping hystOut
+    then pure ()
+    else fail "flapping must persist within the hysteresis band"
+  -- Servo: unloaded tracking converges toward the target.
+  let servo = defaultServoSpec
+      battery = defaultBatterySpec
+      voltage = batteryNominalVoltage battery
+      (a1, s1) = stepServo servo battery 120 0 voltage (1 / 240) defaultServoState
+      (a2, s2) = stepServo servo battery 120 0 voltage (1 / 240) s1
+  if a2 > a1 && a2 <= 120
+    then pure ()
+    else fail "unloaded servo must slew toward its target"
+  -- Servo: load exceeding stall torque back-drives it (the wing wins).
+  -- A strong NEGATIVE load pushes the servo away from a positive target.
+  let stall = servoStallTorqueNm servo
+      (back, _) = stepServo servo battery 120 (negate stall * 2) voltage (1 / 240) defaultServoState
+  if back < 0
+    then pure ()
+    else fail "overloaded servo must be back-driven by the aerodynamic load"
+  -- Closed loop: full throttle flaps the wings (servo tracks, lift appears).
+  let flapRcClosed = defaultRcChannels { rcThrottle = 1811 }
+      dtClosed = 1 / 240
+      bodyVel = Vec3 5 0 0
+      (out1, st1) = stepFirmwareVehicle flapRcClosed defaultFirmwareParams
+                     defaultServoSpec defaultBatterySpec dtClosed bodyVel (Vec3 0 0 0)
+                     defaultFirmwareVehicleState
+      (out2, _) = stepFirmwareVehicle flapRcClosed defaultFirmwareParams
+                     defaultServoSpec defaultBatterySpec dtClosed bodyVel (Vec3 0 0 0) st1
+      finite value = not (isNaN value || isInfinite value)
+  if finite (z (totalForceN out2)) && finite (x (totalMomentNm out2))
+     && totalMechanicalPowerW out2 >= 0
+    then pure ()
+    else fail "firmware-vehicle closed loop must produce finite loads"
+  -- Logical pilot input: maps faithfully onto the firmware's CRSF channel space.
+  let rcFull = pilotToRc (PilotInput 1 0 0 0)
+  if rcThrottle rcFull == 1811 && rcAileron rcFull == 992 && rcRudder rcFull == 992
+     && rcArm rcFull == 1811
+    then pure ()
+    else fail "full-throttle pilot input must map to full CRSF throttle with neutral sticks"
+  let rcGlide = pilotToRc defaultPilotInput
+      (glidePilot, _) = computeServoMixer rcGlide defaultFirmwareParams defaultFirmwareState (1 / 240)
+  if not (mixIsFlapping glidePilot)
+    then pure ()
+    else fail "zero-throttle pilot input must hold glide"
+  let rcRoll = pilotToRc (PilotInput 1 1 0 0)
+  if rcAileron rcRoll > 992 && rcRudder rcRoll == 992 && rcElevator rcRoll == 992
+    then pure ()
+    else fail "roll stick must deflect the aileron channel only"
+  -- Closed loop via logical pilot input: full throttle flaps and tracks battery.
+  let pilotFlap = PilotInput 1 0 0 0
+      dtFw = 1 / 240
+      bodyVelFw = Vec3 5 0 0
+      stepFw s = stepFirmwareVehicle (pilotToRc pilotFlap) defaultFirmwareParams
+                   defaultServoSpec defaultBatterySpec dtFw bodyVelFw (Vec3 0 0 0) s
+      goFw 0 s peak = (s, peak)
+      goFw n s peak =
+        let (_, s') = stepFw s
+            peak' = max peak (max (abs (servoAngleDeg (fvServoLeft s')))
+                                  (abs (servoAngleDeg (fvServoRight s'))))
+        in goFw (n - 1) s' peak'
+      (warmFw, peakFlap) = goFw 120 defaultFirmwareVehicleState 0
+  if fwWasFlapping (fvFirmware warmFw) && peakFlap > 1.0 && fvBatterySoc warmFw <= 1.0
+    then pure ()
+    else fail "pilot-driven firmware loop must flap both wings and track battery"
+  putStrLn "MathCore properties passed"
 
 zeroVehicleOutput :: VehicleOutput
 zeroVehicleOutput = VehicleOutput (Vec3 0 0 0) (Vec3 0 0 0) 0 0 (-1) 0
