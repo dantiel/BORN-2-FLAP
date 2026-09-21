@@ -26,7 +26,10 @@ ABorn2FlapFlightPawn::ABorn2FlapFlightPawn()
     // still being tuned.  The math core supplies the flight moments; Chaos
     // damping prevents a transient from turning into an unbounded spin.
     Body->SetAngularDamping(1.20f);
-    Body->SetMassOverrideInKg(NAME_None, 1.2f, true);
+    // The aerodynamic prototype currently produces less lift during servo
+    // spin-up than a full-size 1.2 kg bird. Keep the test vehicle airborne
+    // long enough to tune the new firmware model.
+    Body->SetMassOverrideInKg(NAME_None, 0.45f, true);
 
     static ConstructorHelpers::FObjectFinder<UStaticMesh> BodyMesh(TEXT("/Engine/BasicShapes/Cube.Cube"));
     if (BodyMesh.Succeeded())
@@ -169,6 +172,11 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
             Velocity.X, Velocity.Y, Velocity.Z,
             AngularVelocity.X, AngularVelocity.Y, AngularVelocity.Z,
             ThrottleInput, RollInput, PitchInput, YawInput);
+        UE_LOG(LogTemp, Display,
+            TEXT("FlightLoads forceN=(%.2f,%.2f,%.2f) momentNm=(%.2f,%.2f,%.2f) flap=(%.1f,%.1f) soc=%.3f"),
+            LastForceN.X, LastForceN.Y, LastForceN.Z,
+            LastMomentNm.X, LastMomentNm.Y, LastMomentNm.Z,
+            LastLeftFlapDeg, LastRightFlapDeg, LastSoc);
     }
 
     if (MathBridge && !MathBridge->IsReady())
@@ -245,6 +253,8 @@ void ABorn2FlapFlightPawn::StepMath(double DeltaTimeSeconds)
         .GetClampedToMaxSize(25.0);
     const FVector ForceN = BodyTransform.TransformVectorNoScale(BodyForceN).GetClampedToMaxSize(500.0);
     const FVector MomentNm = BodyTransform.TransformVectorNoScale(BodyMomentNm);
+    LastForceN = ForceN;
+    LastMomentNm = MomentNm;
     // Convert each fixed-step load to an impulse so multiple math steps in one
     // rendered frame do not multiply a frame-scoped force.
     Body->AddImpulse(ForceN * (100.0 * DeltaTimeSeconds), NAME_None, false);

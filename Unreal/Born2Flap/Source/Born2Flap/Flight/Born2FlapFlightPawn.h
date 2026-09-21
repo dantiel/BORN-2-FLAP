@@ -68,6 +68,8 @@ private:
     float LastLeftFlapDeg = 0.0f;
     float LastRightFlapDeg = 0.0f;
     float LastSoc = 1.0f;
+    FVector LastForceN = FVector::ZeroVector;
+    FVector LastMomentNm = FVector::ZeroVector;
     bool bIsFlapping = false;
 
     // Wings flap at 1:1 with the firmware's actual flap deviation; this is a
