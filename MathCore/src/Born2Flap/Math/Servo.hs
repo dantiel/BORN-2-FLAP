@@ -104,7 +104,8 @@ stepServo servo battery targetDeg loadTorqueNm voltage dt state
            then -- Overpowered: the aerodynamic load back-drives the servo in
                 -- its own torque direction (the wing wins).
                 let excess = loadMag - stallT
-                    backRate = servoBackdriveDegPerSecNm servo * excess * voltFactor
+                    -- Passive backdrive remains possible with the motor unpowered.
+                    backRate = servoBackdriveDegPerSecNm servo * excess
                     rate = signum loadTorqueNm * backRate
                     next = ServoState (servoAngleDeg state + rate * dt) rate
                 in (servoAngleDeg next, next)

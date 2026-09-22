@@ -44,3 +44,5 @@ jobs:
       - name: Test Haskell math core
         working-directory: MathCore
         run: cabal test all
+      - name: Test native Haskell runtime and transactional ABI
+        run: python3 Native/tests/abi_smoke.py MathCore/dist-newstyle

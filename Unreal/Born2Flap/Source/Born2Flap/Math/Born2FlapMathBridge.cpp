@@ -35,7 +35,14 @@ bool FBorn2FlapMathBridge::Load()
     Unload();
     const FString LibraryPath = FPaths::Combine(
         FPaths::ProjectDir(), TEXT("Binaries"), TEXT("ThirdParty"), MathLibraryName());
-    LibraryHandle = FPlatformProcess::GetDllHandle(*LibraryPath);
+    // Pin one loader reference for the process: GHC cannot be stopped/restarted
+    // between PIE sessions. Per-aircraft contexts are still freed by Unload().
+    static void* ProcessLibraryHandle = nullptr;
+    if (!ProcessLibraryHandle)
+    {
+        ProcessLibraryHandle = FPlatformProcess::GetDllHandle(*LibraryPath);
+    }
+    LibraryHandle = ProcessLibraryHandle;
     if (!LibraryHandle)
     {
         Status = FString::Printf(TEXT("Haskell math backend missing: %s"), *LibraryPath);
@@ -108,7 +115,7 @@ void FBorn2FlapMathBridge::Unload()
     StepFirmwareVehicle = nullptr;
     if (LibraryHandle)
     {
-        FPlatformProcess::FreeDllHandle(LibraryHandle);
+        // The process owns the loader reference, not this aircraft.
         LibraryHandle = nullptr;
     }
 }

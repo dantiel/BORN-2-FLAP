@@ -15,16 +15,18 @@ module Born2Flap.Math.FirmwareVehicle
   ( FirmwareVehicleState(..)
   , defaultFirmwareVehicleState
   , stepFirmwareVehicle
+  , hingeTorque
   ) where
 
 import Born2Flap.Math.Types (Vec3(..))
 import Born2Flap.Math.Firmware
 import Born2Flap.Math.Servo
+import Born2Flap.Math.Simulation
 import Born2Flap.Math.Vehicle
   ( VehicleInput(..), VehicleOutput(..)
   , StripState(..), StripResult(..), initialStrips
   , stepWingWithStroke
-  , addVec, crossVec, scaleVec, magnitude, zeroVec, vy, radians )
+  , addVec, crossVec, scaleVec, magnitude, zeroVec, radians )
 
 data FirmwareVehicleState = FirmwareVehicleState
   { fvFirmware        :: !FirmwareState
@@ -67,7 +69,38 @@ stepFirmwareVehicle
   -> FirmwareVehicleState
   -> (VehicleOutput, FirmwareVehicleState)
 stepFirmwareVehicle rc params servo battery dt bodyVel bodyRates state
-  | dt <= 0 || dt > 0.05 = (zeroOutput 1, state)
+  | not (finite dt) || dt <= 0 || dt > 0.05 = (zeroOutput 1, state)
+  | not (all finite (components bodyVel ++ components bodyRates ++
+      [rcAileron rc, rcElevator rc, rcThrottle rc, rcRudder rc, rcArm rc, rcFreq rc, rcProfile rc])) =
+      (zeroOutput 2, state)
+  | otherwise = case runSimulation transaction state of
+      Left flag -> (zeroOutput flag, state)
+      Right result -> result
+  where
+    transaction = do
+      old <- getState
+      let (output, next) = advanceFirmwareVehicle rc params servo battery dt bodyVel bodyRates old
+          values = components (totalForceN output) ++ components (totalMomentNm output) ++
+            [totalMechanicalPowerW output, maxSeparation output, fvBatterySoc next,
+             fvLeftHingeTorqueNm next, fvRightHingeTorqueNm next,
+             servoAngleDeg (fvServoLeft next), servoAngleDeg (fvServoRight next),
+             servoRateDegPerSec (fvServoLeft next), servoRateDegPerSec (fvServoRight next)]
+      if all finite values then putState next >> pure output else abort 2
+
+finite :: Double -> Bool
+finite value = not (isNaN value || isInfinite value)
+
+components :: Vec3 -> [Double]
+components (Vec3 a b c) = [a,b,c]
+
+-- Both positive stroke coordinates raise the wing. The left hinge axis is -X.
+hingeTorque :: Double -> [StripResult] -> Double
+hingeTorque side = (* side) . sum . map (x . resultMoment)
+
+advanceFirmwareVehicle
+  :: RcChannels -> FirmwareParams -> ServoSpec -> BatterySpec
+  -> Double -> Vec3 -> Vec3 -> FirmwareVehicleState -> (VehicleOutput, FirmwareVehicleState)
+advanceFirmwareVehicle rc params servo battery dt bodyVel bodyRates state
   | otherwise =
       let -- 1. Firmware mixer: RC → wing servo commands (flap deviation deg).
           (mix, nextFw) = computeServoMixer rc params (fvFirmware state) dt
@@ -75,7 +108,10 @@ stepFirmwareVehicle rc params servo battery dt bodyVel bodyRates state
           -- 2. Servo struggle: track the commanded flap deviation against the
           --    hinge torque the wings produced LAST step (explicit one-step
           --    feedback delay — standard, stable game-loop coupling).
-          voltage = batteryVoltageUnderLoad battery 0
+          currentA = (abs (fvLeftHingeTorqueNm state) + abs (fvRightHingeTorqueNm state))
+                       / max 0.01 (servoStallTorqueNm servo / 5)
+          liveBattery = battery { batteryStateOfCharge = fvBatterySoc state }
+          voltage = batteryVoltageUnderLoad liveBattery currentA
           (leftFlapDeg, nextServoL) = stepServo servo battery
                                         (mixLeftFlapDevDeg mix)
                                         (fvLeftHingeTorqueNm state)
@@ -95,9 +131,9 @@ stepFirmwareVehicle rc params servo battery dt bodyVel bodyRates state
           (rightResults, rightNext) = stepWingWithStroke 1 strokeR rateR input (fvRightStrips state)
           wingResults = leftResults ++ rightResults
 
-          -- 4. Hinge torque = spanwise (y) aero moment the servo must overcome.
-          leftHinge = sum (map (vy . resultMoment) leftResults)
-          rightHinge = sum (map (vy . resultMoment) rightResults)
+          -- 4. Generalized torque conjugate to each wing's flap coordinate.
+          leftHinge = hingeTorque (-1) leftResults
+          rightHinge = hingeTorque 1 rightResults
 
           -- 5. Assemble full-vehicle forces (wings + body drag + tail).
           --    Roll comes from the wing amplitude differential (already in the
