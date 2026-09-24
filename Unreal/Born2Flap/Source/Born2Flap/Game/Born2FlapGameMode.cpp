@@ -59,13 +59,17 @@ void ABorn2FlapGameMode::BeginPlay()
         if (auto *Material = LoadObject<UMaterialInterface>(nullptr, *Path))
             Component->SetMaterial(0, Material);
         Actor->SetActorScale3D(Scale);
+        // Set the actor gate after mesh/scale changes too. Recreating the
+        // mesh physics state can otherwise restore its BlockAll profile.
+        Component->SetCollisionProfileName(Collision ? TEXT("BlockAll") : TEXT("NoCollision"));
+        Actor->SetActorEnableCollision(Collision);
     };
     // A solid 1 km floor, top at z=0. The old 20 m plane could be escaped in seconds.
     Part(Cube, FVector(0, 0, -100), FVector(1000, 1000, 2), FRotator::ZeroRotator, TEXT("Grass"), true);
     Part(Cube, FVector(0, 0, .5), FVector(9, 9, .01), FRotator::ZeroRotator, TEXT("Sand"));
     for (int I = 0; I < 12; ++I)
         Part(Cube, FVector(500 + I * 220, 0, 1), FVector(.9, .15, .015), FRotator::ZeroRotator, TEXT("Ivory"));
-    Gates = {FVector(3000, 0, 800),      FVector(6000, 0, 900),      FVector(9000, 0, 1000),
+    Gates = {FVector(3000, 0, 400),      FVector(6000, 0, 650),      FVector(9000, 0, 900),
              FVector(12000, 1500, 1100), FVector(13500, 4500, 1000), FVector(12000, 7500, 800)};
     for (const FVector &Centre : Gates)
         for (int I = 0; I < 32; ++I)

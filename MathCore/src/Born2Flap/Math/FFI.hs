@@ -5,7 +5,7 @@ module Born2Flap.Math.FFI where
 import Born2Flap.Math.Types (Vec3(..))
 import Born2Flap.Math.Vehicle
 import Born2Flap.Math.Firmware
-  ( FirmwareParams, defaultFirmwareParams, FirmwareState(..)
+  ( FirmwareParams(..), FlightProfile(..), defaultFirmwareParams, FirmwareState(..)
   , PilotInput(..), defaultPilotInput, pilotToRc )
 import Born2Flap.Math.FirmwareVehicle
 import Born2Flap.Math.Servo
@@ -127,7 +127,17 @@ b2f_math_create_firmware_vehicle configPointer = do
         , batteryInternalResistanceOhm = posOr (batteryInternalResistanceOhm defaultBatterySpec) (cfgBatteryResistance config)
         , batteryCapacityAh = posOr (batteryCapacityAh defaultBatterySpec) (cfgBatteryCapacity config)
         }
-      context = FwContext defaultFirmwareParams servo battery defaultFirmwareVehicleState
+      -- Match cadence/amplitude demand to the selected actuator. The reference
+      -- firmware mixer remains unchanged; this is the vehicle's flight profile.
+      -- A full stroke at excessive cadence used to saturate the actuator, so
+      -- more throttle barely changed its actual motion.
+      flightParams = defaultFirmwareParams
+        { fwServoSpeedMs = 60000 / servoNoLoadSpeedDegPerSec servo
+        , fwFlapBaseFreqDh = 32
+        , fwProfile = (fwProfile defaultFirmwareParams)
+            { profThrottleFrequencyMix = 100, profAileronSkewMix = 40 }
+        }
+      context = FwContext flightParams servo battery defaultFirmwareVehicleState
   castStablePtrToPtr <$> (newIORef context >>= newStablePtr)
 
 b2f_math_destroy_firmware_vehicle :: Ptr () -> IO ()

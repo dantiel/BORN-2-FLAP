@@ -7,7 +7,8 @@ class UBoxComponent;
 class USceneComponent;
 class USpringArmComponent;
 class UCameraComponent;
-// Explicit assisted trainer: measured aerodynamics and assistance are logged separately.
+// Translation is driven only by the native wing/body forces and gravity.
+// Optional attitude assistance applies torques, never altitude/speed compensation.
 UCLASS()
 class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
 {
@@ -21,7 +22,10 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     bool IsHealthy() const { return bHealthy; }
     float GetAltitude() const;
     float GetSpeed() const;
-    float GetTargetAltitude() const { return TargetAltitude; }
+    float GetEffort() const { return Throttle; }
+    float GetBattery() const { return BatterySoc; }
+    float GetClimbRate() const;
+    bool HasAttitudeAssist() const { return bAttitudeAssist; }
     FString GetFlightStatus() const;
 
   private:
@@ -33,17 +37,27 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     UPROPERTY(VisibleAnywhere) TObjectPtr<UCameraComponent> Camera;
     TUniquePtr<FBorn2FlapMathBridge> MathBridge;
     double Accumulator = 0, LogTime = 0;
-    float TargetAltitude = 7, Throttle = 0, Turn = 0, LeftFlap = 0, RightFlap = 0, Bank = 0;
-    bool bFlying = false, bLanding = false, bHealthy = false, bVectors = false, bReturning = false;
-    FVector AeroForce = FVector::ZeroVector, AeroMoment = FVector::ZeroVector, AssistForce = FVector::ZeroVector;
+    float Throttle = 0, Turn = 0, PitchInput = 0, LeftFlap = 0, RightFlap = 0, BatterySoc = 1;
+    float TargetBank = 0, TargetPitch = 0;
+    bool bFlying = false, bHealthy = false, bVectors = false, bReturning = false;
+    bool bAttitudeAssist = true;
+    FVector AeroForce = FVector::ZeroVector, AeroMoment = FVector::ZeroVector;
+    FVector AssistTorque = FVector::ZeroVector;
     int32 SafetyResets = 0, MathFailures = 0, BoundaryReturns = 0;
     // The integration test uses the actual pawn/controller/Chaos path.
     bool bFlightTest = false, bSoakTest = false, bTestResetSent = false, bTestFinished = false;
-    double TestTime = 0, TestPeakSpeed = 0, TestPeakAltitude = 0, TestHoldError = 0;
-    int32 TestHoldSamples = 0;
+    double TestTime = 0, TestPeakSpeed = 0, TestPeakAltitude = 0;
+    double TestPoweredAltitude = 0, TestGlideAltitude = 0, TestBoostAltitude = 0;
+    double TestBeforePullSpeed = 0, TestPullSpeed = 0, TestBeforePullHeight = 0, TestPullHeight = 0;
+    double TestFlapMin = 80, TestFlapMax = -80;
     bool bTestIdle = false, bTestTurn = false, bTestLand = false, bTestReset = false, bTestSecondFlight = false;
     void BuildGeometry();
     void ResetFlight(bool bSafety = false);
+    void LaunchFlight();
+    UFUNCTION()
+    void OnBodyHit(UPrimitiveComponent *HitComponent, AActor *OtherActor, UPrimitiveComponent *OtherComponent,
+                   FVector NormalImpulse, const FHitResult &Hit);
     bool StepMath(float DeltaSeconds);
+    FVector AttitudeTorque(const FQuat &Rotation, const FVector &Omega, const FVector &Velocity) const;
     void CheckFlightTest();
 };

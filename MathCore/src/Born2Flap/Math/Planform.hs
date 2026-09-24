@@ -87,9 +87,9 @@ defaultBirdWing :: WingShape
 defaultBirdWing = WingShape
   { wsSpanM = 0.72
   , wsStations =
-      [ ShapeStation 0.00 0.000 0.220 14.00 0.0 defaultBirdArmSection defaultBirdArmStructure  -- shoulder
-      , ShapeStation 0.45 0.087 0.185  9.95 0.0 defaultBirdArmSection defaultBirdArmStructure  -- elbow
-      , ShapeStation 1.00 0.262 0.090  5.00 0.0 defaultBirdHandSection defaultBirdHandStructure  -- tip
+      [ ShapeStation 0.00 0.000 0.220  5.00 0.0 defaultBirdArmSection defaultBirdArmStructure  -- shoulder
+      , ShapeStation 0.45 0.087 0.185  2.00 0.0 defaultBirdArmSection defaultBirdArmStructure  -- elbow
+      , ShapeStation 1.00 0.262 0.090 (-2.0) 0.0 defaultBirdHandSection defaultBirdHandStructure  -- tip
       ]
   }
 

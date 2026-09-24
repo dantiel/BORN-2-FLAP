@@ -222,7 +222,12 @@ stepStrip side stroke strokeRate input index old =
       safeSpeed = max 1.0e-6 planarSpeed
       -- Aeroelastic twist adds to the geometric incidence: a load-induced washout
       -- reduces the local angle of attack, closing the bending→aerodynamics loop.
-      alpha = twist + aeroTwist + atan2 (-normalVelocity) chordVelocity
+      -- Provisional passive feathering of the flexible wing during a stroke.
+      -- Pitch follows a fraction of the flap-induced inflow (more compliant
+      -- toward the handwing), instead of driving a rigid plate deep into stall.
+      -- No flap motion means no feathering; body sink still changes incidence.
+      feather = (0.55 + 0.20 * fraction) * atan2 (radius * strokeRate) (max 1.5 (abs chordVelocity))
+      alpha = twist + aeroTwist + feather + atan2 (-normalVelocity) chordVelocity
       alphaEff = alpha - zeroLiftAngle camberPrev
       alphaRate = (alpha - stripPreviousAlpha old) / dt
       reynolds = planarSpeed * chord / 1.48e-5

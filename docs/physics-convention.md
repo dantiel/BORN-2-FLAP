@@ -38,9 +38,11 @@ Units are SI everywhere internally. The Unreal boundary converts metres → cm.
 
 - 16 spanwise strips. Haskell simulates two wings (full vehicle); C++
   `WingSimulation` simulates a single isolated wing as the research reference.
-- Geometry (prototype): span 0.72 m, chord 0.20 → 0.10 m, sweep 24° → −8°,
-  twist 19° → 7° (Haskell `stepVehicle` and `first_flap` CLI). C++ defaults are
-  sweep 20° → 20°, twist 18° → 8°; the CLI overrides them.
+- Runtime Haskell geometry: 0.72 m half-span, chord 0.220 / 0.185 / 0.090 m
+  at shoulder / elbow / tip, incidence 5° / 2° / −2°. Sweep is derived from
+  the planform leading edge (about 15° inboard, 24° outboard).
+  C++ research defaults are sweep 20° → 20°, twist 18° → 8°; the `first_flap`
+  CLI overrides them. These models are not geometrically reconciled.
 
 ### Crossflow baseline
 
@@ -124,11 +126,38 @@ passivity checks and gravity/contact feedback. It runs three 60-second level-bod
 trajectories with measurements held at 30, 60 and 144 Hz. This is separate from
 Unreal's six-component rigid-body and contact integration.
 
-The playable Unreal **training mode** explicitly compensates measured aerodynamic
-forces with a velocity/altitude controller, locks physical pitch/roll and controls
-yaw. Its banking is visual. Therefore stable training flight is not evidence of
-unassisted aerodynamic trim or calibrated six-degree-of-freedom flight. See
-[flight stability report](flight-stability-2026-09-24.md) for tests and limits.
+The current playable Unreal mode applies native aerodynamic forces directly,
+with Chaos gravity and contact. The earlier velocity/altitude compensator and
+rotation locks have been removed. A bounded, optional attitude torque assists
+bank, pitch and coordinated turns; it supplies no translational force.
+Both linear and angular state are predicted between the native 240 Hz evaluations,
+then mean loads are submitted once per game frame to Chaos. This avoids holding
+angular-rate feedback constant across a whole low-rate rendering frame.
+Chaos remains authoritative for the actual body and contacts.
+
+The wing now includes **PROVISIONAL**, quasi-static passive feathering:
+
+```
+feather = (0.55 + 0.20 * spanFraction)
+          * atan2(radius * strokeRate, max(1.5, abs(v_chord)))
+alpha = geometricIncidence + aeroelasticTwist + feather
+        + atan2(-v_normal, v_chord)
+```
+
+This follows the flap-induced inflow, reducing excessive incidence during the
+stroke. It vanishes at zero flap rate. It is a prescribed approximation, not a
+solved torsional dynamic model. Section lift remains perpendicular to section
+motion and drag remains dissipative; there is no added lift/thrust multiplier.
+
+The native firmware vehicle profile now mixes throttle into both amplitude and
+cadence (0.5–3.2 Hz). The game selects a provisional 1200°/s, 8 N·m hinge actuator
+and an 11.1 V, 1.3 Ah battery with 0.08 ohm internal resistance. These are
+vehicle-side linkage/actuator parameters, not a verified commercial servo rating.
+Only opposing hinge load reduces tracking speed; overload still backdrives the
+wing. The firmware mixer equations and ABI v2 layout remain unchanged.
+See [wing-powered flight](wing-powered-flight.md) for tests and limits;
+the [earlier stability report](flight-stability-2026-09-24.md) records the
+superseded altitude-assisted trainer.
 
 Outstanding research work: implicit added mass, tail forces for arbitrary flow,
 calibrated motor/servo/linkage data, full pitch/roll trim, cross-core reconciliation

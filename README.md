@@ -79,7 +79,7 @@ cabal test all
 
 ## Unreal-Prototyp
 
-Das Unreal-5.8.2-Projekt liegt unter [`Unreal/Born2Flap`](Unreal/Born2Flap). Der Trainingsmodus bietet einen Vogel mit bewegten Fluegeln, Himmel, Torparcours und einen angezeigten Flugassistenten fuer stabilen Reiseflug. W startet/steigt, Loslassen haelt die Hoehe, A/D lenkt, S landet, R setzt vollstaendig zurueck. Die Haskell-Luftkraefte werden berechnet; unassistierter, kalibrierter Dauerflug bleibt Forschungsarbeit. Start, Builds und Tests: [Windows-Entwicklungsumgebung](docs/windows-development.md). Ursachen und Nachweise: [Flugstabilitaet](docs/flight-stability-2026-09-24.md).
+Das Unreal-5.8.2-Projekt liegt unter [`Unreal/Born2Flap`](Unreal/Born2Flap). Der Vogel fliegt mit den Haskell-Kraeften aus Fluegelbewegung und Anstroemung. Space wirft ihn an, gehaltenes W laesst ihn kontinuierlich schlagen, Shift+W erhoeht die Leistung. Loslassen kostet im Gleitflug Hoehe; Hochziehen tauscht Fahrt gegen Hoehe. A/D steuert die Kurvenneigung, Pfeil hoch/runter das Nicken, R setzt vollstaendig zurueck. Ein abschaltbarer Lageassistent hilft beim Ausrichten, ohne Hoehe oder Geschwindigkeit zu halten. Die Koeffizienten und Antriebsdaten sind noch nicht experimentell kalibriert. Start, Builds und Tests: [Windows-Entwicklungsumgebung](docs/windows-development.md). Modell und Nachweise: [Fluegelgetriebener Flug](docs/wing-powered-flight.md).
 
 ## Lizenz
 

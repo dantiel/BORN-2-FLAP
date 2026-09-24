@@ -102,15 +102,26 @@ ungekochte Inhalte nicht direkt laden kann. Ein gepacktes Distributionspaket ist
 noch nicht Bestandteil dieses Stands.
 
 Das Testskript faehrt mit der echten Haskell-DLL und Chaos jeweils 75 Sekunden
-bei 30, 60 und 144 Simulationsbildern/s: W-Start, Reiseflug, Kurve, S-Landung,
-R-Reset und zweiter Start. Ein zusaetzlicher 300-Sekunden-Test prueft Dauerflug und
-Rueckkehr vom Rand des Trainingsfelds. Die Skripte pruefen Exitcode **und** PASS-Zeile.
+bei 30, 60 und 144 Simulationsbildern/s: Ruhe am Boden, Handstart, normaler
+Fluegelschlag, Gleiten, staerkerer Fluegelschlag, Hochziehen, Kurve, Ausgleiten
+bis zur Landung, R-Reset und zweiter Start. Ein zusaetzlicher 180-Sekunden-Test
+prueft Dauerflug mit Kurven. Die Skripte pruefen Exitcode **und** PASS-Zeile.
 Die Tests ersetzen die Eingabequelle; Rendering und tatsaechliche Tastaturereignisse
 werden zusaetzlich im sichtbaren Spiel geprueft.
 
 Logs: `Unreal/Born2Flap/Saved/Logs/flight-test-*.log`, `flight-soak.log` und
 `play-training.log`. `FlightTelemetry` enthaelt Flughoehe, Geschwindigkeit,
-Zielhoehe, Fluegelwinkel sowie getrennte Aero- und Assistenzkraefte.
+Steigrate, Orientierung, Leistung, Batteriezustand, Fluegelwinkel sowie
+getrennte Luftkraefte, Luftmomente und Lageassistenzmomente. `FlightImpact`
+nennt das getroffene Objekt bei groesseren Kollisionen oberhalb des Bodens.
+
+Der native Energietest braucht kein Unreal und nutzt dieselbe Antriebsauswahl:
+
+```powershell
+python Native/tests/abi_smoke.py Unreal/Born2Flap/Binaries/ThirdParty/born2flap_math.dll
+python Native/tests/flight_regression.py Unreal/Born2Flap/Binaries/ThirdParty/born2flap_math.dll
+python Native/tests/aerodynamic_flight.py Unreal/Born2Flap/Binaries/ThirdParty/born2flap_math.dll
+```
 
 Die kleinen Materialdateien unter `Content/Training` sind versioniert. Sie lassen
 sich mit `Tools/create_training_palette.py` und Unreals PythonScriptPlugin neu
@@ -119,14 +130,25 @@ benoetigt keinen Lightmass-Build.
 
 ## Aktueller Spielstand und Grenzen
 
-Der **Trainingsmodus mit Flugassistent** enthaelt einen prozeduralen Vogel,
+Der **fluegelgetriebene Prototyp** enthaelt einen prozeduralen Vogel,
 bewegte Fluegel aus den echten Servowinkeln, Himmel, Boden, HUD und sechs Tore.
-W startet/steigt, Loslassen haelt den Reiseflug, A/D lenkt, S sinkt/landet, R setzt
-Koerper und kompletten Firmwarezustand zurueck. F1 zeigt Kraefte (cyan: Aerodynamik,
-gruen: Assistenz). Am Feldrand leitet der Assistent eine Rueckkehr ein.
 
-Der Assistent kompensiert die gemessenen Luftkraefte und regelt Geschwindigkeit
-und Hoehe. Physisches Rollen/Nicken ist gesperrt; die sichtbare Kurvenneigung ist
-animiert. Das Modell ist noch nicht als aerodynamisch kalibrierter freier
-Sechs-Freiheitsgrade-Flug validiert. Ursachen und Nachweise stehen im
-[Fehler- und Testbericht](flight-stability-2026-09-24.md).
+| Eingabe | Wirkung |
+| --- | --- |
+| Space am Boden | Einmaliger Handstart mit Anfangsfahrt |
+| W halten | Kontinuierlicher normaler Fluegelschlag |
+| Shift + W halten | Staerkerer und schnellerer Fluegelschlag |
+| W loslassen | Gleitflug, dabei gehen Energie und Hoehe verloren |
+| A / D | Kurvenneigung |
+| Pfeil hoch / runter (auch S) | Nase heben / senken; Hochziehen kostet Fahrt |
+| R | Koerper und gesamten Firmwarezustand zuruecksetzen |
+| F1 | Kraftpfeile: cyan = Aerodynamik, rot = Gewicht |
+| F2 | Lageassistent an / aus |
+
+Chaos erhaelt ausschliesslich die berechneten Luftkraefte und Schwerkraft.
+Der Lageassistent liefert begrenzte Drehmomente; es gibt keinen Hoehen- oder
+Geschwindigkeitsregler und keine gesperrten Rotationsachsen. Am Feldrand
+steuert der aktivierte Lageassistent zurueck. Ohne Fluegelschlag kann er einen
+Sinkflug nicht verhindern. Unassistierter Flug, reale Servo-/Getriebedaten und
+die aerodynamischen Koeffizienten brauchen weitere Kalibrierung. Modell,
+Messwerte und Grenzen stehen im [aktuellen Flugbericht](wing-powered-flight.md).

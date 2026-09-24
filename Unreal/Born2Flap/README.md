@@ -9,8 +9,10 @@ Dieses Projekt ist für Unreal Engine 5.8.2 vorbereitet.
 - Eingabe für Throttle, Roll, Pitch und Yaw
 - fester 240-Hz-Aufruf der Mathematik-Bridge
 - dynamisches Laden der Math-C-ABI über `born2flap_math.h`
-- direkte Tastatursteuerung für den Standalone-Prototyp (`W/S`, `A/D`, Pfeiltasten)
-- einfache Laufzeit-Testszene mit Boden und Licht
+- direkte Tastatursteuerung: Space-Handstart, W-Fluegelschlag, Shift+W mehr
+  Leistung, Loslassen zum Gleiten, A/D Kurven, Pfeiltasten zum Nicken, R Reset
+- abschaltbare Lagehilfe (F2), ohne Hoehen- oder Geschwindigkeitsregler
+- Vogelmodell, Himmel, Boden, Tageslicht, Torparcours und Flug-HUD
 - sichtbare Kraftvektoren und klarer Fehlertext bei fehlendem Backend
 
 Der Haskell-Build muss seine Plattformbibliothek hier ablegen:
@@ -33,3 +35,6 @@ Ohne diese Bibliothek startet das Projekt, zeigt aber einen Fehlertext und wende
 5. eine eigene Testmap mit Boden, Licht und PlayerStart als `.umap` speichern.
 
 Der vollständige Windows-Installations- und Buildpfad ist in [`docs/windows-development.md`](../../docs/windows-development.md) dokumentiert.
+
+Modell, native Energietests und Unreal-Flugtests:
+[`docs/wing-powered-flight.md`](../../docs/wing-powered-flight.md).

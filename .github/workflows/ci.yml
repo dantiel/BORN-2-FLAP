@@ -48,3 +48,5 @@ jobs:
         run: python3 Native/tests/abi_smoke.py MathCore/dist-newstyle
       - name: Test passive forces and coupled fall/flap/landing stability
         run: python3 Native/tests/flight_regression.py MathCore/dist-newstyle
+      - name: Test wing-driven flight and unpowered energy loss
+        run: python3 Native/tests/aerodynamic_flight.py MathCore/dist-newstyle

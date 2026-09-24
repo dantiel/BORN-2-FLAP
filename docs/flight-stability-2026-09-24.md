@@ -1,5 +1,10 @@
 ﻿# Flight stability investigation — 24 September 2026
 
+This records the initial stability repair and altitude-assisted trainer.
+The subsequent [wing-powered flight revision](wing-powered-flight.md) removes
+that trainer's speed/altitude compensation. Controls and results below describe
+the earlier version, not the current game.
+
 ## Reproduction and root cause
 
 The user's aircraft fell, bounced and accelerated away without W. A native

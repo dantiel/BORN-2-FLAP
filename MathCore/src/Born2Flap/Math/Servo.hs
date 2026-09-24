@@ -109,7 +109,8 @@ stepServo servo battery targetDeg loadTorqueNm voltage dt state
                                    (servoBackdriveDegPerSecNm servo * excess)
                 in signum loadTorqueNm * backRate
            else -- Tracking, speed reduced by the load fraction.
-                let speed = maxRate * (available / stallT)
+                let opposingLoad = max 0 (negate (signum err * loadTorqueNm))
+                    speed = maxRate * (1 - opposingLoad / stallT)
                     wantRate = err / dt
                     rate = clampRate (-speed) speed wantRate
                 in rate
