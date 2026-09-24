@@ -46,3 +46,5 @@ jobs:
         run: cabal test all
       - name: Test native Haskell runtime and transactional ABI
         run: python3 Native/tests/abi_smoke.py MathCore/dist-newstyle
+      - name: Test passive forces and coupled fall/flap/landing stability
+        run: python3 Native/tests/flight_regression.py MathCore/dist-newstyle

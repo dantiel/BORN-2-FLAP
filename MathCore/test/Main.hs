@@ -137,8 +137,9 @@ main = do
                 && abs (z (totalMomentNm o)) < 1e-10) outputs
     then pure () else fail "symmetric wings must cancel lateral loads and roll/yaw moments"
   let rollInput = input { rollCommand = 0.8 }
-      (rollOutput, _) = stepVehicle rollInput defaultVehicle
-  if abs (x (totalMomentNm rollOutput)) > 1.0e-6
+      rollOutputs = map fst (take 240 (drop 1 (iterate (\(_, s) -> stepVehicle rollInput s)
+                                        (zeroVehicleOutput, defaultVehicle))))
+  if any ((> 1.0e-6) . abs . x . totalMomentNm) rollOutputs
     then pure () else fail "differential flapping must create a roll moment"
   -- Waveform fidelity (port of PteronautOS FlappingOscillator::shapeWave).
   let f = 4.0

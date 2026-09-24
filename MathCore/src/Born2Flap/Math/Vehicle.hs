@@ -199,7 +199,6 @@ stepStrip side stroke strokeRate input index old =
       dr = spanM / fromIntegral stripCount
       radius = dr * (fromIntegral index + 0.5)
       chord = shapeChord wp fraction
-      sweep = shapeSweepRad wp fraction
       twist = shapeTwistRad wp fraction
       profile = shapeSection wp fraction
       camberPrev = stripCamber old
@@ -207,12 +206,20 @@ stepStrip side stroke strokeRate input index old =
       bend = stripBendM old
       velocity = bodyVelocityMS input
       rates = bodyRatesRadS input
-      -- Body axes: +x forward, +y right, +z up. Both wings share vertical stroke motion.
-      rotationalZ = vx rates * side * radius
-      flapVelocityZ = radius * cos stroke * strokeRate
-      chordVelocity = max 0.05 (vx velocity)
-      normalVelocity = negate (vz velocity + rotationalZ + flapVelocityZ)
-      planarSpeed = max 0.05 (sqrt (chordVelocity * chordVelocity + normalVelocity * normalVelocity))
+      -- Use section velocity through air throughout (not a mixture of air
+      -- velocity and body velocity). Drag must do negative work. The normal
+      -- rotates with the flap; positive stroke raises BOTH wings.
+      position = Vec3 0 (side * radius * cos stroke) (radius * sin stroke + bend)
+      normal = Vec3 0 (-side * sin stroke) (cos stroke)
+      spanAxis = Vec3 0 (side * cos stroke) (sin stroke)
+      flapVelocity = scaleVec (radius * strokeRate) normal
+      sectionVelocity = addVec velocity (addVec (crossVec rates position) flapVelocity)
+      dot (Vec3 a b c) (Vec3 d e f) = a*d + b*e + c*f
+      chordVelocity = vx sectionVelocity
+      normalVelocity = dot sectionVelocity normal
+      spanVelocity = dot sectionVelocity spanAxis
+      planarSpeed = sqrt (chordVelocity * chordVelocity + normalVelocity * normalVelocity)
+      safeSpeed = max 1.0e-6 planarSpeed
       -- Aeroelastic twist adds to the geometric incidence: a load-induced washout
       -- reduces the local angle of attack, closing the bending→aerodynamics loop.
       alpha = twist + aeroTwist + atan2 (-normalVelocity) chordVelocity
@@ -230,11 +237,9 @@ stepStrip side stroke strokeRate input index old =
       levTarget = if abs alphaEff > stallAngle && alphaRate * alphaEff > 0 then 1 else 0
       levRelax = 1 - exp (-dt / if levTarget > stripLevStrength old then 0.025 else 0.080)
       lev = clamp 0 1 (stripLevStrength old + levRelax * (levTarget - stripLevStrength old))
-      crossSpeed = unMetresPerSecond (crossflowBaseline 0.32 (Radians sweep)
-                       (MetresPerSecond planarSpeed))
       attachedCl = clamp (-1.9) 1.9 (2 * pi * alphaEff)
       separatedCl = 1.05 * sin (2 * alphaEff)
-      rotationalCl = clamp (-0.65) 0.65 (0.5 * chord * alphaRate / planarSpeed)
+      rotationalCl = clamp (-0.65) 0.65 (0.5 * chord * alphaRate / safeSpeed)
       cl = lerp attachedCl separatedCl relaxed + rotationalCl + signum alphaEff * 0.45 * lev
       camberNext = relaxCamber dt (spMembraneTau profile) camberPrev
                      (membraneCamberTarget profile attachedCl)
@@ -248,21 +253,22 @@ stepStrip side stroke strokeRate input index old =
       q = 0.5 * 1.225 * planarSpeed * planarSpeed
       lift = q * area * cl
       drag = q * area * cd
-      flowX = chordVelocity / planarSpeed
-      flowZ = normalVelocity / planarSpeed
-      quasiForce = Vec3 (-drag * flowX - lift * flowZ)
-                        (-side * q * area * sideCd * signum crossSpeed)
-                        (-drag * flowZ + lift * flowX)
-      normalAcceleration = (normalVelocity - stripPreviousNormalVelocity old) / dt
-      addedMass = clamp (-25) 25 (-1.225 * pi * chord * chord * dr * normalAcceleration / 4)
-      force = addVec quasiForce (Vec3 0 0 addedMass)
-      -- The bending deflection adds to the rigid flap position, so the moment
-      -- arm reflects the deformed (not the rigid) wing.
-      position = Vec3 0 (side * radius * cos stroke) (radius * sin stroke + bend)
+      flowX = chordVelocity / safeSpeed
+      flowZ = normalVelocity / safeSpeed
+      -- Lift is orthogonal to section velocity, drag opposes it, including
+      -- reverse flow. In particular a passive falling wing cannot add energy.
+      chordForce = Vec3 (-drag * flowX - lift * flowZ) 0 0
+      normalForce = scaleVec (-drag * flowZ + lift * flowX) normal
+      spanDrag = scaleVec (-0.5 * 1.225 * area * sideCd * abs spanVelocity * spanVelocity) spanAxis
+      force = addVec chordForce (addVec normalForce spanDrag)
+      -- Explicit differencing of BODY acceleration as an added-mass force
+      -- creates a delayed feedback loop at contacts. Omit this term until an
+      -- implicit fluid/body inertia solve is available; do not clamp it into
+      -- a fictitious 25 N source at every strip.
       cm0 = sectionPitchMomentCoeff camberPrev (spReflex profile)
       sectionPitchMoment = cm0 * q * chord * chord * dr
       moment = addVec (crossVec position force) (Vec3 0 sectionPitchMoment 0)
-      power = abs (vz force * flapVelocityZ)
+      power = max 0 (negate (dot force flapVelocity))
       next = StripState relaxed alpha normalVelocity lev camberNext bend
                (stripBendSlope old) aeroTwist
   in StripResult next force moment power sectionPitchMoment

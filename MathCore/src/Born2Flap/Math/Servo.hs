@@ -94,27 +94,33 @@ stepServo :: ServoSpec -> BatterySpec -> Double -> Double -> Double -> Double
 stepServo servo battery targetDeg loadTorqueNm voltage dt state
   | dt <= 0 = (servoAngleDeg state, state)
   | otherwise =
-      let voltFactor = voltage / batteryNominalVoltage battery
+      let voltFactor = clampRate 0 1 (voltage / max 0.01 (batteryNominalVoltage battery))
           stallT = max 1.0e-6 (servoStallTorqueNm servo * voltFactor)
           maxRate = servoNoLoadSpeedDegPerSec servo * voltFactor
-          err = targetDeg - servoAngleDeg state
+          err = clampRate (-80) 80 targetDeg - servoAngleDeg state
           loadMag = abs loadTorqueNm
           available = stallT - loadMag
-      in if available <= 0
+          requestedRate = if available <= 0
            then -- Overpowered: the aerodynamic load back-drives the servo in
                 -- its own torque direction (the wing wins).
                 let excess = loadMag - stallT
                     -- Passive backdrive remains possible with the motor unpowered.
-                    backRate = servoBackdriveDegPerSecNm servo * excess
-                    rate = signum loadTorqueNm * backRate
-                    next = ServoState (servoAngleDeg state + rate * dt) rate
-                in (servoAngleDeg next, next)
+                    backRate = min (servoNoLoadSpeedDegPerSec servo)
+                                   (servoBackdriveDegPerSecNm servo * excess)
+                in signum loadTorqueNm * backRate
            else -- Tracking, speed reduced by the load fraction.
                 let speed = maxRate * (available / stallT)
                     wantRate = err / dt
                     rate = clampRate (-speed) speed wantRate
-                    next = ServoState (servoAngleDeg state + rate * dt) rate
-                in (servoAngleDeg next, next)
+                in rate
+          -- Finite actuator response plus linkage end stops. Backdrive must
+          -- never integrate an unlimited angle/speed into the aero loop.
+          smoothRate = servoRateDegPerSec state + (requestedRate - servoRateDegPerSec state) * (1 - exp (-dt / 0.025))
+          limitedRate = clampRate (negate (servoNoLoadSpeedDegPerSec servo))
+                                  (servoNoLoadSpeedDegPerSec servo) smoothRate
+          angle = clampRate (-80) 80 (servoAngleDeg state + limitedRate * dt)
+          next = ServoState angle ((angle - servoAngleDeg state) / dt)
+      in (angle, next)
 
 clampRate :: Double -> Double -> Double -> Double
 clampRate low high = max low . min high

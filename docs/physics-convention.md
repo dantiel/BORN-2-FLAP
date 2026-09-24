@@ -14,7 +14,7 @@ Every entry carries a status marker:
 
 | Frame | Definition |
 |---|---|
-| Body | +x forward, +y right, +z up, right-handed. Used by `Vehicle.hs` and Unreal. |
+| Body | +x forward, +y right, +z up: Unreal's left-handed coordinate layout. Components are passed unchanged at the ABI. |
 | Wing local (OrniCore) | x chordwise toward trailing edge, y root→tip, z wing normal. |
 
 Units are SI everywhere internally. The Unreal boundary converts metres → cm.
@@ -91,13 +91,47 @@ sign of `v_span` (i.e. the sign of local sweep). **PROVISIONAL**.
 | Load/transport ordering | loads then transport | transport then loads | transport first (C++) |
 | Transport speed source | body speed | local planar speed | local planar speed |
 | Diffusion `dt`/`dr` scaling | constant 0.018 | constant 0.018 | make `dt`,`dr` dependent |
-| Reverse flow | chord clamped ≥ 0.05 | chord clamped ≥ 0.05 | not modelled yet |
+| Reverse flow | signed section velocity, dissipative drag | chord clamped positive | C++ research core still needs reconciliation |
 | Airspeed source | body velocity | fixed `forwardAirspeedMS` | vehicle body velocity |
 
-## Not yet modelled (per physics audit)
+## Flight stability correction (2026-09-24)
 
-- reverse flow (chord velocity clamped positive)
-- real `omega × r` local spanwise flow
-- actuator/servo slew — zero throttle still commands flapping (Haskell)
-- added-mass sign and startup transient
-- native RTS/ABI load in a real C host (Unreal bridge never exercised)
+The runtime firmware path now uses the section velocity **through the air**:
+
+```
+sectionVelocity = bodyVelocity + cross(omega, position) + flapVelocity
+v_chord = sectionVelocity.x
+v_normal = dot(sectionVelocity, wingNormal)
+v_span = dot(sectionVelocity, spanAxis)
+```
+
+`wingNormal` and `spanAxis` rotate with the flap. With normalized planar flow
+`(u,w)`, the implemented force pair is `Fx = -D*u - L*w`, `Fn = -D*w + L*u`.
+The lift direction is perpendicular to section motion; drag removes energy.
+The native regression checks all 27 combinations of (-5, 0, +5) m/s on the
+three body axes, including diagonal and reverse flow.
+
+The former negation of body vertical velocity made drag accelerate a falling
+bird. The explicit finite-difference added-mass term also amplified acceleration
+and ground-contact impulses. It is now omitted pending an implicit fluid/body
+inertia solve; this reduces physical completeness but removes an artificial
+energy source. Servo backdrive has finite response time, a speed limit and
+mechanical travel limits of +/-80 degrees. The battery model limits its assumed
+two-servo stall current to 10 A. These actuator constants remain provisional.
+
+`Native/tests/flight_regression.py` exercises the actual shared library with
+passivity checks and gravity/contact feedback. It runs three 60-second level-body
+trajectories with measurements held at 30, 60 and 144 Hz. This is separate from
+Unreal's six-component rigid-body and contact integration.
+
+The playable Unreal **training mode** explicitly compensates measured aerodynamic
+forces with a velocity/altitude controller, locks physical pitch/roll and controls
+yaw. Its banking is visual. Therefore stable training flight is not evidence of
+unassisted aerodynamic trim or calibrated six-degree-of-freedom flight. See
+[flight stability report](flight-stability-2026-09-24.md) for tests and limits.
+
+Outstanding research work: implicit added mass, tail forces for arbitrary flow,
+calibrated motor/servo/linkage data, full pitch/roll trim, cross-core reconciliation
+and aerodynamic comparison with measured experiments. The legacy `stepVehicle`
+oscillator still flaps at zero throttle; the runtime `stepFirmwareVehicle` uses
+firmware glide mode and holds neutral at zero throttle.

@@ -11,7 +11,7 @@ public class Born2Flap : ModuleRules
 
         PublicDependencyModuleNames.AddRange(new[]
         {
-            "Core", "CoreUObject", "Engine", "InputCore"
+            "Core", "CoreUObject", "Engine", "InputCore", "PhysicsCore"
         });
 
         PrivateDependencyModuleNames.AddRange(new[]

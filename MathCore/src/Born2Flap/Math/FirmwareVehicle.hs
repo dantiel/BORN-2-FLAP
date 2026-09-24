@@ -108,8 +108,8 @@ advanceFirmwareVehicle rc params servo battery dt bodyVel bodyRates state
           -- 2. Servo struggle: track the commanded flap deviation against the
           --    hinge torque the wings produced LAST step (explicit one-step
           --    feedback delay — standard, stable game-loop coupling).
-          currentA = (abs (fvLeftHingeTorqueNm state) + abs (fvRightHingeTorqueNm state))
-                       / max 0.01 (servoStallTorqueNm servo / 5)
+          currentA = min 10 ((abs (fvLeftHingeTorqueNm state) + abs (fvRightHingeTorqueNm state))
+                       / max 0.01 (servoStallTorqueNm servo / 5))
           liveBattery = battery { batteryStateOfCharge = fvBatterySoc state }
           voltage = batteryVoltageUnderLoad liveBattery currentA
           (leftFlapDeg, nextServoL) = stepServo servo battery
@@ -183,7 +183,7 @@ batterySocDrop :: ServoSpec -> BatterySpec -> Double -> Double -> Double
 batterySocDrop servo battery torqueNm dt =
   let -- torque-per-amp: assume stall torque draws ~ 5 A at nominal voltage.
       torquePerAmp = servoStallTorqueNm servo / 5.0
-      currentA = torqueNm / max 0.01 torquePerAmp
+      currentA = min 10 (torqueNm / max 0.01 torquePerAmp)
       ampHours = currentA * (dt / 3600)
   in ampHours / max 0.01 (batteryCapacityAh battery)
 
