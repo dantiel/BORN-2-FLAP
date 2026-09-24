@@ -18,7 +18,7 @@ Konfigurationen aus dem OrniFlight Configurator sollen optional importiert werde
 
 ## Technische Richtung
 
-- Unreal Engine 5.7 als zunächst festgelegte Produktionsbasis
+- Unreal Engine 5.8 als zunächst festgelegte Produktionsbasis
 - Chaos für Starrkörper, Kollisionen und Weltinteraktion
 - Ruby als bewusstes Brain für App-Zustand, Menüs, Regeln, Plugins und Orchestrierung
 - Haskell als kanonischer Mathematikkern für Aerodynamik, Kinematik, Steuerung und Stabilisierung
