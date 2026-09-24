@@ -77,6 +77,11 @@ private:
     UPROPERTY(EditAnywhere, Category = "Ornithopter")
     float FlapVisualGain = 1.0f;
 
+    // Keeps the first playable prototype level while the aerodynamic moments
+    // are tuned. Yaw remains simulated; pitch and roll can be re-enabled later.
+    UPROPERTY(EditAnywhere, Category = "Ornithopter")
+    bool bPrototypeUprightAssist = true;
+
     static constexpr double MathStepSeconds = 1.0 / 240.0;
 
     void BuildGeometry();

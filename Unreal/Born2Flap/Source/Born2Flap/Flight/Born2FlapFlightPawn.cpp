@@ -199,6 +199,16 @@ void ABorn2FlapFlightPawn::StepMath(double DeltaTimeSeconds)
         return;
     }
 
+    if (bPrototypeUprightAssist)
+    {
+        FRotator LevelRotation = Body->GetComponentRotation();
+        LevelRotation.Pitch = 0.0f;
+        LevelRotation.Roll = 0.0f;
+        Body->SetWorldRotation(LevelRotation, false, nullptr, ETeleportType::TeleportPhysics);
+        const FVector AngularVelocity = Body->GetPhysicsAngularVelocityInRadians();
+        Body->SetPhysicsAngularVelocityInRadians(FVector(0.0, 0.0, AngularVelocity.Z));
+    }
+
     const FTransform BodyTransform = Body->GetComponentTransform();
     const FVector WorldPosition = BodyTransform.GetLocation();
     const FVector WorldVelocity = Body->GetPhysicsLinearVelocity();
