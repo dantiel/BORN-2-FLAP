@@ -3,10 +3,18 @@
 // Type: Liu Jian Mao Cao (草书 grass script) / Chakra Petch (martial technical)
 //       Spectral (elegant handwriting) / Space Mono (specs & code)
 
+@font-face
+  font-family: 'Olympia Script'
+  src: url('../fonts/oly-scr-webfont.woff2') format('woff2'), url('../fonts/oly-scr-webfont.woff') format('woff'), url('../fonts/oly-scr-webfont.ttf') format('truetype')
+  font-weight: normal
+  font-style: normal
+  font-display: swap
+
 $brush: 'Liu Jian Mao Cao', 'STKaiti', 'KaiTi', cursive
 $display: 'Chakra Petch', 'Arial Narrow', sans-serif
 $serif: 'Spectral', 'Georgia', serif
 $mono: 'Space Mono', 'Menlo', monospace
+$script: 'Olympia Script', 'Snell Roundhand', 'Brush Script MT', cursive
 
 $cinnabar: #e0483a
 $cinnabar-deep: #c2372c
@@ -508,6 +516,16 @@ footer
   font-family: $mono
   font-size: 0.72rem
   color: var(--mut)
+
+  .brand-script
+    font-family: $script
+    font-size: 1.7em
+    line-height: 1
+    letter-spacing: -0.02em
+    color: var(--accent)
+    text-decoration: none
+    &:hover
+      color: var(--accent-deep)
 
 // ---------- Scroll top ----------
 .scroll-top

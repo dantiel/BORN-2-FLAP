@@ -211,7 +211,9 @@
         %span.sep ·
         %a{href: "#{asset_prefix}#{lang_dir}documentation/"}!= footer_docs
       %p.footer-hermetic!= footer_hermetic
-      %p.footer-credit!= footer_credit
+      %p.footer-credit
+        != footer_credit
+        %a.brand-script{href: "https://darographix.de", target: "_blank", rel: "noopener"}darographix
 
     %button.scroll-top{onclick: "window.scrollTo({top:0,behavior:'smooth'})", "aria-label" => "Scroll to top"} ↑
 

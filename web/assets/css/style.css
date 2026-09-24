@@ -1,3 +1,10 @@
+@font-face {
+  font-family: "Olympia Script";
+  src: url("../fonts/oly-scr-webfont.woff2") format("woff2"), url("../fonts/oly-scr-webfont.woff") format("woff"), url("../fonts/oly-scr-webfont.ttf") format("truetype");
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
 :root {
   --bg: #0a0b10;
   --bg-2: #10131b;
@@ -555,6 +562,17 @@ footer {
   font-family: "Space Mono", "Menlo", monospace;
   font-size: 0.72rem;
   color: var(--mut);
+}
+.footer-credit .brand-script {
+  font-family: "Olympia Script", "Snell Roundhand", "Brush Script MT", cursive;
+  font-size: 1.7em;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--accent);
+  text-decoration: none;
+}
+.footer-credit .brand-script:hover {
+  color: var(--accent-deep);
 }
 
 .scroll-top {
