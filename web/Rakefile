@@ -1,0 +1,181 @@
+# encoding: utf-8
+require "rake/clean"
+require "json"
+require "haml"
+require_relative "markdown_mini"
+
+# Hermetic i18n rendering — the parser is the single authority.
+# enrich_translations recognises each key BY NAME and BY CONTENT and emits FINAL
+# HTML for every value, so HAML carries zero logic and uses one uniform operator:
+#   *_markdown — markdown source, rendered to HTML here
+#   *_html     — raw HTML (tags/entities), emitted as-is
+#   anything   — plain text, escaped here (entity-aware)
+def enrich_translations(vars)
+  vars.each do |k, v|
+    next unless v.is_a?(String)
+    vars[k] =
+      if k.end_with?("_markdown")
+        MarkdownMini.render(v)
+      elsif k.end_with?("_html") || MarkdownMini.htmlish?(v)
+        v
+      else
+        MarkdownMini.escape(v)
+      end
+  end
+  vars
+end
+
+# Default language is English, served at the root.
+LANGS      = %w[en de es fr zh ja ko ru]
+SUBFOLDERS = %w[de es fr zh ja ko ru]
+PAGES = %w[
+  documentation
+  documentation/physics
+  documentation/wing
+  documentation/waveform
+  documentation/controls
+  tutorials
+  tutorials/first-flight
+  tutorials/wing-design
+  tutorials/tuning
+]
+
+# English is canonical; other languages fall back to it for untranslated keys.
+def load_lang(lang)
+  base = JSON.parse(File.read("_lang/en.json", encoding: "UTF-8"))
+  return base if lang == "en"
+  base.merge(JSON.parse(File.read("_lang/#{lang}.json", encoding: "UTF-8")))
+end
+
+def load_vars(lang)
+  enrich_translations(load_lang(lang))
+end
+
+CLOBBER.include(
+  "index.html",
+  *SUBFOLDERS.map { |d| "#{d}/index.html" },
+  *PAGES.map { |p| "#{p}/index.html" },
+  *SUBFOLDERS.flat_map { |d| PAGES.map { |p| "#{d}/#{p}/index.html" } },
+  "assets/css/style.css"
+)
+
+def build_html(lang)
+  vars = load_vars(lang)
+  template = File.read("index.haml", encoding: "UTF-8")
+  engine = Haml::Template.new { template }
+
+  vars["lang_dir"] = lang == "en" ? "" : "#{lang}/"
+
+  output = engine.render(Object.new, vars)
+
+  out_path = lang == "en" ? "index.html" : "#{lang}/index.html"
+  FileUtils.mkdir_p(File.dirname(out_path))
+  File.write(out_path, output, encoding: "UTF-8")
+  puts "  Built #{out_path} (#{lang.upcase})"
+end
+
+desc "Build Haml to HTML (#{LANGS.map(&:upcase).join(' + ')})"
+task :haml do
+  LANGS.each { |lang| build_html(lang) }
+end
+
+def build_page(name, lang)
+  vars = load_vars(lang)
+  template = File.read("#{name}/index.haml", encoding: "UTF-8")
+  engine = Haml::Template.new { template }
+
+  out_path = lang == "en" ? "#{name}/index.html" : "#{lang}/#{name}/index.html"
+  depth = out_path.split("/").length - 1
+  asset_prefix = "../" * depth
+  lang_dir = lang == "en" ? "" : "#{lang}/"
+
+  vars["asset_prefix"] = asset_prefix
+  vars["lang_dir"] = lang_dir
+
+  LANGS.each do |l|
+    ldir = l == "en" ? "" : "#{l}/"
+    vars["sub_lang_href_#{l}"] = asset_prefix + ldir + name + "/"
+    vars["sub_lang_class_#{l}"] = (l == lang) ? "active" : ""
+  end
+
+  output = engine.render(Object.new, vars)
+  FileUtils.mkdir_p(File.dirname(out_path))
+  File.write(out_path, output, encoding: "UTF-8")
+  puts "  Built #{out_path} (#{lang.upcase})"
+end
+
+desc "Build standalone sub-pages (Documentation + Tutorials)"
+task :pages do
+  PAGES.each do |name|
+    LANGS.each do |lang|
+      build_page(name, lang)
+    end
+  end
+end
+
+desc "Build Sass to CSS"
+task :sass do
+  sh "bundle exec sass assets/css/style.sass assets/css/style.css"
+end
+
+desc "Build all"
+task build: [:haml, :sass, :pages]
+
+desc "Clean and build"
+task rebuild: [:clobber, :build]
+
+desc "Watch for changes and rebuild automatically"
+task :watch do
+  puts "∞  Watching web/ for changes... (Ctrl+C to stop)"
+  puts "   Monitoring: *.haml, *.sass, _lang/*.json"
+  puts
+
+  Rake::Task[:build].invoke
+
+  watched = Dir["index.haml", "assets/css/style.sass", "_lang/*.json", *PAGES.map { |p| "#{p}/index.haml" }]
+  mtimes = watched.to_h { |f| [f, File.mtime(f)] }
+
+  loop do
+    sleep 0.5
+    changed = watched.select { |f| File.exist?(f) && File.mtime(f) != mtimes[f] }
+    next if changed.empty?
+
+    changed.each { |f| mtimes[f] = File.mtime(f) }
+    puts "\n∞ Changed: #{changed.map { |f| f.sub(%r{^\./}, "") }.join(', ')}"
+
+    begin
+      run_sass = changed.any? { |f| f.end_with?(".sass") }
+      run_haml = changed.any? { |f| f.end_with?(".haml", ".json") }
+      run_pages = changed.any? { |f| f.include?("/index.haml") && PAGES.include?(f.split("/").first) }
+
+      Rake::Task[:sass].reenable; Rake::Task[:sass].invoke if run_sass
+      Rake::Task[:haml].reenable; Rake::Task[:haml].invoke if run_haml
+      Rake::Task[:pages].reenable; Rake::Task[:pages].invoke if run_pages
+      puts "✓ Rebuilt at #{Time.now.strftime('%H:%M:%S')}"
+    rescue => e
+      puts "✗ Error: #{e.message}"
+    end
+  end
+end
+
+desc "Start a local HTTP server (http://localhost:8000)"
+task :server do
+  require "webrick"
+
+  root = File.expand_path(__dir__)
+  server = WEBrick::HTTPServer.new(
+    Port: 8000,
+    DocumentRoot: root,
+    BindAddress: "0.0.0.0"
+  )
+
+  trap("INT") { server.shutdown }
+  trap("TERM") { server.shutdown }
+
+  puts "∞  BORN2FLAP docs server"
+  puts "   → http://localhost:8000/"
+  puts "   Ctrl+C to stop"
+  puts
+
+  server.start
+end

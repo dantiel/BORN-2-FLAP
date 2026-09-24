@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html dir='ltr' lang='ja'>
+<head>
+<meta charset='utf-8'>
+<meta content='width=device-width, initial-scale=1' name='viewport'>
+<meta content='BORN2FLAP はリアルタイムのオーニソプター飛行シミュレーター。分割翼、動的失速、空力弾性の曲げ。一振りごとに、意味がある。' name='description'>
+<title>BORN2FLAP — オーニソプター飛行シミュレーター</title>
+<link href='https://fonts.googleapis.com' rel='preconnect'>
+<link crossorigin='true' href='https://fonts.gstatic.com' rel='preconnect'>
+<link href='https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@300;400;500;600;700&amp;family=Liu+Jian+Mao+Cao&amp;family=Spectral:ital,wght@0,200;0,300;0,400;0,500;0,600;1,200;1,300;1,400&amp;family=Space+Mono:wght@400;700&amp;display=swap' rel='stylesheet'>
+<link href='..assets/css/style.css' rel='stylesheet'>
+</head>
+<body>
+<div aria-hidden='true' class='hero-bg'>
+<div class='hero-brush-character'>翼</div>
+<div class='hero-brush-character hero-brush-character--2'>心</div>
+</div>
+<div aria-hidden='true' class='hero-bird'>
+<pre>          _..--=--.._&#x000A;      .-'`      _     `'-.&#x000A;    .'        (_)        '.&#x000A;   /    _,.--`   `--.,_    \&#x000A;  |   /    \       /    \   |&#x000A;  |  /      \     /      \  |&#x000A;  \  \      /     \      /  /&#x000A;   \  '._  /       \  _.'  /&#x000A;    '.   `'---------`'   .'&#x000A;      '-._         _.-'&#x000A;          `'-----'`&#x000A;</pre>
+</div>
+<nav id='nav'>
+<div class='nav-inner'>
+<a class='home-link' href='#' onclick='majesticScroll(); return false;' title='BORN2FLAP'>
+<span class='wm'>BORN</span>
+<span class='wm wm-brush'>2</span>
+<span class='wm'>FLAP</span>
+</a>
+<div class='nav-links' id='nav-links'>
+<a href='#essence'>本質</a>
+<a href='#flight'>翼</a>
+<a href='#architecture'>アーキテクチャ</a>
+<a href='#gameplay'>ゲームプレイ</a>
+<a href='#open'>オープンソース</a>
+<a href='#support'>Support</a>
+<span class='nav-sep'></span>
+<a href='..ja/tutorials/'>チュートリアル</a>
+<a href='..ja/documentation/'>ドキュメント</a>
+</div>
+<button aria-controls='nav-links' aria-expanded='false' aria-label='Menu' class='nav-toggle' type='button'>
+<span></span>
+<span></span>
+<span></span>
+</button>
+</div>
+</nav>
+<header id='header'>
+<div class='hero-content'>
+<p class='hero-kicker'>オーニソプター飛行シミュレーター</p>
+<h1 class='wordmark'>
+<span class='wm'>BORN</span>
+<span class='wm wm-brush'>2</span>
+<span class='wm'>FLAP</span>
+</h1>
+<p class='hero-subhead'>一振りごとに、意味がある。</p>
+<p class='hero-greeting'>機体を飛ばせ。翼となれ。</p>
+<p class='hero-lead'>縮約物理コアの上に築かれたリアルタイムのオーニソプター・シミュレーター——分割翼、部分失速、スパン方向の横流れ、空力弾性の曲げ。隠れた安定化の仕掛けはない。すべての力は翼が稼ぐ。</p>
+<div class='hero-cta'>
+<a class='cta cta-primary' href='https://github.com/dantiel/BORN-2-FLAP' rel='noopener' target='_blank'>ソースを読む</a>
+<a class='cta cta-secondary' href='https://store.steampowered.com/' rel='noopener' target='_blank'>Steam ウィッシュリスト</a>
+<a class='cta cta-ghost' href='https://store.epicgames.com/' rel='noopener' target='_blank'>Epic で入手</a>
+</div>
+<p class='hero-version'>Unreal Engine 5 · Haskell MathCore · MIT ライセンス</p>
+</div>
+</header>
+<main>
+<section id='essence'>
+<div class='section-head'>
+<span class='section-num'>01</span>
+<h2>本質</h2>
+</div>
+<p class='lead'>オーニソプターはクアッドではない。羽ばたく翼だ。</p>
+<p class='body'>ドローンがモーターの力で浮かぶのに対し、オーニソプター <em>は</em> 自らが押す空気そのものだ。BORN2FLAP は翼をモデル化する——その幾何、剛性、キャンバー、失速——そして機体自身に飛行を見つけさせる。推力も揚力も操縦も、ただ一つの源から生まれる。羽ばたきだ。</p>
+<div class='cards'>
+<div class='card'>
+<h3>本物の物理</h3>
+<p>分割翼、部分失速、付加質量、空力弾性の曲げ——固定ステップで解かれ、決してごまかさない。</p>
+</div>
+<div class='card'>
+<h3>本物の操縦</h3>
+<p>CRSF 無線、ONDAS ミキサー、PID、サーボカーネルを実機ファームウェアから移植。本物の送信機で飛ばせ。</p>
+</div>
+<div class='card'>
+<h3>本物の帰結</h3>
+<p>後退角、洗い下げ、キャンバー、剛性が飛び方を変える。組み立て、そして乗りこなせ。</p>
+</div>
+</div>
+</section>
+<section id='flight'>
+<div class='section-head'>
+<span class='section-num'>02</span>
+<h2>翼</h2>
+</div>
+<p class='lead'>空力弾性、誠実、そして生きている。</p>
+<p class='body'>二枚の翼、それぞれ十六のスパン方向ストリップ。局所迎角、レイノルズ数、剥離状態をストリップごとに計算する。横流れは後退角に沿ってスパン方向へ流れる。翼は荷重で曲がる——ねじりの洗い下げが翼端を和らげ、曲げが羽ばたきを深める——そしてその変形は迎角へと直接フィードバックされる。</p>
+<table class='specs'>
+<tr>
+<td>翼</td>
+<td>2 × 16 スパン方向ストリップ</td>
+</tr>
+<tr>
+<td>半翼幅</td>
+<td>0.72 m</td>
+</tr>
+<tr>
+<td>翼弦</td>
+<td>0.22 → 0.09 m 肩 → 翼端</td>
+</tr>
+<tr>
+<td>失速</td>
+<td>部分的、動的、ストリップごと</td>
+</tr>
+<tr>
+<td>横流れ</td>
+<td>後退角駆動、スパン方向輸送</td>
+</tr>
+<tr>
+<td>構造</td>
+<td>曲げ EI + ねじり GJ、緩和</td>
+</tr>
+<tr>
+<td>波形</td>
+<td>非対称ドウェル / 尖形、ビート同期</td>
+</tr>
+<tr>
+<td>タイムステップ</td>
+<td>固定 240 Hz</td>
+</tr>
+</table>
+</section>
+<section id='architecture'>
+<div class='section-head'>
+<span class='section-num'>03</span>
+<h2>アーキテクチャ</h2>
+</div>
+<p class='lead'>三つの言語、一つの鼓動。</p>
+<dl class='grid'>
+<dt>Haskell MathCore</dt>
+<dd>規範となる物理——空力、運動学、制御、安定化。純粋で、全体で、テスト済み。</dd>
+<dt>Unreal Engine</dt>
+<dd>描画、Chaos 剛体、ワールド相互作用、コックピット、リプレイ、ゲームモード。</dd>
+<dt>C / C++ ブリッジ</dt>
+<dd>Unreal への FFI 境界と、テスト済み OrniCore 研究フォールバック。</dd>
+<dt>Ruby ブレイン</dt>
+<dd>アプリ状態、メニュー、ルール、オーケストレーション——速い数学の背後にある遅い思考。</dd>
+</dl>
+<pre class='pipeline'><code>=~ arch_pipeline&#x000A;</code></pre>
+</section>
+<section id='gameplay'>
+<div class='section-head'>
+<span class='section-num'>04</span>
+<h2>ゲームプレイ</h2>
+</div>
+<p class='lead'>始めるのは易しく、極めるのは難しい。</p>
+<div class='cards cards--wide'>
+<div class='card'>
+<h3>フリーフライト</h3>
+<p>開けた空、サーマル探し、そして空に留まる純粋な喜び。</p>
+</div>
+<div class='card'>
+<h3>フライトスクール</h3>
+<p>中立トリムから手動チューニングまで九つのレッスン——ゴーストスティック、コリドー、リプレイ。</p>
+</div>
+<div class='card'>
+<h3>レース</h3>
+<p>峡谷と街を抜けて、ゲート、スプリット、ゴースト、クラス。</p>
+</div>
+<div class='card'>
+<h3>フリースタイル</h3>
+<p>スコアボードではなく翼が判定するトリックチャレンジ。</p>
+</div>
+<div class='card'>
+<h3>精密着陸</h3>
+<p>風の中の定点着陸——最古の種目にして最難。</p>
+</div>
+<div class='card'>
+<h3>テストベンチ</h3>
+<p>風洞ビュー：力ベクトル、失速マップ、翼の変形をライブで。</p>
+</div>
+<div class='card'>
+<h3>Natural Valley</h3>
+<p>A forested valley with a winding river, firs, grass and moss — terrain and tree trunks you can actually collide with.</p>
+</div>
+<div class='card'>
+<h3>Real RC Transmitter</h3>
+<p>Plug in your own USB transmitter and fly on real sticks — no drivers, no translation layer. F3 opens calibration.</p>
+</div>
+</div>
+</section>
+<section id='open'>
+<div class='section-head'>
+<span class='section-num'>05</span>
+<h2>オープンソース</h2>
+</div>
+<p class='lead'>商用であり、同時に自由。</p>
+<p class='body'>BORN2FLAP は Steam と Epic Games Store でリリースされ、自前のソースは <strong>MIT ライセンス</strong>で公開される。物理コアもブリッジもブレインも——オープンだ。ゲームを飛ばし、翼を持ち帰り、自分だけのものを作れ。Unreal Engine とサードパーティ資産はそれぞれのライセンスを保持する。</p>
+<div class='open-actions'>
+<a class='cta cta-primary' href='https://github.com/dantiel/BORN-2-FLAP' rel='noopener' target='_blank'>GitHub</a>
+<span class='license'>MIT ライセンス</span>
+</div>
+</section>
+<section id='support'>
+<div class='section-head'>
+<span class='section-num'>06</span>
+<h2>Support the Flock</h2>
+</div>
+<p class='lead'>Free as air, kept aloft by hearts.</p>
+<p class='body'>BORN2FLAP is free and open source, and it stays that way because of people like you. Every tip and sponsor fuels the next model, the next physics refinement, the next release.</p>
+<div class='open-actions'>
+<a class='cta cta-primary' href='https://ko-fi.com/darographix' rel='noopener' target='_blank'>Tip on Ko-fi</a>
+<a class='cta cta-secondary' href='https://github.com/sponsors/dantiel' rel='noopener' target='_blank'>Become a sponsor</a>
+</div>
+</section>
+</main>
+<footer>
+<div class='lang-switch'>
+<a class='' href='../'>EN</a>
+<a class='' href='../de/'>DE</a>
+<a class='' href='../es/'>ES</a>
+<a class='' href='../fr/'>FR</a>
+<a class='' href='../zh/'>中文</a>
+<a class='active' href='.'>日本語</a>
+<a class='' href='../ko/'>한국어</a>
+<a class='' href='../ru/'>RU</a>
+</div>
+<p class='footer-links'>
+<a href='https://github.com/dantiel/BORN-2-FLAP' rel='noopener' target='_blank'>GitHub</a>
+<span class='sep'>·</span>
+<a href='https://ko-fi.com/darographix' rel='noopener' target='_blank'>Ko-fi</a>
+<span class='sep'>·</span>
+<a href='https://github.com/sponsors/dantiel' rel='noopener' target='_blank'>Sponsors</a>
+<span class='sep'>·</span>
+<a href='https://store.steampowered.com/' rel='noopener' target='_blank'>Steam</a>
+<span class='sep'>·</span>
+<a href='https://store.epicgames.com/' rel='noopener' target='_blank'>Epic Games</a>
+<span class='sep'>·</span>
+<a href='..ja/tutorials/'>チュートリアル</a>
+<span class='sep'>·</span>
+<a href='..ja/documentation/'>ドキュメント</a>
+</p>
+<p class='footer-hermetic'>猛き心がエーテルに書きつける。</p>
+<p class='footer-credit'>BORN2FLAP · Daniel Rodriguez</p>
+</footer>
+<button aria-label='Scroll to top' class='scroll-top' onclick='window.scrollTo({top:0,behavior:&#39;smooth&#39;})'>↑</button>
+<script>
+  const nav = document.querySelector('#nav');
+  const navToggle = document.querySelector('.nav-toggle');
+  const navLinks = document.querySelector('#nav-links');
+  const scrollBtn = document.querySelector('.scroll-top');
+  const bird = document.querySelector('.hero-bird');
+  const bg = document.querySelector('.hero-bg');
+  
+  if (navToggle) {
+    navToggle.addEventListener('click', () => {
+      const open = navToggle.getAttribute('aria-expanded') === 'true';
+      navToggle.setAttribute('aria-expanded', String(!open));
+      navLinks.classList.toggle('open', !open);
+    });
+    navLinks.querySelectorAll('a').forEach(link => {
+      link.addEventListener('click', () => {
+        navToggle.setAttribute('aria-expanded', 'false');
+        navLinks.classList.remove('open');
+      });
+    });
+  }
+  
+  function majesticScroll() {
+    const start = window.scrollY;
+    const duration = 1600;
+    const startTime = performance.now();
+    function step(now) {
+      const elapsed = now - startTime;
+      const t = Math.min(elapsed / duration, 1);
+      const eased = 1 - Math.pow(1 - t, 4);
+      window.scrollTo(0, start * (1 - eased));
+      if (t < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+  
+  function tick() {
+    const scroll = window.scrollY;
+    const vh = window.innerHeight;
+    const t = Math.min(scroll / vh, 1);
+  
+    if (bird) {
+      bird.style.transform = `translateY(${t * 140}px)`;
+      bird.style.opacity = Math.max(0, 1 - t * 1.6);
+    }
+    if (bg) bg.style.setProperty('--scroll', t.toFixed(3));
+    nav.classList.toggle('scrolled', scroll > 40);
+    scrollBtn.classList.toggle('visible', scroll > vh * 0.6);
+  
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+</script>
+</body>
+</html>

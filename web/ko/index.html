@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html dir='ltr' lang='ko'>
+<head>
+<meta charset='utf-8'>
+<meta content='width=device-width, initial-scale=1' name='viewport'>
+<meta content='BORN2FLAP은 실시간 오니솝터 비행 시뮬레이터입니다. 분절 날개, 동적 실속, 공력탄성 굽힘. 날갯짓 하나하나가 전부다.' name='description'>
+<title>BORN2FLAP — 오니솝터 비행 시뮬레이터</title>
+<link href='https://fonts.googleapis.com' rel='preconnect'>
+<link crossorigin='true' href='https://fonts.gstatic.com' rel='preconnect'>
+<link href='https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@300;400;500;600;700&amp;family=Liu+Jian+Mao+Cao&amp;family=Spectral:ital,wght@0,200;0,300;0,400;0,500;0,600;1,200;1,300;1,400&amp;family=Space+Mono:wght@400;700&amp;display=swap' rel='stylesheet'>
+<link href='..assets/css/style.css' rel='stylesheet'>
+</head>
+<body>
+<div aria-hidden='true' class='hero-bg'>
+<div class='hero-brush-character'>翼</div>
+<div class='hero-brush-character hero-brush-character--2'>心</div>
+</div>
+<div aria-hidden='true' class='hero-bird'>
+<pre>          _..--=--.._&#x000A;      .-'`      _     `'-.&#x000A;    .'        (_)        '.&#x000A;   /    _,.--`   `--.,_    \&#x000A;  |   /    \       /    \   |&#x000A;  |  /      \     /      \  |&#x000A;  \  \      /     \      /  /&#x000A;   \  '._  /       \  _.'  /&#x000A;    '.   `'---------`'   .'&#x000A;      '-._         _.-'&#x000A;          `'-----'`&#x000A;</pre>
+</div>
+<nav id='nav'>
+<div class='nav-inner'>
+<a class='home-link' href='#' onclick='majesticScroll(); return false;' title='BORN2FLAP'>
+<span class='wm'>BORN</span>
+<span class='wm wm-brush'>2</span>
+<span class='wm'>FLAP</span>
+</a>
+<div class='nav-links' id='nav-links'>
+<a href='#essence'>본질</a>
+<a href='#flight'>날개</a>
+<a href='#architecture'>아키텍처</a>
+<a href='#gameplay'>게임플레이</a>
+<a href='#open'>오픈소스</a>
+<a href='#support'>Support</a>
+<span class='nav-sep'></span>
+<a href='..ko/tutorials/'>튜토리얼</a>
+<a href='..ko/documentation/'>문서</a>
+</div>
+<button aria-controls='nav-links' aria-expanded='false' aria-label='Menu' class='nav-toggle' type='button'>
+<span></span>
+<span></span>
+<span></span>
+</button>
+</div>
+</nav>
+<header id='header'>
+<div class='hero-content'>
+<p class='hero-kicker'>오니솝터 비행 시뮬레이터</p>
+<h1 class='wordmark'>
+<span class='wm'>BORN</span>
+<span class='wm wm-brush'>2</span>
+<span class='wm'>FLAP</span>
+</h1>
+<p class='hero-subhead'>날갯짓 하나하나가 전부다.</p>
+<p class='hero-greeting'>기계를 날려라. 날개가 되어라.</p>
+<p class='hero-lead'>축약된 물리 코어 위에 세워진 실시간 오니솝터 시뮬레이터——분절 날개, 부분 실속, 스팬 방향 횡류, 공력탄성 굽힘. 숨겨진 안정화 속임수는 없다. 모든 힘은 날개가 벌어들인다.</p>
+<div class='hero-cta'>
+<a class='cta cta-primary' href='https://github.com/dantiel/BORN-2-FLAP' rel='noopener' target='_blank'>소스 읽기</a>
+<a class='cta cta-secondary' href='https://store.steampowered.com/' rel='noopener' target='_blank'>Steam 위시리스트</a>
+<a class='cta cta-ghost' href='https://store.epicgames.com/' rel='noopener' target='_blank'>Epic에서 받기</a>
+</div>
+<p class='hero-version'>Unreal Engine 5 · Haskell MathCore · MIT 라이선스</p>
+</div>
+</header>
+<main>
+<section id='essence'>
+<div class='section-head'>
+<span class='section-num'>01</span>
+<h2>본질</h2>
+</div>
+<p class='lead'>오니솝터는 쿼드콥터가 아니다. 박동하는 날개다.</p>
+<p class='body'>드론이 모터의 힘으로 떠 있는 반면, 오니솝터 <em>는</em> 스스로 밀어내는 공기 그 자체다. BORN2FLAP은 날개를 모델링한다——그 기하, 강성, 캠버, 실속——그리고 기계가 스스로 비행을 찾아내게 한다. 추력과 양력과 조종은 단 하나의 근원에서 나온다. 날갯짓이다.</p>
+<div class='cards'>
+<div class='card'>
+<h3>진짜 물리</h3>
+<p>분절 날개, 부분 실속, 부가 질량, 공력탄성 굽힘——고정 스텝으로 풀고, 결코 속이지 않는다.</p>
+</div>
+<div class='card'>
+<h3>진짜 조종</h3>
+<p>CRSF 무선, ONDAS 믹서, PID, 서보 커널을 실제 펌웨어에서 이식. 진짜 송신기로 날려라.</p>
+</div>
+<div class='card'>
+<h3>진짜 결과</h3>
+<p>후퇴각, 워시아웃, 캠버, 강성이 비행을 바꾼다. 만들고, 그리고 살아남아라.</p>
+</div>
+</div>
+</section>
+<section id='flight'>
+<div class='section-head'>
+<span class='section-num'>02</span>
+<h2>날개</h2>
+</div>
+<p class='lead'>공력탄성, 정직함, 그리고 살아있음.</p>
+<p class='body'>두 개의 날개, 각각 열여섯 개의 스팬 방향 스트립. 국소 받음각, 레이놀즈 수, 박리 상태를 스트립마다 계산한다. 횡류는 후퇴각을 따라 스팬 방향으로 흐른다. 날개는 하중 아래에서 굽는다——비틀림 워시아웃이 날개 끝을 부드럽게 하고, 굽힘이 날갯짓을 깊게 한다——그리고 그 변형은 곧바로 받음각으로 되먹임된다.</p>
+<table class='specs'>
+<tr>
+<td>날개</td>
+<td>2 × 16 스팬 방향 스트립</td>
+</tr>
+<tr>
+<td>반스팬</td>
+<td>0.72 m</td>
+</tr>
+<tr>
+<td>시위</td>
+<td>0.22 → 0.09 m 어깨 → 날개 끝</td>
+</tr>
+<tr>
+<td>실속</td>
+<td>부분적, 동적, 스트립별</td>
+</tr>
+<tr>
+<td>횡류</td>
+<td>후퇴각 구동, 스팬 방향 수송</td>
+</tr>
+<tr>
+<td>구조</td>
+<td>굽힘 EI + 비틀림 GJ, 완화</td>
+</tr>
+<tr>
+<td>파형</td>
+<td>비대칭 드웰 / 첨형, 비트 동기</td>
+</tr>
+<tr>
+<td>타임스텝</td>
+<td>고정 240 Hz</td>
+</tr>
+</table>
+</section>
+<section id='architecture'>
+<div class='section-head'>
+<span class='section-num'>03</span>
+<h2>아키텍처</h2>
+</div>
+<p class='lead'>세 가지 언어, 하나의 박동.</p>
+<dl class='grid'>
+<dt>Haskell MathCore</dt>
+<dd>규범이 되는 물리——공기역학, 운동학, 제어, 안정화. 순수하고, 전체적이며, 테스트되었다.</dd>
+<dt>Unreal Engine</dt>
+<dd>렌더링, Chaos 강체, 월드 상호작용, 조종석, 리플레이, 게임 모드.</dd>
+<dt>C / C++ 브리지</dt>
+<dd>Unreal로 향하는 FFI 경계와, 테스트된 OrniCore 연구 폴백.</dd>
+<dt>Ruby 브레인</dt>
+<dd>앱 상태, 메뉴, 규칙, 오케스트레이션——빠른 수학 뒤의 느린 사고.</dd>
+</dl>
+<pre class='pipeline'><code>=~ arch_pipeline&#x000A;</code></pre>
+</section>
+<section id='gameplay'>
+<div class='section-head'>
+<span class='section-num'>04</span>
+<h2>게임플레이</h2>
+</div>
+<p class='lead'>시작은 쉽게, 숙달은 어렵게.</p>
+<div class='cards cards--wide'>
+<div class='card'>
+<h3>자유 비행</h3>
+<p>트인 하늘, 써멀 사냥, 그리고 하늘에 머무는 순수한 기쁨.</p>
+</div>
+<div class='card'>
+<h3>비행 학교</h3>
+<p>중립 트림에서 수동 튜닝까지 아홉 레슨——고스트 스틱, 코리더, 리플레이.</p>
+</div>
+<div class='card'>
+<h3>레이스</h3>
+<p>협곡과 도시를 가로지르는 게이트, 스플릿, 고스트, 클래스.</p>
+</div>
+<div class='card'>
+<h3>프리스타일</h3>
+<p>스코어보드가 아니라 날개가 심사하는 트릭 챌린지.</p>
+</div>
+<div class='card'>
+<h3>정밀 착륙</h3>
+<p>바람 속의 정점 착륙——가장 오래된 종목, 가장 어렵다.</p>
+</div>
+<div class='card'>
+<h3>테스트 벤치</h3>
+<p>풍동 뷰: 힘 벡터, 실속 맵, 날개 변형을 라이브로.</p>
+</div>
+<div class='card'>
+<h3>Natural Valley</h3>
+<p>A forested valley with a winding river, firs, grass and moss — terrain and tree trunks you can actually collide with.</p>
+</div>
+<div class='card'>
+<h3>Real RC Transmitter</h3>
+<p>Plug in your own USB transmitter and fly on real sticks — no drivers, no translation layer. F3 opens calibration.</p>
+</div>
+</div>
+</section>
+<section id='open'>
+<div class='section-head'>
+<span class='section-num'>05</span>
+<h2>오픈소스</h2>
+</div>
+<p class='lead'>상업적이면서 동시에 자유롭다.</p>
+<p class='body'>BORN2FLAP은 Steam과 Epic Games Store에 출시되며, 자체 소스는 <strong>MIT 라이선스</strong>로 공개된다. 물리 코어, 브리지, 브레인——모두 개방. 게임을 날리고, 날개를 가져가 너만의 것을 만들어라. Unreal Engine과 서드파티 에셋은 각자의 라이선스를 유지한다.</p>
+<div class='open-actions'>
+<a class='cta cta-primary' href='https://github.com/dantiel/BORN-2-FLAP' rel='noopener' target='_blank'>GitHub</a>
+<span class='license'>MIT 라이선스</span>
+</div>
+</section>
+<section id='support'>
+<div class='section-head'>
+<span class='section-num'>06</span>
+<h2>Support the Flock</h2>
+</div>
+<p class='lead'>Free as air, kept aloft by hearts.</p>
+<p class='body'>BORN2FLAP is free and open source, and it stays that way because of people like you. Every tip and sponsor fuels the next model, the next physics refinement, the next release.</p>
+<div class='open-actions'>
+<a class='cta cta-primary' href='https://ko-fi.com/darographix' rel='noopener' target='_blank'>Tip on Ko-fi</a>
+<a class='cta cta-secondary' href='https://github.com/sponsors/dantiel' rel='noopener' target='_blank'>Become a sponsor</a>
+</div>
+</section>
+</main>
+<footer>
+<div class='lang-switch'>
+<a class='' href='../'>EN</a>
+<a class='' href='../de/'>DE</a>
+<a class='' href='../es/'>ES</a>
+<a class='' href='../fr/'>FR</a>
+<a class='' href='../zh/'>中文</a>
+<a class='' href='../ja/'>日本語</a>
+<a class='active' href='.'>한국어</a>
+<a class='' href='../ru/'>RU</a>
+</div>
+<p class='footer-links'>
+<a href='https://github.com/dantiel/BORN-2-FLAP' rel='noopener' target='_blank'>GitHub</a>
+<span class='sep'>·</span>
+<a href='https://ko-fi.com/darographix' rel='noopener' target='_blank'>Ko-fi</a>
+<span class='sep'>·</span>
+<a href='https://github.com/sponsors/dantiel' rel='noopener' target='_blank'>Sponsors</a>
+<span class='sep'>·</span>
+<a href='https://store.steampowered.com/' rel='noopener' target='_blank'>Steam</a>
+<span class='sep'>·</span>
+<a href='https://store.epicgames.com/' rel='noopener' target='_blank'>Epic Games</a>
+<span class='sep'>·</span>
+<a href='..ko/tutorials/'>튜토리얼</a>
+<span class='sep'>·</span>
+<a href='..ko/documentation/'>문서</a>
+</p>
+<p class='footer-hermetic'>사나운 심장들이 에테르에 써 내려간다.</p>
+<p class='footer-credit'>BORN2FLAP · Daniel Rodriguez</p>
+</footer>
+<button aria-label='Scroll to top' class='scroll-top' onclick='window.scrollTo({top:0,behavior:&#39;smooth&#39;})'>↑</button>
+<script>
+  const nav = document.querySelector('#nav');
+  const navToggle = document.querySelector('.nav-toggle');
+  const navLinks = document.querySelector('#nav-links');
+  const scrollBtn = document.querySelector('.scroll-top');
+  const bird = document.querySelector('.hero-bird');
+  const bg = document.querySelector('.hero-bg');
+  
+  if (navToggle) {
+    navToggle.addEventListener('click', () => {
+      const open = navToggle.getAttribute('aria-expanded') === 'true';
+      navToggle.setAttribute('aria-expanded', String(!open));
+      navLinks.classList.toggle('open', !open);
+    });
+    navLinks.querySelectorAll('a').forEach(link => {
+      link.addEventListener('click', () => {
+        navToggle.setAttribute('aria-expanded', 'false');
+        navLinks.classList.remove('open');
+      });
+    });
+  }
+  
+  function majesticScroll() {
+    const start = window.scrollY;
+    const duration = 1600;
+    const startTime = performance.now();
+    function step(now) {
+      const elapsed = now - startTime;
+      const t = Math.min(elapsed / duration, 1);
+      const eased = 1 - Math.pow(1 - t, 4);
+      window.scrollTo(0, start * (1 - eased));
+      if (t < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+  
+  function tick() {
+    const scroll = window.scrollY;
+    const vh = window.innerHeight;
+    const t = Math.min(scroll / vh, 1);
+  
+    if (bird) {
+      bird.style.transform = `translateY(${t * 140}px)`;
+      bird.style.opacity = Math.max(0, 1 - t * 1.6);
+    }
+    if (bg) bg.style.setProperty('--scroll', t.toFixed(3));
+    nav.classList.toggle('scrolled', scroll > 40);
+    scrollBtn.classList.toggle('visible', scroll > vh * 0.6);
+  
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+</script>
+</body>
+</html>

@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html dir='ltr' lang='zh'>
+<head>
+<meta charset='utf-8'>
+<meta content='width=device-width, initial-scale=1' name='viewport'>
+<meta content='BORN2FLAP 是一款实时扑翼机飞行模拟器：分段机翼、动态失速与气动弹性弯曲。每一振翅，皆为关键。' name='description'>
+<title>BORN2FLAP — 扑翼机飞行模拟器</title>
+<link href='https://fonts.googleapis.com' rel='preconnect'>
+<link crossorigin='true' href='https://fonts.gstatic.com' rel='preconnect'>
+<link href='https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@300;400;500;600;700&amp;family=Liu+Jian+Mao+Cao&amp;family=Spectral:ital,wght@0,200;0,300;0,400;0,500;0,600;1,200;1,300;1,400&amp;family=Space+Mono:wght@400;700&amp;display=swap' rel='stylesheet'>
+<link href='..assets/css/style.css' rel='stylesheet'>
+</head>
+<body>
+<div aria-hidden='true' class='hero-bg'>
+<div class='hero-brush-character'>翼</div>
+<div class='hero-brush-character hero-brush-character--2'>心</div>
+</div>
+<div aria-hidden='true' class='hero-bird'>
+<pre>          _..--=--.._&#x000A;      .-'`      _     `'-.&#x000A;    .'        (_)        '.&#x000A;   /    _,.--`   `--.,_    \&#x000A;  |   /    \       /    \   |&#x000A;  |  /      \     /      \  |&#x000A;  \  \      /     \      /  /&#x000A;   \  '._  /       \  _.'  /&#x000A;    '.   `'---------`'   .'&#x000A;      '-._         _.-'&#x000A;          `'-----'`&#x000A;</pre>
+</div>
+<nav id='nav'>
+<div class='nav-inner'>
+<a class='home-link' href='#' onclick='majesticScroll(); return false;' title='BORN2FLAP'>
+<span class='wm'>BORN</span>
+<span class='wm wm-brush'>2</span>
+<span class='wm'>FLAP</span>
+</a>
+<div class='nav-links' id='nav-links'>
+<a href='#essence'>本质</a>
+<a href='#flight'>机翼</a>
+<a href='#architecture'>架构</a>
+<a href='#gameplay'>玩法</a>
+<a href='#open'>开源</a>
+<a href='#support'>Support</a>
+<span class='nav-sep'></span>
+<a href='..zh/tutorials/'>教程</a>
+<a href='..zh/documentation/'>文档</a>
+</div>
+<button aria-controls='nav-links' aria-expanded='false' aria-label='Menu' class='nav-toggle' type='button'>
+<span></span>
+<span></span>
+<span></span>
+</button>
+</div>
+</nav>
+<header id='header'>
+<div class='hero-content'>
+<p class='hero-kicker'>一款扑翼机飞行模拟器</p>
+<h1 class='wordmark'>
+<span class='wm'>BORN</span>
+<span class='wm wm-brush'>2</span>
+<span class='wm'>FLAP</span>
+</h1>
+<p class='hero-subhead'>每一振翅，皆为关键。</p>
+<p class='hero-greeting'>驾驭机器，化身双翼。</p>
+<p class='hero-lead'>一款基于精简物理内核的实时扑翼机模拟器——分段机翼、局部失速、展向横流、气动弹性弯曲。没有隐藏的稳定技巧。每一分力都由翅膀挣来。</p>
+<div class='hero-cta'>
+<a class='cta cta-primary' href='https://github.com/dantiel/BORN-2-FLAP' rel='noopener' target='_blank'>阅读源码</a>
+<a class='cta cta-secondary' href='https://store.steampowered.com/' rel='noopener' target='_blank'>加入 Steam 愿望单</a>
+<a class='cta cta-ghost' href='https://store.epicgames.com/' rel='noopener' target='_blank'>前往 Epic 获取</a>
+</div>
+<p class='hero-version'>Unreal Engine 5 · Haskell MathCore · MIT 许可证</p>
+</div>
+</header>
+<main>
+<section id='essence'>
+<div class='section-head'>
+<span class='section-num'>01</span>
+<h2>本质</h2>
+</div>
+<p class='lead'>扑翼机不是四旋翼。它是一双拍打的翅膀。</p>
+<p class='body'>无人机靠电机悬停，而扑翼机 <em>本身就是</em>它推开的空气。BORN2FLAP 对机翼建模——它的几何、刚度、弯度、失速——让机器自己去寻找飞行。推力、升力与控制，都源于同一个源头：振翅。</p>
+<div class='cards'>
+<div class='card'>
+<h3>真实物理</h3>
+<p>分段机翼、局部失速、附加质量与气动弹性弯曲——以固定时间步解算，绝不造假。</p>
+</div>
+<div class='card'>
+<h3>真实操控</h3>
+<p>CRSF 遥控、ONDAS 混控、PID 与舵机内核，皆从真实固件移植。用真正的遥控器来飞。</p>
+</div>
+<div class='card'>
+<h3>真实代价</h3>
+<p>后掠、洗出、弯度与刚度都会改变飞行。造出来，然后驾驭它。</p>
+</div>
+</div>
+</section>
+<section id='flight'>
+<div class='section-head'>
+<span class='section-num'>02</span>
+<h2>机翼</h2>
+</div>
+<p class='lead'>气动弹性，诚实，鲜活。</p>
+<p class='body'>两翼，每翼十六个展向条带。每个条带分别计算当地迎角、雷诺数与分离状态。横流随后掠沿展向漂移。机翼在载荷下弯曲——扭转洗出软化翼尖，弯曲加深拍打——而形变又直接反馈回迎角。</p>
+<table class='specs'>
+<tr>
+<td>机翼</td>
+<td>2 × 16 展向条带</td>
+</tr>
+<tr>
+<td>半翼展</td>
+<td>0.72 米</td>
+</tr>
+<tr>
+<td>弦长</td>
+<td>0.22 → 0.09 米 肩部 → 翼尖</td>
+</tr>
+<tr>
+<td>失速</td>
+<td>局部、动态、逐条带</td>
+</tr>
+<tr>
+<td>横流</td>
+<td>后掠驱动，展向输运</td>
+</tr>
+<tr>
+<td>结构</td>
+<td>弯曲 EI + 扭转 GJ，松弛</td>
+</tr>
+<tr>
+<td>波形</td>
+<td>非对称驻留 / 尖波，节拍锁定</td>
+</tr>
+<tr>
+<td>时间步</td>
+<td>固定 240 Hz</td>
+</tr>
+</table>
+</section>
+<section id='architecture'>
+<div class='section-head'>
+<span class='section-num'>03</span>
+<h2>架构</h2>
+</div>
+<p class='lead'>三种语言，一颗跳动的心。</p>
+<dl class='grid'>
+<dt>Haskell MathCore</dt>
+<dd>规范物理——空气动力学、运动学、控制与稳定。纯粹、完备、经过测试。</dd>
+<dt>Unreal Engine</dt>
+<dd>渲染、Chaos 刚体、世界交互、座舱、回放与游戏模式。</dd>
+<dt>C / C++ 桥接</dt>
+<dd>通往 Unreal 的 FFI 边界，加上已测试的 OrniCore 研究回退。</dd>
+<dt>Ruby 大脑</dt>
+<dd>应用状态、菜单、规则与编排——快数学背后的慢思维。</dd>
+</dl>
+<pre class='pipeline'><code>=~ arch_pipeline&#x000A;</code></pre>
+</section>
+<section id='gameplay'>
+<div class='section-head'>
+<span class='section-num'>04</span>
+<h2>玩法</h2>
+</div>
+<p class='lead'>上手容易，精通很难。</p>
+<div class='cards cards--wide'>
+<div class='card'>
+<h3>自由飞行</h3>
+<p>开阔天空、追逐热气流，以及留在空中的纯粹乐趣。</p>
+</div>
+<div class='card'>
+<h3>飞行学校</h3>
+<p>从居中配平到手动调校，共九课——幽灵摇杆、航迹走廊、回放。</p>
+</div>
+<div class='card'>
+<h3>竞速</h3>
+<p>穿越峡谷与城市，过门、分段、幽灵与分组。</p>
+</div>
+<div class='card'>
+<h3>自由花式</h3>
+<p>由翅膀评判的特技挑战，而不是记分牌。</p>
+</div>
+<div class='card'>
+<h3>定点着陆</h3>
+<p>风中定点着陆——最古老的科目，也最难。</p>
+</div>
+<div class='card'>
+<h3>测试台</h3>
+<p>风洞视角：力矢量、失速图谱、机翼形变实时可见。</p>
+</div>
+<div class='card'>
+<h3>Natural Valley</h3>
+<p>A forested valley with a winding river, firs, grass and moss — terrain and tree trunks you can actually collide with.</p>
+</div>
+<div class='card'>
+<h3>Real RC Transmitter</h3>
+<p>Plug in your own USB transmitter and fly on real sticks — no drivers, no translation layer. F3 opens calibration.</p>
+</div>
+</div>
+</section>
+<section id='open'>
+<div class='section-head'>
+<span class='section-num'>05</span>
+<h2>开源</h2>
+</div>
+<p class='lead'>商业化与自由并存。</p>
+<p class='body'>BORN2FLAP 将登陆 Steam 与 Epic Games Store，而其自有源码以 <strong>MIT 许可证</strong>发布。物理内核、桥接、大脑——全部开放。飞这款游戏，拿走这双翅膀，造你自己的。Unreal Engine 与第三方资产保留各自许可。</p>
+<div class='open-actions'>
+<a class='cta cta-primary' href='https://github.com/dantiel/BORN-2-FLAP' rel='noopener' target='_blank'>GitHub</a>
+<span class='license'>MIT 许可证</span>
+</div>
+</section>
+<section id='support'>
+<div class='section-head'>
+<span class='section-num'>06</span>
+<h2>Support the Flock</h2>
+</div>
+<p class='lead'>Free as air, kept aloft by hearts.</p>
+<p class='body'>BORN2FLAP is free and open source, and it stays that way because of people like you. Every tip and sponsor fuels the next model, the next physics refinement, the next release.</p>
+<div class='open-actions'>
+<a class='cta cta-primary' href='https://ko-fi.com/darographix' rel='noopener' target='_blank'>Tip on Ko-fi</a>
+<a class='cta cta-secondary' href='https://github.com/sponsors/dantiel' rel='noopener' target='_blank'>Become a sponsor</a>
+</div>
+</section>
+</main>
+<footer>
+<div class='lang-switch'>
+<a class='' href='../'>EN</a>
+<a class='' href='../de/'>DE</a>
+<a class='' href='../es/'>ES</a>
+<a class='' href='../fr/'>FR</a>
+<a class='active' href='.'>中文</a>
+<a class='' href='../ja/'>日本語</a>
+<a class='' href='../ko/'>한국어</a>
+<a class='' href='../ru/'>RU</a>
+</div>
+<p class='footer-links'>
+<a href='https://github.com/dantiel/BORN-2-FLAP' rel='noopener' target='_blank'>GitHub</a>
+<span class='sep'>·</span>
+<a href='https://ko-fi.com/darographix' rel='noopener' target='_blank'>Ko-fi</a>
+<span class='sep'>·</span>
+<a href='https://github.com/sponsors/dantiel' rel='noopener' target='_blank'>Sponsors</a>
+<span class='sep'>·</span>
+<a href='https://store.steampowered.com/' rel='noopener' target='_blank'>Steam</a>
+<span class='sep'>·</span>
+<a href='https://store.epicgames.com/' rel='noopener' target='_blank'>Epic Games</a>
+<span class='sep'>·</span>
+<a href='..zh/tutorials/'>教程</a>
+<span class='sep'>·</span>
+<a href='..zh/documentation/'>文档</a>
+</p>
+<p class='footer-hermetic'>以凶猛之心，书于以太之中。</p>
+<p class='footer-credit'>BORN2FLAP · Daniel Rodriguez</p>
+</footer>
+<button aria-label='Scroll to top' class='scroll-top' onclick='window.scrollTo({top:0,behavior:&#39;smooth&#39;})'>↑</button>
+<script>
+  const nav = document.querySelector('#nav');
+  const navToggle = document.querySelector('.nav-toggle');
+  const navLinks = document.querySelector('#nav-links');
+  const scrollBtn = document.querySelector('.scroll-top');
+  const bird = document.querySelector('.hero-bird');
+  const bg = document.querySelector('.hero-bg');
+  
+  if (navToggle) {
+    navToggle.addEventListener('click', () => {
+      const open = navToggle.getAttribute('aria-expanded') === 'true';
+      navToggle.setAttribute('aria-expanded', String(!open));
+      navLinks.classList.toggle('open', !open);
+    });
+    navLinks.querySelectorAll('a').forEach(link => {
+      link.addEventListener('click', () => {
+        navToggle.setAttribute('aria-expanded', 'false');
+        navLinks.classList.remove('open');
+      });
+    });
+  }
+  
+  function majesticScroll() {
+    const start = window.scrollY;
+    const duration = 1600;
+    const startTime = performance.now();
+    function step(now) {
+      const elapsed = now - startTime;
+      const t = Math.min(elapsed / duration, 1);
+      const eased = 1 - Math.pow(1 - t, 4);
+      window.scrollTo(0, start * (1 - eased));
+      if (t < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+  
+  function tick() {
+    const scroll = window.scrollY;
+    const vh = window.innerHeight;
+    const t = Math.min(scroll / vh, 1);
+  
+    if (bird) {
+      bird.style.transform = `translateY(${t * 140}px)`;
+      bird.style.opacity = Math.max(0, 1 - t * 1.6);
+    }
+    if (bg) bg.style.setProperty('--scroll', t.toFixed(3));
+    nav.classList.toggle('scrolled', scroll > 40);
+    scrollBtn.classList.toggle('visible', scroll > vh * 0.6);
+  
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+</script>
+</body>
+</html>

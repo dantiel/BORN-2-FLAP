@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html dir='ltr' lang='ko'>
+<head>
+<meta charset='utf-8'>
+<meta content='width=device-width, initial-scale=1' name='viewport'>
+<title>조종 — BORN2FLAP</title>
+<link href='https://fonts.googleapis.com' rel='preconnect'>
+<link crossorigin='true' href='https://fonts.gstatic.com' rel='preconnect'>
+<link href='https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@300;400;500;600;700&amp;family=Liu+Jian+Mao+Cao&amp;family=Spectral:ital,wght@0,200;0,300;0,400;0,500;0,600;1,200;1,300;1,400&amp;family=Space+Mono:wght@400;700&amp;display=swap' rel='stylesheet'>
+<link href='../../../assets/css/style.css' rel='stylesheet'>
+</head>
+<body class='sub-page'>
+<nav class='sub-nav'>
+<div class='nav-inner'>
+<a class='home-link' href='../../../ko/' title='BORN2FLAP으로 돌아가기'>
+<span class='wm'>BORN</span>
+<span class='wm wm-brush'>2</span>
+<span class='wm'>FLAP</span>
+</a>
+<div class='nav-links'>
+<a href='../../../ko/tutorials/'>튜토리얼</a>
+<a class='active' href='../../../ko/documentation/'>문서</a>
+</div>
+<button aria-label='맨 위로' class='nav-scroll-top' onclick='window.scrollTo({top:0,behavior:&#39;smooth&#39;})' title='맨 위로' type='button'>↑</button>
+</div>
+</nav>
+<main class='sub-main'>
+<div class='sub-content'>
+<h1>조종</h1>
+<p class='sub-lead'>CRSF, 믹서, 펌웨어.</p>
+<div class='markdown'><p>Control runs through the same path as real firmware.</p>
+<h3>Channels</h3>
+<p>CRSF channels arrive raw (172…1811). Aileron, elevator, throttle, rudder, arm, frequency and profile are normalised and fed to the mixer.</p>
+<h3>Flapping hysteresis</h3>
+<p>Flapping engages when throttle exceeds the threshold and releases only after it drops by a hysteresis band — so the wing does not chatter at the edge of idle.</p>
+<h3>Steering</h3>
+<p>Aileron command becomes an asymmetric stroke; elevator becomes tail deflection; rudder shifts the flap amplitude left versus right. Gliding keeps full wing authority.</p>
+<h3>Mixer and PID</h3>
+<p>The ONDAS servo mixer and PID loops are ported from the firmware, so in-simulator behaviour tracks the hardware it mirrors.</p></div>
+</div>
+</main>
+<footer class='sub-footer'>
+<div class='lang-switch'>
+<a class='' href='../../../documentation/controls/'>EN</a>
+<a class='' href='../../../de/documentation/controls/'>DE</a>
+<a class='' href='../../../es/documentation/controls/'>ES</a>
+<a class='' href='../../../fr/documentation/controls/'>FR</a>
+<a class='' href='../../../zh/documentation/controls/'>中文</a>
+<a class='' href='../../../ja/documentation/controls/'>日本語</a>
+<a class='active' href='../../../ko/documentation/controls/'>한국어</a>
+<a class='' href='../../../ru/documentation/controls/'>RU</a>
+</div>
+<p class='footer-hermetic'>사나운 심장들이 에테르에 써 내려간다.</p>
+<p class='footer-credit'>BORN2FLAP · Daniel Rodriguez</p>
+</footer>
+</body>
+</html>

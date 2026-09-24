@@ -1,0 +1,38 @@
+!!!
+%html{lang: lang, dir: dir}
+  %head
+    %meta{charset: "utf-8"}
+    %meta{name: "viewport", content: "width=device-width, initial-scale=1"}
+    %title!= ctl_title
+    %link{rel: "preconnect", href: "https://fonts.googleapis.com"}
+    %link{rel: "preconnect", href: "https://fonts.gstatic.com", crossorigin: true}
+    %link{rel: "stylesheet", href: "https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@300;400;500;600;700&family=Liu+Jian+Mao+Cao&family=Spectral:ital,wght@0,200;0,300;0,400;0,500;0,600;1,200;1,300;1,400&family=Space+Mono:wght@400;700&display=swap"}
+    %link{rel: "stylesheet", href: "#{asset_prefix}assets/css/style.css"}
+  %body.sub-page
+    %nav.sub-nav
+      .nav-inner
+        %a.home-link{href: "#{asset_prefix}#{lang_dir}", title: subnav_home}
+          %span.wm BORN
+          %span.wm.wm-brush 2
+          %span.wm FLAP
+        .nav-links
+          %a{href: "#{asset_prefix}#{lang_dir}tutorials/"}!= nav_tutorials
+          %a.active{href: "#{asset_prefix}#{lang_dir}documentation/"}!= nav_documentation
+        %button.nav-scroll-top{type: "button", onclick: "window.scrollTo({top:0,behavior:'smooth'})", "aria-label" => subnav_scroll, title: subnav_scroll} ↑
+    %main.sub-main
+      .sub-content
+        %h1!= ctl_h1
+        %p.sub-lead!= ctl_lead
+        .markdown!= ctl_markdown
+    %footer.sub-footer
+      .lang-switch
+        %a{href: sub_lang_href_en, class: sub_lang_class_en} EN
+        %a{href: sub_lang_href_de, class: sub_lang_class_de} DE
+        %a{href: sub_lang_href_es, class: sub_lang_class_es} ES
+        %a{href: sub_lang_href_fr, class: sub_lang_class_fr} FR
+        %a{href: sub_lang_href_zh, class: sub_lang_class_zh} 中文
+        %a{href: sub_lang_href_ja, class: sub_lang_class_ja} 日本語
+        %a{href: sub_lang_href_ko, class: sub_lang_class_ko} 한국어
+        %a{href: sub_lang_href_ru, class: sub_lang_class_ru} RU
+      %p.footer-hermetic!= footer_hermetic
+      %p.footer-credit!= footer_credit
