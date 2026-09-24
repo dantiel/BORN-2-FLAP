@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html dir='ltr' lang='ja'>
+<head>
+<meta charset='utf-8'>
+<meta content='width=device-width, initial-scale=1' name='viewport'>
+<title>物理 — BORN2FLAP</title>
+<link href='https://fonts.googleapis.com' rel='preconnect'>
+<link crossorigin='true' href='https://fonts.gstatic.com' rel='preconnect'>
+<link href='https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@300;400;500;600;700&amp;family=Liu+Jian+Mao+Cao&amp;family=Spectral:ital,wght@0,200;0,300;0,400;0,500;0,600;1,200;1,300;1,400&amp;family=Space+Mono:wght@400;700&amp;display=swap' rel='stylesheet'>
+<link href='../../../assets/css/style.css' rel='stylesheet'>
+</head>
+<body class='sub-page'>
+<nav class='sub-nav'>
+<div class='nav-inner'>
+<a class='home-link' href='../../../ja/' title='BORN2FLAP へ戻る'>
+<span class='wm'>BORN</span>
+<span class='wm wm-brush'>2</span>
+<span class='wm'>FLAP</span>
+</a>
+<div class='nav-links'>
+<a href='../../../ja/tutorials/'>チュートリアル</a>
+<a class='active' href='../../../ja/documentation/'>ドキュメント</a>
+</div>
+<button aria-label='上へ戻る' class='nav-scroll-top' onclick='window.scrollTo({top:0,behavior:&#39;smooth&#39;})' title='上へ戻る' type='button'>↑</button>
+</div>
+</nav>
+<main class='sub-main'>
+<div class='sub-content'>
+<h1>物理</h1>
+<p class='sub-lead'>縮約されたリアルタイムモデル。</p>
+<div class='markdown'><p>The simulation resolves a full vehicle at a <strong>fixed 240 Hz</strong> timestep: two wings, a body, and a tail.</p>
+<h3>Reference frames</h3>
+<ul>
+<li><strong>Body</strong> — +x forward, +y right, +z up (Unreal's left-handed layout).</li>
+<li><strong>Wing local</strong> — x chordwise toward the trailing edge, y root→tip, z wing normal.</li>
+</ul>
+<p>All units are SI internally; the Unreal boundary converts metres ↔ centimetres.</p>
+<h3>Discretisation</h3>
+<ul>
+<li>16 spanwise strips per wing (Haskell simulates both wings; C++ OrniCore simulates one isolated wing as the research reference).</li>
+<li>Local angle of attack, Reynolds number and separation state are computed <strong>per strip</strong>.</li>
+</ul>
+<h3>Forces</h3>
+<ul>
+<li><strong>Lift</strong> — perpendicular to the local planar flow.</li>
+<li><strong>Drag</strong> — opposes the local planar flow; dissipative.</li>
+<li><strong>Separation</strong> — a continuous per-element state from 0 (attached) to 1 (separated), giving partial stall.</li>
+<li><strong>Added mass</strong> — the reaction of the air the wing accelerates.</li>
+<li><strong>LEV</strong> — leading-edge vortex lift captured in the stall model.</li>
+<li><strong>Crossflow</strong> — spanwise transport driven by sweep, gated by flapping phase.</li>
+</ul>
+<p>Signs and constants are single-sourced in <code>docs/physics-convention.md</code> and asserted by regression tests.</p></div>
+</div>
+</main>
+<footer class='sub-footer'>
+<div class='lang-switch'>
+<a class='' href='../../../documentation/physics/'>EN</a>
+<a class='' href='../../../de/documentation/physics/'>DE</a>
+<a class='' href='../../../es/documentation/physics/'>ES</a>
+<a class='' href='../../../fr/documentation/physics/'>FR</a>
+<a class='' href='../../../zh/documentation/physics/'>中文</a>
+<a class='active' href='../../../ja/documentation/physics/'>日本語</a>
+<a class='' href='../../../ko/documentation/physics/'>한국어</a>
+<a class='' href='../../../ru/documentation/physics/'>RU</a>
+</div>
+<p class='footer-hermetic'>猛き心がエーテルに書きつける。</p>
+<p class='footer-credit'>BORN2FLAP · Daniel Rodriguez</p>
+</footer>
+</body>
+</html>

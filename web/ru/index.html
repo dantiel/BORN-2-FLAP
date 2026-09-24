@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html dir='ltr' lang='ru'>
+<head>
+<meta charset='utf-8'>
+<meta content='width=device-width, initial-scale=1' name='viewport'>
+<meta content='BORN2FLAP — симулятор полёта орнитоптера в реальном времени: сегментированные крылья, динамический срыв и аэроупругий изгиб. Каждый взмах важен.' name='description'>
+<title>BORN2FLAP — симулятор полёта орнитоптера</title>
+<link href='https://fonts.googleapis.com' rel='preconnect'>
+<link crossorigin='true' href='https://fonts.gstatic.com' rel='preconnect'>
+<link href='https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@300;400;500;600;700&amp;family=Liu+Jian+Mao+Cao&amp;family=Spectral:ital,wght@0,200;0,300;0,400;0,500;0,600;1,200;1,300;1,400&amp;family=Space+Mono:wght@400;700&amp;display=swap' rel='stylesheet'>
+<link href='..assets/css/style.css' rel='stylesheet'>
+</head>
+<body>
+<div aria-hidden='true' class='hero-bg'>
+<div class='hero-brush-character'>翼</div>
+<div class='hero-brush-character hero-brush-character--2'>心</div>
+</div>
+<div aria-hidden='true' class='hero-bird'>
+<pre>          _..--=--.._&#x000A;      .-'`      _     `'-.&#x000A;    .'        (_)        '.&#x000A;   /    _,.--`   `--.,_    \&#x000A;  |   /    \       /    \   |&#x000A;  |  /      \     /      \  |&#x000A;  \  \      /     \      /  /&#x000A;   \  '._  /       \  _.'  /&#x000A;    '.   `'---------`'   .'&#x000A;      '-._         _.-'&#x000A;          `'-----'`&#x000A;</pre>
+</div>
+<nav id='nav'>
+<div class='nav-inner'>
+<a class='home-link' href='#' onclick='majesticScroll(); return false;' title='BORN2FLAP'>
+<span class='wm'>BORN</span>
+<span class='wm wm-brush'>2</span>
+<span class='wm'>FLAP</span>
+</a>
+<div class='nav-links' id='nav-links'>
+<a href='#essence'>Суть</a>
+<a href='#flight'>Крыло</a>
+<a href='#architecture'>Архитектура</a>
+<a href='#gameplay'>Геймплей</a>
+<a href='#open'>Открытый код</a>
+<a href='#support'>Support</a>
+<span class='nav-sep'></span>
+<a href='..ru/tutorials/'>Обучение</a>
+<a href='..ru/documentation/'>Документация</a>
+</div>
+<button aria-controls='nav-links' aria-expanded='false' aria-label='Menu' class='nav-toggle' type='button'>
+<span></span>
+<span></span>
+<span></span>
+</button>
+</div>
+</nav>
+<header id='header'>
+<div class='hero-content'>
+<p class='hero-kicker'>СИМУЛЯТОР ПОЛЁТА ОРНИТОПТЕРА</p>
+<h1 class='wordmark'>
+<span class='wm'>BORN</span>
+<span class='wm wm-brush'>2</span>
+<span class='wm'>FLAP</span>
+</h1>
+<p class='hero-subhead'>КАЖДЫЙ ВЗМАХ ВАЖЕН.</p>
+<p class='hero-greeting'>Управляй машиной. Стань крылом.</p>
+<p class='hero-lead'>Симулятор орнитоптера в реальном времени на редуцированном физическом ядре — сегментированные крылья, частичный срыв, поперечное течение вдоль размаха, аэроупругий изгиб. Никаких скрытых уловок стабилизации. Каждую силу зарабатывает крыло.</p>
+<div class='hero-cta'>
+<a class='cta cta-primary' href='https://github.com/dantiel/BORN-2-FLAP' rel='noopener' target='_blank'>Читать код</a>
+<a class='cta cta-secondary' href='https://store.steampowered.com/' rel='noopener' target='_blank'>В список желаемого Steam</a>
+<a class='cta cta-ghost' href='https://store.epicgames.com/' rel='noopener' target='_blank'>Получить в Epic</a>
+</div>
+<p class='hero-version'>Unreal Engine 5 · Haskell MathCore · Лицензия MIT</p>
+</div>
+</header>
+<main>
+<section id='essence'>
+<div class='section-head'>
+<span class='section-num'>01</span>
+<h2>Суть</h2>
+</div>
+<p class='lead'>Орнитоптер — не квадрокоптер. Это бьющееся крыло.</p>
+<p class='body'>Где дрон парит силой моторов, орнитоптер <em>и есть</em> тот воздух, который он толкает. BORN2FLAP моделирует крыло — его геометрию, жёсткость, кривизну, срыв — и позволяет машине самой найти полёт. Тяга, подъёмная сила и управление рождаются из одного источника: взмаха.</p>
+<div class='cards'>
+<div class='card'>
+<h3>Настоящая физика</h3>
+<p>Сегментированные крылья, частичный срыв, присоединённая масса и аэроупругий изгиб — решаются с фиксированным шагом, без подделок.</p>
+</div>
+<div class='card'>
+<h3>Настоящее управление</h3>
+<p>Радио CRSF, микшеры ONDAS, PID и сервокернелы перенесены из реальной прошивки. Летай с настоящим передатчиком.</p>
+</div>
+<div class='card'>
+<h3>Настоящие последствия</h3>
+<p>Стреловидность, крутка, кривизна и жёсткость меняют полёт. Построй его — и переживи его.</p>
+</div>
+</div>
+</section>
+<section id='flight'>
+<div class='section-head'>
+<span class='section-num'>02</span>
+<h2>Крыло</h2>
+</div>
+<p class='lead'>Аэроупругое, честное, живое.</p>
+<p class='body'>Два крыла, по шестнадцать полос вдоль размаха каждое. Местный угол атаки, число Рейнольдса и состояние отрыва вычисляются для каждой полосы. Поперечное течение дрейфует вдоль размаха со стреловидностью. Крыло гнётся под нагрузкой — крутильная крутка смягчает конец, изгиб углубляет взмах — и эта деформация сразу возвращается в угол атаки.</p>
+<table class='specs'>
+<tr>
+<td>Крылья</td>
+<td>2 × 16 полос вдоль размаха</td>
+</tr>
+<tr>
+<td>Полуразмах</td>
+<td>0,72 м</td>
+</tr>
+<tr>
+<td>Хорда</td>
+<td>0,22 → 0,09 м плечо → конец</td>
+</tr>
+<tr>
+<td>Срыв</td>
+<td>частичный, динамический, по полосам</td>
+</tr>
+<tr>
+<td>Поперечное течение</td>
+<td>движимое стреловидностью, перенос вдоль размаха</td>
+</tr>
+<tr>
+<td>Структура</td>
+<td>изгиб EI + кручение GJ, релаксация</td>
+</tr>
+<tr>
+<td>Форма волны</td>
+<td>асимметричный dwell / остроконечная, синхронизированная</td>
+</tr>
+<tr>
+<td>Шаг времени</td>
+<td>фиксированный 240 Гц</td>
+</tr>
+</table>
+</section>
+<section id='architecture'>
+<div class='section-head'>
+<span class='section-num'>03</span>
+<h2>Архитектура</h2>
+</div>
+<p class='lead'>Три языка, одно бьющееся сердце.</p>
+<dl class='grid'>
+<dt>Haskell MathCore</dt>
+<dd>Каноническая физика — аэродинамика, кинематика, управление и стабилизация. Чистая, полная, проверенная.</dd>
+<dt>Unreal Engine</dt>
+<dd>Рендеринг, твёрдые тела Chaos, взаимодействие с миром, кабина, повторы и игровые режимы.</dd>
+<dt>Мост C / C++</dt>
+<dd>Граница FFI в Unreal плюс проверенный исследовательский запасной путь OrniCore.</dd>
+<dt>Мозг Ruby</dt>
+<dd>Состояние приложения, меню, правила и оркестрация — медленный ум за быстрой математикой.</dd>
+</dl>
+<pre class='pipeline'><code>=~ arch_pipeline&#x000A;</code></pre>
+</section>
+<section id='gameplay'>
+<div class='section-head'>
+<span class='section-num'>04</span>
+<h2>Геймплей</h2>
+</div>
+<p class='lead'>Легко начать, трудно освоить.</p>
+<div class='cards cards--wide'>
+<div class='card'>
+<h3>Свободный полёт</h3>
+<p>Открытое небо, охота за термиками и чистое удовольствие оставаться в воздухе.</p>
+</div>
+<div class='card'>
+<h3>Лётная школа</h3>
+<p>Девять уроков от нейтрального триммера до ручной настройки — призрачные стики, коридоры, повторы.</p>
+</div>
+<div class='card'>
+<h3>Гонка</h3>
+<p>Ворота, отсечки, призраки и классы сквозь каньоны и города.</p>
+</div>
+<div class='card'>
+<h3>Фристайл</h3>
+<p>Трюковые испытания, судимые крылом, а не табло.</p>
+</div>
+<div class='card'>
+<h3>Точная посадка</h3>
+<p>Точечные посадки на ветру — древнейшая дисциплина, самая трудная.</p>
+</div>
+<div class='card'>
+<h3>Испытательный стенд</h3>
+<p>Вид аэродинамической трубы: векторы сил, карты срыва, деформация крыла вживую.</p>
+</div>
+<div class='card'>
+<h3>Natural Valley</h3>
+<p>A forested valley with a winding river, firs, grass and moss — terrain and tree trunks you can actually collide with.</p>
+</div>
+<div class='card'>
+<h3>Real RC Transmitter</h3>
+<p>Plug in your own USB transmitter and fly on real sticks — no drivers, no translation layer. F3 opens calibration.</p>
+</div>
+</div>
+</section>
+<section id='open'>
+<div class='section-head'>
+<span class='section-num'>05</span>
+<h2>Открытый код</h2>
+</div>
+<p class='lead'>Коммерческий и свободный одновременно.</p>
+<p class='body'>BORN2FLAP выходит в Steam и Epic Games Store, а собственный код публикуется под <strong>лицензией MIT</strong>. Физическое ядро, мост, мозг — открыты. Летай в игре, забирай крыло и построй своё. Unreal Engine и сторонние ассеты сохраняют свои лицензии.</p>
+<div class='open-actions'>
+<a class='cta cta-primary' href='https://github.com/dantiel/BORN-2-FLAP' rel='noopener' target='_blank'>GitHub</a>
+<span class='license'>Лицензия MIT</span>
+</div>
+</section>
+<section id='support'>
+<div class='section-head'>
+<span class='section-num'>06</span>
+<h2>Support the Flock</h2>
+</div>
+<p class='lead'>Free as air, kept aloft by hearts.</p>
+<p class='body'>BORN2FLAP is free and open source, and it stays that way because of people like you. Every tip and sponsor fuels the next model, the next physics refinement, the next release.</p>
+<div class='open-actions'>
+<a class='cta cta-primary' href='https://ko-fi.com/darographix' rel='noopener' target='_blank'>Tip on Ko-fi</a>
+<a class='cta cta-secondary' href='https://github.com/sponsors/dantiel' rel='noopener' target='_blank'>Become a sponsor</a>
+</div>
+</section>
+</main>
+<footer>
+<div class='lang-switch'>
+<a class='' href='../'>EN</a>
+<a class='' href='../de/'>DE</a>
+<a class='' href='../es/'>ES</a>
+<a class='' href='../fr/'>FR</a>
+<a class='' href='../zh/'>中文</a>
+<a class='' href='../ja/'>日本語</a>
+<a class='' href='../ko/'>한국어</a>
+<a class='active' href='.'>RU</a>
+</div>
+<p class='footer-links'>
+<a href='https://github.com/dantiel/BORN-2-FLAP' rel='noopener' target='_blank'>GitHub</a>
+<span class='sep'>·</span>
+<a href='https://ko-fi.com/darographix' rel='noopener' target='_blank'>Ko-fi</a>
+<span class='sep'>·</span>
+<a href='https://github.com/sponsors/dantiel' rel='noopener' target='_blank'>Sponsors</a>
+<span class='sep'>·</span>
+<a href='https://store.steampowered.com/' rel='noopener' target='_blank'>Steam</a>
+<span class='sep'>·</span>
+<a href='https://store.epicgames.com/' rel='noopener' target='_blank'>Epic Games</a>
+<span class='sep'>·</span>
+<a href='..ru/tutorials/'>Обучение</a>
+<span class='sep'>·</span>
+<a href='..ru/documentation/'>Документация</a>
+</p>
+<p class='footer-hermetic'>Написано в эфире яростными сердцами.</p>
+<p class='footer-credit'>BORN2FLAP · Daniel Rodriguez</p>
+</footer>
+<button aria-label='Scroll to top' class='scroll-top' onclick='window.scrollTo({top:0,behavior:&#39;smooth&#39;})'>↑</button>
+<script>
+  const nav = document.querySelector('#nav');
+  const navToggle = document.querySelector('.nav-toggle');
+  const navLinks = document.querySelector('#nav-links');
+  const scrollBtn = document.querySelector('.scroll-top');
+  const bird = document.querySelector('.hero-bird');
+  const bg = document.querySelector('.hero-bg');
+  
+  if (navToggle) {
+    navToggle.addEventListener('click', () => {
+      const open = navToggle.getAttribute('aria-expanded') === 'true';
+      navToggle.setAttribute('aria-expanded', String(!open));
+      navLinks.classList.toggle('open', !open);
+    });
+    navLinks.querySelectorAll('a').forEach(link => {
+      link.addEventListener('click', () => {
+        navToggle.setAttribute('aria-expanded', 'false');
+        navLinks.classList.remove('open');
+      });
+    });
+  }
+  
+  function majesticScroll() {
+    const start = window.scrollY;
+    const duration = 1600;
+    const startTime = performance.now();
+    function step(now) {
+      const elapsed = now - startTime;
+      const t = Math.min(elapsed / duration, 1);
+      const eased = 1 - Math.pow(1 - t, 4);
+      window.scrollTo(0, start * (1 - eased));
+      if (t < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+  
+  function tick() {
+    const scroll = window.scrollY;
+    const vh = window.innerHeight;
+    const t = Math.min(scroll / vh, 1);
+  
+    if (bird) {
+      bird.style.transform = `translateY(${t * 140}px)`;
+      bird.style.opacity = Math.max(0, 1 - t * 1.6);
+    }
+    if (bg) bg.style.setProperty('--scroll', t.toFixed(3));
+    nav.classList.toggle('scrolled', scroll > 40);
+    scrollBtn.classList.toggle('visible', scroll > vh * 0.6);
+  
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+</script>
+</body>
+</html>

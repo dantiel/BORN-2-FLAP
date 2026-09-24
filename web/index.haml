@@ -1,0 +1,269 @@
+!!!
+%html{lang: lang, dir: dir}
+  %head
+    %meta{charset: "utf-8"}
+    %meta{name: "viewport", content: "width=device-width, initial-scale=1"}
+    %meta{name: "description", content: meta_desc}
+    %title!= title
+    %link{rel: "preconnect", href: "https://fonts.googleapis.com"}
+    %link{rel: "preconnect", href: "https://fonts.gstatic.com", crossorigin: true}
+    %link{rel: "stylesheet", href: "https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@300;400;500;600;700&family=Liu+Jian+Mao+Cao&family=Spectral:ital,wght@0,200;0,300;0,400;0,500;0,600;1,200;1,300;1,400&family=Space+Mono:wght@400;700&display=swap"}
+    %link{rel: "stylesheet", href: "#{asset_prefix}assets/css/style.css"}
+
+  %body
+    .hero-bg{"aria-hidden" => "true"}
+      .hero-brush-character 翼
+      .hero-brush-character.hero-brush-character--2 心
+    .hero-bird{"aria-hidden" => "true"}
+      %pre
+        :preserve
+                    _..--=--.._
+                .-'`      _     `'-.
+              .'        (_)        '.
+             /    _,.--`   `--.,_    \
+            |   /    \       /    \   |
+            |  /      \     /      \  |
+            \  \      /     \      /  /
+             \  '._  /       \  _.'  /
+              '.   `'---------`'   .'
+                '-._         _.-'
+                    `'-----'`
+
+    %nav#nav
+      .nav-inner
+        %a.home-link{href: "#", onclick: "majesticScroll(); return false;", title: nav_home}
+          %span.wm BORN
+          %span.wm.wm-brush 2
+          %span.wm FLAP
+        .nav-links#nav-links
+          %a{href: "#essence"}!= nav_essence
+          %a{href: "#flight"}!= nav_flight
+          %a{href: "#architecture"}!= nav_architecture
+          %a{href: "#gameplay"}!= nav_gameplay
+          %a{href: "#open"}!= nav_open
+          %a{href: "#support"}!= nav_support
+          %span.nav-sep
+          %a{href: "#{asset_prefix}#{lang_dir}tutorials/"}!= nav_tutorials
+          %a{href: "#{asset_prefix}#{lang_dir}documentation/"}!= nav_documentation
+        %button.nav-toggle{type: "button", "aria-label" => "Menu", "aria-expanded" => "false", "aria-controls" => "nav-links"}
+          %span
+          %span
+          %span
+
+    %header#header
+      .hero-content
+        %p.hero-kicker!= hero_kicker
+        %h1.wordmark
+          %span.wm!= hero_title_a
+          %span.wm.wm-brush!= hero_title_b
+          %span.wm!= hero_title_c
+        %p.hero-subhead!= hero_subhead
+        %p.hero-greeting!= hero_greeting
+        %p.hero-lead!= hero_lead
+        .hero-cta
+          %a.cta.cta-primary{href: "https://github.com/dantiel/BORN-2-FLAP", target: "_blank", rel: "noopener"}!= hero_cta_source
+          %a.cta.cta-secondary{href: "https://store.steampowered.com/", target: "_blank", rel: "noopener"}!= hero_cta_steam
+          %a.cta.cta-ghost{href: "https://store.epicgames.com/", target: "_blank", rel: "noopener"}!= hero_cta_epic
+        %p.hero-version!= hero_version
+
+    %main
+      %section#essence
+        .section-head
+          %span.section-num!= essence_num
+          %h2!= essence_title
+        %p.lead!= essence_lead
+        %p.body!= essence_body
+        .cards
+          .card
+            %h3!= essence_p1_title
+            %p!= essence_p1_body
+          .card
+            %h3!= essence_p2_title
+            %p!= essence_p2_body
+          .card
+            %h3!= essence_p3_title
+            %p!= essence_p3_body
+
+      %section#flight
+        .section-head
+          %span.section-num!= flight_num
+          %h2!= flight_title
+        %p.lead!= flight_lead
+        %p.body!= flight_body
+        %table.specs
+          %tr
+            %td!= flight_spec_wings_label
+            %td!= flight_spec_wings_val
+          %tr
+            %td!= flight_spec_span_label
+            %td!= flight_spec_span_val
+          %tr
+            %td!= flight_spec_chord_label
+            %td!= flight_spec_chord_val
+          %tr
+            %td!= flight_spec_stall_label
+            %td!= flight_spec_stall_val
+          %tr
+            %td!= flight_spec_crossflow_label
+            %td!= flight_spec_crossflow_val
+          %tr
+            %td!= flight_spec_structure_label
+            %td!= flight_spec_structure_val
+          %tr
+            %td!= flight_spec_wave_label
+            %td!= flight_spec_wave_val
+          %tr
+            %td!= flight_spec_step_label
+            %td!= flight_spec_step_val
+
+      %section#architecture
+        .section-head
+          %span.section-num!= arch_num
+          %h2!= arch_title
+        %p.lead!= arch_lead
+        %dl.grid
+          %dt!= arch_haskell_title
+          %dd!= arch_haskell_desc
+          %dt!= arch_unreal_title
+          %dd!= arch_unreal_desc
+          %dt!= arch_bridge_title
+          %dd!= arch_bridge_desc
+          %dt!= arch_ruby_title
+          %dd!= arch_ruby_desc
+        %pre.pipeline
+          %code
+            :preserve
+              =~ arch_pipeline
+
+      %section#gameplay
+        .section-head
+          %span.section-num!= game_num
+          %h2!= game_title
+        %p.lead!= game_lead
+        .cards.cards--wide
+          .card
+            %h3!= game_free_title
+            %p!= game_free_desc
+          .card
+            %h3!= game_school_title
+            %p!= game_school_desc
+          .card
+            %h3!= game_race_title
+            %p!= game_race_desc
+          .card
+            %h3!= game_freestyle_title
+            %p!= game_freestyle_desc
+          .card
+            %h3!= game_landing_title
+            %p!= game_landing_desc
+          .card
+            %h3!= game_bench_title
+            %p!= game_bench_desc
+          .card
+            %h3!= game_valley_title
+            %p!= game_valley_desc
+          .card
+            %h3!= game_rc_title
+            %p!= game_rc_desc
+
+      %section#open
+        .section-head
+          %span.section-num!= open_num
+          %h2!= open_title
+        %p.lead!= open_lead
+        %p.body!= open_body
+        .open-actions
+          %a.cta.cta-primary{href: "https://github.com/dantiel/BORN-2-FLAP", target: "_blank", rel: "noopener"}!= footer_github
+          %span.license!= open_license
+
+      %section#support
+        .section-head
+          %span.section-num!= support_num
+          %h2!= support_title
+        %p.lead!= support_lead
+        %p.body!= support_body
+        .open-actions
+          %a.cta.cta-primary{href: "https://ko-fi.com/darographix", target: "_blank", rel: "noopener"}!= support_kofi
+          %a.cta.cta-secondary{href: "https://github.com/sponsors/dantiel", target: "_blank", rel: "noopener"}!= support_sponsors
+
+    %footer
+      .lang-switch
+        %a{href: lang_href_en, class: lang_class_en} EN
+        %a{href: lang_href_de, class: lang_class_de} DE
+        %a{href: lang_href_es, class: lang_class_es} ES
+        %a{href: lang_href_fr, class: lang_class_fr} FR
+        %a{href: lang_href_zh, class: lang_class_zh} 中文
+        %a{href: lang_href_ja, class: lang_class_ja} 日本語
+        %a{href: lang_href_ko, class: lang_class_ko} 한국어
+        %a{href: lang_href_ru, class: lang_class_ru} RU
+      %p.footer-links
+        %a{href: "https://github.com/dantiel/BORN-2-FLAP", target: "_blank", rel: "noopener"}!= footer_github
+        %span.sep ·
+        %a{href: "https://ko-fi.com/darographix", target: "_blank", rel: "noopener"}!= footer_kofi
+        %span.sep ·
+        %a{href: "https://github.com/sponsors/dantiel", target: "_blank", rel: "noopener"}!= footer_sponsors
+        %span.sep ·
+        %a{href: "https://store.steampowered.com/", target: "_blank", rel: "noopener"}!= footer_steam
+        %span.sep ·
+        %a{href: "https://store.epicgames.com/", target: "_blank", rel: "noopener"}!= footer_epic
+        %span.sep ·
+        %a{href: "#{asset_prefix}#{lang_dir}tutorials/"}!= footer_tutorials
+        %span.sep ·
+        %a{href: "#{asset_prefix}#{lang_dir}documentation/"}!= footer_docs
+      %p.footer-hermetic!= footer_hermetic
+      %p.footer-credit!= footer_credit
+
+    %button.scroll-top{onclick: "window.scrollTo({top:0,behavior:'smooth'})", "aria-label" => "Scroll to top"} ↑
+
+    :javascript
+      const nav = document.querySelector('#nav');
+      const navToggle = document.querySelector('.nav-toggle');
+      const navLinks = document.querySelector('#nav-links');
+      const scrollBtn = document.querySelector('.scroll-top');
+      const bird = document.querySelector('.hero-bird');
+      const bg = document.querySelector('.hero-bg');
+
+      if (navToggle) {
+        navToggle.addEventListener('click', () => {
+          const open = navToggle.getAttribute('aria-expanded') === 'true';
+          navToggle.setAttribute('aria-expanded', String(!open));
+          navLinks.classList.toggle('open', !open);
+        });
+        navLinks.querySelectorAll('a').forEach(link => {
+          link.addEventListener('click', () => {
+            navToggle.setAttribute('aria-expanded', 'false');
+            navLinks.classList.remove('open');
+          });
+        });
+      }
+
+      function majesticScroll() {
+        const start = window.scrollY;
+        const duration = 1600;
+        const startTime = performance.now();
+        function step(now) {
+          const elapsed = now - startTime;
+          const t = Math.min(elapsed / duration, 1);
+          const eased = 1 - Math.pow(1 - t, 4);
+          window.scrollTo(0, start * (1 - eased));
+          if (t < 1) requestAnimationFrame(step);
+        }
+        requestAnimationFrame(step);
+      }
+
+      function tick() {
+        const scroll = window.scrollY;
+        const vh = window.innerHeight;
+        const t = Math.min(scroll / vh, 1);
+
+        if (bird) {
+          bird.style.transform = `translateY(${t * 140}px)`;
+          bird.style.opacity = Math.max(0, 1 - t * 1.6);
+        }
+        if (bg) bg.style.setProperty('--scroll', t.toFixed(3));
+        nav.classList.toggle('scrolled', scroll > 40);
+        scrollBtn.classList.toggle('visible', scroll > vh * 0.6);
+
+        requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
