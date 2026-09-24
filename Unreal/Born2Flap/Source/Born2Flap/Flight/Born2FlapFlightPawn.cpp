@@ -255,6 +255,14 @@ void ABorn2FlapFlightPawn::StepMath(double DeltaTimeSeconds)
     B2F_FirmwareOutput Output{};
     if (!MathBridge->Step(Pilot, BodyState, Output))
     {
+        UE_LOG(LogTemp, Warning, TEXT("FlightMathStepFailed: clearing stale loads and resetting physics state"));
+        LastForceN = FVector::ZeroVector;
+        LastMomentNm = FVector::ZeroVector;
+        LastLeftFlapDeg = 0.0f;
+        LastRightFlapDeg = 0.0f;
+        bIsFlapping = false;
+        Body->SetPhysicsLinearVelocity(FVector::ZeroVector);
+        Body->SetPhysicsAngularVelocityInRadians(FVector::ZeroVector);
         return;
     }
 
