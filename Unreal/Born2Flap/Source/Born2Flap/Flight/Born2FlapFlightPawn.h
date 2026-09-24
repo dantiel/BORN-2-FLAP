@@ -2,6 +2,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Pawn.h"
 #include "Math/Born2FlapMathBridge.h"
+#include "Input/Born2FlapRcController.h"
 #include "born2flap_rc_input.h"
 #include "Born2FlapFlightPawn.generated.h"
 class UBoxComponent;
@@ -28,6 +29,7 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     FVector GetRcSticks() const { return FVector(RollInput, PitchInput, YawInput); }
     FVector2D GetWingAngles() const { return FVector2D(LeftFlap, RightFlap); }
     FString GetFlightStatus() const;
+    const FBorn2FlapRcController *GetRcController() const { return RcController.Get(); }
 
   private:
     UPROPERTY(VisibleAnywhere) TObjectPtr<UBoxComponent> Body;
@@ -37,6 +39,7 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     UPROPERTY(VisibleAnywhere) TObjectPtr<USpringArmComponent> CameraBoom;
     UPROPERTY(VisibleAnywhere) TObjectPtr<UCameraComponent> Camera;
     TUniquePtr<FBorn2FlapMathBridge> MathBridge;
+    TUniquePtr<FBorn2FlapRcController> RcController;
     double Accumulator = 0, LogTime = 0;
     born2flap::RcKeyboard Keyboard;
     float Throttle = 0, RollInput = 0, YawInput = 0, PitchInput = 0, LeftFlap = 0, RightFlap = 0, BatterySoc = 1;

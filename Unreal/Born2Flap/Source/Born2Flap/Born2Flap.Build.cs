@@ -16,8 +16,11 @@ public class Born2Flap : ModuleRules
 
         PrivateDependencyModuleNames.AddRange(new[]
         {
-            "Slate", "SlateCore", "UMG"
+            "Slate", "SlateCore", "UMG", "ProceduralMeshComponent", "ApplicationCore"
         });
+
+        if (Target.Platform == UnrealTargetPlatform.Win64)
+            PublicSystemLibraries.AddRange(new[] { "dinput8.lib", "dxguid.lib", "ole32.lib" });
 
         PrivateIncludePaths.Add(ModuleDirectory);
 

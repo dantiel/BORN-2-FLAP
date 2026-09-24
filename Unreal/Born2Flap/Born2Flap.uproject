@@ -3,6 +3,9 @@
   "EngineAssociation": "5.7",
   "Category": "Games",
   "Description": "BORN-2-FLAP ornithopter flight simulator prototype",
+  "Plugins": [
+    { "Name": "ProceduralMeshComponent", "Enabled": true }
+  ],
   "Modules": [
     {
       "Name": "Born2Flap",

@@ -13,6 +13,9 @@
 #include "Misc/Parse.h"
 #include "PhysicalMaterials/PhysicalMaterial.h"
 #include "UObject/ConstructorHelpers.h"
+#include "Input/Born2FlapRcController.h"
+#include "Game/Born2FlapGameMode.h"
+#include "World/Born2FlapValley.h"
 namespace
 {
 constexpr double MathDt = 1.0 / 240.0;
@@ -120,6 +123,8 @@ void ABorn2FlapFlightPawn::BeginPlay()
     Camera->PostProcessSettings.AutoExposureMinBrightness = DaylightExposure;
     Camera->PostProcessSettings.AutoExposureMaxBrightness = DaylightExposure;
     Camera->PostProcessSettings.AutoExposureBias = 0;
+    Camera->PostProcessSettings.bOverride_MotionBlurAmount = true;
+    Camera->PostProcessSettings.MotionBlurAmount = 0;
     auto *Contact = NewObject<UPhysicalMaterial>(this);
     Contact->Friction = .8f;
     Contact->Restitution = 0;
@@ -140,6 +145,8 @@ void ABorn2FlapFlightPawn::BeginPlay()
     MathBridge = MakeUnique<FBorn2FlapMathBridge>();
     bSoakTest = FParse::Param(FCommandLine::Get(), TEXT("B2FSoakTest"));
     bFlightTest = bSoakTest || FParse::Param(FCommandLine::Get(), TEXT("B2FFlightTest"));
+    if (!bFlightTest)
+        RcController = MakeUnique<FBorn2FlapRcController>();
     ResetFlight();
     if (auto *PC = Cast<APlayerController>(GetController()))
     {
@@ -168,7 +175,10 @@ void ABorn2FlapFlightPawn::ResetFlight(bool bSafety)
 }
 float ABorn2FlapFlightPawn::GetAltitude() const
 {
-    return FMath::Max(0.f, float(Body->GetComponentLocation().Z / 100.0 - .12));
+    const FVector P = Body->GetComponentLocation();
+    const auto *Mode = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode());
+    const double Ground = Mode ? Mode->GroundHeight(P.X, P.Y) : 0;
+    return FMath::Max(0.f, float((P.Z - Ground) / 100.0 - .12));
 }
 float ABorn2FlapFlightPawn::GetSpeed() const
 {
@@ -291,6 +301,8 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     bool Launch = false, Reset = false;
     if (auto *PC = Cast<APlayerController>(GetController()))
     {
+        if (RcController)
+            RcController->Tick(PC, Dt);
         Effort = PC->IsInputKeyDown(EKeys::W)
                      ? (PC->IsInputKeyDown(EKeys::LeftShift) || PC->IsInputKeyDown(EKeys::RightShift) ? 1.f : .72f)
                      : 0;
@@ -300,6 +312,11 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
                 (PC->IsInputKeyDown(EKeys::Down) || PC->IsInputKeyDown(EKeys::S) ? 1.f : 0.f);
         Launch = PC->WasInputKeyJustPressed(EKeys::SpaceBar);
         Reset = PC->WasInputKeyJustPressed(EKeys::R);
+        if (RcController)
+        {
+            Launch = (Launch || RcController->LaunchPressed()) && !RcController->IsPanelOpen();
+            Reset |= RcController->ResetPressed();
+        }
         if (PC->WasInputKeyJustPressed(EKeys::F1))
             bVectors = !bVectors;
     }
@@ -341,12 +358,20 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         LaunchFlight();
     const FVector P = Body->GetComponentLocation(), V = Body->GetPhysicsLinearVelocity() / 100.0;
     const FVector Omega = Body->GetPhysicsAngularVelocityInRadians();
-    if (!Finite(P) || !Finite(V) || !Finite(Omega) || V.Size() > 40 || Omega.Size() > 12 || P.Z < -300 ||
-        P.Z > 300000 || P.Size2D() > 480000)
+    const auto *Mode = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode());
+    if (!Finite(P) || !Finite(V) || !Finite(Omega) || V.Size() > 40 || Omega.Size() > 12 ||
+        P.Z < (Mode ? Mode->GroundHeight(P.X, P.Y) : 0) - 300 || P.Z > 300000 || P.Size2D() > 480000)
     {
         UE_LOG(LogTemp, Warning, TEXT("FlightSafetyReset pos=%s vel=%s omega=%s"), *P.ToString(), *V.ToString(),
                *Omega.ToString());
         ResetFlight(true);
+        return;
+    }
+    if (Mode && Mode->IsNatureLevel() && ABorn2FlapValley::IsWater(P.X, P.Y) &&
+        P.Z < ABorn2FlapValley::WaterHeight + 10)
+    {
+        UE_LOG(LogTemp, Display, TEXT("FlightWaterLanding: returning to the clearing"));
+        ResetFlight();
         return;
     }
     if (GetAltitude() < .3f && GetSpeed() < 1.f)
@@ -368,6 +393,15 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     RollInput = born2flap::RcKeyboard::Expo(Keyboard.roll);
     PitchInput = born2flap::RcKeyboard::Expo(Keyboard.pitch);
     YawInput = born2flap::RcKeyboard::Expo(Keyboard.yaw);
+    if (RcController && (RcController->IsEnabled() || RcController->IsPanelOpen()))
+    {
+        const auto &Channels = RcController->GetChannels();
+        Throttle = Channels[0];
+        RollInput = Channels[1];
+        PitchInput = Channels[2];
+        YawInput = Channels[3];
+        Keyboard = {};
+    }
     if (StepMath(Dt))
     {
         // There is deliberately no target speed/altitude, lift offset, or

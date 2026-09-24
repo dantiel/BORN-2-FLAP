@@ -13,11 +13,29 @@
 #include "GameFramework/WorldSettings.h"
 #include "Kismet/GameplayStatics.h"
 #include "Materials/MaterialInterface.h"
+#include "World/Born2FlapValley.h"
+#include "GameFramework/PlayerController.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
 ABorn2FlapGameMode::ABorn2FlapGameMode()
 {
     DefaultPawnClass = ABorn2FlapFlightPawn::StaticClass();
     HUDClass = ABorn2FlapHUD::StaticClass();
     PrimaryActorTick.bCanEverTick = true;
+}
+void ABorn2FlapGameMode::InitGame(const FString &MapName, const FString &Options, FString &ErrorMessage)
+{
+    Super::InitGame(MapName, Options, ErrorMessage);
+    FString Level = UGameplayStatics::ParseOption(Options, TEXT("Level"));
+    if (Level.IsEmpty())
+        FParse::Value(FCommandLine::Get(), TEXT("B2FLevel="), Level);
+    bNatureLevel = !Level.Equals(TEXT("Training"), ESearchCase::IgnoreCase) &&
+                   !FParse::Param(FCommandLine::Get(), TEXT("B2FFlightTest")) &&
+                   !FParse::Param(FCommandLine::Get(), TEXT("B2FSoakTest"));
+}
+double ABorn2FlapGameMode::GroundHeight(double X, double Y) const
+{
+    return bNatureLevel ? ABorn2FlapValley::GroundHeight(X, Y) : 0;
 }
 void ABorn2FlapGameMode::BeginPlay()
 {
@@ -32,6 +50,7 @@ void ABorn2FlapGameMode::BeginPlay()
     Light->SetIntensity(50000);
     Light->SetLightColor(FLinearColor(1, .92f, .79f));
     Light->SetAtmosphereSunLight(true);
+    Light->SetDynamicShadowDistanceMovableLight(bNatureLevel ? 90000 : 20000);
     auto *Atmosphere = World->SpawnActor<AActor>();
     auto *Air = NewObject<USkyAtmosphereComponent>(Atmosphere);
     Atmosphere->SetRootComponent(Air);
@@ -41,8 +60,13 @@ void ABorn2FlapGameMode::BeginPlay()
     Sky->GetLightComponent()->SetRealTimeCapture(true);
     Sky->GetLightComponent()->SetIntensity(1.f);
     auto *Fog = World->SpawnActor<AExponentialHeightFog>();
-    Fog->GetComponent()->SetFogDensity(.003f);
+    Fog->GetComponent()->SetFogDensity(bNatureLevel ? .007f : .003f);
     Fog->GetComponent()->SetFogInscatteringColor(FLinearColor(.55f, .72f, .85f));
+    if (bNatureLevel)
+    {
+        World->SpawnActor<ABorn2FlapValley>();
+        return;
+    }
     auto *Cube = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
     auto *Cone = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cone.Cone"));
     auto *Sphere = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Sphere.Sphere"));
@@ -98,6 +122,14 @@ void ABorn2FlapGameMode::BeginPlay()
 void ABorn2FlapGameMode::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
+    if (auto *Player = UGameplayStatics::GetPlayerController(this, 0))
+        if (Player->WasInputKeyJustPressed(EKeys::F4))
+        {
+            UE_LOG(LogTemp, Display, TEXT("FlightLevel switch=%s"), bNatureLevel ? TEXT("Training") : TEXT("Nature"));
+            UGameplayStatics::OpenLevel(this, TEXT("/Engine/Maps/Entry"), true,
+                                        bNatureLevel ? TEXT("Level=Training") : TEXT("Level=Nature"));
+            return;
+        }
     auto *Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0));
     if (!Bird)
         return;

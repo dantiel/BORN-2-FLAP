@@ -43,6 +43,7 @@ Konfigurationen aus dem OrniFlight Configurator sollen optional importiert werde
 - [Offene Entscheidungen](docs/open-questions.md)
 - [ADR: Sprach- und Laufzeitarchitektur](docs/decisions/0001-language-and-runtime-architecture.md)
 - [Windows-Entwicklungsumgebung](docs/windows-development.md)
+- [Waldtal und direkter RC-Senderanschluss](docs/natural-valley-and-rc.md)
 
 ## Projektstatus
 

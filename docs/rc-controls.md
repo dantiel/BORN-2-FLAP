@@ -31,8 +31,9 @@ slews at 2.5 normalized units/s. Equal opposite keys request neutral.
 The HUD shows actual post-expo yaw/roll/pitch channels and both loaded wing
 angles. `FlightTelemetry` records the same channels as `rc=(roll,pitch,yaw)`.
 The logical ABI accepts throttle `[0,1]` and independent sticks `[-1,1]`; the
-keyboard adapter is separate from the aerodynamic mixer. Physical USB RC
-transmitter discovery/calibration is not implemented by this change.
+keyboard adapter is separate from the aerodynamic mixer. Windows USB/vJoy
+transmitter discovery and calibration are now available through F3; see
+[natural-valley-and-rc.md](natural-valley-and-rc.md).
 
 ## Shared wing mechanics
 
@@ -126,4 +127,4 @@ provisional. The reduced model is not experimentally calibrated. Yaw and roll
 remain coupled because the same wings generate thrust, lift and drag. The native
 solver runs at 240 Hz, but forces are averaged per game frame, so trajectories
 are not identical across frame rates. A fully coupled physics-substep solve,
-added mass and real transmitter calibration remain further work.
+added mass and transmitter support beyond Windows joystick devices remain further work.

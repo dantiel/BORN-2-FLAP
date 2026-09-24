@@ -129,13 +129,16 @@ python Native/tests/rc_controls.py Unreal/Born2Flap/Binaries/ThirdParty/born2fla
 
 Die kleinen Materialdateien unter `Content/Training` sind versioniert. Sie lassen
 sich mit `Tools/create_training_palette.py` und Unreals PythonScriptPlugin neu
-erzeugen. Alle Szenenlichter und Geometrien werden beweglich erzeugt; die Szene
-benoetigt keinen Lightmass-Build.
+erzeugen. Die Szenen verwenden dynamisches Licht ohne Lightmass-Build. Das neue
+`Content/Nature` enthaelt die importierten Natur-Assets; deren Quellen und
+Reproduktion stehen in [natural-valley-and-rc.md](natural-valley-and-rc.md).
 
 ## Aktueller Spielstand und Grenzen
 
 Der **fluegelgetriebene Prototyp** enthaelt einen prozeduralen Vogel,
-bewegte Fluegel aus den echten Servowinkeln, Himmel, Boden, HUD und sechs Tore.
+bewegte Fluegel aus den echten Servowinkeln, Himmel, Boden und HUD. Standard ist
+das Waldtal; F4 wechselt zum erhaltenen Uebungsgelaende mit sechs Toren.
+Unter F3 lassen sich Windows-USB-/vJoy-Sender auswaehlen und kalibrieren.
 
 | Eingabe | Wirkung |
 | --- | --- |
