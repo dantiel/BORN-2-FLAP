@@ -4,13 +4,13 @@
 -- | The full "simulation in the simulation": firmware mixer → servo actuator
 -- → wing aerodynamics → aerodynamic hinge torque feeding back into the servo.
 --
--- This is the loop the owner asked for: the firmware (a faithful port of
--- PteronautOS @_computeServoMixer@) reacts to RC pilot input; its wing-servo
+-- The mixer derived from PteronautOS, with simulator glide/timing extensions,
+-- reacts to RC pilot input; its wing-servo
 -- commands are realised by a servo model that *struggles* against the real
 -- aerodynamic hinge torque the wings produce; and the resulting actual flap
 -- angle drives the wing physics. Servo, wing size, and battery are all
--- selectable so the same firmware flies (or stalls) exactly as it would in
--- the physical world.
+-- selectable. Coefficients and actuator parameters remain provisional and
+-- require calibration against physical measurements.
 module Born2Flap.Math.FirmwareVehicle
   ( FirmwareVehicleState(..)
   , defaultFirmwareVehicleState
@@ -136,21 +136,25 @@ advanceFirmwareVehicle rc params servo battery dt bodyVel bodyRates state
           rightHinge = hingeTorque 1 rightResults
 
           -- 5. Assemble full-vehicle forces (wings + body drag + tail).
-          --    Roll comes from the wing amplitude differential (already in the
-          --    mixer); pitch/yaw use the tail surfaces, matching the firmware's
-          --    elevator→pitch and rudder→yaw authority.
+          --    Every control moment is a force acting at a physical lever arm.
+          --    Tail flow includes body angular velocity, providing aerodynamic
+          --    pitch/yaw damping instead of an artificial attitude torque.
           elevatorNorm = crsfToNorm (rcElevator rc)
-          rudderNorm = crsfToNorm (rcRudder rc)
+          rudderNorm = (mixRudderUs mix - 1500) / 500
           wingForce = foldr (addVec . resultForce) zeroVec wingResults
           wingMoment = foldr (addVec . resultMoment) zeroVec wingResults
           speed = magnitude bodyVel
           bodyDrag = scaleVec (-0.5 * 1.225 * 0.032 * speed) bodyVel
           tailArm = Vec3 (-0.48) 0 0
           tailVelocity = addVec bodyVel (crossVec bodyRates tailArm)
-          tailQArea = 0.5 * 1.225 * 0.035 * magnitude tailVelocity * magnitude tailVelocity
-          tailTrimDownforce = -0.18 * tailQArea
-          tailForce = addVec (scaleVec tailQArea (Vec3 0 (-rudderNorm) (-elevatorNorm)))
-                             (Vec3 0 0 tailTrimDownforce)
+          -- Symmetric finite surfaces: lift normal to each planar flow and
+          -- drag opposite it, including reverse flight. Positive elevator
+          -- requests nose-up; positive rudder requests nose-right.
+          horizontal = tailSurface 0.045 (radians (-2.0 - 12 * elevatorNorm))
+                         (x tailVelocity) (z tailVelocity)
+          vertical = tailSurface 0.020 (radians (-18 * rudderNorm))
+                       (x tailVelocity) (y tailVelocity)
+          tailForce = Vec3 (fst horizontal + fst vertical) (snd vertical) (snd horizontal)
           tailMoment = crossVec tailArm tailForce
           force = addVec wingForce (addVec bodyDrag tailForce)
           moment = addVec wingMoment tailMoment
@@ -189,3 +193,16 @@ batterySocDrop servo battery torqueNm dt =
 
 zeroOutput :: Int -> VehicleOutput
 zeroOutput flags = VehicleOutput zeroVec zeroVec 0 0 (-1) flags
+
+-- Provisional low-aspect-ratio tail polar. Even a deflected surface cannot
+-- create translational energy: lift is perpendicular, Cd is nonnegative.
+tailSurface :: Double -> Double -> Double -> Double -> (Double, Double)
+tailSurface area incidence chordVelocity normalVelocity =
+  let speed = sqrt (chordVelocity * chordVelocity + normalVelocity * normalVelocity)
+      alpha = incidence + atan2 (-normalVelocity) chordVelocity
+      cl = 1.1 * sin (2 * alpha)
+      cd = 0.025 + 0.14 * cl * cl + 0.8 * sin alpha * sin alpha
+      q = 0.5 * 1.225 * area * speed * speed
+      u = chordVelocity / max 1.0e-9 speed
+      w = normalVelocity / max 1.0e-9 speed
+  in (q * (-cd * u - cl * w), q * (-cd * w + cl * u))

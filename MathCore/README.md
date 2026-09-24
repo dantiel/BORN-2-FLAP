@@ -9,8 +9,11 @@ Der Haskell-Math-Core ist die kanonische Heimat für zeitkritische, reine Zustan
 - Fahrzeugkräfte und Momente
 
 Der Kern enthält inzwischen ein deterministisches bilaterales Fahrzeugmodell mit 16
-Streifen pro Flügel, dynamischer lokaler Ablösung, Crossflow-Transport, Added Mass,
-einem reduzierten LEV-Zustand, Rumpf- und Leitwerkslasten sowie Ratendämpfung. Es ist
+Streifen pro Flügel, dynamischer lokaler Ablösung, Crossflow-Transport,
+einem reduzierten LEV-Zustand sowie Rumpf- und Leitwerkslasten. Added Mass bleibt
+bis zu einer impliziten Kopplung ausgespart. Die RC-Kanaele steuern belastete
+Servos, differentielle Amplitude, asymmetrische Schlagzeit und Gleitposition;
+die Luftkraefte liefern auch die Rotationsdaempfung. Es ist
 ein kalibrierbares Reduced-Order-Modell und ausdrücklich kein Ersatz für validierende CFD.
 
 ```sh
@@ -23,5 +26,6 @@ Die `foreign-library`-Komponente erzeugt `born2flap_math.dll`,
 [`born2flap_math.h`](../Native/include/born2flap_math.h) festgelegt und verarbeitet
 das gesamte Fahrzeug mit genau einem Aufruf pro Physikschritt.
 
-Für reproduzierbare Builds werden GHC 9.6 und Cabal 3.10 verwendet. Das sehr alte,
-systemweit installierte GHC 8.0.2 auf dem aktuellen Entwicklungs-Mac ist dafür nicht geeignet.
+CI ist auf GHC 9.6 und Cabal 3.10 eingestellt. Unter Windows sind GHC 9.10.3
+und Cabal 3.16.1.0 geprueft. Steuerung, Modellgrenzen und native Tests:
+[`docs/rc-controls.md`](../docs/rc-controls.md).

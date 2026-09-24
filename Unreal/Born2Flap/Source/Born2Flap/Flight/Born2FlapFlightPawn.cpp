@@ -30,11 +30,14 @@ ABorn2FlapFlightPawn::ABorn2FlapFlightPawn()
     Body->SetBoxExtent(FVector(42, 12, 12));
     Body->SetCollisionProfileName(TEXT("PhysicsActor"));
     Body->SetSimulatePhysics(true);
-    Body->SetLinearDamping(0); // Native body/wing drag already removes energy.
-    Body->SetAngularDamping(.8f);
+    Body->SetLinearDamping(0);  // Native body/wing drag already removes energy.
+    Body->SetAngularDamping(0); // Aerodynamic wing/tail damping only.
     Body->BodyInstance.bUseCCD = true;
-    // Approximate wing-distributed rotational mass, instead of cube inertia.
-    Body->BodyInstance.InertiaTensorScale = FVector(8, 1.5, 2);
+    // Chaos scales the mass geometry, not the three diagonal tensor entries.
+    // (8,1.5,2) accidentally modelled a several-metre fuselage and ~1.7 kg m2
+    // pitch inertia. This approximation distributes mass across the wings:
+    // the resulting body tensor is about (.039,.046,.046) kg m2 at .45 kg.
+    Body->BodyInstance.InertiaTensorScale = FVector(1, 3, 3);
     BuildGeometry();
     CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
     CameraBoom->SetupAttachment(Body);
@@ -104,6 +107,8 @@ void ABorn2FlapFlightPawn::BeginPlay()
 {
     Super::BeginPlay();
     Body->SetMassOverrideInKg(NAME_None, .45f, true);
+    UE_LOG(LogTemp, Display, TEXT("FlightBody massKg=%.4f inertiaKgM2=%s"), Body->GetMass(),
+           *(Body->GetInertiaTensor() / 10000.0).ToString());
     // Fixed daylight exposure, compatible with either project luminance mode.
     // The legacy exposure range otherwise clips a physically lit sky to white.
     const auto *ExtendedRange =
@@ -149,10 +154,11 @@ void ABorn2FlapFlightPawn::ResetFlight(bool bSafety)
     // Recreate all firmware/servo/aeroelastic/battery/history state. RTS stays pinned.
     bHealthy = MathBridge && MathBridge->Load();
     bFlying = bReturning = false;
-    Throttle = Turn = PitchInput = TargetBank = TargetPitch = LeftFlap = RightFlap = 0;
+    Keyboard = {};
+    Throttle = RollInput = YawInput = PitchInput = LeftFlap = RightFlap = 0;
     BatterySoc = 1;
     Accumulator = 0;
-    AeroForce = AeroMoment = AssistTorque = FVector::ZeroVector;
+    AeroForce = AeroMoment = FVector::ZeroVector;
     Body->SetWorldLocationAndRotation(FVector(0, 0, 80), FRotator::ZeroRotator, false, nullptr,
                                       ETeleportType::TeleportPhysics);
     Body->SetPhysicsLinearVelocity(FVector::ZeroVector);
@@ -199,9 +205,9 @@ FString ABorn2FlapFlightPawn::GetFlightStatus() const
     if (!bHealthy)
         return TEXT("Flight core stopped - press R to reload");
     if (bReturning)
-        return TEXT("RETURNING TO FIELD");
+        return TEXT("FIELD EDGE - turn back with the sticks");
     if (!bFlying)
-        return TEXT("SPACE to hand-launch, then hold W to flap");
+        return TEXT("SPACE hand-launch / W throttle on ground");
     if (GetSpeed() < 4.5f)
         return TEXT("LOW AIRSPEED - lower the nose");
     if (Throttle < .08f)
@@ -218,13 +224,13 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
     const FVector Inertia = Body->GetInertiaTensor() / 10000.0;
     B2F_PilotInput Pilot{};
     Pilot.throttle = Throttle;
-    Pilot.roll = Turn * .1;
-    Pilot.pitch = PitchInput * .25;
-    Pilot.yaw = Turn * .1;
+    Pilot.roll = RollInput;
+    Pilot.pitch = PitchInput;
+    Pilot.yaw = YawInput;
     B2F_BodyState State{};
     State.delta_time_s = MathDt;
     Accumulator = FMath::Min(Accumulator + DeltaSeconds, .1);
-    FVector ForceSum = FVector::ZeroVector, MomentSum = FVector::ZeroVector, AssistSum = FVector::ZeroVector;
+    FVector ForceSum = FVector::ZeroVector, MomentSum = FVector::ZeroVector;
     int32 Steps = 0;
     while (Accumulator >= MathDt)
     {
@@ -247,16 +253,14 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
             ++MathFailures;
             bHealthy = bFlying = false;
             Accumulator = 0;
-            AeroForce = AeroMoment = AssistTorque = FVector::ZeroVector;
+            AeroForce = AeroMoment = FVector::ZeroVector;
             UE_LOG(LogTemp, Error, TEXT("FlightMathRejected: disarmed, R recreates firmware context"));
             return false;
         }
         const FVector WorldForce = Rotation.RotateVector(F);
         const FVector WorldMoment = Rotation.RotateVector(M);
-        const FVector Attitude = AttitudeTorque(Rotation, Omega, Velocity);
         ForceSum += WorldForce;
         MomentSum += WorldMoment;
-        AssistSum += Attitude;
         LeftFlap = O.left_flap_deg;
         RightFlap = O.right_flap_deg;
         BatterySoc = O.battery_soc;
@@ -265,8 +269,7 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
         // roll damping overshoot. Chaos receives the mean loads once and stays
         // authoritative for the actual rigid body and contacts.
         Velocity += (WorldForce / Body->GetMass() + FVector(0, 0, -9.81)) * MathDt;
-        Omega += Rotation.RotateVector((M + Rotation.UnrotateVector(Attitude)) / Inertia) * MathDt;
-        Omega *= FMath::Exp(-.8 * MathDt);
+        Omega += Rotation.RotateVector(M / Inertia) * MathDt;
         const double Rate = Omega.Size();
         if (Rate > UE_SMALL_NUMBER)
             Rotation = (FQuat(Omega / Rate, Rate * MathDt) * Rotation).GetNormalized();
@@ -277,49 +280,28 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
     {
         AeroForce = ForceSum / Steps;
         AeroMoment = MomentSum / Steps;
-        AssistTorque = AssistSum / Steps;
     }
     return true;
-}
-FVector ABorn2FlapFlightPawn::AttitudeTorque(const FQuat &Rotation, const FVector &Omega, const FVector &Velocity) const
-{
-    if (!bAttitudeAssist || !bFlying)
-        return FVector::ZeroVector;
-    const FQuat Desired = FRotator(TargetPitch, Rotation.Rotator().Yaw, TargetBank).Quaternion();
-    FQuat Error = Desired * Rotation.Inverse();
-    if (Error.W < 0)
-        Error = FQuat(-Error.X, -Error.Y, -Error.Z, -Error.W);
-    FVector Axis;
-    double Angle;
-    Error.ToAxisAndAngle(Axis, Angle);
-    FVector Accel = Axis * Angle * 35.0 - Omega * 10.0;
-    const double CoordinatedRate =
-        9.81 * FMath::Tan(FMath::DegreesToRadians(TargetBank)) / FMath::Max(Velocity.Size2D(), 4.0);
-    Accel.Z = (CoordinatedRate - Omega.Z) * 6.0;
-    Accel = Accel.GetClampedToMaxSize(15.0);
-    // A bounded torque actuator stabilizes attitude only, with the actual
-    // inertia tensor. It supplies no translational force or altitude control.
-    return Rotation.RotateVector(Rotation.UnrotateVector(Accel) * Body->GetInertiaTensor() / 10000.0)
-        .GetClampedToMaxSize(1.2);
 }
 void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
     const float Dt = FMath::Clamp(DeltaSeconds, 0.f, .1f);
-    float Effort = 0, Steer = 0, Pitch = 0;
+    float Effort = 0, Steer = 0, Pitch = 0, Roll = 0;
     bool Launch = false, Reset = false;
     if (auto *PC = Cast<APlayerController>(GetController()))
     {
-        Effort = PC->IsInputKeyDown(EKeys::W) ? (PC->IsInputKeyDown(EKeys::LeftShift) ? 1.f : .72f) : 0;
+        Effort = PC->IsInputKeyDown(EKeys::W)
+                     ? (PC->IsInputKeyDown(EKeys::LeftShift) || PC->IsInputKeyDown(EKeys::RightShift) ? 1.f : .72f)
+                     : 0;
         Steer = (PC->IsInputKeyDown(EKeys::D) ? 1.f : 0.f) - (PC->IsInputKeyDown(EKeys::A) ? 1.f : 0.f);
+        Roll = (PC->IsInputKeyDown(EKeys::Right) ? 1.f : 0.f) - (PC->IsInputKeyDown(EKeys::Left) ? 1.f : 0.f);
         Pitch = (PC->IsInputKeyDown(EKeys::Up) ? 1.f : 0.f) -
                 (PC->IsInputKeyDown(EKeys::Down) || PC->IsInputKeyDown(EKeys::S) ? 1.f : 0.f);
         Launch = PC->WasInputKeyJustPressed(EKeys::SpaceBar);
         Reset = PC->WasInputKeyJustPressed(EKeys::R);
         if (PC->WasInputKeyJustPressed(EKeys::F1))
             bVectors = !bVectors;
-        if (PC->WasInputKeyJustPressed(EKeys::F2))
-            bAttitudeAssist = !bAttitudeAssist;
     }
     if (bFlightTest)
     {
@@ -330,14 +312,22 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
                  : (TestTime >= 15 && TestTime < 40) || (TestTime >= 63) ? 1.f
                                                                          : 0.f;
         Steer = TestTime >= 32 && TestTime < 36 ? .6f : 0;
+        Roll = TestTime >= 36 && TestTime < 36.5 ? .5f : 0;
         Pitch = TestTime >= 26 && TestTime < 28 ? .75f : 0;
+        if (TestTime >= 12.8 && TestTime < 13.2)
+        {
+            Steer = .25f;
+            Roll = -.25f;
+            Pitch = .15f;
+        }
         Reset = TestTime >= 61 && !bTestResetSent;
         if (Reset)
             bTestResetSent = true;
         if (bSoakTest)
         {
             Effort = TestTime >= 3 ? .78f : 0;
-            Steer = TestTime >= 30 ? .35f : 0;
+            Steer = 0;
+            Roll = 0;
             Pitch = 0;
             Reset = false;
             Launch = Previous < 3 && TestTime >= 3;
@@ -352,7 +342,7 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     const FVector P = Body->GetComponentLocation(), V = Body->GetPhysicsLinearVelocity() / 100.0;
     const FVector Omega = Body->GetPhysicsAngularVelocityInRadians();
     if (!Finite(P) || !Finite(V) || !Finite(Omega) || V.Size() > 40 || Omega.Size() > 12 || P.Z < -300 ||
-        P.Z > 300000 || P.Size2D() > 48000)
+        P.Z > 300000 || P.Size2D() > 480000)
     {
         UE_LOG(LogTemp, Warning, TEXT("FlightSafetyReset pos=%s vel=%s omega=%s"), *P.ToString(), *V.ToString(),
                *Omega.ToString());
@@ -361,33 +351,29 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     }
     if (GetAltitude() < .3f && GetSpeed() < 1.f)
         bFlying = false;
+    else if (GetAltitude() > .5f && GetSpeed() > 1.f)
+        bFlying = true;
     if (bFlying && !bReturning && P.Size2D() > 30000)
     {
         bReturning = true;
         ++BoundaryReturns;
-        UE_LOG(LogTemp, Display, TEXT("FlightBoundaryReturn count=%d"), BoundaryReturns);
+        UE_LOG(LogTemp, Display, TEXT("FlightFieldEdge count=%d"), BoundaryReturns);
     }
     if (P.Size2D() < 18000 || !bFlying)
         bReturning = false;
-    if (bReturning && bAttitudeAssist)
-    {
-        const double HomeYaw = FMath::RadiansToDegrees(FMath::Atan2(-P.Y, -P.X));
-        Steer = FMath::Clamp(FMath::FindDeltaAngleDegrees(double(Body->GetComponentRotation().Yaw), HomeYaw) / 50.0,
-                             -1.0, 1.0);
-    }
-    Throttle = FMath::FInterpTo(Throttle, bFlying ? Effort : 0.f, Dt, 6.f);
-    Turn = bFlying ? Steer : 0;
-    PitchInput = bFlying ? Pitch : 0;
-    TargetBank = FMath::FInterpTo(TargetBank, Turn * 28.f, Dt, 3.f);
-    TargetPitch = FMath::FInterpTo(TargetPitch, PitchInput * 16.f, Dt, 2.f);
-    AssistTorque = FVector::ZeroVector;
+    // Throttle commands the motor on the ground too, like an armed RC model.
+    // Flying state is telemetry, never a hidden override of transmitter input.
+    Keyboard.Step(Dt, Effort, Roll, Pitch, Steer);
+    Throttle = Keyboard.throttle;
+    RollInput = born2flap::RcKeyboard::Expo(Keyboard.roll);
+    PitchInput = born2flap::RcKeyboard::Expo(Keyboard.pitch);
+    YawInput = born2flap::RcKeyboard::Expo(Keyboard.yaw);
     if (StepMath(Dt))
     {
         // There is deliberately no target speed/altitude, lift offset, or
         // compensation of these forces. Gravity is applied by Chaos.
         Body->AddForce(AeroForce * 100.0);
         Body->AddTorqueInRadians(AeroMoment * 10000.0);
-        Body->AddTorqueInRadians(AssistTorque * 10000.0);
     }
     VisualRoot->SetRelativeRotation(FRotator::ZeroRotator);
     LeftShoulder->SetRelativeRotation(FRotator(0, 0, LeftFlap));
@@ -404,11 +390,11 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         LogTime = 0;
         UE_LOG(LogTemp, Display,
                TEXT("FlightTelemetry mode=aerodynamic flying=%d healthy=%d altitude=%.3fm speed=%.3fm/s climb=%.3fm/s "
-                    "pitch=%.2f roll=%.2f yaw=%.1f throttle=%.3f soc=%.3f aeroN=%s torqueNm=%s attitudeNm=%s "
+                    "pitch=%.2f roll=%.2f yaw=%.1f throttle=%.3f soc=%.3f aeroN=%s torqueNm=%s rc=(%.3f,%.3f,%.3f) "
                     "flap=(%.1f,%.1f)"),
                bFlying, bHealthy, GetAltitude(), GetSpeed(), GetClimbRate(), Body->GetComponentRotation().Pitch,
                Body->GetComponentRotation().Roll, Body->GetComponentRotation().Yaw, Throttle, BatterySoc,
-               *AeroForce.ToString(), *AeroMoment.ToString(), *AssistTorque.ToString(), LeftFlap, RightFlap);
+               *AeroForce.ToString(), *AeroMoment.ToString(), RollInput, PitchInput, YawInput, LeftFlap, RightFlap);
     }
     if (bFlightTest)
         CheckFlightTest();
@@ -424,6 +410,10 @@ void ABorn2FlapFlightPawn::CheckFlightTest()
         TestPoweredAltitude = GetAltitude();
     if (TestTime > 14.8 && TestTime < 15)
         TestGlideAltitude = GetAltitude();
+    if (TestTime > 13 && TestTime < 14)
+        TestGlideWingDiff = FMath::Max(TestGlideWingDiff, double(FMath::Abs(LeftFlap - RightFlap)));
+    if (TestTime > 36.3 && TestTime < 37)
+        TestRollWingDiff = FMath::Max(TestRollWingDiff, double(FMath::Abs(LeftFlap - RightFlap)));
     if (TestTime > 29.8 && TestTime < 30)
         TestBoostAltitude = GetAltitude();
     if (TestTime > 25.8 && TestTime < 26)
@@ -468,15 +458,17 @@ void ABorn2FlapFlightPawn::CheckFlightTest()
                           bTestReset && bTestSecondFlight && TestPoweredAltitude > 2 &&
                           TestGlideAltitude < TestPoweredAltitude - .5 && TestBoostAltitude > TestGlideAltitude + 2 &&
                           TestFlapMax - TestFlapMin > 30 && TestPeakSpeed < 25 &&
-                          TestPullSpeed < TestBeforePullSpeed - .3 && TestPullHeight > TestBeforePullHeight + .5;
-        UE_LOG(LogTemp, Display,
-               TEXT("FlightTest %s seconds=%.2f idle=%d turn=%d land=%d reset=%d relaunch=%d poweredAlt=%.3f "
-                    "coastAlt=%.3f boostAlt=%.3f flapTravel=%.2f peakSpeed=%.3f peakAltitude=%.3f safety=%d "
-                    "mathFailures=%d pullSpeed=(%.2f,%.2f) pullHeight=(%.2f,%.2f)"),
-               Pass ? TEXT("PASS") : TEXT("FAIL"), TestTime, bTestIdle, bTestTurn, bTestLand, bTestReset,
-               bTestSecondFlight, TestPoweredAltitude, TestGlideAltitude, TestBoostAltitude, TestFlapMax - TestFlapMin,
-               TestPeakSpeed, TestPeakAltitude, SafetyResets, MathFailures, TestBeforePullSpeed, TestPullSpeed,
-               TestBeforePullHeight, TestPullHeight);
+                          TestPullSpeed < TestBeforePullSpeed - .3 && TestPullHeight > TestBeforePullHeight + .5 &&
+                          TestGlideWingDiff > .5 && TestRollWingDiff > 3;
+        UE_LOG(
+            LogTemp, Display,
+            TEXT("FlightTest %s seconds=%.2f idle=%d turn=%d land=%d reset=%d relaunch=%d poweredAlt=%.3f "
+                 "coastAlt=%.3f boostAlt=%.3f flapTravel=%.2f peakSpeed=%.3f peakAltitude=%.3f safety=%d "
+                 "mathFailures=%d pullSpeed=(%.2f,%.2f) pullHeight=(%.2f,%.2f) glideWingDiff=%.2f rollWingDiff=%.2f"),
+            Pass ? TEXT("PASS") : TEXT("FAIL"), TestTime, bTestIdle, bTestTurn, bTestLand, bTestReset,
+            bTestSecondFlight, TestPoweredAltitude, TestGlideAltitude, TestBoostAltitude, TestFlapMax - TestFlapMin,
+            TestPeakSpeed, TestPeakAltitude, SafetyResets, MathFailures, TestBeforePullSpeed, TestPullSpeed,
+            TestBeforePullHeight, TestPullHeight, TestGlideWingDiff, TestRollWingDiff);
         FPlatformMisc::RequestExitWithStatus(false, Pass ? 0 : 1);
     }
 }

@@ -1,5 +1,9 @@
 # Wing-powered flight — 24 September 2026
 
+This report describes the first wing-powered revision, including its now-removed
+attitude helper. The subsequent [RC controls revision](rc-controls.md) replaces
+the controls and documents the current purely aerodynamic flight path.
+
 The previous trainer kept flying with little visible wing motion because its
 controller cancelled the measured aerodynamic forces and supplied whatever force
 was needed to hold altitude and speed. That made the flight model irrelevant to

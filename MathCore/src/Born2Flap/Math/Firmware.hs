@@ -1,10 +1,10 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE StrictData #-}
 
--- | Faithful emulation of the PteronautOS @Ornithopter::_computeServoMixer@
--- flapping control law (the non-Zephyrus pilot-input path). This is the
--- "firmware in the simulation": CRSF radio channels in, wing-servo angle
--- commands out, reacting identically to the real firmware's mixer kernel.
+-- | RC mixer derived from PteronautOS @Ornithopter::_computeServoMixer@.
+-- The simulator extends glide mixing and opposite aileron stroke timing;
+-- it is not a bit-identical firmware reference. CRSF channels still command
+-- physical servos, never body forces or attitude targets.
 --
 -- The oscillator/waveform (@Born2Flap.Math.Waveform@) is *only* the servo
 -- motion generator here — it is not a physical dimension. The physical
@@ -63,10 +63,10 @@ crsfToFloat raw outMin outMax =
   in outMin + t * (outMax - outMin)
 
 crsfToNorm :: Double -> Double
-crsfToNorm raw = crsfToFloat raw (-1) 1
+crsfToNorm raw = clamp (-1) 1 ((raw - 992) / if raw < 992 then 820 else 819)
 
 normToRaw :: Double -> Double
-normToRaw norm = 992 + norm * 819.5
+normToRaw norm = 992 + clamp (-1) 1 norm * if norm < 0 then 820 else 819
 
 -- ── Logical pilot input (normalised sticks) ────────────────────────
 --
@@ -215,8 +215,8 @@ defaultFirmwareState = FirmwareState
 
 -- ── Mixer output ───────────────────────────────────────────────────
 --
--- Wing servo angle commands in *degrees* (0..180, neutral = 100°), matching
--- the firmware's angleLeft/angleRight before the µs quantisation. The µs
+-- Wing shaft commands in degrees (neutral = 100°), before hardware PWM clamps.
+-- Physical flap travel is bounded separately in the hinge actuator. The µs
 -- step and integer truncation are PWM artefacts with no physical meaning for
 -- a continuous game simulation, so they are deliberately omitted.
 
@@ -291,8 +291,7 @@ computeServoMixer :: RcChannels -> FirmwareParams -> FirmwareState -> Double
 computeServoMixer rc params state dt
   | dt <= 0 = (glideOutput, state)
   | otherwise =
-      let prof = fwProfile params
-          aileronNorm = crsfToNorm (rcAileron rc)
+      let aileronNorm = crsfToNorm (rcAileron rc)
           elevatorNorm = crsfToNorm (rcElevator rc)
           throttleUsF = rcThrottle rc
           armed = rcArm rc > 992
@@ -302,14 +301,30 @@ computeServoMixer rc params state dt
           isFlapping = armed && throttleUsF > threshold
       in if isFlapping
            then flappingBranch prof aileronNorm elevatorNorm rc params state dt
-           else (glideOutput { mixIsFlapping = False }, glideTransition state)
+           else (glideOutput, glideTransition state)
 
   where
+    prof = fwProfile params
+    aileron = crsfToNorm (rcAileron rc)
+    elevator = crsfToNorm (rcElevator rc)
+    rudder = crsfToNorm (rcRudder rc)
+    -- These are shared actuators, not independent yaw/roll surfaces. The
+    -- differential requests add before the physical travel limits; opposite
+    -- aileron can cancel rudder's glide-wing request.
+    common = negate (profGlideAngleDeg prof + elevator * profElevatorScale prof * 0.01 * steerMaxDeg)
+    differential = (-aileron + rudder * fwRudderYawWeight params * 0.01)
+                   * profAileronScale prof * 0.01 * steerMaxDeg
+    left = clamp (-80) 80 (common - differential)
+    right = clamp (-80) 80 (common + differential)
+    rudderMix = clamp (-1) 1 (rudder * fwRudderYawWeight params * 0.01
+                              + aileron * fwRudderRollWeight params * 0.01)
     glideOutput = MixerOutput
       { mixIsFlapping = False, mixFlapHz = 0, mixThrottlePct = 0
-      , mixLeftWingDeg = neutralAngleDeg, mixRightWingDeg = neutralAngleDeg
-      , mixLeftFlapDevDeg = 0, mixRightFlapDevDeg = 0
-      , mixRudderUs = 1500, mixStrokeFerL = 0, mixReturnFerL = 0, mixPhase = 0
+      , mixLeftWingDeg = neutralAngleDeg - left * angularMultiplier
+      , mixRightWingDeg = neutralAngleDeg + right * angularMultiplier
+      , mixLeftFlapDevDeg = left, mixRightFlapDevDeg = right
+      , mixRudderUs = 1500 + rudderMix * 500
+      , mixStrokeFerL = 0, mixReturnFerL = 0, mixPhase = 0
       }
 
 -- | Glide: decay oscillator, reset slew sentinels (firmware else-branch).
@@ -342,7 +357,7 @@ flappingBranch prof aileronNorm elevatorNorm rc params state dt =
       amplitude = throttlePct * ampMaxHz
 
       -- Steering commands (deg).
-      aileronCmd = aileronNorm * profAileronScale prof * 0.01 * steerMaxDeg
+      aileronCmd = -aileronNorm * profAileronScale prof * 0.01 * steerMaxDeg
       elevatorCmd = elevatorNorm * profElevatorScale prof * 0.01 * steerMaxDeg
       flapCenterCmd = profFlappingAngleDeg prof
 
@@ -381,28 +396,41 @@ flappingBranch prof aileronNorm elevatorNorm rc params state dt =
       strokeSkewEff = profStrokeSkew prof + thrustCentreShift thrust + throttleRateBoost
       returnSkewEff = profReturnSkew prof + thrustCentreShift thrust + throttleRateBoost
 
-      -- Aileron + aileron-rate → differential amplitude (roll).
+      -- Aileron + aileron-rate → opposite stroke/return timing skew. Rudder
+      -- owns amplitude differential. Both mechanisms act on the same wings.
       aileronRollShift = orniAileronRollShift aileronNorm (profAileronSkewMix prof)
       (prevAileron, aileronLPF) = slewUpdate (fwPrevAileronNorm state)
                                     (fwAileronRateLPF state) aileronNorm dt
       aileronRateBoost = orniAileronRollRateShift aileronLPF (profAileronSkewRateMix prof)
-      rollAmpDiff = clamp (-0.9) 0.9 (rudderAmpDiff + aileronRollShift + aileronRateBoost)
-      amplitudeL = amplitude * (1 + rollAmpDiff)
-      amplitudeR = amplitude * (1 - rollAmpDiff)
+      rollSkew = clamp (-80) 80 (-100 * (aileronRollShift + aileronRateBoost))
+      -- Aileron also skews the downstroke/return duration in opposite
+      -- directions. Equal-amplitude wings can then have different downstroke
+      -- speed and lift; merely phase-shifting identical strokes has little
+      -- cycle-mean roll authority. Keep one oscillator and bounded reversals.
+      reversalShift = clamp (-0.3) 0.3 (0.6 * (aileronRollShift + aileronRateBoost))
+      reversalL = clamp (0.2 * 2*pi) (0.8 * 2*pi) (limiarShared * (1 - reversalShift))
+      reversalR = clamp (0.2 * 2*pi) (0.8 * 2*pi) (limiarShared * (1 + reversalShift))
+      yawAmpDiff = clamp (-0.9) 0.9 rudderAmpDiff
+      amplitudeL = amplitude * (1 + yawAmpDiff)
+      amplitudeR = amplitude * (1 - yawAmpDiff)
 
       -- Oscillator advance → phase, then shaped wave pulse.
       (phase, nextOsc) = advanceOscillator cadenceTarget 1 (fwAnchorGain params) dt
                            (fwOscillator state)
-      pulseL = shapeWave phase strokeFerL returnFerL limiarShared
-                 (profFerocityShapeMix prof) strokeSkewEff returnSkewEff
-      pulseR = shapeWave phase strokeFerR returnFerR limiarShared
-                 (profFerocityShapeMix prof) strokeSkewEff returnSkewEff
+      pulseL = shapeWave phase strokeFerL returnFerL reversalL
+                 (profFerocityShapeMix prof) (strokeSkewEff + rollSkew) (returnSkewEff - rollSkew)
+      pulseR = shapeWave phase strokeFerR returnFerR reversalR
+                 (profFerocityShapeMix prof) (strokeSkewEff - rollSkew) (returnSkewEff + rollSkew)
 
       degL = amplitudeL * pulseL
       degR = amplitudeR * pulseR
 
-      angleLeft = neutralAngleDeg + (aileronCmd + elevatorCmd + flapCenterCmd - degL) * angularMultiplier
-      angleRight = neutralAngleDeg + (aileronCmd - elevatorCmd - flapCenterCmd + degR) * angularMultiplier
+      -- Convert the COMPLETE mixed shaft command into mirrored physical flap
+      -- coordinates. The old ABI path discarded every centre/position term.
+      left = clamp (-80) 80 (degL - aileronCmd - elevatorCmd - flapCenterCmd)
+      right = clamp (-80) 80 (degR + aileronCmd - elevatorCmd - flapCenterCmd)
+      angleLeft = neutralAngleDeg - left * angularMultiplier
+      angleRight = neutralAngleDeg + right * angularMultiplier
 
       -- Crest rudder (SERVO_2WING_1RUD).
       rudderMix = clamp (-1) 1
@@ -425,8 +453,8 @@ flappingBranch prof aileronNorm elevatorNorm rc params state dt =
         , mixThrottlePct = throttlePct
         , mixLeftWingDeg = angleLeft
         , mixRightWingDeg = angleRight
-        , mixLeftFlapDevDeg = degL
-        , mixRightFlapDevDeg = degR
+        , mixLeftFlapDevDeg = left
+        , mixRightFlapDevDeg = right
         , mixRudderUs = rudderUs
         , mixStrokeFerL = strokeFerL
         , mixReturnFerL = returnFerL

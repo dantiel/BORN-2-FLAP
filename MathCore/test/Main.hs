@@ -164,9 +164,26 @@ main = do
     else fail "beat-locked oscillator must stay on-grid at nominal demand"
   -- Firmware mixer: glide at rest, flapping at full throttle with correct freq.
   let (glide, _) = computeServoMixer defaultRcChannels defaultFirmwareParams defaultFirmwareState (1 / 240)
-  if not (mixIsFlapping glide) && mixFlapHz glide == 0 && mixLeftWingDeg glide == 100
+  if not (mixIsFlapping glide) && mixFlapHz glide == 0
+     && mixLeftFlapDevDeg glide == 4 && mixRightFlapDevDeg glide == 4
     then pure ()
-    else fail "neutral channels must hold glide at neutral servo angle"
+    else fail "neutral glide must use the configured wing position"
+  let mixer pilot = fst (computeServoMixer (pilotToRc pilot) defaultFirmwareParams defaultFirmwareState (1/240))
+      glideYaw = mixer (PilotInput 0 0 0 0.5)
+      glideRoll = mixer (PilotInput 0 0.5 0 0)
+      glidePitch = mixer (PilotInput 0 0 0.5 0)
+      cancelled = mixer (PilotInput 0 0.325 0 0.5)
+      yawDiff = mixRightFlapDevDeg glideYaw - mixLeftFlapDevDeg glideYaw
+      rollDiff = mixRightFlapDevDeg glideRoll - mixLeftFlapDevDeg glideRoll
+  if yawDiff > 1 && rollDiff < -1 && mixLeftFlapDevDeg glidePitch < 4
+     && abs (mixRightFlapDevDeg cancelled - mixLeftFlapDevDeg cancelled) < 1e-10
+    then pure () else fail "glide RC channels must move the shared wings and allow opposing commands to cancel"
+  let coherent output = abs (mixLeftFlapDevDeg output + (mixLeftWingDeg output-100)/2) < 1e-10
+                     && abs (mixRightFlapDevDeg output - (mixRightWingDeg output-100)/2) < 1e-10
+  if all coherent [glideYaw,glideRoll,glidePitch,mixer (PilotInput 0.72 0.4 (-0.3) 0.5)]
+    then pure () else fail "physical flap angles must include the complete mixed servo command"
+  if all (\a -> abs (crsfToNorm (normToRaw a) - a) < 1e-12) [-1,-0.5,0,0.5,1]
+    then pure () else fail "RC normalization must preserve exact neutral and endpoint values"
   let flapRc = defaultRcChannels { rcThrottle = 1811 }
       (flap, flapState) = computeServoMixer flapRc defaultFirmwareParams defaultFirmwareState (1 / 240)
   if mixIsFlapping flap && mixFlapHz flap > 0 && mixThrottlePct flap == 1
@@ -240,6 +257,27 @@ main = do
   if fwWasFlapping (fvFirmware warmFw) && peakFlap > 1.0 && fvBatterySoc warmFw <= 1.0
     then pure ()
     else fail "pilot-driven firmware loop must flap both wings and track battery"
+  -- Isolate aileron timing: no static wing offset, rudder surface or amplitude
+  -- differential is available to generate this roll moment.
+  let skewParams = defaultFirmwareParams
+        { fwServoSpeedMs = 50, fwFlapBaseFreqDh = 32, fwRudderRollWeight = 0
+        , fwProfile = (fwProfile defaultFirmwareParams)
+            { profThrottleFrequencyMix = 100, profAileronSkewMix = 55
+            , profAileronScale = 0, profRudderAmplitudeDiff = 0 } }
+      skewServo = defaultServoSpec { servoNoLoadSpeedDegPerSec = 1200, servoStallTorqueNm = 8 }
+      skewBattery = defaultBatterySpec
+        { batteryNominalVoltage = 11.1, batteryCapacityAh = 1.3, batteryInternalResistanceOhm = 0.08 }
+      skewMoment roll =
+        let rc = pilotToRc (PilotInput 0.72 roll 0 0)
+            tick (_,s) = stepFirmwareVehicle rc skewParams skewServo skewBattery
+                          (1/240) (Vec3 8 0 (-1)) (Vec3 0 0 0) s
+            samples = drop 481 $ take 1921 $ iterate tick (zeroVehicleOutput,defaultFirmwareVehicleState)
+        in sum (map (x . totalMomentNm . fst) samples) / fromIntegral (length samples)
+      leftSkewMoment = skewMoment (-0.5)
+      rightSkewMoment = skewMoment 0.5
+  if leftSkewMoment > 0.01 && rightSkewMoment < -0.01
+     && abs (leftSkewMoment + rightSkewMoment) < 1e-10
+    then pure () else fail "opposite stroke timing alone must generate mirrored aerodynamic roll"
   putStrLn "MathCore properties passed"
 
 zeroVehicleOutput :: VehicleOutput

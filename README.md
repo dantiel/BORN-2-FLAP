@@ -79,7 +79,7 @@ cabal test all
 
 ## Unreal-Prototyp
 
-Das Unreal-5.8.2-Projekt liegt unter [`Unreal/Born2Flap`](Unreal/Born2Flap). Der Vogel fliegt mit den Haskell-Kraeften aus Fluegelbewegung und Anstroemung. Space wirft ihn an, gehaltenes W laesst ihn kontinuierlich schlagen, Shift+W erhoeht die Leistung. Loslassen kostet im Gleitflug Hoehe; Hochziehen tauscht Fahrt gegen Hoehe. A/D steuert die Kurvenneigung, Pfeil hoch/runter das Nicken, R setzt vollstaendig zurueck. Ein abschaltbarer Lageassistent hilft beim Ausrichten, ohne Hoehe oder Geschwindigkeit zu halten. Die Koeffizienten und Antriebsdaten sind noch nicht experimentell kalibriert. Start, Builds und Tests: [Windows-Entwicklungsumgebung](docs/windows-development.md). Modell und Nachweise: [Fluegelgetriebener Flug](docs/wing-powered-flight.md).
+Das Unreal-5.8.2-Projekt liegt unter [`Unreal/Born2Flap`](Unreal/Born2Flap). Die Tastatur bewegt virtuelle RC-Knueppel: W gibt mittleres Gas, Shift+W Vollgas, A/D Seitenruder (Gieren), Pfeil links/rechts Querruder (Rollen) und Pfeil hoch/runter Hoehenruder. Kurzes Antippen ergibt kleine Ausschlaege; Halten faehrt die Knueppel langsam aus. Seitenruder veraendert die Schlagamplitude links/rechts, Querruder die asymmetrische Schlagzeit und Fluegelposition. Auch im Gleitflug reagieren die Fluegel. Alle Flugkraefte und -momente entstehen im Aerodynamikmodell. Space dient zum Handstart, R zum Reset. Koeffizienten und Antriebsdaten bleiben unkalibriert. Start und Builds: [Windows-Entwicklungsumgebung](docs/windows-development.md). Steuerung und Nachweise: [RC-Steuerung](docs/rc-controls.md).
 
 ## Lizenz
 

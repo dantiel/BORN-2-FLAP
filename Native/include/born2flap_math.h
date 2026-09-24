@@ -48,7 +48,8 @@ B2F_API int32_t b2f_math_step_vehicle(
 
 /* ── Firmware-emulation ABI (logical channels, selectable components) ──
  *
- * These functions run the PteronautOS firmware emulation loop:
+ * These functions run the mixer derived from PteronautOS, extended with
+ * aerodynamic glide controls and opposite aileron stroke timing:
  * pilot sticks → firmware mixer → servo actuator (struggling against the
  * aerodynamic hinge torque) → wing aerodynamics, all closed-loop. Input is
  * logical channels (not raw CRSF): throttle 0..1, roll/pitch/yaw -1..1.

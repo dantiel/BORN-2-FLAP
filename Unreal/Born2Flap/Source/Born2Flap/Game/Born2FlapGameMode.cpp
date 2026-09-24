@@ -64,8 +64,8 @@ void ABorn2FlapGameMode::BeginPlay()
         Component->SetCollisionProfileName(Collision ? TEXT("BlockAll") : TEXT("NoCollision"));
         Actor->SetActorEnableCollision(Collision);
     };
-    // A solid 1 km floor, top at z=0. The old 20 m plane could be escaped in seconds.
-    Part(Cube, FVector(0, 0, -100), FVector(1000, 1000, 2), FRotator::ZeroRotator, TEXT("Grass"), true);
+    // A 10 km floor permits unassisted RC flight beyond the practice course.
+    Part(Cube, FVector(0, 0, -100), FVector(10000, 10000, 2), FRotator::ZeroRotator, TEXT("Grass"), true);
     Part(Cube, FVector(0, 0, .5), FVector(9, 9, .01), FRotator::ZeroRotator, TEXT("Sand"));
     for (int I = 0; I < 12; ++I)
         Part(Cube, FVector(500 + I * 220, 0, 1), FVector(.9, .15, .015), FRotator::ZeroRotator, TEXT("Ivory"));

@@ -272,7 +272,10 @@ stepStrip side stroke strokeRate input index old =
       -- a fictitious 25 N source at every strip.
       cm0 = sectionPitchMomentCoeff camberPrev (spReflex profile)
       sectionPitchMoment = cm0 * q * chord * chord * dr
-      moment = addVec (crossVec position force) (Vec3 0 sectionPitchMoment 0)
+      -- Section Cm is positive nose-up. With body +x forward,+y right,+z up,
+      -- the axial +Y moment rotates the nose DOWN, so convert the sign here.
+      -- Keep the scalar section moment in its original convention for twist.
+      moment = addVec (crossVec position force) (Vec3 0 (-sectionPitchMoment) 0)
       power = max 0 (negate (dot force flapVelocity))
       next = StripState relaxed alpha normalVelocity lev camberNext bend
                (stripBendSlope old) aeroTwist

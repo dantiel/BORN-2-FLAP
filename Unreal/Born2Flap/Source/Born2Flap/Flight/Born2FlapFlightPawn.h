@@ -2,13 +2,13 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Pawn.h"
 #include "Math/Born2FlapMathBridge.h"
+#include "born2flap_rc_input.h"
 #include "Born2FlapFlightPawn.generated.h"
 class UBoxComponent;
 class USceneComponent;
 class USpringArmComponent;
 class UCameraComponent;
-// Translation is driven only by the native wing/body forces and gravity.
-// Optional attitude assistance applies torques, never altitude/speed compensation.
+// RC channels drive the native actuators. All forces and moments are aerodynamic.
 UCLASS()
 class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
 {
@@ -25,7 +25,8 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     float GetEffort() const { return Throttle; }
     float GetBattery() const { return BatterySoc; }
     float GetClimbRate() const;
-    bool HasAttitudeAssist() const { return bAttitudeAssist; }
+    FVector GetRcSticks() const { return FVector(RollInput, PitchInput, YawInput); }
+    FVector2D GetWingAngles() const { return FVector2D(LeftFlap, RightFlap); }
     FString GetFlightStatus() const;
 
   private:
@@ -37,12 +38,10 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     UPROPERTY(VisibleAnywhere) TObjectPtr<UCameraComponent> Camera;
     TUniquePtr<FBorn2FlapMathBridge> MathBridge;
     double Accumulator = 0, LogTime = 0;
-    float Throttle = 0, Turn = 0, PitchInput = 0, LeftFlap = 0, RightFlap = 0, BatterySoc = 1;
-    float TargetBank = 0, TargetPitch = 0;
+    born2flap::RcKeyboard Keyboard;
+    float Throttle = 0, RollInput = 0, YawInput = 0, PitchInput = 0, LeftFlap = 0, RightFlap = 0, BatterySoc = 1;
     bool bFlying = false, bHealthy = false, bVectors = false, bReturning = false;
-    bool bAttitudeAssist = true;
     FVector AeroForce = FVector::ZeroVector, AeroMoment = FVector::ZeroVector;
-    FVector AssistTorque = FVector::ZeroVector;
     int32 SafetyResets = 0, MathFailures = 0, BoundaryReturns = 0;
     // The integration test uses the actual pawn/controller/Chaos path.
     bool bFlightTest = false, bSoakTest = false, bTestResetSent = false, bTestFinished = false;
@@ -50,6 +49,7 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     double TestPoweredAltitude = 0, TestGlideAltitude = 0, TestBoostAltitude = 0;
     double TestBeforePullSpeed = 0, TestPullSpeed = 0, TestBeforePullHeight = 0, TestPullHeight = 0;
     double TestFlapMin = 80, TestFlapMax = -80;
+    double TestGlideWingDiff = 0, TestRollWingDiff = 0;
     bool bTestIdle = false, bTestTurn = false, bTestLand = false, bTestReset = false, bTestSecondFlight = false;
     void BuildGeometry();
     void ResetFlight(bool bSafety = false);
@@ -58,6 +58,5 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     void OnBodyHit(UPrimitiveComponent *HitComponent, AActor *OtherActor, UPrimitiveComponent *OtherComponent,
                    FVector NormalImpulse, const FHitResult &Hit);
     bool StepMath(float DeltaSeconds);
-    FVector AttitudeTorque(const FQuat &Rotation, const FVector &Omega, const FVector &Velocity) const;
     void CheckFlightTest();
 };

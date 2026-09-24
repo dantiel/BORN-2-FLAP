@@ -127,15 +127,17 @@ b2f_math_create_firmware_vehicle configPointer = do
         , batteryInternalResistanceOhm = posOr (batteryInternalResistanceOhm defaultBatterySpec) (cfgBatteryResistance config)
         , batteryCapacityAh = posOr (batteryCapacityAh defaultBatterySpec) (cfgBatteryCapacity config)
         }
-      -- Match cadence/amplitude demand to the selected actuator. The reference
-      -- firmware mixer remains unchanged; this is the vehicle's flight profile.
+      -- Match cadence/amplitude demand to the selected actuator and select
+      -- the simulator's RC amplitude/timing/position mixes for this vehicle.
       -- A full stroke at excessive cadence used to saturate the actuator, so
       -- more throttle barely changed its actual motion.
       flightParams = defaultFirmwareParams
         { fwServoSpeedMs = 60000 / servoNoLoadSpeedDegPerSec servo
         , fwFlapBaseFreqDh = 32
         , fwProfile = (fwProfile defaultFirmwareParams)
-            { profThrottleFrequencyMix = 100, profAileronSkewMix = 40 }
+            { profThrottleFrequencyMix = 100, profAileronSkewMix = 55
+            , profRudderAmplitudeDiff = 35, profRudderFerocityRange = 20
+            , profAileronScale = 25, profElevatorScale = 18 }
         }
       context = FwContext flightParams servo battery defaultFirmwareVehicleState
   castStablePtrToPtr <$> (newIORef context >>= newStablePtr)

@@ -50,3 +50,5 @@ jobs:
         run: python3 Native/tests/flight_regression.py MathCore/dist-newstyle
       - name: Test wing-driven flight and unpowered energy loss
         run: python3 Native/tests/aerodynamic_flight.py MathCore/dist-newstyle
+      - name: Test aerodynamic RC channel authority and glide controls
+        run: python3 Native/tests/rc_controls.py MathCore/dist-newstyle

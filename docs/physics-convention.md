@@ -127,9 +127,10 @@ trajectories with measurements held at 30, 60 and 144 Hz. This is separate from
 Unreal's six-component rigid-body and contact integration.
 
 The current playable Unreal mode applies native aerodynamic forces directly,
-with Chaos gravity and contact. The earlier velocity/altitude compensator and
-rotation locks have been removed. A bounded, optional attitude torque assists
-bank, pitch and coordinated turns; it supplies no translational force.
+with Chaos gravity and contact. The earlier velocity/altitude compensator,
+attitude torque and rotation locks have been removed. There is no direct
+control torque or generic angular damping. RC inputs move wing and tail
+actuators; airflow and force lever arms determine the motion.
 Both linear and angular state are predicted between the native 240 Hz evaluations,
 then mean loads are submitted once per game frame to Chaos. This avoids holding
 angular-rate feedback constant across a whole low-rate rendering frame.
@@ -154,12 +155,27 @@ cadence (0.5–3.2 Hz). The game selects a provisional 1200°/s, 8 N·m hinge ac
 and an 11.1 V, 1.3 Ah battery with 0.08 ohm internal resistance. These are
 vehicle-side linkage/actuator parameters, not a verified commercial servo rating.
 Only opposing hinge load reduces tracking speed; overload still backdrives the
-wing. The firmware mixer equations and ABI v2 layout remain unchanged.
-See [wing-powered flight](wing-powered-flight.md) for tests and limits;
+wing. ABI v2 layout remains unchanged. The mixer now includes complete wing
+position commands in glide/flapping, rudder amplitude differential and opposite
+aileron stroke/return timing. It is a simulator extension of the firmware port.
+See [RC controls](rc-controls.md) for mappings, tests and limits;
+the [wing-powered flight report](wing-powered-flight.md) describes the earlier
+attitude-assisted revision, and
 the [earlier stability report](flight-stability-2026-09-24.md) records the
 superseded altitude-assisted trainer.
 
-Outstanding research work: implicit added mass, tail forces for arbitrary flow,
+Section pitching moment uses the conventional positive-nose-up sign; its body
+axial component is `My = -sectionMoment` in the +x forward,+y right,+z up layout.
+The scalar moment keeps its original sign for aeroelastic twist. Positive
+logical pitch requests nose-up (-My), positive yaw nose-right (+Mz), positive
+roll right-bank (-Mx). These signs are checked against native force responses.
+
+The horizontal/vertical tail uses local flow `v + omega cross r` at a 0.48 m
+aft lever. Lift is perpendicular to planar flow, drag opposes it. Its polar,
+areas (0.045/0.020 m2), incidence (-2 degrees horizontal) and deflection limits
+are provisional. This supplies physical pitch/yaw damping without a controller.
+
+Outstanding research work: implicit added mass, tail/wing calibration across flow regimes,
 calibrated motor/servo/linkage data, full pitch/roll trim, cross-core reconciliation
 and aerodynamic comparison with measured experiments. The legacy `stepVehicle`
 oscillator still flaps at zero throttle; the runtime `stepFirmwareVehicle` uses

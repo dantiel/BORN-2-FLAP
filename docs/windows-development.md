@@ -104,15 +104,18 @@ noch nicht Bestandteil dieses Stands.
 Das Testskript faehrt mit der echten Haskell-DLL und Chaos jeweils 75 Sekunden
 bei 30, 60 und 144 Simulationsbildern/s: Ruhe am Boden, Handstart, normaler
 Fluegelschlag, Gleiten, staerkerer Fluegelschlag, Hochziehen, Kurve, Ausgleiten
-bis zur Landung, R-Reset und zweiter Start. Ein zusaetzlicher 180-Sekunden-Test
-prueft Dauerflug mit Kurven. Die Skripte pruefen Exitcode **und** PASS-Zeile.
+bis zur Landung, R-Reset und zweiter Start. Auch kombinierte Gleitflug-Eingaben
+und ein Querruderimpuls muessen echte Fluegeldifferenzen erzeugen. Ein
+180-Sekunden-Test prueft Dauerflug mit neutralen RC-Knueppeln und konstantem Gas.
+Die Skripte pruefen Exitcode **und** PASS-Zeile.
 Die Tests ersetzen die Eingabequelle; Rendering und tatsaechliche Tastaturereignisse
 werden zusaetzlich im sichtbaren Spiel geprueft.
 
 Logs: `Unreal/Born2Flap/Saved/Logs/flight-test-*.log`, `flight-soak.log` und
 `play-training.log`. `FlightTelemetry` enthaelt Flughoehe, Geschwindigkeit,
 Steigrate, Orientierung, Leistung, Batteriezustand, Fluegelwinkel sowie
-getrennte Luftkraefte, Luftmomente und Lageassistenzmomente. `FlightImpact`
+getrennte Luftkraefte, Luftmomente und RC-Kanaele (Roll, Pitch, Yaw). `FlightBody`
+protokolliert Masse und Traegheitstensor in SI-Einheiten. `FlightImpact`
 nennt das getroffene Objekt bei groesseren Kollisionen oberhalb des Bodens.
 
 Der native Energietest braucht kein Unreal und nutzt dieselbe Antriebsauswahl:
@@ -121,6 +124,7 @@ Der native Energietest braucht kein Unreal und nutzt dieselbe Antriebsauswahl:
 python Native/tests/abi_smoke.py Unreal/Born2Flap/Binaries/ThirdParty/born2flap_math.dll
 python Native/tests/flight_regression.py Unreal/Born2Flap/Binaries/ThirdParty/born2flap_math.dll
 python Native/tests/aerodynamic_flight.py Unreal/Born2Flap/Binaries/ThirdParty/born2flap_math.dll
+python Native/tests/rc_controls.py Unreal/Born2Flap/Binaries/ThirdParty/born2flap_math.dll
 ```
 
 Die kleinen Materialdateien unter `Content/Training` sind versioniert. Sie lassen
@@ -136,19 +140,23 @@ bewegte Fluegel aus den echten Servowinkeln, Himmel, Boden, HUD und sechs Tore.
 | Eingabe | Wirkung |
 | --- | --- |
 | Space am Boden | Einmaliger Handstart mit Anfangsfahrt |
-| W halten | Kontinuierlicher normaler Fluegelschlag |
+| W halten | Mittleres Gas (72%), auch am Boden |
 | Shift + W halten | Staerkerer und schnellerer Fluegelschlag |
 | W loslassen | Gleitflug, dabei gehen Energie und Hoehe verloren |
-| A / D | Kurvenneigung |
+| A / D | Seitenruder/Gieren, mit differentieller Schlagamplitude |
+| Pfeil links / rechts | Querruder/Rollen, mit asymmetrischer Schlagzeit |
 | Pfeil hoch / runter (auch S) | Nase heben / senken; Hochziehen kostet Fahrt |
 | R | Koerper und gesamten Firmwarezustand zuruecksetzen |
 | F1 | Kraftpfeile: cyan = Aerodynamik, rot = Gewicht |
-| F2 | Lageassistent an / aus |
 
-Chaos erhaelt ausschliesslich die berechneten Luftkraefte und Schwerkraft.
-Der Lageassistent liefert begrenzte Drehmomente; es gibt keinen Hoehen- oder
-Geschwindigkeitsregler und keine gesperrten Rotationsachsen. Am Feldrand
-steuert der aktivierte Lageassistent zurueck. Ohne Fluegelschlag kann er einen
-Sinkflug nicht verhindern. Unassistierter Flug, reale Servo-/Getriebedaten und
-die aerodynamischen Koeffizienten brauchen weitere Kalibrierung. Modell,
-Messwerte und Grenzen stehen im [aktuellen Flugbericht](wing-powered-flight.md).
+Kurzes Antippen erzeugt kleine RC-Ausschlaege; Halten erreicht nach 0.8 s den
+vollen Knueppelweg. Loslassen stellt zurueck, eine Expo-Kurve erleichtert kleine
+Korrekturen. Gieren, Rollen und Nicken bewegen die Fluegel auch im Gleitflug;
+konkurrierende Befehle teilen sich den mechanisch begrenzten Stellweg.
+
+Chaos erhaelt die berechneten Luftkraefte und Luftmomente, Schwerkraft und
+Bodenkontakt. Es gibt keinen Lage-, Hoehen- oder Geschwindigkeitsregler.
+Die Tragflaechen und das Leitwerk liefern aerodynamische Daempfung. Am Feldrand
+erscheint ein Hinweis; der Pilot muss selbst umkehren. Reale Servo-/Getriebedaten,
+Massentrimmung und aerodynamische Koeffizienten brauchen weitere Kalibrierung.
+Modell, Messwerte und Grenzen: [RC-Steuerung](rc-controls.md).
