@@ -565,7 +565,7 @@ footer {
 }
 .footer-credit .brand-script {
   font-family: "Olympia Script", "Snell Roundhand", "Brush Script MT", cursive;
-  font-size: 1.15em;
+  font-size: 1em;
   line-height: 1;
   letter-spacing: -0.02em;
   color: var(--accent);
@@ -576,10 +576,10 @@ footer {
 }
 .footer-credit .brand-productions {
   font-family: "Olympia Script", "Snell Roundhand", "Brush Script MT", cursive;
-  font-size: 0.85em;
+  font-size: 1em;
   line-height: 1;
   letter-spacing: -0.02em;
-  color: #c9a15a;
+  color: var(--mut);
   margin-left: 0.35em;
 }
 
