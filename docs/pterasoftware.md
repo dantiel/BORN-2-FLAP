@@ -42,8 +42,6 @@ solver settings and convergence information
 
 OrniCore und PteraSoftware werden anschließend mit denselben Kinematiken gespeist. Ein Vergleichswerkzeug berechnet Differenzen und Phasenverschiebungen. Abweichungen werden nicht automatisch als Fehler in OrniCore behandelt, sondern gegen Gültigkeitsbereich und experimentelle Evidenz geprüft.
 
-## Mögliche Übernahme von Code
+## Lizenz und Eigenständigkeit
 
-PteraSoftware steht unter MIT. Klar abgegrenzte mathematische Hilfsfunktionen können nach Prüfung portiert werden, wenn dadurch ein tatsächlicher Vorteil entsteht. Jeder übernommene oder abgeleitete Abschnitt erhält Herkunft, Commit-ID und Lizenzhinweis.
-
-Der UVLM-Solver wird zunächst nicht nach C++ portiert. Eine solche Portierung wäre ein eigenes Forschungsprojekt und kein notwendiger Schritt zum Vertical Slice.
+BORN2FLAP verwendet ein vollständig eigenständig entwickeltes Strömungs- und Aeroelastikmodell. PteraSoftware dient ausschließlich der Analyse und Datenverifikation: Es wird als externer wissenschaftlicher Vergleich herangezogen, um Referenzdaten zu erzeugen und Plausibilitätsprüfungen durchzuführen. Eine Übernahme von Code findet nicht statt.
