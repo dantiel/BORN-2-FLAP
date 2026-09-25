@@ -70,28 +70,28 @@ $ARCH_PREFIX "$UE_ROOT/Engine/Build/BatchFiles/RunUAT.sh" BuildCookRun \
     -build -cook -stage -pak -archive \
     -archivedirectory="$OUTDIR"
 
-# --- Stage the Haskell lib into the package --------------------------------------
-# The bridge resolves ProjectDir()/Binaries/ThirdParty/<lib> at runtime, so the
-# library must sit next to the packaged .uproject (Unreal ships a copy of it).
-PKG_PROJECT_DIR="$(dirname "$(find "$OUTDIR" -name 'Born2Flap.uproject' -type f | head -1)")"
-if [ -z "$PKG_PROJECT_DIR" ] || [ "$PKG_PROJECT_DIR" = "." ]; then
-    PKG_PROJECT_DIR="$(find "$OUTDIR" -name 'Born2Flap.app' -type d | head -1)/Contents"
-fi
-if [ -n "$PKG_PROJECT_DIR" ] && [ -d "$PKG_PROJECT_DIR" ]; then
-    mkdir -p "$PKG_PROJECT_DIR/Binaries/ThirdParty"
-    cp -f Unreal/Born2Flap/Binaries/ThirdParty/libborn2flap_math.dylib \
-        "$PKG_PROJECT_DIR/Binaries/ThirdParty/"
-    echo "staged Haskell lib into $PKG_PROJECT_DIR/Binaries/ThirdParty/"
-else
-    echo "warning: could not locate packaged project dir to stage the dylib" >&2
-fi
-
-# --- Wrap into .dmg ---------------------------------------------------------------
-APP="$(find "$OUTDIR" -name 'Born2Flap.app' -type d | head -1)"
-if [ -z "$APP" ]; then
-    echo "error: Born2Flap.app not found after packaging" >&2
+# --- Locate the staged .app bundle ------------------------------------------------
+# RunUAT -archive copies only the executable wrapper into OUTDIR; the
+# self-contained bundle (Contents/UE/<Project> with the .pak files) lives in
+# Saved/StagedBuilds. Ship THAT, not the raw archive, or the game would launch
+# with no content. The app is named <Project>-<Platform>-<Config>.app.
+APP="$(find "$REPO_ROOT/Unreal/Born2Flap/Saved/StagedBuilds/Mac" -maxdepth 1 -name '*.app' -type d | head -1)"
+if [ -z "$APP" ] || [ ! -d "$APP" ]; then
+    echo "error: staged .app not found under Saved/StagedBuilds/Mac" >&2
     exit 1
 fi
+echo "APP=$APP"
+
+# --- Stage the Haskell lib into the package --------------------------------------
+# FPaths::ProjectDir() resolves to <app>/Contents/UE/<Project>/ in a packaged
+# Mac build, so the bridge's ProjectDir()/Binaries/ThirdParty/<lib> maps here.
+PKG_PROJECT_DIR="$APP/Contents/UE/Born2Flap"
+mkdir -p "$PKG_PROJECT_DIR/Binaries/ThirdParty"
+cp -f Unreal/Born2Flap/Binaries/ThirdParty/libborn2flap_math.dylib \
+    "$PKG_PROJECT_DIR/Binaries/ThirdParty/"
+echo "staged Haskell lib into $PKG_PROJECT_DIR/Binaries/ThirdParty/"
+
+# --- Wrap into .dmg ---------------------------------------------------------------
 DMG="$OUTDIR/BORN2FLAP-$TAG-mac.dmg"
 hdiutil create -volname "BORN2FLAP" -srcfolder "$APP" -ov -format UDZO "$DMG"
 echo "== Done: $DMG =="
