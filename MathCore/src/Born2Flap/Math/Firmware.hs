@@ -200,6 +200,7 @@ data FirmwareState = FirmwareState
   , fwThrottleRateLPF  :: !Double
   , fwPrevAileronNorm  :: !Double   -- sentinel < -1.5 = seed without roll kick
   , fwAileronRateLPF   :: !Double
+  , fwKGainMod         :: !Double   -- ONDAS phase-advance demand (1.0 = nominal)
   , fwOscillator       :: !OscillatorState
   } deriving stock (Eq, Show)
 
@@ -210,6 +211,7 @@ defaultFirmwareState = FirmwareState
   , fwThrottleRateLPF = 0
   , fwPrevAileronNorm = -2
   , fwAileronRateLPF = 0
+  , fwKGainMod = 1.0
   , fwOscillator = defaultOscillator
   }
 
@@ -415,7 +417,7 @@ flappingBranch prof aileronNorm elevatorNorm rc params state dt =
       amplitudeR = amplitude * (1 - yawAmpDiff)
 
       -- Oscillator advance → phase, then shaped wave pulse.
-      (phase, nextOsc) = advanceOscillator cadenceTarget 1 (fwAnchorGain params) dt
+      (phase, nextOsc) = advanceOscillator cadenceTarget (fwKGainMod state) (fwAnchorGain params) dt
                            (fwOscillator state)
       pulseL = shapeWave phase strokeFerL returnFerL reversalL
                  (profFerocityShapeMix prof) (strokeSkewEff + rollSkew) (returnSkewEff - rollSkew)

@@ -13,7 +13,7 @@
 extern "C" {
 #endif
 
-#define B2F_MATH_ABI_VERSION 2u
+#define B2F_MATH_ABI_VERSION 3u
 
 typedef struct B2F_MathContext B2F_MathContext;
 
@@ -85,6 +85,8 @@ typedef struct B2F_FirmwareOutput {
     double left_flap_deg;    /* actual left wing flap deviation */
     double right_flap_deg;   /* actual right wing flap deviation */
     double battery_soc;      /* 0..1 */
+    double phase_envelope;   /* ONDAS phase-envelope sup-mean (deg) */
+    double phase_coverage;   /* ONDAS phase-bin coverage 0..1 */
     uint32_t flags;          /* bit 0 = is_flapping */
 } B2F_FirmwareOutput;
 
