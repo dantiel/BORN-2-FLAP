@@ -3,7 +3,7 @@
   "dir": "ltr",
   "title": "BORN2FLAP — Ornithopter Flight Simulator",
   "meta_desc": "BORN2FLAP is a real-time ornithopter flight simulator: segmented wings, dynamic stall and aeroelastic bending. Every wingbeat counts.",
-  "asset_prefix": "",
+  "asset_prefix": ".",
   "lang_href_en": ".",
   "lang_href_de": "de/",
   "lang_href_es": "es/",

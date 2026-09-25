@@ -31,13 +31,14 @@ ABorn2FlapFlightPawn::ABorn2FlapFlightPawn()
     Body = CreateDefaultSubobject<UBoxComponent>(TEXT("FlightBody"));
     SetRootComponent(Body);
     Body->SetBoxExtent(FVector(42, 12, 12));
-    Body->SetCollisionProfileName(TEXT("PhysicsActor"));
-    // SetSimulatePhysics resolves the simple physical material via GEngine, which
-    // is null during native CDO construction (the cook commandlet builds CDOs
-    // before GEngine exists). Guarding it avoids a fatal "GetSimplePhysicalMaterial"
-    // error during packaging; spawned instances still enable physics here.
+    // SetCollisionProfileName("PhysicsActor") and SetSimulatePhysics both resolve
+    // the simple physical material via GEngine, which is null during native CDO
+    // construction (the cook commandlet builds CDOs before GEngine exists).
+    // Guarding them avoids a fatal "GetSimplePhysicalMaterial" error during
+    // packaging; spawned instances still apply the physics profile + simulation.
     if (!HasAnyFlags(RF_ClassDefaultObject))
     {
+        Body->SetCollisionProfileName(TEXT("PhysicsActor"));
         Body->SetSimulatePhysics(true);
     }
     Body->SetLinearDamping(0);  // Native body/wing drag already removes energy.
@@ -82,7 +83,12 @@ void ABorn2FlapFlightPawn::BuildGeometry()
         C->SetRelativeLocation(Loc);
         C->SetRelativeScale3D(Scale);
         C->SetRelativeRotation(Rot);
-        C->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+        // SetCollisionEnabled resolves the simple physical material via GEngine,
+        // which is null during native CDO construction (the cook commandlet).
+        // Skipping it on the template is safe: spawned instances re-run this
+        // constructor without the ClassDefaultObject flag and disable collision.
+        if (!HasAnyFlags(RF_ClassDefaultObject))
+            C->SetCollisionEnabled(ECollisionEnabled::NoCollision);
         C->ComponentTags.Add(FName(Palette));
         return C;
     };
