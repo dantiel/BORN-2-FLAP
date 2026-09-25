@@ -32,7 +32,14 @@ ABorn2FlapFlightPawn::ABorn2FlapFlightPawn()
     SetRootComponent(Body);
     Body->SetBoxExtent(FVector(42, 12, 12));
     Body->SetCollisionProfileName(TEXT("PhysicsActor"));
-    Body->SetSimulatePhysics(true);
+    // SetSimulatePhysics resolves the simple physical material via GEngine, which
+    // is null during native CDO construction (the cook commandlet builds CDOs
+    // before GEngine exists). Guarding it avoids a fatal "GetSimplePhysicalMaterial"
+    // error during packaging; spawned instances still enable physics here.
+    if (!HasAnyFlags(RF_ClassDefaultObject))
+    {
+        Body->SetSimulatePhysics(true);
+    }
     Body->SetLinearDamping(0);  // Native body/wing drag already removes energy.
     Body->SetAngularDamping(0); // Aerodynamic wing/tail damping only.
     Body->BodyInstance.bUseCCD = true;

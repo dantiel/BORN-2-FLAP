@@ -58,8 +58,11 @@ cp -f "$DYLIB" Unreal/Born2Flap/Binaries/ThirdParty/libborn2flap_math.dylib
 echo "staged $DYLIB"
 
 # --- Cook + package (Shipping) --------------------------------------------------
-echo "== Packaging (Shipping) =="
-"$UE_ROOT/Engine/Build/BatchFiles/RunUAT.sh" BuildCookRun \
+# Force the SAME arch as the Haskell lib (arm64) so the packaged .app can
+# dlopen the dylib. On Apple Silicon the shell runs under Rosetta (x86_64),
+# which would otherwise make RunUAT pick mac-x64 dotnet and build x86_64.
+echo "== Packaging (Shipping) ==  (ARCH_PREFIX=$ARCH_PREFIX)"
+$ARCH_PREFIX "$UE_ROOT/Engine/Build/BatchFiles/RunUAT.sh" BuildCookRun \
     -project="$PROJECT" \
     -noP4 -utf8output -unattended -nocompileeditor \
     -platform=Mac \
