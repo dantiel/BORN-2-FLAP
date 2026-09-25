@@ -5,6 +5,7 @@ module Born2Flap.Math.FFI where
 import Born2Flap.Math.Types (Vec3(..))
 import Born2Flap.Math.Vehicle
 import Born2Flap.Math.PhaseEnvelope (phaseEnvelope, phaseCoverage)
+import Born2Flap.Math.Resonance (rsPhaseError)
 import Born2Flap.Math.Firmware
   ( FirmwareParams(..), FlightProfile(..), defaultFirmwareParams, FirmwareState(..)
   , PilotInput(..), defaultPilotInput, pilotToRc )
@@ -30,9 +31,11 @@ foreign export ccall "hs_b2f_math_step_vehicle" b2f_math_step_vehicle :: Ptr () 
 foreign export ccall "hs_b2f_math_create_firmware_vehicle" b2f_math_create_firmware_vehicle :: Ptr () -> IO (Ptr ())
 foreign export ccall "hs_b2f_math_destroy_firmware_vehicle" b2f_math_destroy_firmware_vehicle :: Ptr () -> IO ()
 foreign export ccall "hs_b2f_math_step_firmware_vehicle" b2f_math_step_firmware_vehicle :: Ptr () -> Ptr () -> Ptr () -> Ptr () -> IO Int32
+foreign export ccall "hs_b2f_math_set_stabilization" b2f_math_set_stabilization :: Ptr () -> Word32 -> IO Int32
+foreign export ccall "hs_b2f_math_set_wind_phase_noise" b2f_math_set_wind_phase_noise :: Ptr () -> Double -> IO Int32
 
 b2f_math_abi_version :: IO Word32
-b2f_math_abi_version = pure 3
+b2f_math_abi_version = pure 4
 
 b2f_math_runtime_init :: IO Int32
 b2f_math_runtime_init = pure 1
@@ -148,6 +151,26 @@ b2f_math_destroy_firmware_vehicle pointer
   | pointer == nullPtr = pure ()
   | otherwise = freeStablePtr (castPtrToStablePtr pointer :: StablePtr (IORef FwContext))
 
+b2f_math_set_stabilization :: Ptr () -> Word32 -> IO Int32
+b2f_math_set_stabilization contextPointer enabled
+  | contextPointer == nullPtr = pure 0
+  | otherwise = do
+      contextRef <- deRefStablePtr (castPtrToStablePtr contextPointer :: StablePtr (IORef FwContext))
+      context <- readIORef contextRef
+      writeIORef contextRef context
+        { fwcState = (fwcState context) { fvStabilized = enabled /= 0 } }
+      pure 1
+
+b2f_math_set_wind_phase_noise :: Ptr () -> Double -> IO Int32
+b2f_math_set_wind_phase_noise contextPointer noiseRadS
+  | contextPointer == nullPtr = pure 0
+  | otherwise = do
+      contextRef <- deRefStablePtr (castPtrToStablePtr contextPointer :: StablePtr (IORef FwContext))
+      context <- readIORef contextRef
+      writeIORef contextRef context
+        { fwcState = (fwcState context) { fvWindPhaseNoise = noiseRadS } }
+      pure 1
+
 b2f_math_step_firmware_vehicle :: Ptr () -> Ptr () -> Ptr () -> Ptr () -> IO Int32
 b2f_math_step_firmware_vehicle contextPointer pilotPointer bodyPointer outputPointer
   | contextPointer == nullPtr || pilotPointer == nullPtr
@@ -213,14 +236,16 @@ pokeFwOutput pointer output state = do
       rightFlap = servoAngleDeg (fvServoRight state)
       soc = fvBatterySoc state
       pe = fvPhaseEnvelope state
+      res = fvResonance state
       isFlapping = fwWasFlapping (fvFirmware state)
       doubles = [fx, fy, fz, mx, my, mz, totalMechanicalPowerW output
                 , maxSeparation output, leftFlap, rightFlap, soc
-                , phaseEnvelope pe, phaseCoverage pe]
+                , phaseEnvelope pe, phaseCoverage pe
+                , rsPhaseError res, fwKGainMod (fvFirmware state)]
       doublePointer = castPtr pointer :: Ptr CDouble
   sequence_ [pokeElemOff doublePointer index (CDouble value) | (index, value) <- zip [0 ..] doubles]
   let flags = if isFlapping then 1 else 0 :: Word32
-  pokeByteOff pointer 104 (CUInt flags)
+  pokeByteOff pointer 120 (CUInt flags)
 
 posOr :: Double -> Double -> Double
 posOr fallback value = if value > 0 then value else fallback

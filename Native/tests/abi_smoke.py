@@ -11,7 +11,7 @@ class Body(c.Structure):
     _fields_ = [('dt', c.c_double), ('velocity', c.c_double * 3), ('rates', c.c_double * 3)]
 
 class Output(c.Structure):
-    _fields_ = [('values', c.c_double * 13), ('flags', c.c_uint32)]
+    _fields_ = [('values', c.c_double * 15), ('flags', c.c_uint32)]
 
 path = Path(sys.argv[1])
 if path.is_dir():
@@ -33,7 +33,7 @@ step = lib.b2f_math_step_firmware_vehicle
 step.argtypes = [c.c_void_p, c.POINTER(Pilot), c.POINTER(Body), c.POINTER(Output)]
 step.restype = c.c_int32
 
-assert lib.b2f_math_abi_version() == 3  # safe before init
+assert lib.b2f_math_abi_version() == 4  # safe before init
 assert lib.b2f_math_runtime_init() == 1
 a, b = create(None), create(None)
 assert a and b

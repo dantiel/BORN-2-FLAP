@@ -19,10 +19,12 @@ extern HsInt32 hs_b2f_math_step_vehicle(HsPtr context, HsPtr input, HsPtr output
 extern HsPtr hs_b2f_math_create_firmware_vehicle(HsPtr config);
 extern void hs_b2f_math_destroy_firmware_vehicle(HsPtr context);
 extern HsInt32 hs_b2f_math_step_firmware_vehicle(HsPtr context, HsPtr pilot, HsPtr body, HsPtr output);
+extern HsInt32 hs_b2f_math_set_stabilization(HsPtr context, HsWord32 enabled);
+extern HsInt32 hs_b2f_math_set_wind_phase_noise(HsPtr context, HsDouble noise);
 
 B2F_EXPORT HsWord32 b2f_math_abi_version(void) {
     /* Version probing must be safe before the RTS starts. */
-    return 3;
+    return 4;
 }
 
 B2F_EXPORT HsInt32 b2f_math_runtime_init(void) {
@@ -66,4 +68,12 @@ B2F_EXPORT void b2f_math_destroy_firmware_vehicle(HsPtr context) {
 
 B2F_EXPORT HsInt32 b2f_math_step_firmware_vehicle(HsPtr context, HsPtr pilot, HsPtr body, HsPtr output) {
     return hs_b2f_math_step_firmware_vehicle(context, pilot, body, output);
+}
+
+B2F_EXPORT HsInt32 b2f_math_set_stabilization(HsPtr context, HsWord32 enabled) {
+    return hs_b2f_math_set_stabilization(context, enabled);
+}
+
+B2F_EXPORT HsInt32 b2f_math_set_wind_phase_noise(HsPtr context, HsDouble noise) {
+    return hs_b2f_math_set_wind_phase_noise(context, noise);
 }

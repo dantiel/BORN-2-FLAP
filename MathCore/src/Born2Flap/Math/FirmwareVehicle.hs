@@ -42,6 +42,8 @@ data FirmwareVehicleState = FirmwareVehicleState
   , fvBatterySoc      :: !Double     -- ^ 0..1, drains under servo current
   , fvPhaseEnvelope   :: !PhaseEnvelopeState  -- ^ ONDAS A-layer
   , fvResonance       :: !ResonanceState      -- ^ ONDAS C-layer
+  , fvStabilized      :: !Bool      -- ^ ONDAS stabilized-mode master switch
+  , fvWindPhaseNoise  :: !Double    -- ^ wind phase noise η [rad/s] (environmental)
   } deriving stock (Eq, Show)
 
 defaultFirmwareVehicleState :: FirmwareVehicleState
@@ -56,6 +58,8 @@ defaultFirmwareVehicleState = FirmwareVehicleState
   , fvBatterySoc = 1.0
   , fvPhaseEnvelope = defaultPhaseEnvelope
   , fvResonance = defaultResonance
+  , fvStabilized = False
+  , fvWindPhaseNoise = 0
   }
 
 -- | One closed-loop timestep.
@@ -134,14 +138,26 @@ advanceFirmwareVehicle rc params servo battery dt bodyVel bodyRates state
           limiar = limiarFromFerocities (mixStrokeFerL mix) (mixReturnFerL mix)
           reversal = mixIsFlapping mix
                      && detectReversal prevPhase (mixPhase mix) limiar
-          trackErr = abs (mixLeftFlapDevDeg mix - servoAngleDeg nextServoL)
+          -- Signed servo tracking error: the Vold–Kalman tracker extracts its
+          -- phase-coherent ω-component, so the RESONANCE layer must see the
+          -- SIGNED lag (an |abs| would double the frequency and read ~0 at ω).
+          signedTrackErr = mixLeftFlapDevDeg mix - servoAngleDeg nextServoL
+          trackErr = abs signedTrackErr
           peNext = if reversal then phaseStrobe trackErr (fvPhaseEnvelope state)
                                 else fvPhaseEnvelope state
 
           -- 2c. ONDAS C-injection: Vold–Kalman engagement → phase-lock demand.
           omega = oscCadence (fwOscillator nextFw)
-          (kGainModNext, nextResonance) =
-            stepResonance trackErr omega 0 dt (fvResonance state)
+          (kGainModDemand, nextResonance) =
+            stepResonance signedTrackErr omega (fvWindPhaseNoise state) dt (fvResonance state)
+          -- The stabilized mode closes the A-layer: the golden-angle strobe's
+          -- coverage (0..1) gates the resonance demand, so the phase-lock only
+          -- acts once the cycle has been read honestly — never on an aliased
+          -- overtone. Off-mode holds the oscillator at nominal phase-advance 1.
+          aGate = if fvStabilized state
+                  then max 0 (min 1 ((phaseCoverage peNext - 0.5) / 0.5))
+                  else 0
+          kGainModNext = 1 + aGate * (kGainModDemand - 1)
           nextFw' = nextFw { fwKGainMod = kGainModNext }
 
           -- 3. Actual flap deviation → wing physics.
