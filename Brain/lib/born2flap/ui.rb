@@ -1,0 +1,13 @@
+# frozen_string_literal: true
+
+require_relative "ui/node"
+require_relative "ui/haml_parser"
+require_relative "ui/store"
+require_relative "ui/emitter"
+
+module Born2Flap
+  # Polymorphes UI (UMGHAML): eine Grammatik, ein neutraler Baum, viele
+  # Renderer. Wird später als eigenständiges Gem `umghaml` extrahiert.
+  module UI
+  end
+end

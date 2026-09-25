@@ -1,0 +1,49 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+$LOAD_PATH.unshift File.expand_path("../lib", __dir__)
+require "born2flap"
+require "json"
+
+HUD = <<~HAML
+  %Overlay{ id: "HUD" }
+    %VBox
+      %Text{ bind: "title" }
+        = "BORN-2-FLAP"
+      %Slider{ bind: "throttle", min: 0, max: 100 }
+      %Button{ onPress: "toggle_flap", class: "primary" }
+        = "FLAP"
+HAML
+
+tree = Born2Flap::UI::HamlParser.parse(HUD)
+
+puts "=== UMG (JSON → Unreal) ==="
+puts JSON.pretty_generate(Born2Flap::UI::UMGEmitter.emit(tree.children.first))
+puts
+
+puts "=== HTML (Web) ==="
+puts Born2Flap::UI::HtmlEmitter.emit(tree.children.first)
+puts
+
+puts "=== React Native (JSX) ==="
+puts Born2Flap::UI::RNEmitter.emit(tree.children.first)
+puts
+
+# Redux-style store
+screen = ->(state, action) do
+  state ||= { current: :main_menu }
+  action[:type] == "UI_NAVIGATE" ? { current: action[:to] } : state
+end
+hud = ->(state, action) do
+  state ||= {}
+  action[:type] == "HUD_BIND" ? state.merge(action[:bind] => action[:value]) : state
+end
+
+store = Born2Flap::UI::Store.new(
+  Born2Flap::UI::Reducer.combine(screen: screen, hud: hud)
+)
+store.subscribe { |state, action| puts "  [store] #{action[:type]} → #{state.inspect}" }
+
+puts "=== Store ==="
+store.dispatch(type: "UI_NAVIGATE", to: :free_flight)
+store.dispatch(type: "HUD_BIND", bind: :throttle, value: 0.7)
