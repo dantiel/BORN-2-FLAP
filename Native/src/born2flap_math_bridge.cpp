@@ -20,6 +20,11 @@ struct B2F_MathContext {
     // Firmware-emulation state (simplified fallback).
     double flapPhase = 0.0;
     double batterySoc = 1.0;
+    // ONDAS stabilized-mode controls (no-op in the fallback, stored for parity).
+    uint32_t stabilized = 0;
+    double windPhaseNoise = 0.0;
+    double phaseError = 0.0;
+    double kGainMod = 1.0;
 };
 
 extern "C" B2F_API uint32_t b2f_math_abi_version() { return B2F_MATH_ABI_VERSION; }
@@ -98,6 +103,22 @@ extern "C" B2F_API int32_t b2f_math_step_firmware_vehicle(
     output->battery_soc = context->batterySoc;
     output->phase_envelope = 0.0;   /* ONDAS layers: no-op in the fallback */
     output->phase_coverage = 0.0;
+    output->phase_error = context->phaseError;
+    output->k_gain_mod = context->kGainMod;
     output->flags = throttle > 0.08 ? 1u : 0u;
+    return 1;
+}
+
+extern "C" B2F_API int32_t b2f_math_set_stabilization(
+    B2F_MathContext* context, uint32_t enabled) {
+    if (!context) return 0;
+    context->stabilized = enabled != 0;
+    return 1;
+}
+
+extern "C" B2F_API int32_t b2f_math_set_wind_phase_noise(
+    B2F_MathContext* context, double noiseRadS) {
+    if (!context) return 0;
+    context->windPhaseNoise = noiseRadS;
     return 1;
 }

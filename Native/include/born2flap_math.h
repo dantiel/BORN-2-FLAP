@@ -13,7 +13,7 @@
 extern "C" {
 #endif
 
-#define B2F_MATH_ABI_VERSION 3u
+#define B2F_MATH_ABI_VERSION 4u
 
 typedef struct B2F_MathContext B2F_MathContext;
 
@@ -87,6 +87,8 @@ typedef struct B2F_FirmwareOutput {
     double battery_soc;      /* 0..1 */
     double phase_envelope;   /* ONDAS phase-envelope sup-mean (deg) */
     double phase_coverage;   /* ONDAS phase-bin coverage 0..1 */
+    double phase_error;      /* ONDAS phase-lock error δ [rad] (resonance) */
+    double k_gain_mod;       /* ONDAS phase-advance demand (1.0 = nominal) */
     uint32_t flags;          /* bit 0 = is_flapping */
 } B2F_FirmwareOutput;
 
@@ -98,6 +100,12 @@ B2F_API int32_t b2f_math_step_firmware_vehicle(
     const B2F_PilotInput* pilot,
     const B2F_BodyState* body,
     B2F_FirmwareOutput* output);
+
+/* ONDAS stabilized-mode controls (ABI v4). Toggle the phase-lock master switch
+ * and inject the environmental wind phase noise η [rad/s] the resonance layer
+ * is designed to counter. Setters are per-context and take effect next step. */
+B2F_API int32_t b2f_math_set_stabilization(B2F_MathContext* context, uint32_t enabled);
+B2F_API int32_t b2f_math_set_wind_phase_noise(B2F_MathContext* context, double noise_rad_s);
 
 #ifdef __cplusplus
 }

@@ -25,7 +25,7 @@ class Body(c.Structure):
 
 
 class Output(c.Structure):
-    _fields_ = [('values', c.c_double * 13), ('flags', c.c_uint32)]
+    _fields_ = [('values', c.c_double * 15), ('flags', c.c_uint32)]
 
 
 def load(path):

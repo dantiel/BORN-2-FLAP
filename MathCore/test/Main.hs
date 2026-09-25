@@ -317,6 +317,22 @@ main = do
     then pure () else fail "golden-angle strobe must cover all bins and de-alias below a fixed raster"
   if detectReversal 0 3 1.5 && not (detectReversal 0 1 1.5) && detectReversal 6 0 1.5
     then pure () else fail "reversal must fire on the limiar crossing and the 2π wrap"
+  -- ONDAS stabilized mode: the dwell parking well pins wind phase noise to a
+  -- bounded steady state; the master switch gates the phase-advance demand.
+  let pinned n = iterate (stepPhaseLockDwell 1.0 8.0 0.3 (1 / 240)) 0.0 !! n
+  if abs (pinned 2400) < 0.3
+    then pure () else fail "wind phase noise must be pinned by the dwell parking well"
+  let stabOn = defaultFirmwareVehicleState { fvStabilized = True, fvWindPhaseNoise = 1.0 }
+      stabOff = defaultFirmwareVehicleState { fvStabilized = False, fvWindPhaseNoise = 1.0 }
+      flyFrom s = snd (stepFirmwareVehicle flapRcClosed defaultFirmwareParams
+                       defaultServoSpec defaultBatterySpec (1 / 240)
+                       (Vec3 5 0 0) (Vec3 0 0 0) s)
+      steadyOn = iterate flyFrom stabOn !! 2400
+      steadyOff = iterate flyFrom stabOff !! 2400
+      kOn = fwKGainMod (fvFirmware steadyOn)
+      kOff = fwKGainMod (fvFirmware steadyOff)
+  if abs (kOn - 1) > 1.0e-7 && kOff == 1.0
+    then pure () else fail "stabilized mode must gate the phase-advance demand (on ≠ 1, off = 1)"
   putStrLn "MathCore properties passed"
 
 zeroVehicleOutput :: VehicleOutput
