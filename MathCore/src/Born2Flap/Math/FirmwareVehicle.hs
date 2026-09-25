@@ -22,6 +22,9 @@ import Born2Flap.Math.Types (Vec3(..))
 import Born2Flap.Math.Firmware
 import Born2Flap.Math.Servo
 import Born2Flap.Math.Simulation
+import Born2Flap.Math.Waveform (OscillatorState(..), limiarFromFerocities)
+import Born2Flap.Math.PhaseEnvelope
+import Born2Flap.Math.Resonance
 import Born2Flap.Math.Vehicle
   ( VehicleInput(..), VehicleOutput(..)
   , StripState(..), StripResult(..), initialStrips
@@ -37,6 +40,8 @@ data FirmwareVehicleState = FirmwareVehicleState
   , fvLeftHingeTorqueNm  :: !Double   -- ^ aero load fed to the servo next step
   , fvRightHingeTorqueNm :: !Double
   , fvBatterySoc      :: !Double     -- ^ 0..1, drains under servo current
+  , fvPhaseEnvelope   :: !PhaseEnvelopeState  -- ^ ONDAS A-layer
+  , fvResonance       :: !ResonanceState      -- ^ ONDAS C-layer
   } deriving stock (Eq, Show)
 
 defaultFirmwareVehicleState :: FirmwareVehicleState
@@ -49,6 +54,8 @@ defaultFirmwareVehicleState = FirmwareVehicleState
   , fvLeftHingeTorqueNm = 0
   , fvRightHingeTorqueNm = 0
   , fvBatterySoc = 1.0
+  , fvPhaseEnvelope = defaultPhaseEnvelope
+  , fvResonance = defaultResonance
   }
 
 -- | One closed-loop timestep.
@@ -84,7 +91,8 @@ stepFirmwareVehicle rc params servo battery dt bodyVel bodyRates state
             [totalMechanicalPowerW output, maxSeparation output, fvBatterySoc next,
              fvLeftHingeTorqueNm next, fvRightHingeTorqueNm next,
              servoAngleDeg (fvServoLeft next), servoAngleDeg (fvServoRight next),
-             servoRateDegPerSec (fvServoLeft next), servoRateDegPerSec (fvServoRight next)]
+             servoRateDegPerSec (fvServoLeft next), servoRateDegPerSec (fvServoRight next),
+             phaseEnvelope (fvPhaseEnvelope next), phaseCoverage (fvPhaseEnvelope next)]
       if all finite values then putState next >> pure output else abort 2
 
 finite :: Double -> Bool
@@ -120,6 +128,21 @@ advanceFirmwareVehicle rc params servo battery dt bodyVel bodyRates state
                                          (mixRightFlapDevDeg mix)
                                          (fvRightHingeTorqueNm state)
                                          voltage dt (fvServoRight state)
+
+          -- 2b. ONDAS A-injection: golden-angle phase-envelope strobe at reversal.
+          prevPhase = oscPhase (fwOscillator (fvFirmware state))
+          limiar = limiarFromFerocities (mixStrokeFerL mix) (mixReturnFerL mix)
+          reversal = mixIsFlapping mix
+                     && detectReversal prevPhase (mixPhase mix) limiar
+          trackErr = abs (mixLeftFlapDevDeg mix - servoAngleDeg nextServoL)
+          peNext = if reversal then phaseStrobe trackErr (fvPhaseEnvelope state)
+                                else fvPhaseEnvelope state
+
+          -- 2c. ONDAS C-injection: Vold–Kalman engagement → phase-lock demand.
+          omega = oscCadence (fwOscillator nextFw)
+          (kGainModNext, nextResonance) =
+            stepResonance trackErr omega 0 dt (fvResonance state)
+          nextFw' = nextFw { fwKGainMod = kGainModNext }
 
           -- 3. Actual flap deviation → wing physics.
           input = VehicleInput dt bodyVel bodyRates 0 0 0 0
@@ -168,7 +191,7 @@ advanceFirmwareVehicle rc params servo battery dt bodyVel bodyRates state
           nextSoc = max 0 (fvBatterySoc state - socDrop)
 
           nextState = state
-            { fvFirmware = nextFw
+            { fvFirmware = nextFw'
             , fvServoLeft = nextServoL
             , fvServoRight = nextServoR
             , fvLeftStrips = leftNext
@@ -176,6 +199,8 @@ advanceFirmwareVehicle rc params servo battery dt bodyVel bodyRates state
             , fvLeftHingeTorqueNm = leftHinge
             , fvRightHingeTorqueNm = rightHinge
             , fvBatterySoc = nextSoc
+            , fvPhaseEnvelope = peNext
+            , fvResonance = nextResonance
             }
 
           output = VehicleOutput force moment power maximumSeparation (-1) 0

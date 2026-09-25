@@ -22,7 +22,7 @@ extern HsInt32 hs_b2f_math_step_firmware_vehicle(HsPtr context, HsPtr pilot, HsP
 
 B2F_EXPORT HsWord32 b2f_math_abi_version(void) {
     /* Version probing must be safe before the RTS starts. */
-    return 2;
+    return 3;
 }
 
 B2F_EXPORT HsInt32 b2f_math_runtime_init(void) {

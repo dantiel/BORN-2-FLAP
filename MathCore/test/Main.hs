@@ -14,6 +14,10 @@ import Born2Flap.Math.Waveform
 import Born2Flap.Math.Firmware
 import Born2Flap.Math.Servo
 import Born2Flap.Math.FirmwareVehicle
+import Born2Flap.Math.FerocityPrice
+import Born2Flap.Math.OrderTracker
+import Born2Flap.Math.PhaseEnvelope
+import Born2Flap.Math.Resonance
 
 main :: IO ()
 main = do
@@ -278,6 +282,41 @@ main = do
   if leftSkewMoment > 0.01 && rightSkewMoment < -0.01
      && abs (leftSkewMoment + rightSkewMoment) < 1e-10
     then pure () else fail "opposite stroke timing alone must generate mirrored aerodynamic roll"
+  -- ONDAS Rubedo M0: ferocity-price anchors (audit-verified 9.5).
+  let priceCheck (d, p, f, t) = abs (ferocityPowerPrice d - p) < 1e-2
+                               && abs (ferocityForcePrice d - f) < 1e-2
+                               && abs (ferocityThrustPrice d - t) < 1e-2
+  if all priceCheck [(0.05, 1.166, 1.108, 1.053), (0.3, 2.92, 2.04, 1.43), (0.8, 125, 25, 5)]
+    then pure () else fail "ferocity price must match the 9.5 audit anchors"
+  if abs (dwellFromFerocity 8 - 0.98) < 1e-12 && dwellFromFerocity 0 == 0
+    then pure () else fail "dwell must scale ferocity 0..8 onto [0, 0.98]"
+  -- ONDAS Rubedo M1: order tracker idles below ω_min and starts from zero.
+  let (idleOut, idleSt) = stepOrderTracker 5.0 0.05 0.001 defaultOrderTracker
+  if idleOut == 0 && idleSt == defaultOrderTracker
+    then pure () else fail "order tracker must idle below the omega threshold"
+  let (firstTracked, _) = stepOrderTracker 1.0 10.0 0.001 defaultOrderTracker
+  if abs firstTracked < 1e-3 then pure () else fail "order tracker must start from zero state"
+  -- ONDAS Rubedo M2: parking well attracts δ→0; resonance demand stays bounded.
+  if abs (stepPhaseLockDwell 0 8 0.5 0.01 0.1) < 0.1
+    then pure () else fail "phase-lock well must pull phase error toward zero"
+  let (kGainModDemand, _) = stepResonance 5.0 10.0 0 0.01 defaultResonance
+  if kGainModDemand >= 0.5 && kGainModDemand <= 1.5
+    then pure () else fail "resonance phase-advance demand must stay bounded"
+  -- ONDAS Rubedo M3: golden-angle strobe covers every bin without aliasing.
+  if gcd (toInteger goldenAngleStep) (2 ^ (20 :: Integer)) == 1
+    then pure () else fail "golden-angle step must be coprime to 2^20"
+  let strobes = iterate (phaseStrobe 1.0) defaultPhaseEnvelope
+      covered = phaseCoverage (strobes !! 1024)
+      spreadPe = phaseEnvelope (strobes !! 1024)
+      fixedRasterStrobe v st =
+        st { peMeans = zipWith (\i m -> m * (1 - phaseEma)
+                                          + if i == 0 then v * phaseEma else 0)
+                               [0 :: Int ..] (peMeans st) }
+      rasterPe = phaseEnvelope (iterate (fixedRasterStrobe 1.0) defaultPhaseEnvelope !! 1024)
+  if covered == 1.0 && spreadPe < 0.65 && spreadPe < rasterPe
+    then pure () else fail "golden-angle strobe must cover all bins and de-alias below a fixed raster"
+  if detectReversal 0 3 1.5 && not (detectReversal 0 1 1.5) && detectReversal 6 0 1.5
+    then pure () else fail "reversal must fire on the limiar crossing and the 2π wrap"
   putStrLn "MathCore properties passed"
 
 zeroVehicleOutput :: VehicleOutput

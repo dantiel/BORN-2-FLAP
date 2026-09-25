@@ -4,6 +4,7 @@ module Born2Flap.Math.FFI where
 
 import Born2Flap.Math.Types (Vec3(..))
 import Born2Flap.Math.Vehicle
+import Born2Flap.Math.PhaseEnvelope (phaseEnvelope, phaseCoverage)
 import Born2Flap.Math.Firmware
   ( FirmwareParams(..), FlightProfile(..), defaultFirmwareParams, FirmwareState(..)
   , PilotInput(..), defaultPilotInput, pilotToRc )
@@ -31,7 +32,7 @@ foreign export ccall "hs_b2f_math_destroy_firmware_vehicle" b2f_math_destroy_fir
 foreign export ccall "hs_b2f_math_step_firmware_vehicle" b2f_math_step_firmware_vehicle :: Ptr () -> Ptr () -> Ptr () -> Ptr () -> IO Int32
 
 b2f_math_abi_version :: IO Word32
-b2f_math_abi_version = pure 2
+b2f_math_abi_version = pure 3
 
 b2f_math_runtime_init :: IO Int32
 b2f_math_runtime_init = pure 1
@@ -211,13 +212,15 @@ pokeFwOutput pointer output state = do
       leftFlap = servoAngleDeg (fvServoLeft state)
       rightFlap = servoAngleDeg (fvServoRight state)
       soc = fvBatterySoc state
+      pe = fvPhaseEnvelope state
       isFlapping = fwWasFlapping (fvFirmware state)
       doubles = [fx, fy, fz, mx, my, mz, totalMechanicalPowerW output
-                , maxSeparation output, leftFlap, rightFlap, soc]
+                , maxSeparation output, leftFlap, rightFlap, soc
+                , phaseEnvelope pe, phaseCoverage pe]
       doublePointer = castPtr pointer :: Ptr CDouble
   sequence_ [pokeElemOff doublePointer index (CDouble value) | (index, value) <- zip [0 ..] doubles]
   let flags = if isFlapping then 1 else 0 :: Word32
-  pokeByteOff pointer 88 (CUInt flags)
+  pokeByteOff pointer 104 (CUInt flags)
 
 posOr :: Double -> Double -> Double
 posOr fallback value = if value > 0 then value else fallback

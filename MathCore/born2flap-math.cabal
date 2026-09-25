@@ -16,6 +16,10 @@ library
       Born2Flap.Math.Firmware
       Born2Flap.Math.Servo
       Born2Flap.Math.FirmwareVehicle
+      Born2Flap.Math.FerocityPrice
+      Born2Flap.Math.OrderTracker
+      Born2Flap.Math.PhaseEnvelope
+      Born2Flap.Math.Resonance
       Born2Flap.Math.Simulation
   hs-source-dirs: src
   build-depends: base >=4.17 && <5
@@ -42,6 +46,9 @@ foreign-library born2flap_math
       Born2Flap.Math.Firmware
       Born2Flap.Math.Servo
       Born2Flap.Math.FirmwareVehicle
+      Born2Flap.Math.OrderTracker
+      Born2Flap.Math.PhaseEnvelope
+      Born2Flap.Math.Resonance
   c-sources: cbits/bridge.c
   hs-source-dirs: src
   build-depends: base >=4.17 && <5

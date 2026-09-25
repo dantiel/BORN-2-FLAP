@@ -96,6 +96,8 @@ extern "C" B2F_API int32_t b2f_math_step_firmware_vehicle(
     // Battery drains gently while flapping (0.1 Ah/s at full throttle).
     context->batterySoc = std::max(0.0, context->batterySoc - throttle * dt * 0.1 / 3600.0);
     output->battery_soc = context->batterySoc;
+    output->phase_envelope = 0.0;   /* ONDAS layers: no-op in the fallback */
+    output->phase_coverage = 0.0;
     output->flags = throttle > 0.08 ? 1u : 0u;
     return 1;
 }
