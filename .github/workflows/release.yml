@@ -1,0 +1,39 @@
+name: Release packaging
+
+# Builds and attaches distributable artifacts (macOS .dmg + Windows .zip) to a
+# GitHub Release. Runs on self-hosted runners because Unreal Engine does not fit
+# on the 14 GB disk of GitHub-hosted runners, and the Haskell native library
+# must be compiled natively on each platform (no practical cross-compile).
+#
+# Runner labels (see docs/release-packaging.md):
+#   macOS  -> [self-hosted, macOS, ARM64]  (the M1 Mac)
+#   Windows -> [self-hosted, Windows, X64] (gamayun-win)
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  macos-dmg:
+    runs-on: [self-hosted, macOS, ARM64]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Package macOS .dmg
+        run: bash Tools/package-mac.sh "${{ github.ref_name }}"
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/release/${{ github.ref_name }}/*.dmg
+
+  windows-exe:
+    runs-on: [self-hosted, Windows, X64]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Package Windows build
+        shell: pwsh
+        run: Tools/package-win.ps1 -Tag "${{ github.ref_name }}"
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/release/${{ github.ref_name }}/*.zip
