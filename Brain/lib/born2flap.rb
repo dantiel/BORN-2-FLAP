@@ -3,4 +3,5 @@
 require_relative "born2flap/event_bus"
 require_relative "born2flap/router"
 require_relative "born2flap/plugin_registry"
+require_relative "born2flap/ui"
 require_relative "born2flap/brain"
