@@ -2,7 +2,8 @@
 
 require_relative "ui/node"
 require_relative "ui/haml_parser"
-require_relative "ui/store"
+require_relative "ui/reconciler"
+require_relative "ui/root"
 require_relative "ui/emitter"
 
 module Born2Flap
