@@ -29,21 +29,23 @@ puts "=== React Native (JSX) ==="
 puts Born2Flap::UI::RNEmitter.emit(tree.children.first)
 puts
 
-# Redux-style store
-screen = ->(state, action) do
-  state ||= { current: :main_menu }
-  action[:type] == "UI_NAVIGATE" ? { current: action[:to] } : state
-end
-hud = ->(state, action) do
-  state ||= {}
-  action[:type] == "HUD_BIND" ? state.merge(action[:bind] => action[:value]) : state
+# Ruby-way reactive root (no Redux): reconcile a changed tree → minimal patch.
+bus = Born2Flap::EventBus.new
+root = Born2Flap::UI::Root.new(bus: bus)
+bus.subscribe(:ui_patch) do |payload|
+  puts "  [ui_patch] #{payload[:patch].map { |op| op[:op] }.inspect}"
 end
 
-store = Born2Flap::UI::Store.new(
-  Born2Flap::UI::Reducer.combine(screen: screen, hud: hud)
-)
-store.subscribe { |state, action| puts "  [store] #{action[:type]} → #{state.inspect}" }
+puts "=== Reconcile (live propagation, no Redux) ==="
+t1 = Born2Flap::UI::HamlParser.parse(HUD)
+t2 = Born2Flap::UI::HamlParser.parse(HUD.sub("min: 0, max: 100", "min: 0, max: 100, value: 42"))
 
-puts "=== Store ==="
-store.dispatch(type: "UI_NAVIGATE", to: :free_flight)
-store.dispatch(type: "HUD_BIND", bind: :throttle, value: 0.7)
+root.render(t1)   # mount → :replace
+bus.drain
+
+root.render(t2)   # only the changed slider value propagates → :update_props
+bus.drain
+
+root.render(t2)   # identical tree → no patch at all
+bus.drain
+puts "  (third render: no change → no patch)"

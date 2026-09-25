@@ -64,25 +64,34 @@ Spielkern brauchen wir keinen Browser, also auch keinen HTML-Emitter.
 UMGHAML trennt die Grammatik vom Emitter — es ist ein eigenes Modul, das
 später als eigenständiges **Ruby-Gem `umghaml`** veröffentlicht wird.
 
-## State: Stores, Reducer, Dispatch (Redux-Philosophie)
+## Live-Propagation: Reconciliation statt Redux
 
-Der UI-Zustand folgt dem Redux-Muster — eine einzige Quelle der Wahrheit:
+UMG/Slate haben **keine** React-artige Reconciliation — UMG ist zur Laufzeit
+imperativ (`SetText`, `SetValue`), Slate bietet nur pull-basierte
+`TAttribute`-Bindings. Die React-Leistung (Baum vergleichen, *nur das
+Geänderte minimal patchen*) gehört deshalb in den Ruby-Brain — **idiomatisch
+Ruby, ohne Redux**:
 
-- **Store**: hält den State, nimmt Actions entgegen, benachrichtigt Subscriber.
-- **Reducer**: pure Funktionen `(state, action) -> state`. Keine Seiteneffekte.
-- **Actions**: schlanke Hash-Objekte `{ type:, ... }`.
-- **combine_reducers**: teilt den State in Teilmengen (`screen`, `hud`,
-  `settings`, …) und setzt sie unverändert wieder zusammen, wenn nichts
-  geändert wurde (Identitätsvergleich).
-- **subscribe**: Renderer registrieren sich und erhalten State + Action; der
-  Brain entscheidet, was neu gezeichnet wird. Kein Zustand lebt im Renderer.
+- **Reconciler**: `diff(previous, current) -> patch`. Vergleicht zwei neutrale
+  Bäume wertbasiert und erzeugt eine minimale Operationsliste
+  (`update_props`, `replace`, `insert_child`, `remove_child`).
+- **Root**: hält den aktuellen Baum, `render(new_tree)` → reconciled und
+  publiziert den Patch als `:ui_patch` auf den **EventBus** (der bestehende
+  Brain-Kanal — keine neue Store-Infrastruktur).
+- **Renderer**: abonnieren `:ui_patch` und wenden nur die Ops an
+  (UMG → `SetText`/`SetValue`/`AddChild`, Web → DOM-Änderungen, RN → setState).
 
 ```ruby
-store = UI::Store.new(UI::Reducer.combine(screen: screen_reducer,
-                                          hud:    hud_reducer))
-store.dispatch(type: "UI_NAVIGATE", to: :free_flight)
-store.dispatch(type: "HUD_BIND", bind: :throttle, value: 0.7)
+bus  = Born2Flap::EventBus.new
+root = UI::Root.new(bus: bus)
+bus.subscribe(:ui_patch) { |e| apply(e[:patch]) }
+
+root.render(tree_a)   # mount
+root.render(tree_b)   # nur geänderte Slider-Props propagieren
+root.render(tree_b)   # identisch → kein Patch
 ```
+
+Kein Zustand lebt im Renderer; die Quelle der Wahrheit ist der Baum im Root.
 
 ## UI-Vertrag (neutrales Austauschformat)
 
@@ -92,8 +101,8 @@ store.dispatch(type: "HUD_BIND", bind: :throttle, value: 0.7)
 2. **Props**: Layout-Constraints, Stil, Datenbindungen, Event-Namen.
 3. **Event-Roundtrip**: Renderer melden nur Namen an den EventBus zurück;
    der Brain reagiert. Kein Zustand lebt im Renderer.
-4. **Reaktive Bindings**: Werte kommen aus dem Store, Updates als Diffs
-   statt Voll-Neuaufbau.
+4. **Reaktive Bindings**: Werte kommen aus dem Baum im Root, Updates als
+   Diffs statt Voll-Neuaufbau.
 
 ## Taktrate
 
@@ -108,7 +117,8 @@ JSON-Serialisierung.
 Brain/lib/born2flap/ui.rb           # Modul-Definition + requires
 Brain/lib/born2flap/ui/node.rb      # neutraler Widget-Baum (Node)
 Brain/lib/born2flap/ui/haml_parser.rb # UMGHAML → Node-Baum
-Brain/lib/born2flap/ui/store.rb     # Store + Reducer.combine (Redux)
+Brain/lib/born2flap/ui/reconciler.rb # Baum-Diff → Patch (Reconciliation)
+Brain/lib/born2flap/ui/root.rb      # reaktiver Render-Root (EventBus)
 Brain/lib/born2flap/ui/emitter.rb   # UMG / HTML / RN Emitter
 ```
 
@@ -119,4 +129,4 @@ Tests laufen unter System-Ruby mit `minitest` (`Brain/test/ui_test.rb`).
 - Eine JS-Engine (React Native) in Unreal einbetten.
 - CoffeeHAML/HTML als Quelle der Wahrheit im Spielkern (die Quelle ist der
   neutrale Node-Baum; HTML ist nur ein Emitter).
-- Zustand im Renderer halten (alles lebt im Store).
+- Zustand im Renderer halten (alles lebt im Baum/Root).

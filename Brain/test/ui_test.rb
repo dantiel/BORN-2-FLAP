@@ -94,59 +94,117 @@ module Born2Flap
       end
     end
 
-    class StoreTest < Minitest::Test
-      def screen_reducer
-        ->(state, action) do
-          state ||= { current: :main_menu }
-          action[:type] == "UI_NAVIGATE" ? { current: action[:to] } : state
-        end
+    class ReconcilerTest < Minitest::Test
+      def setup
+        @reconciler = Reconciler.new
       end
 
-      def hud_reducer
-        ->(state, action) do
-          state ||= {}
-          action[:type] == "HUD_BIND" ? state.merge(action[:bind] => action[:value]) : state
-        end
+      def tree
+        Node.new(:root, {}, [
+          Node.new(:overlay, { id: "HUD" }, [
+            Node.new(:slider, { bind: "throttle", min: 0, max: 100 })
+          ])
+        ])
       end
 
-      def test_dispatch_and_subscribe
-        store = Store.new(Reducer.combine(screen: screen_reducer),
-                          { screen: { current: :boot } })
-        seen = []
-        store.subscribe { |state, _action| seen << state[:screen][:current] }
-
-        store.dispatch(type: "UI_NAVIGATE", to: :free_flight)
-        assert_equal :free_flight, store.state[:screen][:current]
-        assert_equal [:free_flight], seen
+      def test_identical_trees_produce_empty_patch
+        assert_empty @reconciler.diff(tree, tree)
       end
 
-      def test_combine_reducers_isolates_slices
-        root = Reducer.combine(screen: screen_reducer, hud: hud_reducer)
-        store = Store.new(root)
+      def test_prop_change_produces_update_props
+        changed = Node.new(:root, {}, [
+          Node.new(:overlay, { id: "HUD" }, [
+            Node.new(:slider, { bind: "throttle", min: 0, max: 100, value: 42 })
+          ])
+        ])
+        patch = @reconciler.diff(tree, changed)
 
-        store.dispatch(type: "UI_NAVIGATE", to: :race)
-        store.dispatch(type: "HUD_BIND", bind: :throttle, value: 0.7)
-
-        assert_equal({ current: :race }, store.state[:screen])
-        assert_equal({ throttle: 0.7 }, store.state[:hud])
+        assert_equal 1, patch.length
+        assert_equal :update_props, patch[0][:op]
+        assert_equal [0, 0], patch[0][:path]
+        assert_equal({ value: 42 }, patch[0][:props])
       end
 
-      def test_combine_reducers_returns_same_state_when_unchanged
-        root = Reducer.combine(screen: screen_reducer, hud: hud_reducer)
-        store = Store.new(root)
-        store.dispatch(type: "UI_NAVIGATE", to: :race) # establish state
-        before = store.state
+      def test_prop_removal_yields_nil_value
+        stripped = Node.new(:root, {}, [
+          Node.new(:overlay, { id: "HUD" }, [
+            Node.new(:slider, { bind: "throttle" })
+          ])
+        ])
+        patch = @reconciler.diff(tree, stripped)
 
-        store.dispatch(type: "UNKNOWN")
-        assert_same before, store.state
+        update = patch.find { |op| op[:op] == :update_props }
+        assert_equal({ min: nil, max: nil }, update[:props])
       end
 
-      def test_reducers_may_not_dispatch
-        holder = {}
-        evil = ->(_state, _action) { holder[:store].dispatch(type: "X") }
-        store = Store.new(evil)
-        holder[:store] = store
-        assert_raises(Store::Error) { store.dispatch(type: "GO") }
+      def test_type_change_produces_replace
+        swapped = Node.new(:root, {}, [
+          Node.new(:overlay, { id: "HUD" }, [
+            Node.new(:button, {})
+          ])
+        ])
+        patch = @reconciler.diff(tree, swapped)
+
+        replace = patch.find { |op| op[:op] == :replace }
+        assert_equal :button, replace[:node].type
+      end
+
+      def test_added_child_produces_insert_child
+        empty = Node.new(:root)
+        filled = Node.new(:root, {}, [Node.new(:text, { value: "hi" })])
+        patch = @reconciler.diff(empty, filled)
+
+        assert_equal 1, patch.length
+        assert_equal :insert_child, patch[0][:op]
+        assert_equal [], patch[0][:path]
+        assert_equal 0, patch[0][:index]
+      end
+
+      def test_removed_child_produces_remove_child
+        filled = Node.new(:root, {}, [Node.new(:text, { value: "hi" })])
+        empty = Node.new(:root)
+        patch = @reconciler.diff(filled, empty)
+
+        assert_equal 1, patch.length
+        assert_equal :remove_child, patch[0][:op]
+        assert_equal 0, patch[0][:index]
+      end
+    end
+
+    class RootTest < Minitest::Test
+      def test_render_publishes_patch_on_bus
+        bus = EventBus.new
+        root = Root.new(bus: bus)
+        received = []
+        bus.subscribe(:ui_patch) { |payload| received << payload[:patch] }
+
+        t1 = Node.new(:root, {}, [Node.new(:text, { value: "a" })])
+        t2 = Node.new(:root, {}, [Node.new(:text, { value: "b" })])
+
+        root.render(t1)
+        bus.drain
+        root.render(t2)
+        bus.drain
+
+        assert_equal 2, received.length
+        assert_equal :replace, received[0][0][:op] # first render mounts the tree
+        assert_equal :update_props, received[1][0][:op]
+      end
+
+      def test_render_same_tree_publishes_nothing
+        bus = EventBus.new
+        root = Root.new(bus: bus)
+        count = 0
+        bus.subscribe(:ui_patch) { |_payload| count += 1 }
+
+        tree = Node.new(:root, {}, [Node.new(:text, { value: "a" })])
+        root.render(tree)
+        bus.drain
+        patch = root.render(tree)
+        bus.drain
+
+        assert_nil patch
+        assert_equal 1, count
       end
     end
 
