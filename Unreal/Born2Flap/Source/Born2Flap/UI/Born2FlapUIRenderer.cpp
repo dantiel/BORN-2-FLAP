@@ -8,6 +8,7 @@
 #include "UI/Born2FlapUIRenderer.h"
 
 #include "Blueprint/UserWidget.h"
+#include "Blueprint/WidgetTree.h"
 #include "Components/CanvasPanel.h"
 #include "Components/CanvasPanelSlot.h"
 #include "Components/Overlay.h"
@@ -149,7 +150,7 @@ void UBorn2FlapUIRenderer::BeginDestroy()
     MaterialCache.Empty();
     RendererImpl.Reset();
     if (RootHost)
-        RootHost->RemoveFromViewport();
+        RootHost->RemoveFromParent();
     RootHost = nullptr;
     ViewportCanvas = nullptr;
     Super::BeginDestroy();
