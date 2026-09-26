@@ -1,7 +1,7 @@
 param([string]$EngineRoot = 'V:\UE_5.8', [switch]$Capture)
 $ErrorActionPreference = 'Stop'
 $project = (Resolve-Path (Join-Path $PSScriptRoot '../Born2Flap.uproject')).Path
-$log = Join-Path (Split-Path $project) 'Saved/Logs/raven-world-test.log'
+$log = Join-Path (Split-Path $project) $(if ($Capture) { 'Saved/Logs/raven-render.log' } else { 'Saved/Logs/raven-world-test.log' })
 $flags = @(('"'+$project+'"'),'/Game/Ravenstonefield/Maps/RAVENSTONEFIELD','-game','-unattended','-nosplash',('-abslog="'+$log+'"'))
 if ($Capture) {
     $flags += @('-B2FRavenCapture','-RenderOffscreen','-ResX=1600','-ResY=900','-NoVSync')

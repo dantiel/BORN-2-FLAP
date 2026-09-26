@@ -30,7 +30,7 @@ import Born2Flap.Math.Simulation
 import Born2Flap.Math.Wing (crossflowBaseline, relaxSeparation)
 import Born2Flap.Math.Planform
   ( WingShape(..), defaultBirdWing, shapeChord
-  , shapeSweepRad, shapeTwistRad, shapeAspectRatio, shapeSection, shapeStructure )
+  , shapeSweepRad, shapeTwistRad, shapeDihedralRad, shapeAspectRatio, shapeSection, shapeStructure )
 import Born2Flap.Math.Section
   ( SectionProfile(..), zeroLiftAngle, sectionPitchMomentCoeff
   , membraneCamberTarget, relaxCamber )
@@ -200,6 +200,7 @@ stepStrip side stroke strokeRate input index old =
       radius = dr * (fromIntegral index + 0.5)
       chord = shapeChord wp fraction
       twist = shapeTwistRad wp fraction
+      dihedral = stroke + shapeDihedralRad wp fraction
       profile = shapeSection wp fraction
       camberPrev = stripCamber old
       aeroTwist = stripTwistAero old
@@ -209,9 +210,9 @@ stepStrip side stroke strokeRate input index old =
       -- Use section velocity through air throughout (not a mixture of air
       -- velocity and body velocity). Drag must do negative work. The normal
       -- rotates with the flap; positive stroke raises BOTH wings.
-      position = Vec3 0 (side * radius * cos stroke) (radius * sin stroke + bend)
-      normal = Vec3 0 (-side * sin stroke) (cos stroke)
-      spanAxis = Vec3 0 (side * cos stroke) (sin stroke)
+      position = Vec3 0 (side * radius * cos dihedral) (radius * sin dihedral + bend)
+      normal = Vec3 0 (-side * sin dihedral) (cos dihedral)
+      spanAxis = Vec3 0 (side * cos dihedral) (sin dihedral)
       flapVelocity = scaleVec (radius * strokeRate) normal
       sectionVelocity = addVec velocity (addVec (crossVec rates position) flapVelocity)
       dot (Vec3 a b c) (Vec3 d e f) = a*d + b*e + c*f
@@ -227,7 +228,8 @@ stepStrip side stroke strokeRate input index old =
       -- toward the handwing), instead of driving a rigid plate deep into stall.
       -- No flap motion means no feathering; body sink still changes incidence.
       feather = (0.55 + 0.20 * fraction) * atan2 (radius * strokeRate) (max 1.5 (abs chordVelocity))
-      alpha = twist + aeroTwist + feather + atan2 (-normalVelocity) chordVelocity
+      alpha = twist + radians (8 * clamp (-1) 1 (pitchCommand input))
+                + aeroTwist + feather + atan2 (-normalVelocity) chordVelocity
       alphaEff = alpha - zeroLiftAngle camberPrev
       alphaRate = (alpha - stripPreviousAlpha old) / dt
       reynolds = planarSpeed * chord / 1.48e-5

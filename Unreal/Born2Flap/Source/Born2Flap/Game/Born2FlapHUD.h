@@ -3,6 +3,7 @@
 #include "GameFramework/HUD.h"
 #include "Born2FlapHUD.generated.h"
 class FBorn2FlapRcController;
+class ABorn2FlapFlightPawn;
 UCLASS()
 class BORN2FLAP_API ABorn2FlapHUD : public AHUD
 {
@@ -12,5 +13,7 @@ class BORN2FLAP_API ABorn2FlapHUD : public AHUD
 
   private:
     bool bHideRavenHUD = false;
+    bool bShowChannels = true;
+    void DrawChannels(const ABorn2FlapFlightPawn& Bird);
     void DrawRcPanel(const FBorn2FlapRcController &Rc);
 };
