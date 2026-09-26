@@ -55,9 +55,29 @@ clang++ -std=c++17 -I Unreal/Born2Flap/Source/Born2Flap/UI \
 # → 6 frame(s) applied · all assertions passed
 ```
 
+## Der Tick-Anschluss (Engine-seitig)
+
+`ABorn2FlapUIBridge` (`Unreal/.../UI/Born2FlapUIBridge.{h,cpp}`) ist die
+Prozessgrenzen-Verdrahtung im Spiel-Loop. Er wird von `Born2FlapGameMode::BeginPlay`
+gespawnt und macht pro Tick Folgendes:
+
+1. **Quelle aufmachen** — eine NDJSON-Datei/FIFO (`-B2FUIFile=...`) öffnen und
+   inkrementell ab `FileOffset` nachlesen („tailen“).
+2. **Brain starten** (optional) — `-B2FUIBrain="ruby bin/transport_demo ..."`
+   spawnt den Ruby-Brain als Kindprozess, der in dieselbe Datei schreibt.
+3. **Frames anwenden** — angehängte Bytes in `\n`-Zeilen splitten, jede Zeile
+   als `FString` an `UBorn2FlapUIRenderer::ApplyOpsJson`.
+
+```
+Ruby Brain ── NDJSON Datei/FIFO ──▶ Tick-Tail ──▶ Renderer::ApplyOpsJson ──▶ UMG-Baum
+```
+
+Das Framing bleibt das dependency-freie `Born2FlapTransport.h`-Kontrakt (headless
+bewiesen in `Tools/umg_transport_test.cpp`); der Bridge-Actor ist nur der
+Engine-seitige Loop, der dieses Framing an den Host tickt. Reverse-Kanal
+(Telemetrie → Brain) ist bewusst später.
+
 ## Offen (Engine-seitig)
 
-Der UMG-Host ruft im Tick `FTransport`-Frames über `ApplyOpsJson` auf — der
-eigentliche Unreal-Compile steht noch aus (Engine auf dieser Maschine nicht
-installiert). Transportmedium (Pipe/Datei/Socket) ist durch `std::istream`/IO
-bewusst abstrahiert.
+Der eigentliche Unreal-Compile von `Born2FlapUIBridge` + `Born2FlapUIRenderer`
+steht noch aus (Engine auf dieser Maschine nicht installiert).
