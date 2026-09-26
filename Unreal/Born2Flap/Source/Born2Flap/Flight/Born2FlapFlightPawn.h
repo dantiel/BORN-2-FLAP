@@ -4,6 +4,7 @@
 #include "Math/Born2FlapMathBridge.h"
 #include "Input/Born2FlapRcController.h"
 #include "born2flap_rc_input.h"
+#include "born2flap_desktop_input.h"
 #include "Born2FlapFlightPawn.generated.h"
 class UBoxComponent;
 class USceneComponent;
@@ -28,6 +29,8 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     float GetClimbRate() const;
     FVector GetRcSticks() const { return FVector(RollInput, PitchInput, YawInput); }
     FVector2D GetWingAngles() const { return FVector2D(LeftFlap, RightFlap); }
+    float GetWheelThrottle() const { return Desktop.wheelThrottle; }
+    bool IsWheelThrottleActive() const { return Desktop.wheelOwnsThrottle; }
     FString GetFlightStatus() const;
     const FBorn2FlapRcController *GetRcController() const { return RcController.Get(); }
 
@@ -41,13 +44,13 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     TUniquePtr<FBorn2FlapMathBridge> MathBridge;
     TUniquePtr<FBorn2FlapRcController> RcController;
     double Accumulator = 0, LogTime = 0;
-    born2flap::RcKeyboard Keyboard;
+    born2flap::DesktopInput Desktop;
     float Throttle = 0, RollInput = 0, YawInput = 0, PitchInput = 0, LeftFlap = 0, RightFlap = 0, BatterySoc = 1;
     bool bFlying = false, bHealthy = false, bVectors = false, bReturning = false;
     FVector AeroForce = FVector::ZeroVector, AeroMoment = FVector::ZeroVector;
     int32 SafetyResets = 0, MathFailures = 0, BoundaryReturns = 0;
     // The integration test uses the actual pawn/controller/Chaos path.
-    bool bFlightTest = false, bSoakTest = false, bTestResetSent = false, bTestFinished = false;
+    bool bFlightTest = false, bSoakTest = false, bRavenFlightTest = false, bTestResetSent = false, bTestFinished = false;
     double TestTime = 0, TestPeakSpeed = 0, TestPeakAltitude = 0;
     double TestPoweredAltitude = 0, TestGlideAltitude = 0, TestBoostAltitude = 0;
     double TestBeforePullSpeed = 0, TestPullSpeed = 0, TestBeforePullHeight = 0, TestPullHeight = 0;

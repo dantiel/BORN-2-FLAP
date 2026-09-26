@@ -20,7 +20,8 @@ public class Born2Flap : ModuleRules
         });
 
         if (Target.Platform == UnrealTargetPlatform.Win64)
-            PublicSystemLibraries.AddRange(new[] { "dinput8.lib", "dxguid.lib", "ole32.lib" });
+            { PublicSystemLibraries.AddRange(new[] { "dinput8.lib", "dxguid.lib", "ole32.lib" });
+            RuntimeDependencies.Add("$(ProjectDir)/Binaries/ThirdParty/born2flap_math.dll", StagedFileType.NonUFS); }
 
         PrivateIncludePaths.Add(ModuleDirectory);
 
@@ -28,3 +29,4 @@ public class Born2Flap : ModuleRules
             Path.Combine(ModuleDirectory, "../../../../Native/include")));
     }
 }
+

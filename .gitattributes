@@ -6,7 +6,6 @@
 *.sh      text eol=lf
 *.ps1     text eol=crlf
 *.bat     text eol=crlf
-
 # Source: keep LF for consistent diffs across OSes
 *.hs      text eol=lf
 *.c       text eol=lf
@@ -14,7 +13,6 @@
 *.h       text eol=lf
 *.hpp     text eol=lf
 *.rb      text eol=lf
-
 # Binary assets: never line-ending-normalize
 *.uasset  binary
 *.umap    binary
@@ -23,3 +21,4 @@
 *.so      binary
 *.png     binary
 *.jpg     binary
+Unreal/Born2Flap/Content/Ravenstonefield/Maps/RAVENSTONEFIELD.umap filter=lfs diff=lfs merge=lfs -text

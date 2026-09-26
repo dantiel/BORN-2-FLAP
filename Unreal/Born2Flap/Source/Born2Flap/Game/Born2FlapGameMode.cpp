@@ -17,6 +17,7 @@
 #include "GameFramework/PlayerController.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
+#include "EngineUtils.h"
 ABorn2FlapGameMode::ABorn2FlapGameMode()
 {
     DefaultPawnClass = ABorn2FlapFlightPawn::StaticClass();
@@ -44,6 +45,14 @@ void ABorn2FlapGameMode::BeginPlay()
     World->GetWorldSettings()->bForceNoPrecomputedLighting = true;
     FActorSpawnParameters Params;
     Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+    if (bNatureLevel)
+    {
+        // Ravenstonefield carries its own atmosphere and can be saved as a map.
+        // Entry still supports the procedural fallback for old launch scripts.
+        if (!TActorIterator<ABorn2FlapValley>(World))
+            World->SpawnActor<ABorn2FlapValley>();
+        return;
+    }
     auto *Sun = World->SpawnActor<ADirectionalLight>(FVector(0, 0, 1000), FRotator(-35, -35, 0), Params);
     auto *Light = Cast<UDirectionalLightComponent>(Sun->GetLightComponent());
     Light->SetMobility(EComponentMobility::Movable);
@@ -62,11 +71,6 @@ void ABorn2FlapGameMode::BeginPlay()
     auto *Fog = World->SpawnActor<AExponentialHeightFog>();
     Fog->GetComponent()->SetFogDensity(bNatureLevel ? .007f : .003f);
     Fog->GetComponent()->SetFogInscatteringColor(FLinearColor(.55f, .72f, .85f));
-    if (bNatureLevel)
-    {
-        World->SpawnActor<ABorn2FlapValley>();
-        return;
-    }
     auto *Cube = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
     auto *Cone = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cone.Cone"));
     auto *Sphere = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Sphere.Sphere"));
@@ -125,9 +129,9 @@ void ABorn2FlapGameMode::Tick(float DeltaSeconds)
     if (auto *Player = UGameplayStatics::GetPlayerController(this, 0))
         if (Player->WasInputKeyJustPressed(EKeys::F4))
         {
-            UE_LOG(LogTemp, Display, TEXT("FlightLevel switch=%s"), bNatureLevel ? TEXT("Training") : TEXT("Nature"));
-            UGameplayStatics::OpenLevel(this, TEXT("/Engine/Maps/Entry"), true,
-                                        bNatureLevel ? TEXT("Level=Training") : TEXT("Level=Nature"));
+            UE_LOG(LogTemp, Display, TEXT("FlightLevel switch=%s"), bNatureLevel ? TEXT("Training") : TEXT("Ravenstonefield"));
+            UGameplayStatics::OpenLevel(this, bNatureLevel ? TEXT("/Engine/Maps/Entry") : TEXT("/Game/Ravenstonefield/Maps/RAVENSTONEFIELD"), true,
+                                        bNatureLevel ? TEXT("Level=Training") : TEXT("Level=Ravenstonefield"));
             return;
         }
     auto *Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0));
