@@ -97,9 +97,13 @@ void ABorn2FlapUIBridge::SpawnBrain()
         /*PipeWriteChild=*/nullptr, /*PipeReadChild=*/nullptr);
 
     if (BrainProcess.IsValid())
+    {
         UE_LOG(LogTemp, Display, TEXT("Born2FlapUIBridge: launched brain pid=%u"), ProcessId);
+    }
     else
+    {
         UE_LOG(LogTemp, Warning, TEXT("Born2FlapUIBridge: failed to launch '%s'"), *Command);
+    }
 }
 
 void ABorn2FlapUIBridge::DrainSource()
