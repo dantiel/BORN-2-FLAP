@@ -5,6 +5,7 @@
 #include "DrawDebugHelpers.h"
 #include "Engine/GameViewportClient.h"
 #include "GameFramework/PlayerController.h"
+#include "GameFramework/PlayerInput.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "InputCoreTypes.h"
 #include "HAL/IConsoleManager.h"
@@ -115,8 +116,8 @@ void ABorn2FlapFlightPawn::BuildGeometry()
             Part(*FString::Printf(TEXT("Feather%d_%d"), Side, I), Shoulder, Sphere.Object,
                  FVector(-16 - I * 3, Side * (49 + I * 9), -1), FVector(.43 - I * .035, .20, .035),
                  FRotator(0, Side * (15 + I * 7), 0), I % 2 ? TEXT("Ivory") : TEXT("Teal"));
-        Part(*FString::Printf(TEXT("Tail%d"), Side), VisualRoot, Sphere.Object, FVector(-56, Side * 12, 3),
-             FVector(.45, .20, .035), FRotator(0, Side * 24, 0), TEXT("Teal"));
+        Part(*FString::Printf(TEXT("Tail%d"), Side), VisualRoot, Sphere.Object, FVector(-48, Side * 14, -10),
+             FVector(.36, .42, .025), FRotator(0, 0, Side * 35), TEXT("Teal"));
     }
 }
 void ABorn2FlapFlightPawn::BeginPlay()
@@ -161,7 +162,8 @@ void ABorn2FlapFlightPawn::BeginPlay()
     bSoakTest = FParse::Param(FCommandLine::Get(), TEXT("B2FSoakTest"));
     bRavenFlightTest = FParse::Param(FCommandLine::Get(), TEXT("B2FRavenFlightTest"));
     bFlightTest = bSoakTest || bRavenFlightTest || FParse::Param(FCommandLine::Get(), TEXT("B2FFlightTest"));
-    if (!bFlightTest)
+    bDesktopInputTest = FParse::Param(FCommandLine::Get(), TEXT("B2FDesktopInputTest"));
+    if (!bFlightTest && !bDesktopInputTest)
         RcController = MakeUnique<FBorn2FlapRcController>();
     ResetFlight();
     if (auto *PC = Cast<APlayerController>(GetController()))
@@ -317,6 +319,7 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     float Effort = 0, Steer = 0, Pitch = 0, Roll = 0;
     float MouseX = 0, MouseY = 0, Wheel = 0;
     bool WDown = false, MuteMouseYaw = false, MuteMouseRoll = false;
+    bool ResetMouse = false;
     bool Launch = false, Reset = false;
     if (auto *PC = Cast<APlayerController>(GetController()))
     {
@@ -326,10 +329,18 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         Effort = born2flap::DesktopInput::KeyboardThrottle(
             WDown, PC->IsInputKeyDown(EKeys::LeftControl) || PC->IsInputKeyDown(EKeys::RightControl),
             PC->IsInputKeyDown(EKeys::LeftShift) || PC->IsInputKeyDown(EKeys::RightShift));
-        PC->GetInputMouseDelta(MouseX, MouseY);
+        // Signed device deltas, before legacy axis curves/FOV scaling. The desktop
+        // transmitter owns sensitivity and keeps the negative half of every channel.
+        if (PC->PlayerInput)
+        {
+            MouseX = PC->PlayerInput->GetRawKeyValue(EKeys::MouseX);
+            MouseY = PC->PlayerInput->GetRawKeyValue(EKeys::MouseY);
+        }
         Wheel = PC->GetInputAnalogKeyState(EKeys::MouseWheelAxis);
         MuteMouseYaw = PC->IsInputKeyDown(EKeys::LeftMouseButton);
         MuteMouseRoll = PC->IsInputKeyDown(EKeys::RightMouseButton);
+        ResetMouse = PC->WasInputKeyJustPressed(EKeys::LeftMouseButton) ||
+                     PC->WasInputKeyJustPressed(EKeys::RightMouseButton);
         if (RcController && RcController->IsPanelOpen())
         {
             MouseX = MouseY = Wheel = 0;
@@ -409,17 +420,18 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         bFlying = false;
     else if (GetAltitude() > .5f && GetSpeed() > 1.f)
         bFlying = true;
-    if (bFlying && !bReturning && P.Size2D() > 30000)
+    const double FieldRadius = Mode && Mode->IsNatureLevel() ? 190000. : 30000.;
+    if (bFlying && !bReturning && P.Size2D() > FieldRadius)
     {
         bReturning = true;
         ++BoundaryReturns;
         UE_LOG(LogTemp, Display, TEXT("FlightFieldEdge count=%d"), BoundaryReturns);
     }
-    if (P.Size2D() < 18000 || !bFlying)
+    if (P.Size2D() < FieldRadius * .6 || !bFlying)
         bReturning = false;
     // Throttle commands the motor on the ground too, like an armed RC model.
     // Flying state is telemetry, never a hidden override of transmitter input.
-    Desktop.Step(DeltaSeconds, Effort, WDown, Roll, Pitch, Steer, MouseX, MouseY, Wheel, MuteMouseYaw, MuteMouseRoll);
+    Desktop.Step(DeltaSeconds, Effort, WDown, Roll, Pitch, Steer, MouseX, MouseY, Wheel, MuteMouseYaw, MuteMouseRoll, ResetMouse);
     Throttle = Desktop.throttle;
     RollInput = Desktop.roll;
     PitchInput = Desktop.pitch;
@@ -442,8 +454,9 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         Body->AddTorqueInRadians(AeroMoment * 10000.0);
     }
     VisualRoot->SetRelativeRotation(FRotator::ZeroRotator);
-    LeftShoulder->SetRelativeRotation(FRotator(0, 0, LeftFlap));
-    RightShoulder->SetRelativeRotation(FRotator(0, 0, -RightFlap));
+    // Match the solver's geometric dihedral and commanded wing incidence.
+    LeftShoulder->SetRelativeRotation(FRotator(8 * PitchInput, 0, LeftFlap + 8));
+    RightShoulder->SetRelativeRotation(FRotator(8 * PitchInput, 0, -RightFlap - 8));
     if (bVectors)
     {
         DrawDebugDirectionalArrow(GetWorld(), P, P + AeroForce * 25, 15, FColor::Cyan, false, 0, 0, 2);
@@ -457,13 +470,17 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         UE_LOG(LogTemp, Display,
                TEXT("FlightTelemetry mode=aerodynamic flying=%d healthy=%d altitude=%.3fm speed=%.3fm/s climb=%.3fm/s "
                     "pitch=%.2f roll=%.2f yaw=%.1f throttle=%.3f soc=%.3f aeroN=%s torqueNm=%s rc=(%.3f,%.3f,%.3f) "
-                    "flap=(%.1f,%.1f)"),
+                    "flap=(%.1f,%.1f) throttleSource=%s wheelMemory=%.3f"),
                bFlying, bHealthy, GetAltitude(), GetSpeed(), GetClimbRate(), Body->GetComponentRotation().Pitch,
                Body->GetComponentRotation().Roll, Body->GetComponentRotation().Yaw, Throttle, BatterySoc,
-               *AeroForce.ToString(), *AeroMoment.ToString(), RollInput, PitchInput, YawInput, LeftFlap, RightFlap);
+               *AeroForce.ToString(), *AeroMoment.ToString(), RollInput, PitchInput, YawInput, LeftFlap, RightFlap,
+               RcController && RcController->IsEnabled() ? TEXT("RC") :
+               Desktop.wheelOwnsThrottle ? TEXT("wheel") : TEXT("keyboard"), Desktop.wheelThrottle);
     }
     if (bFlightTest)
         CheckFlightTest();
+    if (bDesktopInputTest)
+        CheckDesktopInputTest(DeltaSeconds);
 }
 
 void ABorn2FlapFlightPawn::CheckFlightTest()

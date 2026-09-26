@@ -65,4 +65,8 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
                    FVector NormalImpulse, const FHitResult &Hit);
     bool StepMath(float DeltaSeconds);
     void CheckFlightTest();
+    bool bDesktopInputTest = false, bDesktopTestPass = true;
+    double DesktopTestTime = 0;
+    int32 DesktopTestStage = -1;
+    void CheckDesktopInputTest(float DeltaSeconds);
 };

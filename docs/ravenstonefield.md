@@ -19,7 +19,7 @@ low rather than becoming an alpine range.
 | Village houses | 270, -155 | Three plaster-and-timber houses with shutters and tiled roofs |
 | Crow's Acre | 520, 190 | Larger delta island with a collapsed boathouse |
 | Last Scrap | 670, 95 | Smaller, poorer island with a dead trunk and rusted debris |
-| The Raven Watch | 740, 725 | Small medieval keep, ruined courtyard and lake-facing steps |
+| The Raven Watch | 290, 205 | Nearby inhabited gatehouse: fly-through arch, timber lookout, tiled roof, keeper's cottage and lanterns |
 | Raven Lake | 965, 245 | Broad reflective water with shallow shelves |
 
 Deadwood, small weathered skeletons, rusted culvert hoops, a pier and field
@@ -51,6 +51,23 @@ return-to-launch behavior.
 Existing flight and RC controls are preserved. Scenic views change the camera;
 they do not pause flight physics.
 
+Mouse steering is always available alongside keyboard steering: mouse Y pitches;
+mouse X adds yaw and roll. Move up to raise the nose, right to turn/bank right.
+Mouse displacement sets persistent stick positions: pitch, yaw and roll hold
+when movement stops. Click either mouse button to reset all three mouse axes to
+neutral. Opposing keyboard input cancels the mouse contribution while held.
+Hold left mouse to mute mouse yaw; hold right mouse to mute mouse roll.
+The buttons leave keyboard steering active; holding both leaves mouse pitch active.
+
+W commands 72% throttle, Ctrl/Strg+W 32%, Shift+W 100% (Ctrl wins if both are held).
+The wheel latches throttle in 2% increments, including fractional wheel events.
+Pressing W takes ownership; releasing W then returns to idle. The wheel remembers
+its own setting throughout: wheel 50%, W, release, wheel up becomes 52%.
+While W is held it wins, even if the wheel moves. R resets all desktop controls.
+F2 toggles a compact live THR/PIT/YAW/ROLL display and the stored wheel value;
+F7 hides/shows the entire HUD in either level. A configured USB RC transmitter
+still has priority while enabled; F3 opens its setup panel.
+
 ## Build and regenerate
 
 1. Run `fetch_ravenstonefield.py` with Python to download the source assets.
@@ -65,6 +82,10 @@ Both sides must use the same ABI after physics updates; an old DLL disables
 flapping and hand launch. Close the game/editor before replacing a loaded DLL.
 `test-flight.ps1` checks training flight at 30/60/144 FPS, a soak flight, and
 hand launch plus wing travel in the saved RAVENSTONEFIELD map.
+`test-desktop-input.ps1` sends simulated key and axis events through Unreal's
+PlayerInput and checks the resulting pawn channels, including throttle takeover
+and wheel memory. `-Capture` also renders the channel HUD. The standalone CMake
+`desktop_input_tests` target checks desktop input at 30/60/144 FPS.
 
 The map is `/Game/Ravenstonefield/Maps/RAVENSTONEFIELD`. Its world actor saves
 generated components so the level can also be inspected in the editor. The

@@ -17,9 +17,14 @@ void ABorn2FlapHUD::DrawHUD()
     auto *Bird = Cast<ABorn2FlapFlightPawn>(GetOwningPawn());
     if (!Bird)
         return;
+    auto* PC = GetOwningPlayerController();
+    if (PC->WasInputKeyJustPressed(EKeys::F2)) bShowChannels = !bShowChannels;
+    if (PC->WasInputKeyJustPressed(EKeys::F7)) bHideRavenHUD = !bHideRavenHUD;
+    const auto* Controller = Bird->GetRcController();
+    if (Controller && Controller->IsPanelOpen()) { DrawRcPanel(*Controller); return; }
+    if (bHideRavenHUD || FParse::Param(FCommandLine::Get(), TEXT("B2FRavenCapture"))) return;
     if (auto *Mode = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode()); Mode && Mode->IsNatureLevel())
     {
-        if (GetOwningPlayerController()->WasInputKeyJustPressed(EKeys::F7)) bHideRavenHUD = !bHideRavenHUD;
         const auto *Rc = Bird->GetRcController();
         if (Rc && Rc->IsPanelOpen()) { DrawRcPanel(*Rc); return; }
         if (bHideRavenHUD || FParse::Param(FCommandLine::Get(), TEXT("B2FRavenCapture"))) return;
@@ -33,7 +38,7 @@ void ABorn2FlapHUD::DrawHUD()
         DrawRect(Ink,32,H-120,425,83);
         DrawText(FString::Printf(TEXT("%5.1f m       %4.1f m/s       %.0f%% battery"),Bird->GetAltitude(),Bird->GetSpeed(),Bird->GetBattery()*100),Ivory,48,H-109,GEngine->GetMediumFont(),.9);
         DrawText(Bird->GetFlightStatus(),Muted,48,H-79,GEngine->GetSmallFont(),.9);
-        DrawText(TEXT("SPACE launch  W throttle  ARROWS steer  R reset"),Ivory,48,H-55,GEngine->GetSmallFont(),.85);
+        DrawText(TEXT("SPACE launch  W / CTRL+W / SHIFT+W  WHEEL fine"),Ivory,48,H-55,GEngine->GetSmallFont(),.85);
         auto It=TActorIterator<ABorn2FlapValley>(GetWorld());
         if (It)
         {
@@ -43,7 +48,8 @@ void ABorn2FlapHUD::DrawHUD()
             DrawText(Valley->HasRadioTrack()?(Valley->IsRadioOn()?TEXT("TURBORAVEN"):TEXT("RADIO PAUSED")):TEXT("RADIO / NO SIGNAL"),Ivory,W-330,H-85,GEngine->GetMediumFont(),.9);
             DrawText(FString::Printf(TEXT("M pause   [ / ] volume  %.0f%%"),Valley->GetRadioVolume()*100),Muted,W-330,H-55,GEngine->GetSmallFont(),.85);
         }
-        DrawText(TEXT("F3 RC setup   F4 training   F6 scenic views   F7 hide HUD"),Muted,34,H-24,GEngine->GetSmallFont(),.85);
+        DrawText(TEXT("F2 channels   F3 RC   F4 training   F6 views   F7 HUD   CLICK reset mouse / HOLD L yaw off, R roll off"),Muted,34,H-24,GEngine->GetSmallFont(),.85);
+        if (bShowChannels) DrawChannels(*Bird);
         return;
     }
     const FLinearColor Cream(.94f, .94f, .84f), Gold(1, .66f, .2f), Muted(.55f, .76f, .76f);
@@ -72,12 +78,41 @@ void ABorn2FlapHUD::DrawHUD()
         DrawText(Rc->GetStatus(), Muted, 38, 263, GEngine->GetSmallFont(), 1.f);
     const float Y = Canvas->SizeY - 85;
     DrawRect(FLinearColor(.015f, .035f, .045f, .82f), 20, Y, Canvas->SizeX - 40, 65);
-    DrawText(TEXT("SPACE launch   W throttle   SHIFT+W full   A/D yaw   LEFT/RIGHT roll   UP/DOWN pitch   R reset"),
+    DrawText(TEXT("SPACE launch   W throttle   CTRL+W low   SHIFT+W full   WHEEL fine   MOUSE + ARROWS/A/D steering   R reset"),
              Cream, 38, Y + 12, GEngine->GetSmallFont(), 1.05f);
-    DrawText(TEXT("Kurze Taps: kleine Ausschlaege. W loslassen: gleiten.  F1: Kraefte   F3: RC-Sender   F4: Level"),
+    DrawText(TEXT("CLICK resets mouse sticks / HOLD LMB mute yaw, RMB mute roll   F2 channels   F3 RC   F4 level   F7 HUD"),
              Muted, 38, Y + 38, GEngine->GetSmallFont(), 1.f);
     if (Rc && Rc->IsPanelOpen())
         DrawRcPanel(*Rc);
+    if (bShowChannels) DrawChannels(*Bird);
+}
+void ABorn2FlapHUD::DrawChannels(const ABorn2FlapFlightPawn& Bird)
+{
+    const float X = Canvas->SizeX - 244.f, Y = 143.f;
+    const FLinearColor Text(.76f, .81f, .76f, .85f), Accent(.72f, .65f, .43f, .8f);
+    DrawRect(FLinearColor(.015f, .028f, .025f, .42f), X, Y, 212, 126);
+    const auto* Rc = Bird.GetRcController();
+    const bool Hardware = Rc && Rc->IsEnabled();
+    DrawText(FString::Printf(TEXT("CHANNELS / %s   F2"), Hardware ? TEXT("RC") :
+             Bird.IsWheelThrottleActive() ? TEXT("WHEEL") : TEXT("KEYS")),
+             Text, X + 12, Y + 7, GEngine->GetSmallFont(), .8f);
+    const FVector Sticks = Bird.GetRcSticks();
+    const float Values[] = {Bird.GetEffort(), float(Sticks.Y), float(Sticks.Z), float(Sticks.X)};
+    const TCHAR* Names[] = {TEXT("THR"), TEXT("PIT"), TEXT("YAW"), TEXT("ROLL")};
+    for (int32 I = 0; I < 4; ++I)
+    {
+        const float Row = Y + 28 + I * 19, Value = Values[I];
+        DrawText(Names[I], Text, X + 12, Row - 4, GEngine->GetSmallFont(), .8f);
+        DrawRect(FLinearColor(.5f, .6f, .55f, .18f), X + 58, Row + 3, 90, 3);
+        const float Centre = I == 0 ? 0.f : 45.f;
+        const float End = I == 0 ? Value * 90.f : Centre + Value * 45.f;
+        DrawRect(Accent, X + 58 + FMath::Min(Centre, End), Row + 3, FMath::Abs(End - Centre), 3);
+        if (I) DrawRect(Text, X + 102, Row, 1, 9);
+        DrawText(I == 0 ? FString::Printf(TEXT("%3.0f%%"), Value * 100) : FString::Printf(TEXT("%+4.0f"), Value * 100),
+                 Text, X + 159, Row - 4, GEngine->GetSmallFont(), .8f);
+    }
+    DrawText(FString::Printf(TEXT("wheel memory %.0f%%"), Bird.GetWheelThrottle() * 100),
+             Text, X + 12, Y + 105, GEngine->GetSmallFont(), .75f);
 }
 void ABorn2FlapHUD::DrawRcPanel(const FBorn2FlapRcController &Rc)
 {

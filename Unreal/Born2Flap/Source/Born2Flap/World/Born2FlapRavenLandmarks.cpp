@@ -2,6 +2,7 @@
 #include "Components/HierarchicalInstancedStaticMeshComponent.h"
 #include "Components/TextRenderComponent.h"
 #include "Components/DirectionalLightComponent.h"
+#include "Components/PointLightComponent.h"
 #include "Components/SkyLightComponent.h"
 #include "Components/SkyAtmosphereComponent.h"
 #include "Components/ExponentialHeightFogComponent.h"
@@ -159,56 +160,101 @@ void ABorn2FlapValley::BuildBridge()
 
 void ABorn2FlapValley::BuildCastle()
 {
-    const FVector C(74000,72500,GroundHeight(74000,72500));
-    // Small masonry watchtower: a hollow square keep with an arched doorway,
-    // slit windows and an incomplete crenellated courtyard wall.
-    Part(TEXT("Cube"),TEXT("Stone"),C+FVector(0,0,-100),FVector(14,14,3),FRotator::ZeroRotator,true);
+    const FVector C(29000,20500,GroundHeight(29000,20500));
+    // Raven Watch: a modest inhabited gatehouse, 355 m from the launch meadow.
+    // A real through-arch, sheltered gallery and keeper's cottage replace the remote prison-like keep.
+    auto Box=[&](FVector P,FVector Size,const TCHAR* Mat,bool Solid=true,FRotator R=FRotator::ZeroRotator)
+    {Part(TEXT("Cube"),Mat,C+P,Size/100,R,Solid);};
+    Box(FVector(0,0,-60),FVector(1000,1000,160),TEXT("Stone"));
+    // Thin side walls; the front and rear remain open beneath the arch.
     for(int Side:{-1,1})
     {
-        Part(TEXT("Cube"),TEXT("Stone"),C+FVector(Side*500,0,1200),FVector(1.8,11.5,24),FRotator::ZeroRotator,true);
-        Part(TEXT("Cube"),TEXT("Stone"),C+FVector(0,Side*500,1650),FVector(8.2,1.8,15),FRotator::ZeroRotator,true);
+        Box(FVector(Side*375,0,470),FVector(130,830,940),TEXT("Stone"));
         for(int Edge:{-1,1})
-            Part(TEXT("Cube"),TEXT("Stone"),C+FVector(Edge*310,Side*500,380),FVector(2,1.8,7.6),FRotator::ZeroRotator,true);
-        Part(TEXT("Cube"),TEXT("Stone"),C+FVector(0,Side*500,835),FVector(8.2,1.8,1.7),FRotator::ZeroRotator,true);
-        for(int Floor=0;Floor<3;++Floor)
+            Box(FVector(Edge*290,Side*375,220),FVector(170,130,440),TEXT("Stone"));
+        Box(FVector(0,Side*375,785),FVector(620,130,310),TEXT("Stone"));
+        for(int I=0;I<11;++I)
         {
-            const double Z=1120+Floor*420;
-            Part(TEXT("Cube"),TEXT("Window"),C+FVector(Side*593,-30,Z),FVector(.05,.6,1.8));
-            Part(TEXT("Cube"),TEXT("Window"),C+FVector(50,Side*594,Z),FVector(.6,.05,1.8));
+            const double A=I*PI/10.;
+            Box(FVector(205*FMath::Cos(A),Side*400,430+205*FMath::Sin(A)),
+                FVector(85,170,85),TEXT("Stone"),true,FRotator(0,0,FMath::RadiansToDegrees(A)));
         }
-        for(int I=-2;I<=2;++I)
+        // Warm recessed upper window, timber lintel and irregular stone quoins.
+        Box(FVector(0,Side*443,785),FVector(116,12,150),TEXT("RadioDial"),false);
+        Box(FVector(0,Side*454,785),FVector(9,16,155),TEXT("Timber"),false);
+        for(int Edge:{-1,1})
         {
-            Part(TEXT("Cube"),TEXT("Stone"),C+FVector(Side*500,I*245,2550),FVector(2.1,1.25,3),FRotator::ZeroRotator,true);
-            if(FMath::Abs(I)<2)Part(TEXT("Cube"),TEXT("Stone"),C+FVector(I*245,Side*500,2550),FVector(1.25,2.1,3),FRotator::ZeroRotator,true);
+            Box(FVector(Edge*72,Side*451,785),FVector(22,30,180),TEXT("Timber"),false);
+            Box(FVector(0,Side*451,785+Edge*87),FVector(162,30,24),TEXT("Timber"),false);
+            for(int Course=0;Course<8;++Course)
+                Box(FVector(Edge*377,Side*390,70+Course*113),FVector(Course%2?155:115,155,92),TEXT("Stone"),false);
         }
-        Part(TEXT("Cube"),TEXT("Stone"),C+FVector(Side*516,0,2320),FVector(2.35,12.4,.7),FRotator::ZeroRotator,true);
-        Part(TEXT("Cube"),TEXT("Stone"),C+FVector(0,Side*516,2320),FVector(12.4,2.35,.7),FRotator::ZeroRotator,true);
     }
-    // Stone arch voussoirs frame the south entrance.
-    for(int I=0;I<13;++I)
+    // Overhanging timber lookout: open sides, real posts and diagonal braces.
+    Box(FVector(0,0,950),FVector(1060,1060,42),TEXT("Timber"));
+    for(int Side:{-1,1})
     {
-        const double A=I*PI/12.;
-        Part(TEXT("Cube"),TEXT("Stone"),C+FVector(205*FMath::Cos(A),-600,555+205*FMath::Sin(A)),
-             FVector(.78,.7,1.05),FRotator(0,0,FMath::RadiansToDegrees(A)-90),true);
+        for(int Edge:{-1,1})
+        {
+            Beam(C+FVector(Edge*455,Side*455,953),C+FVector(Edge*455,Side*455,1230),12,TEXT("Timber"),true);
+            Beam(C+FVector(Edge*455,Side*455,980),C+FVector(Edge*275,Side*455,1190),8,TEXT("Timber"));
+            Beam(C+FVector(Edge*330,Side*335,745),C+FVector(Edge*485,Side*485,940),11,TEXT("Timber"));
+        }
+        Box(FVector(0,Side*460,1030),FVector(950,18,20),TEXT("Timber"));
+        Box(FVector(Side*460,0,1030),FVector(18,950,20),TEXT("Timber"));
+        for(int I=-3;I<=3;++I)
+        {
+            Box(FVector(I*120,Side*460,993),FVector(9,9,70),TEXT("Timber"),false);
+            Box(FVector(Side*460,I*120,993),FVector(9,9,70),TEXT("Timber"),false);
+        }
+        // Steep tiled gable, deeply projecting eaves.
+        Box(FVector(0,Side*290,1415),FVector(1230,735,26),TEXT("Roof"),true,FRotator(0,0,Side*39));
+        Box(FVector(0,Side*570,1190),FVector(1240,27,32),TEXT("Timber"),false);
+        Beam(C+FVector(Side*566,-575,1195),C+FVector(Side*566,0,1640),14,TEXT("Timber"));
+        Beam(C+FVector(Side*566,575,1195),C+FVector(Side*566,0,1640),14,TEXT("Timber"));
     }
-    Part(TEXT("Cube"),TEXT("Timber"),C+FVector(0,0,2240),FVector(8.2,8.2,.3),FRotator::ZeroRotator,true);
-    FRandomStream R(107);
-    for(int I=-8;I<=8;++I)
+    Box(FVector(0,0,1650),FVector(1240,34,22),TEXT("Roof"),false);
+    // Offset, shuttered keeper's home, with a chimney and a low workshop lean-to.
+    BuildBarn(C+FVector(820,230,0),-8,.52,true);
+    Box(FVector(800,-440,240),FVector(670,300,20),TEXT("Timber"),true,FRotator(0,0,-11));
+    for(int Side:{-1,1})
+        Beam(C+FVector(800+Side*285,-545,0),C+FVector(800+Side*285,-545,255),9,TEXT("Timber"),true);
+    for(int I=0;I<12;++I)
+        Beam(C+FVector(560+I%4*50,-250,40+I/4*40),C+FVector(560+I%4*50,-390,40+I/4*40),18,TEXT("Timber"));
+    // Bench, rain barrel, crooked sign and a few everyday objects give it a human scale.
+    Box(FVector(-670,-90,55),FVector(95,290,14),TEXT("Timber"));
+    for(int Side:{-1,1})Box(FVector(-670,Side*105,25),FVector(65,22,50),TEXT("Timber"));
+    Part(TEXT("Cylinder"),TEXT("Timber"),C+FVector(1200,-210,53),FVector(.8,.8,1.06));
+    for(int I=0;I<3;++I)
+        Part(TEXT("Cylinder"),TEXT("Roof"),C+FVector(740+I*80,-610,27),FVector(.43,.43,.54));
+    Beam(C+FVector(-550,-580,0),C+FVector(-562,-580,295),10,TEXT("Timber"),true);
+    Box(FVector(-560,-580,244),FVector(22,210,75),TEXT("Teal"),false,FRotator(0,0,-5));
+    Sign(C+FVector(-574,-580,247),FRotator(0,180,0),TEXT("RAVEN WATCH"),17);
+    Sign(C+FVector(0,-462,678),FRotator(0,-90,0),TEXT("R A V E N W A C H T"),23);
+    // Lanterns under the arch, away from the clear four-metre flight opening.
+    for(int Side:{-1,1})
     {
-        const double X=C.X+I*240,Y=C.Y-2050,G=GroundHeight(X,Y);
-        if(I>-2&&I<2)continue;
-        const double H=R.FRandRange(220,490);
-        Part(TEXT("Cube"),TEXT("Stone"),FVector(X,Y,G+H/2),FVector(2.45,1.7,H/100),FRotator(0,0,R.FRandRange(-2,2)),true);
-        if(I%3==0)Part(TEXT("Cube"),TEXT("Stone"),FVector(X+60,Y-190,G+60),FVector(1.3,1.5,1.2),FRotator(8,I*15,12),true);
+        Box(FVector(Side*266,-475,358),FVector(30,30,50),TEXT("RadioDial"),false);
+        Box(FVector(Side*266,-475,388),FVector(43,43,9),TEXT("Rust"),false);
+        auto* Lamp=NewObject<UPointLightComponent>(this,NAME_None,RF_Transactional);
+        Lamp->ComponentTags.Add(TEXT("RavenGenerated"));Lamp->SetupAttachment(RootComponent);
+        Lamp->SetRelativeLocation(C+FVector(Side*266,-515,360));
+        Lamp->SetMobility(EComponentMobility::Movable);Lamp->SetIntensity(1800);
+        Lamp->SetLightColor(FLinearColor(1.f,.56f,.22f));Lamp->SetAttenuationRadius(480);
+        Lamp->SetCastShadows(false);AddInstanceComponent(Lamp);Lamp->RegisterComponent();
     }
-    Beam(C+FVector(340,300,2450),C+FVector(340,300,3300),6,TEXT("Rust"));
-    Part(TEXT("Cube"),TEXT("Teal"),C+FVector(350,440,3110),FVector(.07,2.7,2.4),FRotator(5,0,0));
-    Sign(C+FVector(0,-735,410),FRotator(0,-90,0),TEXT("R A V E N W A C H T"),32);
-    // A switchback stair winds up the lake-facing slope.
-    for(int I=0;I<130;++I)
+    // Short broken garden wall, rather than a forbidding fortified perimeter.
+    for(int I=-5;I<=6;++I)
     {
-        const double Y=C.Y-2050-I*180,X=C.X+FMath::Sin(I*.045)*2500;
-        Part(TEXT("Cube"),TEXT("Stone"),FVector(X,Y,GroundHeight(X,Y)+12),FVector(2.4,1.85,.22),FRotator(0,FMath::Cos(I*.045)*30,0));
+        if(I>=-1&&I<=1)continue;
+        const double X=C.X+I*220,Y=C.Y-1080,G=GroundHeight(X,Y);
+        Part(TEXT("Cube"),TEXT("Stone"),FVector(X,Y,G+48),FVector(2.1,.75,.95),FRotator(0,I%3*4,0),true);
+    }
+    for(int I=0;I<42;++I)
+    {
+        const double X=C.X-1000-I*180,Y=C.Y-1100-900*FMath::Sin(I*.065);
+        Part(TEXT("Cube"),TEXT("Stone"),FVector(X,Y,GroundHeight(X,Y)+9),
+             FVector(1.8,1.55,.18),FRotator(0,I*3,0));
     }
 }
 

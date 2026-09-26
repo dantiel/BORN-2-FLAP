@@ -161,7 +161,7 @@ advanceFirmwareVehicle rc params servo battery dt bodyVel bodyRates state
           nextFw' = nextFw { fwKGainMod = kGainModNext }
 
           -- 3. Actual flap deviation → wing physics.
-          input = VehicleInput dt bodyVel bodyRates 0 0 0 0
+          input = VehicleInput dt bodyVel bodyRates 0 0 elevatorNorm 0
           strokeL = radians leftFlapDeg
           strokeR = radians rightFlapDeg
           rateL = radians (servoRateDegPerSec nextServoL)
@@ -184,17 +184,23 @@ advanceFirmwareVehicle rc params servo battery dt bodyVel bodyRates state
           wingMoment = foldr (addVec . resultMoment) zeroVec wingResults
           speed = magnitude bodyVel
           bodyDrag = scaleVec (-0.5 * 1.225 * 0.032 * speed) bodyVel
-          tailArm = Vec3 (-0.48) 0 0
-          tailVelocity = addVec bodyVel (crossVec bodyRates tailArm)
-          -- Symmetric finite surfaces: lift normal to each planar flow and
-          -- drag opposite it, including reverse flight. Positive elevator
-          -- requests nose-up; positive rudder requests nose-right.
-          horizontal = tailSurface 0.045 (radians (-2.0 - 12 * elevatorNorm))
-                         (x tailVelocity) (z tailVelocity)
-          vertical = tailSurface 0.020 (radians (-18 * rudderNorm))
-                       (x tailVelocity) (y tailVelocity)
-          tailForce = Vec3 (fst horizontal + fst vertical) (snd vertical) (snd horizontal)
-          tailMoment = crossVec tailArm tailForce
+          -- Two real inverted-V panels, 35 degrees down, with mixed ruddervators.
+          -- Each panel sees its own local flow and produces force at its own arm;
+          -- the resulting pitch/yaw/roll coupling is geometric, not an added torque.
+          cant = radians 35
+          tailPanel side =
+            let arm = Vec3 (-0.48) (side * 0.12) (-0.12 * tan cant)
+                normal = Vec3 0 (side * sin cant) (cos cant)
+                flow = addVec bodyVel (crossVec bodyRates arm)
+                normalFlow = y flow * y normal + z flow * z normal
+                incidence = radians ((-2 - 18 * elevatorNorm) * cos cant
+                                      - side * 18 * rudderNorm * sin cant)
+                (fx, fn) = tailSurface 0.034 incidence (x flow) normalFlow
+                panelForce = addVec (Vec3 fx 0 0) (scaleVec fn normal)
+            in (panelForce, crossVec arm panelForce)
+          panels = map tailPanel [-1,1]
+          tailForce = foldr (addVec . fst) zeroVec panels
+          tailMoment = foldr (addVec . snd) zeroVec panels
           force = addVec wingForce (addVec bodyDrag tailForce)
           moment = addVec wingMoment tailMoment
 

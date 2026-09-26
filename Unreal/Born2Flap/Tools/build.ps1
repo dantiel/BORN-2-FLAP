@@ -32,7 +32,7 @@ try {
         catch { throw "Cannot update physics DLL. Close the game/editor, then retry. $($_.Exception.Message)" }
     }
     $ErrorActionPreference = 'Continue'
-    & (Join-Path $EngineRoot 'Engine/Build/BatchFiles/Build.bat') Born2FlapEditor Win64 Development "-Project=$project" -WaitMutex -NoHotReloadFromIDE
+    & (Join-Path $EngineRoot 'Engine/Build/BatchFiles/Build.bat') Born2FlapEditor Win64 Development "-Project=$project" -WaitMutex -NoHotReloadFromIDE -gather
     $ErrorActionPreference = 'Stop'
     if ($LASTEXITCODE) { throw 'Unreal build failed.' }
 } finally {

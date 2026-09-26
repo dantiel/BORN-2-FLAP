@@ -6,10 +6,12 @@ namespace born2flap
 // Desktop transmitter: independent keyboard and mouse steering, one throttle owner.
 struct DesktopInput
 {
+    static constexpr double MouseTravel = 1800.0; // pixels from centre to full stick
     RcKeyboard keyboard;
     double wheelThrottle = 0;
     bool wheelOwnsThrottle = false;
     double mouseRoll = 0, mousePitch = 0, mouseYaw = 0;
+    bool previousMuteYaw = false, previousMuteRoll = false;
     double throttle = 0, roll = 0, pitch = 0, yaw = 0;
 
     static double KeyboardThrottle(bool w, bool control, bool shift)
@@ -18,7 +20,7 @@ struct DesktopInput
     }
 
     void Step(double dt, double keyThrottle, bool wDown, double keyRoll, double keyPitch, double keyYaw,
-              double mouseX, double mouseY, double wheel, bool muteYaw, bool muteRoll)
+              double mouseX, double mouseY, double wheel, bool muteYaw, bool muteRoll, bool resetMouse = false)
     {
         if (dt <= 0) return;
         // Retain fractional wheel events. Keyboard never changes the remembered wheel value.
@@ -30,14 +32,19 @@ struct DesktopInput
         if (wDown) wheelOwnsThrottle = false;
         keyboard.Step(dt, wheelOwnsThrottle ? wheelThrottle : keyThrottle, keyRoll, keyPitch, keyYaw);
 
-        // Velocity-based mouse stick: no screen-edge limit, smoothly centres when motion stops.
-        // Dividing the accumulated per-frame deltas by dt keeps sensitivity independent of FPS.
-        const double blend = 1 - std::exp(-dt / .065);
-        const double x = std::clamp(mouseX / dt / 500.0, -1.0, 1.0);
-        const double y = std::clamp(mouseY / dt / 500.0, -1.0, 1.0);
-        mouseRoll = muteRoll ? 0 : mouseRoll + blend * (x - mouseRoll);
-        mouseYaw = muteYaw ? 0 : mouseYaw + blend * (x - mouseYaw);
-        mousePitch += blend * (y - mousePitch);
+        // Relative displacement moves a persistent virtual stick; stopping never centres it.
+        // Per-frame mouse deltas already integrate motion, so do not scale them by dt.
+        const bool clicked = resetMouse || (muteYaw && !previousMuteYaw) || (muteRoll && !previousMuteRoll);
+        previousMuteYaw = muteYaw;
+        previousMuteRoll = muteRoll;
+        if (clicked)
+            mouseRoll = mousePitch = mouseYaw = 0;
+        else
+        {
+            mouseRoll = muteRoll ? 0 : std::clamp(mouseRoll + mouseX / MouseTravel, -1.0, 1.0);
+            mouseYaw = muteYaw ? 0 : std::clamp(mouseYaw + mouseX / MouseTravel, -1.0, 1.0);
+            mousePitch = std::clamp(mousePitch + mouseY / MouseTravel, -1.0, 1.0);
+        }
         throttle = keyboard.throttle;
         // Expo each device before summing: opposing inputs cancel and either can add authority.
         roll = std::clamp(RcKeyboard::Expo(keyboard.roll) + RcKeyboard::Expo(mouseRoll), -1.0, 1.0);

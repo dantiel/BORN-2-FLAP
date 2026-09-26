@@ -20,7 +20,7 @@ double Noise(double X,double Y) { return FMath::PerlinNoise2D(FVector2D(X,Y)); }
 double Hill(double X,double Y,double Cx,double Cy,double Rx,double Ry)
 { return FMath::Exp(-FMath::Square((X-Cx)/Rx)-FMath::Square((Y-Cy)/Ry)); }
 constexpr double InnerExtent=192000., InnerStep=600., OuterStep=9600.;
-constexpr int32 CurrentWorldVersion=1;
+constexpr int32 CurrentWorldVersion=2;
 }
 
 ABorn2FlapValley::ABorn2FlapValley()
@@ -40,7 +40,7 @@ double ABorn2FlapValley::Height(double X,double Y)
     const double Shoulder=FMath::Clamp((FMath::Abs(Y)-190)/650.,0.,1.);
     Z+=Shoulder*(24+28*Noise(X*.0018,Y*.0018)+10*Noise(X*.006,Y*.006));
     Z+=45*Hill(X,Y,-710,-590,340,245)+39*Hill(X,Y,-590,610,350,310);
-    Z+=54*Hill(X,Y,740,725,180,145)+28*Hill(X,Y,1550,770,480,260);
+    Z+=18*Hill(X,Y,290,205,75,65)+28*Hill(X,Y,1550,770,480,260);
     Z*=1-FMath::Exp(-FMath::Pow((X-80)/300.,4.)-FMath::Pow((Y+32)/47.,4.));
     // Preserve the original launch plane and reset point for flight physics.
     Z*=1-FMath::Exp(-FMath::Pow(X/95.,4.)-FMath::Pow(Y/23.,4.));
@@ -66,7 +66,7 @@ double ABorn2FlapValley::GroundHeight(double X,double Y)
 bool ABorn2FlapValley::IsWater(double X,double Y) { return GroundHeight(X,Y)<WaterHeight; }
 FString ABorn2FlapValley::PlaceName(double X,double Y)
 {
-    if(FVector2D(X-74000,Y-72500).Size()<16000) return TEXT("THE RAVEN WATCH");
+    if(FVector2D(X-29000,Y-20500).Size()<6500) return TEXT("THE RAVEN WATCH");
     if(FVector2D(X-52000,Y-19000).Size()<8500) return TEXT("CROW'S ACRE");
     if(FVector2D(X-67000,Y-9500).Size()<6000) return TEXT("LAST SCRAP");
     if(X>33000 && IsWater(X,Y)) return TEXT("RAVEN LAKE");
@@ -185,7 +185,7 @@ void ABorn2FlapValley::PlantForest()
         if(X>-15000 && X<36500 && Y>-8500 && Y<RiverCentre(X/100)*100-1900) return true;
         if(FMath::Abs(X-18500)<1800 && Y>-28000 && Y<34000) return true;
         for(const FVector2D& Site:{FVector2D(-16000,-15500),FVector2D(-27000,-19000),FVector2D(-8500,-21000),
-                                  FVector2D(27000,-15500),FVector2D(32000,-13500),FVector2D(74000,72500)})
+                                  FVector2D(27000,-15500),FVector2D(32000,-13500),FVector2D(29000,20500)})
             if(FVector2D(X-Site.X,Y-Site.Y).Size()<3200) return true;
         return false;
     };
@@ -238,8 +238,8 @@ void ABorn2FlapValley::SetPhotoView(int32 Index)
 {
     auto* PC=UGameplayStatics::GetPlayerController(this,0);if(!PC)return;
     PhotoIndex=Index;if(Index<0){PC->SetViewTargetWithBlend(PC->GetPawn(),.8);return;}
-    const FVector Positions[]={FVector(-8500,-17000,5900),FVector(32000,-11000,12000),FVector(57500,58000,11200),FVector(13400,4800,200),FVector(-18500,-19300,650)};
-    const FVector Targets[]={FVector(65000,23000,600),FVector(97000,26000,-100),FVector(74000,72500,8000),FVector(20500,9800,100),FVector(-15200,-15000,450)};
+    const FVector Positions[]={FVector(-8500,-17000,5900),FVector(32000,-11000,12000),FVector(26100,16800,GroundHeight(29000,20500)+1800),FVector(13400,4800,200),FVector(-18500,-19300,650)};
+    const FVector Targets[]={FVector(65000,23000,600),FVector(97000,26000,-100),FVector(29300,20500,GroundHeight(29000,20500)+700),FVector(20500,9800,100),FVector(-15200,-15000,450)};
     const int32 I=Index%5;if(!PhotoCamera)PhotoCamera=GetWorld()->SpawnActor<ACameraActor>();
     PhotoCamera->SetActorLocationAndRotation(Positions[I],(Targets[I]-Positions[I]).Rotation());
     auto* C=PhotoCamera->GetCameraComponent();C->SetFieldOfView(I==0?70:65);C->bConstrainAspectRatio=false;
