@@ -15,6 +15,7 @@
 #include "Materials/MaterialInterface.h"
 #include "World/Born2FlapValley.h"
 #include "UI/Born2FlapUIBridge.h"
+#include "Racing/Born2FlapRacing.h"
 #include "GameFramework/PlayerController.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
@@ -50,6 +51,13 @@ void ABorn2FlapGameMode::BeginPlay()
         FActorSpawnParameters UIParams;
         UIParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
         World->SpawnActor<ABorn2FlapUIBridge>(FVector::ZeroVector, FRotator::ZeroRotator, UIParams);
+    }
+    // Racing mode: ghost recorder + replay manager. Records every round and
+    // re-flies the past rounds as shadow doppelgängers (disabled in flight tests).
+    {
+        FActorSpawnParameters RacingParams;
+        RacingParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+        World->SpawnActor<ABorn2FlapRacingManager>(FVector::ZeroVector, FRotator::ZeroRotator, RacingParams);
     }
     FActorSpawnParameters Params;
     Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
