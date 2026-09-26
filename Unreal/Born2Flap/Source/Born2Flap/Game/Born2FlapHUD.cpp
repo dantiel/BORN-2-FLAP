@@ -4,6 +4,8 @@
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
 #include "Input/Born2FlapRcController.h"
+#include "Racing/Born2FlapRacing.h"
+#include "Kismet/GameplayStatics.h"
 void ABorn2FlapHUD::DrawHUD()
 {
     Super::DrawHUD();
@@ -33,6 +35,17 @@ void ABorn2FlapHUD::DrawHUD()
                                        : FString::Printf(TEXT("UEBUNG  %d / %d  /  F4: Waldtal"),
                                                          Mode->GetGatesPassed(), Mode->GetGateCount()),
                  Cream, Canvas->SizeX - 370, 36, GEngine->GetSmallFont(), 1.05f);
+    if (!CachedRacing.IsValid())
+        CachedRacing = Cast<ABorn2FlapRacingManager>(
+            UGameplayStatics::GetActorOfClass(GetWorld(), ABorn2FlapRacingManager::StaticClass()));
+    if (auto *Racing = CachedRacing.Get())
+    {
+        DrawText(Racing->GetRacingStatus(), Gold, Canvas->SizeX - 370, 62, GEngine->GetSmallFont(), 1.05f);
+        DrawText(Racing->IsSurpassingBest() ? TEXT("SCHATTEN UEBERHOLT — neue Bestmarke!")
+                                            : Racing->GetBestLine(),
+                 Racing->IsSurpassingBest() ? FLinearColor(1, .55f, .2f) : Cream, Canvas->SizeX - 370, 84,
+                 GEngine->GetSmallFont(), 1.f);
+    }
     const auto *Rc = Bird->GetRcController();
     if (Rc)
         DrawText(Rc->GetStatus(), Muted, 38, 263, GEngine->GetSmallFont(), 1.f);
