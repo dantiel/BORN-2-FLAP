@@ -9,6 +9,7 @@ require_relative "ui/effects"
 require_relative "ui/effect_driver"
 require_relative "ui/emitter"
 require_relative "ui/wire"
+require_relative "ui/transport"
 
 module Born2Flap
   # Polymorphes UI (UMGHAML): eine Grammatik, ein neutraler Baum, viele

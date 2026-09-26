@@ -50,5 +50,6 @@ MathCore/**/*_stub.h
 
 # Headless C++ render/test artifacts
 Tools/umg_host_test
+Tools/umg_transport_test
 Tools/effects_render
 *.bmp
