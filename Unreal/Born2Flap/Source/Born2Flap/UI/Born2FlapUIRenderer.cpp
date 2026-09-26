@@ -27,6 +27,7 @@
 
 UBorn2FlapUIRenderer::UBorn2FlapUIRenderer()
     : RendererImpl(MakeUnique<Renderer>(*this))
+    , AudioEngine(MakeUnique<born2flap::audio::FAudioEngine>())
 {
 }
 
@@ -39,8 +40,7 @@ void UBorn2FlapUIRenderer::ApplyOpsJson(const FString& Json)
         UE_LOG(LogTemp, Warning, TEXT("Born2FlapUIRenderer: failed to parse op JSON"));
         return;
     }
-    if (RendererImpl)
-        RendererImpl->Apply(Ops);
+    ApplyParsedOps(Ops);
 }
 
 void UBorn2FlapUIRenderer::ApplyOps(const TArray<born2flap::ui::FOp>& Ops)
@@ -49,8 +49,27 @@ void UBorn2FlapUIRenderer::ApplyOps(const TArray<born2flap::ui::FOp>& Ops)
     Vec.reserve(Ops.Num());
     for (const auto& Op : Ops)
         Vec.push_back(Op);
-    if (RendererImpl)
-        RendererImpl->Apply(Vec);
+    ApplyParsedOps(Vec);
+}
+
+void UBorn2FlapUIRenderer::ApplyParsedOps(const std::vector<born2flap::ui::FOp>& Ops)
+{
+    std::vector<born2flap::ui::FOp> TreeOps;
+    TreeOps.reserve(Ops.size());
+    for (const auto& Op : Ops)
+    {
+        if (Op.op == born2flap::ui::EOp::SetAudioParams)
+        {
+            if (AudioEngine)
+                AudioEngine->SetParams(Op.voice, Op.props);
+        }
+        else
+        {
+            TreeOps.push_back(Op);
+        }
+    }
+    if (RendererImpl && !TreeOps.empty())
+        RendererImpl->Apply(TreeOps);
 }
 
 // ---- FRenderer host contract ----------------------------------------------

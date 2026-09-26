@@ -46,6 +46,11 @@ struct FRenderer {
                     if (it != widgets.end()) host.SetMaterialParams(it->second, op.props);
                     break;
                 }
+                case EOp::SetAudioParams:
+                    // Audio voices are NOT tree widgets — they are consumed by
+                    // FAudioEngine (Born2FlapAudioEngine.h) on the host side,
+                    // not by this tree renderer. Ignored here.
+                    break;
             }
         }
     }

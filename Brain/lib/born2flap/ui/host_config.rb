@@ -24,6 +24,11 @@ module Born2Flap
     # `set_material_params` is NOT produced from a tree patch — it is emitted
     # directly by EffectDriver on the continuous `:ui_effect` channel and maps to
     # UMaterialInstanceDynamic::SetScalarParameterValue in the UMG host.
+    #
+    # `set_audio_params` is the same idea on the `:audio_effect` channel: it is
+    # emitted by AudioDriver (one op per voice, keyed by a voice name string
+    # rather than a tree path) and maps to the C++ synth engine
+    # (Born2FlapAudioEngine.h / USynthComponent).
     module HostConfig
       # Canonical host operations every renderer implements.
       HOST_OPS = %i[
@@ -33,6 +38,7 @@ module Born2Flap
         remove_child
         update_props
         set_material_params
+        set_audio_params
       ].freeze
 
       module_function
