@@ -47,7 +47,8 @@ struct FNode {
 };
 
 enum class EOp : uint8_t {
-    CreateInstance, RemoveInstance, AppendChild, RemoveChild, UpdateProps, SetMaterialParams
+    CreateInstance, RemoveInstance, AppendChild, RemoveChild, UpdateProps,
+    SetMaterialParams, SetAudioParams
 };
 
 struct FOp {
@@ -55,7 +56,8 @@ struct FOp {
     FPath path;
     int index = -1;
     FNode node;
-    FProps props;  // update_props → props; set_material_params → params
+    std::string voice;  // set_audio_params → voice name ("wind", "servo_l", …)
+    FProps props;       // update_props → props; material/audio → params
 };
 
 // ---- minimal recursive-descent JSON parser (no external deps) -------------
@@ -196,11 +198,13 @@ private:
                 else if (name == "remove_child")    op.op = EOp::RemoveChild;
                 else if (name == "update_props")    op.op = EOp::UpdateProps;
                 else if (name == "set_material_params") op.op = EOp::SetMaterialParams;
+                else if (name == "set_audio_params")    op.op = EOp::SetAudioParams;
                 else return Fail("unknown op: " + name);
             }
             else if (key == "path") { if (!ParsePath(op.path)) return false; }
             else if (key == "index") { FValue v; if (!ParseValue(v)) return false; op.index = (int)v.AsNumber(0.0); }
             else if (key == "node") { if (!ParseNode(op.node)) return false; }
+            else if (key == "voice") { if (!ParseString(op.voice)) return false; }
             else if (key == "props" || key == "params") { if (!ParseObjectMap(op.props)) return false; }
             else { FValue dummy; if (!ParseValue(dummy)) return false; }
             SkipWs();

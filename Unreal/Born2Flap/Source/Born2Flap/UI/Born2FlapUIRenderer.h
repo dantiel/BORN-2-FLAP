@@ -16,6 +16,7 @@
 #include "Templates/UniquePtr.h"
 #include "UI/Born2FlapUiOps.h"
 #include "UI/Born2FlapUiTree.h"
+#include "UI/Born2FlapAudioEngine.h"
 #include "Born2FlapUIRenderer.generated.h"
 
 class UWidget;
@@ -55,10 +56,14 @@ public:
     virtual void BeginDestroy() override;
 
 private:
+    // Route an already-parsed op stream: tree ops → FRenderer, audio ops →
+    // FAudioEngine. Kept in one place so ApplyOpsJson and ApplyOps share it.
+    void ApplyParsedOps(const std::vector<born2flap::ui::FOp>& Ops);
     void EnsureViewport();
     UMaterialInstanceDynamic* GetOrCreateDynamicMaterial(UWidget* W);
 
     TUniquePtr<Renderer> RendererImpl;
+    TUniquePtr<born2flap::audio::FAudioEngine> AudioEngine;
     UPROPERTY() UUserWidget* RootHost = nullptr;
     UPROPERTY() UCanvasPanel* ViewportCanvas = nullptr;
     TMap<UWidget*, UMaterialInstanceDynamic*> MaterialCache;

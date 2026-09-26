@@ -48,6 +48,8 @@ module Born2Flap
           { "op" => "update_props", "path" => op[1], "props" => stringify(op[2]) }
         when :set_material_params
           { "op" => "set_material_params", "path" => op[1], "params" => stringify(op[2]) }
+        when :set_audio_params
+          { "op" => "set_audio_params", "voice" => op[1].to_s, "params" => stringify(op[2]) }
         else
           raise ArgumentError, "unknown host op: #{op.inspect}"
         end
