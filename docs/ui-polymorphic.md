@@ -64,13 +64,31 @@ Spielkern brauchen wir keinen Browser, also auch keinen HTML-Emitter.
 UMGHAML trennt die Grammatik vom Emitter — es ist ein eigenes Modul, das
 später als eigenständiges **Ruby-Gem `umghaml`** veröffentlicht wird.
 
-## Live-Propagation: Reconciliation statt Redux
+## Live-Propagation: `react-native-umg`
 
 UMG/Slate haben **keine** React-artige Reconciliation — UMG ist zur Laufzeit
 imperativ (`SetText`, `SetValue`), Slate bietet nur pull-basierte
 `TAttribute`-Bindings. Die React-Leistung (Baum vergleichen, *nur das
 Geänderte minimal patchen*) gehört deshalb in den Ruby-Brain — **idiomatisch
-Ruby, ohne Redux**:
+Ruby, ohne Redux**.
+
+Unser Modell heißt **`react-native-umg`**: die Renderer-Architektur von React
+Native, aber mit UMG als nativem Host statt UIKit/Android Views. React Native
+trennt den host-agnostischen Reconciler vom plattformspezifischen HostConfig;
+genau diese Trennung fahren wir:
+
+| React-Native-Begriff | unser Pendant (Ruby / Unreal) |
+|---|---|
+| Komponenten (JSX) | UMGHAML → `Node`-Baum |
+| Element-Tree | neutraler `Node`-Baum im `Root` |
+| `react-reconciler` (host-agnostisch) | `Reconciler` (`diff → Patch`) |
+| `HostConfig` (native Mutationen) | `HostConfig` (→ UMG-C++-Kontrakt) |
+| Bridge (serialisierte Ops) | `:ui_patch` auf dem `EventBus` |
+| Native Views (UIKit/Android) | `UWidget` (UMG) |
+
+Die fünf Host-Operationen (`create_instance`, `remove_instance`,
+`append_child`, `remove_child`, `update_props`) sind der stabile Vertrag, den
+der UMG-Renderer später implementiert:
 
 - **Reconciler**: `diff(previous, current) -> patch`. Vergleicht zwei neutrale
   Bäume wertbasiert und erzeugt eine minimale Operationsliste
@@ -119,6 +137,7 @@ Brain/lib/born2flap/ui/node.rb      # neutraler Widget-Baum (Node)
 Brain/lib/born2flap/ui/haml_parser.rb # UMGHAML → Node-Baum
 Brain/lib/born2flap/ui/reconciler.rb # Baum-Diff → Patch (Reconciliation)
 Brain/lib/born2flap/ui/root.rb      # reaktiver Render-Root (EventBus)
+Brain/lib/born2flap/ui/host_config.rb # HostConfig-Kontrakt (RN-Mapping)
 Brain/lib/born2flap/ui/emitter.rb   # UMG / HTML / RN Emitter
 ```
 

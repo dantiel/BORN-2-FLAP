@@ -208,6 +208,37 @@ module Born2Flap
       end
     end
 
+    class HostConfigTest < Minitest::Test
+      def test_translate_maps_replace_with_node_to_create_instance
+        patch = [{ op: :replace, path: [], node: Node.new(:overlay) }]
+        assert_equal [[:create_instance, [], patch[0][:node]]], HostConfig.translate(patch)
+      end
+
+      def test_translate_maps_replace_with_nil_to_remove_instance
+        patch = [{ op: :replace, path: [0], node: nil }]
+        assert_equal [[:remove_instance, [0]]], HostConfig.translate(patch)
+      end
+
+      def test_translate_maps_child_and_prop_ops
+        node = Node.new(:text, { value: "hi" })
+        patch = [
+          { op: :insert_child, path: [], index: 0, node: node },
+          { op: :remove_child, path: [], index: 1 },
+          { op: :update_props, path: [0], props: { value: 42 } }
+        ]
+        assert_equal [
+          [:append_child, [], 0, node],
+          [:remove_child, [], 1],
+          [:update_props, [0], { value: 42 }]
+        ], HostConfig.translate(patch)
+      end
+
+      def test_host_ops_are_stable
+        assert_equal %i[create_instance remove_instance append_child remove_child update_props],
+                     HostConfig::HOST_OPS
+      end
+    end
+
     class EmitterTest < Minitest::Test
       def test_umg_emitter_maps_to_unreal_widgets
         tree = HamlParser.parse(HUD_SOURCE)
