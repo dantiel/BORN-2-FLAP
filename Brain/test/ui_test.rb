@@ -234,7 +234,7 @@ module Born2Flap
       end
 
       def test_host_ops_are_stable
-        assert_equal %i[create_instance remove_instance append_child remove_child update_props],
+        assert_equal %i[create_instance remove_instance append_child remove_child update_props set_material_params],
                      HostConfig::HOST_OPS
       end
     end

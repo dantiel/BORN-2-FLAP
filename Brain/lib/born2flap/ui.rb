@@ -5,6 +5,8 @@ require_relative "ui/haml_parser"
 require_relative "ui/reconciler"
 require_relative "ui/root"
 require_relative "ui/host_config"
+require_relative "ui/effects"
+require_relative "ui/effect_driver"
 require_relative "ui/emitter"
 
 module Born2Flap
