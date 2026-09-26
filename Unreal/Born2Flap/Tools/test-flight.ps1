@@ -5,9 +5,11 @@ $logs = Join-Path (Split-Path $project) 'Saved/Logs'
 New-Item -ItemType Directory -Path $logs -Force | Out-Null
 $cases = @($FrameRates | ForEach-Object { @{ Name="flight-test-$_"; Fps=$_; Flag='B2FFlightTest'; Result='FlightTest PASS' } })
 if (!$SkipSoak) { $cases += @{Name='flight-soak';Fps=60;Flag='B2FSoakTest';Result='FlightSoakTest PASS'} }
+$cases += @{Name='raven-flight-test';Fps=60;Flag='B2FRavenFlightTest';Result='RavenFlightTest PASS'}
 foreach ($case in $cases) {
     $log = Join-Path $logs ($case.Name+'.log')
-    $arguments = @(('"'+$project+'"'),'-game','-nullrhi','-nosound','-unattended','-nosplash','-benchmark',('-fps='+$case.Fps),('-'+$case.Flag),('-abslog="'+$log+'"'))
+    $map = if ($case.Flag -eq 'B2FRavenFlightTest') { '/Game/Ravenstonefield/Maps/RAVENSTONEFIELD' } else { '/Engine/Maps/Entry' }
+    $arguments = @(('"'+$project+'"'),$map,'-game','-nullrhi','-nosound','-unattended','-nosplash','-benchmark',('-fps='+$case.Fps),('-'+$case.Flag),('-abslog="'+$log+'"'))
     $process = Start-Process -FilePath (Join-Path $EngineRoot 'Engine/Binaries/Win64/UnrealEditor-Cmd.exe') -ArgumentList $arguments -WindowStyle Hidden -PassThru
     if (!$process.WaitForExit(180000)) {
         Stop-Process -Id $process.Id

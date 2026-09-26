@@ -11,5 +11,6 @@ class BORN2FLAP_API ABorn2FlapHUD : public AHUD
     virtual void DrawHUD() override;
 
   private:
+    bool bHideRavenHUD = false;
     void DrawRcPanel(const FBorn2FlapRcController &Rc);
 };

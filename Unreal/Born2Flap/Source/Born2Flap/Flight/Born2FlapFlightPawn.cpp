@@ -129,7 +129,9 @@ void ABorn2FlapFlightPawn::BeginPlay()
     // The legacy exposure range otherwise clips a physically lit sky to white.
     const auto *ExtendedRange =
         IConsoleManager::Get().FindConsoleVariable(TEXT("r.DefaultFeature.AutoExposure.ExtendDefaultLuminanceRange"));
-    const float DaylightExposure = ExtendedRange && ExtendedRange->GetInt() ? 14.f : 10000.f;
+    const auto *ExposureMode = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode());
+    const bool bRaven = ExposureMode && ExposureMode->IsNatureLevel();
+    const float DaylightExposure = ExtendedRange && ExtendedRange->GetInt() ? (bRaven ? 13.2f : 14.f) : 10000.f;
     Camera->PostProcessSettings.bOverride_AutoExposureMinBrightness = true;
     Camera->PostProcessSettings.bOverride_AutoExposureMaxBrightness = true;
     Camera->PostProcessSettings.bOverride_AutoExposureBias = true;
@@ -157,7 +159,8 @@ void ABorn2FlapFlightPawn::BeginPlay()
         }
     MathBridge = MakeUnique<FBorn2FlapMathBridge>();
     bSoakTest = FParse::Param(FCommandLine::Get(), TEXT("B2FSoakTest"));
-    bFlightTest = bSoakTest || FParse::Param(FCommandLine::Get(), TEXT("B2FFlightTest"));
+    bRavenFlightTest = FParse::Param(FCommandLine::Get(), TEXT("B2FRavenFlightTest"));
+    bFlightTest = bSoakTest || bRavenFlightTest || FParse::Param(FCommandLine::Get(), TEXT("B2FFlightTest"));
     if (!bFlightTest)
         RcController = MakeUnique<FBorn2FlapRcController>();
     ResetFlight();
@@ -174,7 +177,7 @@ void ABorn2FlapFlightPawn::ResetFlight(bool bSafety)
     // Recreate all firmware/servo/aeroelastic/battery/history state. RTS stays pinned.
     bHealthy = MathBridge && MathBridge->Load();
     bFlying = bReturning = false;
-    Keyboard = {};
+    Desktop = {};
     Throttle = RollInput = YawInput = PitchInput = LeftFlap = RightFlap = 0;
     BatterySoc = 1;
     Accumulator = 0;
@@ -226,7 +229,8 @@ void ABorn2FlapFlightPawn::LaunchFlight()
 FString ABorn2FlapFlightPawn::GetFlightStatus() const
 {
     if (!bHealthy)
-        return TEXT("Flight core stopped - press R to reload");
+        return MathBridge && !MathBridge->IsReady() ? MathBridge->GetStatus()
+                                                  : TEXT("Flight core stopped - press R to reset");
     if (bReturning)
         return TEXT("FIELD EDGE - turn back with the sticks");
     if (!bFlying)
@@ -311,14 +315,26 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     Super::Tick(DeltaSeconds);
     const float Dt = FMath::Clamp(DeltaSeconds, 0.f, .1f);
     float Effort = 0, Steer = 0, Pitch = 0, Roll = 0;
+    float MouseX = 0, MouseY = 0, Wheel = 0;
+    bool WDown = false, MuteMouseYaw = false, MuteMouseRoll = false;
     bool Launch = false, Reset = false;
     if (auto *PC = Cast<APlayerController>(GetController()))
     {
         if (RcController)
             RcController->Tick(PC, Dt);
-        Effort = PC->IsInputKeyDown(EKeys::W)
-                     ? (PC->IsInputKeyDown(EKeys::LeftShift) || PC->IsInputKeyDown(EKeys::RightShift) ? 1.f : .72f)
-                     : 0;
+        WDown = PC->IsInputKeyDown(EKeys::W);
+        Effort = born2flap::DesktopInput::KeyboardThrottle(
+            WDown, PC->IsInputKeyDown(EKeys::LeftControl) || PC->IsInputKeyDown(EKeys::RightControl),
+            PC->IsInputKeyDown(EKeys::LeftShift) || PC->IsInputKeyDown(EKeys::RightShift));
+        PC->GetInputMouseDelta(MouseX, MouseY);
+        Wheel = PC->GetInputAnalogKeyState(EKeys::MouseWheelAxis);
+        MuteMouseYaw = PC->IsInputKeyDown(EKeys::LeftMouseButton);
+        MuteMouseRoll = PC->IsInputKeyDown(EKeys::RightMouseButton);
+        if (RcController && RcController->IsPanelOpen())
+        {
+            MouseX = MouseY = Wheel = 0;
+            MuteMouseYaw = MuteMouseRoll = true;
+        }
         Steer = (PC->IsInputKeyDown(EKeys::D) ? 1.f : 0.f) - (PC->IsInputKeyDown(EKeys::A) ? 1.f : 0.f);
         Roll = (PC->IsInputKeyDown(EKeys::Right) ? 1.f : 0.f) - (PC->IsInputKeyDown(EKeys::Left) ? 1.f : 0.f);
         Pitch = (PC->IsInputKeyDown(EKeys::Up) ? 1.f : 0.f) -
@@ -335,6 +351,8 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     }
     if (bFlightTest)
     {
+        MouseX = MouseY = Wheel = 0;
+        WDown = false;
         const double Previous = TestTime;
         TestTime += DeltaSeconds;
         Launch = (Previous < 3 && TestTime >= 3) || (Previous < 63 && TestTime >= 63);
@@ -401,11 +419,11 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         bReturning = false;
     // Throttle commands the motor on the ground too, like an armed RC model.
     // Flying state is telemetry, never a hidden override of transmitter input.
-    Keyboard.Step(Dt, Effort, Roll, Pitch, Steer);
-    Throttle = Keyboard.throttle;
-    RollInput = born2flap::RcKeyboard::Expo(Keyboard.roll);
-    PitchInput = born2flap::RcKeyboard::Expo(Keyboard.pitch);
-    YawInput = born2flap::RcKeyboard::Expo(Keyboard.yaw);
+    Desktop.Step(DeltaSeconds, Effort, WDown, Roll, Pitch, Steer, MouseX, MouseY, Wheel, MuteMouseYaw, MuteMouseRoll);
+    Throttle = Desktop.throttle;
+    RollInput = Desktop.roll;
+    PitchInput = Desktop.pitch;
+    YawInput = Desktop.yaw;
     if (RcController && (RcController->IsEnabled() || RcController->IsPanelOpen()))
     {
         const auto &Channels = RcController->GetChannels();
@@ -413,7 +431,8 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         RollInput = Channels[1];
         PitchInput = Channels[2];
         YawInput = Channels[3];
-        Keyboard = {};
+        Desktop.keyboard = {};
+        Desktop.mouseRoll = Desktop.mousePitch = Desktop.mouseYaw = 0;
     }
     if (StepMath(Dt))
     {
@@ -449,6 +468,30 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
 
 void ABorn2FlapFlightPawn::CheckFlightTest()
 {
+    if (bRavenFlightTest)
+    {
+        if (TestTime > 2 && TestTime < 3)
+            bTestIdle = bHealthy && !bFlying && GetAltitude() < .2 && GetSpeed() < .2;
+        if (TestTime > 4)
+        {
+            TestFlapMin = FMath::Min(TestFlapMin, double(LeftFlap));
+            TestFlapMax = FMath::Max(TestFlapMax, double(LeftFlap));
+        }
+        if (TestTime >= 10 && !bTestFinished)
+        {
+            bTestFinished = true;
+            const auto* Mode = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode());
+            const bool Pass = Mode && Mode->IsNatureLevel() && bHealthy && bTestIdle && bFlying &&
+                              GetAltitude() > 1 && GetSpeed() > 5 && TestFlapMax - TestFlapMin > 30 &&
+                              SafetyResets == 0 && MathFailures == 0;
+            UE_LOG(LogTemp, Display,
+                   TEXT("RavenFlightTest %s healthy=%d idle=%d flying=%d altitude=%.2f speed=%.2f flapTravel=%.2f safety=%d mathFailures=%d"),
+                   Pass ? TEXT("PASS") : TEXT("FAIL"), bHealthy, bTestIdle, bFlying, GetAltitude(), GetSpeed(),
+                   TestFlapMax - TestFlapMin, SafetyResets, MathFailures);
+            FPlatformMisc::RequestExitWithStatus(false, Pass ? 0 : 1);
+        }
+        return;
+    }
     TestPeakSpeed = FMath::Max(TestPeakSpeed, double(GetSpeed()));
     TestPeakAltitude = FMath::Max(TestPeakAltitude, double(GetAltitude()));
     if (TestTime > 2 && TestTime < 3)

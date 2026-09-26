@@ -1,82 +1,60 @@
-# Package BORN2FLAP for Windows into a distributable zip.
-# Builds the Haskell math DLL (GHC on Windows), cooks a Shipping Win64 build via
-# RunUAT, stages the DLL beside the binary, and zips the staged package.
-#
-# Usage:
-#   Tools/package-win.ps1 -Tag v0.1.0
-#   Tools/package-win.ps1 -Tag v0.1.0 -EngineRoot V:\UE_5.8 -OutDir D:\out
+# Build a portable Windows package; no engine or compiler is needed by players.
 param(
-    [string]$Tag = "",
+    [string]$Tag = "dev",
     [string]$EngineRoot = "V:\UE_5.8",
-    [string]$OutDir = ""
+    [string]$OutDir = "",
+    [string]$GhcBin = "V:\Born2FlapTools\ghcup\bin",
+    [string]$CabalDir = "V:\Born2FlapTools\cabal"
 )
-
 $ErrorActionPreference = "Stop"
-$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-
-if (-not $Tag) {
-    $Tag = (git -C $RepoRoot describe --tags --always --dirty 2>$null)
-    if (-not $Tag) { $Tag = "dev" }
-}
-if (-not $OutDir) { $OutDir = Join-Path $RepoRoot "build\release\$Tag" }
-New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
-
-$Project = Join-Path $RepoRoot "Unreal\Born2Flap\Born2Flap.uproject"
-$UAT = Join-Path $EngineRoot "Engine\Build\BatchFiles\RunUAT.bat"
-if (-not (Test-Path $UAT)) { throw "Unreal not found at $EngineRoot" }
-Write-Host "UE_ROOT=$EngineRoot"
-
-# --- Haskell math DLL ---------------------------------------------------------
-Write-Host "== Building Haskell math DLL =="
-$env:Path = "V:\Born2FlapTools\ghcup\bin;$env:Path"
-$env:CABAL_DIR = "V:\Born2FlapTools\cabal"
-Push-Location (Join-Path $RepoRoot "MathCore")
+Set-StrictMode -Version Latest
+if ($Tag -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]*$') { throw 'Tag must be a filename-safe version.' }
+$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+if (!$OutDir) { $OutDir = Join-Path $RepoRoot "build\release\$Tag" }
+$OutDir = [IO.Path]::GetFullPath($OutDir)
+# Each run gets a new archive directory, so stale binaries cannot enter a release.
+$Archive = Join-Path $OutDir ('stage-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Force $Archive | Out-Null
+$Project = Join-Path $RepoRoot 'Unreal\Born2Flap\Born2Flap.uproject'
+$UAT = Join-Path $EngineRoot 'Engine\Build\BatchFiles\RunUAT.bat'
+$AppLocal = Join-Path $EngineRoot 'Engine\Binaries\ThirdParty\AppLocalDependencies'
+if (!(Test-Path $UAT) -or !(Test-Path $AppLocal)) { throw 'Engine or app-local runtime dependencies missing.' }
+$env:Path = "$GhcBin;$env:Path"
+$env:CABAL_DIR = $CabalDir
+Push-Location (Join-Path $RepoRoot 'MathCore')
 try {
     cabal build flib:born2flap_math
-    if ($LASTEXITCODE -ne 0) { throw "cabal build failed" }
-} finally {
-    Pop-Location
+    if ($LASTEXITCODE) { throw 'Haskell build failed' }
+    $DllPath = cabal list-bin flib:born2flap_math
+    if ($LASTEXITCODE) { throw 'Cannot locate Haskell build output' }
+    $DllPath = Join-Path (Split-Path $DllPath.Trim()) 'born2flap_math.dll'
+    if (!(Test-Path -LiteralPath $DllPath)) { throw "Haskell DLL missing: $DllPath" }
+    cabal test all
+    if ($LASTEXITCODE) { throw 'Haskell tests failed' }
+} finally { Pop-Location }
+$ThirdParty = Join-Path $RepoRoot 'Unreal\Born2Flap\Binaries\ThirdParty'
+New-Item -ItemType Directory -Force $ThirdParty | Out-Null
+Copy-Item $DllPath.Trim() (Join-Path $ThirdParty 'born2flap_math.dll') -Force
+& $UAT BuildCookRun "-project=$Project" -noP4 -utf8output -unattended -platform=Win64 -clientconfig=Shipping -serverconfig=Shipping -build -cook -allmaps -stage -pak -archive "-archivedirectory=$Archive" "-applocaldirectory=$AppLocal"
+if ($LASTEXITCODE) { throw "Unreal packaging failed: $LASTEXITCODE" }
+$Package = Join-Path $Archive 'Windows'
+foreach ($Required in @('Born2Flap.exe', 'Born2Flap\Binaries\Win64\Born2Flap-Win64-Shipping.exe', 'Born2Flap\Binaries\ThirdParty\born2flap_math.dll', 'Born2Flap\Binaries\Win64\vcruntime140.dll', 'Born2Flap\Content\Paks')) {
+    if (!(Test-Path (Join-Path $Package $Required))) { throw "Incomplete package: $Required" }
 }
-
-$Dll = Get-ChildItem -Path (Join-Path $RepoRoot "MathCore\dist-newstyle") `
-    -Filter "born2flap_math.dll" -Recurse -File | Select-Object -First 1
-if (-not $Dll) { throw "built born2flap_math.dll not found" }
-$ThirdParty = Join-Path $RepoRoot "Unreal\Born2Flap\Binaries\ThirdParty"
-New-Item -ItemType Directory -Force -Path $ThirdParty | Out-Null
-Copy-Item $Dll.FullName (Join-Path $ThirdParty "born2flap_math.dll") -Force
-Write-Host "staged $($Dll.FullName)"
-
-# --- Cook + package (Shipping) -------------------------------------------------
-Write-Host "== Packaging (Shipping) =="
-& $UAT BuildCookRun `
-    "-project=$Project" `
-    -noP4 -utf8output -unattended -nocompileeditor `
-    -platform=Win64 `
-    -clientconfig=Shipping -serverconfig=Shipping `
-    -build -cook -stage -pak -archive `
-    "-archivedirectory=$OutDir"
-if ($LASTEXITCODE -ne 0) { throw "RunUAT BuildCookRun failed (exit $LASTEXITCODE)" }
-
-# --- Stage the Haskell DLL into the package -----------------------------------
-# The bridge resolves ProjectDir()/Binaries/ThirdParty/<dll> at runtime.
-$PkgProject = Get-ChildItem -Path $OutDir -Filter "Born2Flap.uproject" -Recurse -File |
-    Select-Object -First 1
-if ($PkgProject) {
-    $Dest = Join-Path $PkgProject.DirectoryName "Binaries\ThirdParty"
-    New-Item -ItemType Directory -Force -Path $Dest | Out-Null
-    Copy-Item (Join-Path $ThirdParty "born2flap_math.dll") $Dest -Force
-    Write-Host "staged DLL into $Dest"
-} else {
-    Write-Warning "could not locate packaged project dir to stage the DLL"
-}
-
-# --- Zip the staged package ----------------------------------------------------
-$PkgRoot = if ($PkgProject) { $PkgProject.DirectoryName } else { $null }
-if (-not $PkgRoot) {
-    $Exe = Get-ChildItem -Path $OutDir -Filter "Born2Flap.exe" -Recurse -File | Select-Object -First 1
-    if (-not $Exe) { throw "Born2Flap.exe not found after packaging" }
-    $PkgRoot = $Exe.Directory.Parent.Parent.Parent   # .../Win64/Binaries/Born2Flap -> Born2Flap
-}
+Copy-Item (Join-Path $RepoRoot 'LICENSE') $Package
+@"
+BORN 2 FLAP - $Tag
+Extract the entire ZIP to a folder, then double-click Born2Flap.exe.
+Windows x64 and a DirectX-compatible graphics driver are required.
+Space: launch. W: throttle. Shift+W: full throttle. Arrows: pitch/roll.
+A/D: yaw. R: reset. F3: RC controller setup. F4: switch environment.
+"@ | Set-Content (Join-Path $Package 'README.txt')
+$Commit = git -C $RepoRoot rev-parse HEAD
+@{version=$Tag;commit="$Commit";builtUtc=[DateTime]::UtcNow.ToString('o');configuration='Shipping'} | ConvertTo-Json | Set-Content (Join-Path $Package 'build-info.json')
 $Zip = Join-Path $OutDir "BORN2FLAP-$Tag-win64.zip"
-Compress-Archive -Path (Join-Path $PkgRoot "*") -DestinationPath $Zip -Force
-Write-Host "== Done: $Zip =="
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+if (Test-Path $Zip) { throw "Output already exists: $Zip. Choose a new version or output directory." }
+[IO.Compression.ZipFile]::CreateFromDirectory($Package, $Zip, [IO.Compression.CompressionLevel]::Optimal, $false)
+$Hash = (Get-FileHash $Zip -Algorithm SHA256).Hash.ToLowerInvariant()
+"$Hash  $([IO.Path]::GetFileName($Zip))" | Set-Content "$Zip.sha256"
+Write-Host "Package ready: $Zip"

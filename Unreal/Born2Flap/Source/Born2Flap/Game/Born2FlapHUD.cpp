@@ -4,6 +4,11 @@
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
 #include "Input/Born2FlapRcController.h"
+#include "World/Born2FlapValley.h"
+#include "EngineUtils.h"
+#include "GameFramework/PlayerController.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
 void ABorn2FlapHUD::DrawHUD()
 {
     Super::DrawHUD();
@@ -12,6 +17,35 @@ void ABorn2FlapHUD::DrawHUD()
     auto *Bird = Cast<ABorn2FlapFlightPawn>(GetOwningPawn());
     if (!Bird)
         return;
+    if (auto *Mode = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode()); Mode && Mode->IsNatureLevel())
+    {
+        if (GetOwningPlayerController()->WasInputKeyJustPressed(EKeys::F7)) bHideRavenHUD = !bHideRavenHUD;
+        const auto *Rc = Bird->GetRcController();
+        if (Rc && Rc->IsPanelOpen()) { DrawRcPanel(*Rc); return; }
+        if (bHideRavenHUD || FParse::Param(FCommandLine::Get(), TEXT("B2FRavenCapture"))) return;
+        const FLinearColor Ivory(.93,.91,.81), Muted(.68,.74,.70), Amber(.88,.63,.31), Ink(.014,.028,.025,.72);
+        const float W = Canvas->SizeX, H = Canvas->SizeY;
+        DrawRect(Amber,32,35,3,63);
+        DrawText(TEXT("B O R N  2  F L A P   /   A U T U M N"),Muted,47,33,GEngine->GetSmallFont(),.9);
+        DrawText(TEXT("RAVENSTONEFIELD"),Ivory,45,51,GEngine->GetLargeFont(),1.15);
+        const FVector P=Bird->GetActorLocation();
+        DrawText(ABorn2FlapValley::PlaceName(P.X,P.Y),Amber,47,85,GEngine->GetSmallFont(),.95);
+        DrawRect(Ink,32,H-120,425,83);
+        DrawText(FString::Printf(TEXT("%5.1f m       %4.1f m/s       %.0f%% battery"),Bird->GetAltitude(),Bird->GetSpeed(),Bird->GetBattery()*100),Ivory,48,H-109,GEngine->GetMediumFont(),.9);
+        DrawText(Bird->GetFlightStatus(),Muted,48,H-79,GEngine->GetSmallFont(),.9);
+        DrawText(TEXT("SPACE launch  W throttle  ARROWS steer  R reset"),Ivory,48,H-55,GEngine->GetSmallFont(),.85);
+        auto It=TActorIterator<ABorn2FlapValley>(GetWorld());
+        if (It)
+        {
+            const auto *Valley=*It;
+            DrawRect(Ink,W-346,H-120,314,83);
+            DrawText(TEXT("RAVENSTONEFIELD  /  FIELD RADIO"),Amber,W-330,H-108,GEngine->GetSmallFont(),.85);
+            DrawText(Valley->HasRadioTrack()?(Valley->IsRadioOn()?TEXT("TURBORAVEN"):TEXT("RADIO PAUSED")):TEXT("RADIO / NO SIGNAL"),Ivory,W-330,H-85,GEngine->GetMediumFont(),.9);
+            DrawText(FString::Printf(TEXT("M pause   [ / ] volume  %.0f%%"),Valley->GetRadioVolume()*100),Muted,W-330,H-55,GEngine->GetSmallFont(),.85);
+        }
+        DrawText(TEXT("F3 RC setup   F4 training   F6 scenic views   F7 hide HUD"),Muted,34,H-24,GEngine->GetSmallFont(),.85);
+        return;
+    }
     const FLinearColor Cream(.94f, .94f, .84f), Gold(1, .66f, .2f), Muted(.55f, .76f, .76f);
     DrawRect(FLinearColor(.015f, .035f, .045f, .82f), 20, 20, 445, 232);
     DrawText(TEXT("BORN 2 FLAP"), Cream, 38, 30, GEngine->GetLargeFont(), 1.7f);
