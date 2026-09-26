@@ -14,6 +14,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "Materials/MaterialInterface.h"
 #include "World/Born2FlapValley.h"
+#include "UI/Born2FlapUIBridge.h"
 #include "GameFramework/PlayerController.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
@@ -42,6 +43,14 @@ void ABorn2FlapGameMode::BeginPlay()
     Super::BeginPlay();
     UWorld *World = GetWorld();
     World->GetWorldSettings()->bForceNoPrecomputedLighting = true;
+    // Wire the Ruby Brain ↔ UMG transport (react-native-umg). The bridge tails
+    // the NDJSON frame source and applies frames to the UMG renderer each tick;
+    // it is a no-op unless -B2FUIFile=/-B2FUIBrain= is supplied.
+    {
+        FActorSpawnParameters UIParams;
+        UIParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+        World->SpawnActor<ABorn2FlapUIBridge>(FVector::ZeroVector, FRotator::ZeroRotator, UIParams);
+    }
     FActorSpawnParameters Params;
     Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
     auto *Sun = World->SpawnActor<ADirectionalLight>(FVector(0, 0, 1000), FRotator(-35, -35, 0), Params);
