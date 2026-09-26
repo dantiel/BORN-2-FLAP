@@ -20,6 +20,10 @@ module Born2Flap
     #   :insert_child        → append_child(parent, index, node)
     #   :remove_child        → remove_child(parent, index)
     #   :update_props        → update_props(instance, changed)
+    #
+    # `set_material_params` is NOT produced from a tree patch — it is emitted
+    # directly by EffectDriver on the continuous `:ui_effect` channel and maps to
+    # UMaterialInstanceDynamic::SetScalarParameterValue in the UMG host.
     module HostConfig
       # Canonical host operations every renderer implements.
       HOST_OPS = %i[
@@ -28,6 +32,7 @@ module Born2Flap
         append_child
         remove_child
         update_props
+        set_material_params
       ].freeze
 
       module_function
