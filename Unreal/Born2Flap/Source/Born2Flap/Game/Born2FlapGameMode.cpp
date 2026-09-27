@@ -14,6 +14,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "Materials/MaterialInterface.h"
 #include "World/Born2FlapValley.h"
+#include "World/Born2FlapWindLeaves.h"
 #include "UI/Born2FlapUIBridge.h"
 #include "Racing/Born2FlapRacing.h"
 #include "GameFramework/PlayerController.h"
@@ -82,6 +83,9 @@ void ABorn2FlapGameMode::BeginPlay()
     if (bNatureLevel)
     {
         World->SpawnActor<ABorn2FlapValley>();
+        // Visible wind: drifting foliage + bending grass blades, driven by the
+        // same Born2FlapWind field the physics and audio sample.
+        World->SpawnActor<ABorn2FlapWindLeaves>(FVector::ZeroVector, FRotator::ZeroRotator, Params);
         return;
     }
     auto *Cube = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
