@@ -47,3 +47,30 @@ Physik, den Klang und die sichtbare Welt antreibt.
 - `Born2FlapMathBridge` bekam `InjectWindPhaseNoise` (FFI `b2f_math_set_wind_phase_noise`).
 - `Born2FlapGameMode` spawnt `ABorn2FlapWindLeaves` im Nature-Level.
 - `Born2Flap.Build.cs` linkt `AudioMixer` (Modul von `USynthComponent`).
+
+## Windows integration check - 2026-09-27
+
+Merged upstream through `3f6ec8e`. The Windows build required replacing the
+nonstandard `M_PI` macro with a portable constant in the shared synth header.
+The live synth outputs stereo; listener position and pan follow the active
+chase, ground or FPV camera. Ground view retains fly-by Doppler; a camera
+travelling with the bird has no artificial bird-to-listener approach velocity.
+
+Run `Unreal/Born2Flap/Tools/test-audio.ps1` after `build.ps1`. It starts the actual
+rendered Ravenstonefield game with Windows audio enabled, hand-launches at
+72% throttle, and checks samples produced by `USynthComponent` on the audio
+render thread. It rejects absent/silent output, nonfinite samples and overflow.
+It does not record racing ghosts or change personal control preferences.
+This is signal validation, not a subjective listening assessment.
+
+Flight regression modes disable wind and phase noise for reproducibility;
+normal play and the audio integration test use the atmospheric field.
+
+Verified on Windows / Unreal 5.8.2: 1,370,112 stereo samples, RMS 0.114733,
+peak 0.532997, zero nonfinite samples. The final isolated run logged no audio
+buffer underrun. The regenerated map's terrain/water/radio validation passed.
+
+The bird samples wind with a smooth ground-shelter ramp over the first two
+metres of clearance. This prevents the newly added free-stream wind from
+rolling the stationary bird onto its side before launch. Aero-audio uses the
+same sheltered airflow and free-flight wind resumes above that layer.
