@@ -168,7 +168,11 @@ void ABorn2FlapFlightPawn::BeginPlay()
     bFlightTest = bSoakTest || FParse::Param(FCommandLine::Get(), TEXT("B2FFlightTest"));
     if (!bFlightTest)
         RcController = MakeUnique<FBorn2FlapRcController>();
+    bBlind = FParse::Param(FCommandLine::Get(), TEXT("B2FBlind"));
+    if (bBlind)
+        UE_LOG(LogTemp, Display, TEXT("BlindFlight: bird hidden — fly by ear (F5 toggles)"));
     ResetFlight();
+    SetBlindFlight(bBlind);
     if (auto *PC = Cast<APlayerController>(GetController()))
     {
         PC->SetInputMode(FInputModeGameOnly());
@@ -244,6 +248,12 @@ FString ABorn2FlapFlightPawn::GetFlightStatus() const
     if (Throttle < .08f)
         return TEXT("GLIDING - airspeed and height are being spent");
     return Throttle > .85f ? TEXT("POWER STROKES") : TEXT("FLAPPING");
+}
+void ABorn2FlapFlightPawn::SetBlindFlight(bool bOn)
+{
+    bBlind = bOn;
+    if (VisualRoot)
+        VisualRoot->SetVisibility(!bBlind, true);
 }
 bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
 {
@@ -392,6 +402,8 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         }
         if (PC->WasInputKeyJustPressed(EKeys::F1))
             bVectors = !bVectors;
+        if (PC->WasInputKeyJustPressed(EKeys::F5))
+            SetBlindFlight(!bBlind);
     }
     if (bFlightTest)
     {
