@@ -12,7 +12,6 @@
 *.h       text eol=lf
 *.hpp     text eol=lf
 *.rb      text eol=lf
-
 # Binary assets: never line-ending-normalize
 *.uasset  binary
 *.umap    binary
