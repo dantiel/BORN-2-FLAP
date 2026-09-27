@@ -1,0 +1,118 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# Aero-audio demo: narrate a 10-second flight and emit the NDJSON op stream the
+# C++ synth renders into WAV. The flight profile is a story — takeoff ramp,
+# cruise, a wind gust that breaks phase-lock, a near-stall pull-up that makes
+# the servos groan, a low pass over the canopy (leaf rustle), then a receding
+# departure (distance + Doppler + air absorption).
+#
+#   ruby bin/audio_demo [out.ndjson]
+
+$LOAD_PATH.unshift File.expand_path("../lib", __dir__)
+require "born2flap"
+
+TICK_HZ = 60.0
+SECONDS = 10.0
+OUT = ARGV[0] || File.expand_path("../build/audio/audio_ops.ndjson", __dir__)
+
+def clamp(v, lo, hi)
+  [[v.to_f, lo].max, hi].min
+end
+
+# Flight profile → telemetry overrides at time t (seconds).
+def flight(t)
+  base = {
+    wingbeat_hz: 3.0, airspeed: 0.0, aoa_deg: 0.0, altitude: 0.0,
+    thermal_strength: 0.0, servo_load_l: 0.0, servo_load_r: 0.0,
+    flap_angle_deg: 0.0, sweep_rate: 0.0, phase_error_rad: 0.0,
+    k_gain_mod: 1.0, stall_margin: 1.0,
+    listener_distance: 8.0, listener_bearing: 0.0, approach_speed: 0.0
+  }
+
+  case t
+  when 0.0..2.0 # takeoff ramp
+    u = t / 2.0
+    base.merge!(
+      airspeed: 15.0 * u, altitude: 30.0 * u, wingbeat_hz: 3.0 + u,
+      sweep_rate: 250.0 * u, flap_angle_deg: 20.0 * Math.sin(2 * Math::PI * 3.0 * t),
+      servo_load_l: 0.4 * u, servo_load_r: 0.4 * u, stall_margin: 0.7
+    )
+  when 2.0..4.0 # cruise, healthy servo sweep (cricket chirp)
+    base.merge!(
+      airspeed: 15.0, altitude: 30.0, wingbeat_hz: 4.0,
+      sweep_rate: 200.0, flap_angle_deg: 15.0 * Math.sin(2 * Math::PI * 4.0 * t),
+      servo_load_l: 0.4, servo_load_r: 0.35, stall_margin: 0.6
+    )
+  when 4.0..5.0 # gust breaks phase-lock → wing breath goes ragged
+    u = t - 4.0
+    base.merge!(
+      airspeed: 15.0, altitude: 30.0, wingbeat_hz: 4.0, thermal_strength: 0.5,
+      phase_error_rad: 0.5 * u, k_gain_mod: 1.0 + 0.4 * u,
+      sweep_rate: 280.0, flap_angle_deg: 15.0 * Math.sin(2 * Math::PI * 4.0 * t),
+      servo_load_l: 0.4 + 0.2 * u, servo_load_r: 0.35 + 0.2 * u, stall_margin: 0.6 - 0.2 * u
+    )
+  when 5.0..6.0 # near-stall pull-up: servos groan, strain hardens
+    u = (t - 5.0)
+    base.merge!(
+      airspeed: 15.0 - 7.0 * u, altitude: 30.0 + 15.0 * u, wingbeat_hz: 4.5,
+      aoa_deg: 18.0 * u, phase_error_rad: 0.5 - 0.4 * u,
+      sweep_rate: 200.0 + 200.0 * u, flap_angle_deg: 25.0 * Math.sin(2 * Math::PI * 4.5 * t),
+      servo_load_l: 0.6 + 0.4 * u, servo_load_r: 0.55 + 0.45 * u,
+      stall_margin: 0.4 - 0.35 * u
+    )
+  when 6.0..8.0 # recover + descend over canopy: leaf rustle
+    u = (t - 6.0) / 2.0
+    base.merge!(
+      airspeed: 12.0, altitude: 45.0 - 40.0 * u, wingbeat_hz: 4.0, thermal_strength: 0.6,
+      phase_error_rad: 0.1 * (1.0 - u), sweep_rate: 120.0,
+      flap_angle_deg: 12.0 * Math.sin(2 * Math::PI * 4.0 * t),
+      servo_load_l: 0.3, servo_load_r: 0.28, stall_margin: 0.8
+    )
+  when 8.0..10.0 # receding departure: distance, Doppler down, air absorption
+    u = (t - 8.0) / 2.0
+    base.merge!(
+      airspeed: 15.0, altitude: 5.0 + 25.0 * u, wingbeat_hz: 4.0,
+      listener_distance: 8.0 + 72.0 * u, approach_speed: -10.0 * u,
+      listener_bearing: 0.6 * u, sweep_rate: 100.0,
+      flap_angle_deg: 12.0 * Math.sin(2 * Math::PI * 4.0 * t),
+      servo_load_l: 0.3, servo_load_r: 0.28, stall_margin: 0.8
+    )
+  end
+  base
+end
+
+require "fileutils"
+FileUtils.mkdir_p(File.dirname(OUT))
+
+bus = Born2Flap::EventBus.new
+driver = Born2Flap::Audio::AudioDriver.new(bus: bus)
+transport = Born2Flap::UI::Transport.new(bus: bus, io: File.open(OUT, "w"))
+
+telemetry = Born2Flap::Audio::AeroAudio::Telemetry.default
+ticks = (SECONDS * TICK_HZ).to_i
+
+puts "=== Aero-Audio-Physics Engine — flight narration ==="
+puts "  #{ticks} ticks @ #{TICK_HZ} Hz → #{OUT}"
+
+# Sample a few key moments for the terminal story.
+[0.5, 2.5, 4.5, 5.8, 7.0, 9.5].each do |t|
+  snapshot = telemetry.merge(flight(t).merge(time: t))
+  params = Born2Flap::Audio::AeroAudio.mix(snapshot)
+  wind = params[:wind]; wing = params[:wing]; servo = params[:servo_l]; leaves = params[:leaves]
+  puts format(
+    "  t=%4.1fs  wind(g=%.2f b=%.2f)  wing(tone=%.2f whoosh=%.2f)  servo(groan=%.2f strain=%.2f)  leaves(g=%.2f)  dist=%.0fm",
+    t, wind["gain"], wind["brightness"], wing["tone"], wing["whoosh"],
+    servo["groan"], servo["strain"], leaves["gain"], snapshot.listener_distance
+  )
+end
+
+puts "  ...emitting frames..."
+ticks.times do |i|
+  t = i / TICK_HZ
+  snapshot = telemetry.merge(flight(t).merge(time: t))
+  driver.drive(snapshot)
+  transport.flush
+end
+transport.close
+puts "  done: #{File.size(OUT)} bytes."

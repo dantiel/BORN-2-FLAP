@@ -17,6 +17,9 @@
 #include "Input/Born2FlapRcController.h"
 #include "Game/Born2FlapGameMode.h"
 #include "World/Born2FlapValley.h"
+#include "World/Born2FlapWind.h"
+#include "Audio/Born2FlapAudioSynth.h"
+#include "Audio/Born2FlapAeroAudio.h"
 namespace
 {
 constexpr double MathDt = 1.0 / 240.0;
@@ -66,6 +69,9 @@ ABorn2FlapFlightPawn::ABorn2FlapFlightPawn()
     Camera = CreateDefaultSubobject<UCameraComponent>(TEXT("Camera"));
     Camera->SetupAttachment(CameraBoom);
     Camera->SetFieldOfView(85);
+    AudioSynth = CreateDefaultSubobject<UBorn2FlapAudioSynth>(TEXT("AeroAudioSynth"));
+    AudioSynth->SetupAttachment(Body);
+    AudioSynth->SetAutoActivate(true);
     AutoPossessPlayer = EAutoReceiveInput::Player0;
 }
 ABorn2FlapFlightPawn::~ABorn2FlapFlightPawn() = default;
@@ -123,6 +129,8 @@ void ABorn2FlapFlightPawn::BuildGeometry()
 void ABorn2FlapFlightPawn::BeginPlay()
 {
     Super::BeginPlay();
+    if (AudioSynth)
+        AudioSynth->Start();
     Body->SetMassOverrideInKg(NAME_None, .45f, true);
     UE_LOG(LogTemp, Display, TEXT("FlightBody massKg=%.4f inertiaKgM2=%s"), Body->GetMass(),
            *(Body->GetInertiaTensor() / 10000.0).ToString());
@@ -251,6 +259,11 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
     FVector Velocity = Body->GetPhysicsLinearVelocity() / 100.0;
     FVector Omega = Body->GetPhysicsAngularVelocityInRadians();
     const FVector Inertia = Body->GetInertiaTensor() / 10000.0;
+    // The atmospheric field: wind enters as air-relative velocity (aerodynamics)
+    // and as phase noise (the resonance layer the servo must lock against).
+    const FVector BodyPos = Body->GetComponentLocation();
+    const FVector Wind = Born2FlapWind::Sample(BodyPos, WorldTime);
+    MathBridge->InjectWindPhaseNoise(Born2FlapWind::PhaseNoise(BodyPos, WorldTime));
     B2F_PilotInput Pilot{};
     Pilot.throttle = Throttle;
     Pilot.roll = RollInput;
@@ -263,7 +276,7 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
     int32 Steps = 0;
     while (Accumulator >= MathDt)
     {
-        const FVector V = Rotation.UnrotateVector(Velocity);
+        const FVector V = Rotation.UnrotateVector(Velocity - Wind);
         const FVector W = Rotation.UnrotateVector(Omega);
         for (int I = 0; I < 3; ++I)
         {
@@ -293,6 +306,9 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
         LeftFlap = O.left_flap_deg;
         RightFlap = O.right_flap_deg;
         BatterySoc = O.battery_soc;
+        LastMechanicalPower = O.mechanical_power_w;
+        LastPhaseError = O.phase_error;
+        LastKGainMod = O.k_gain_mod;
         // Predict BOTH linear and rotational feedback between wing evaluations.
         // Holding angular velocity for a whole 30 Hz frame made aerodynamic
         // roll damping overshoot. Chaos receives the mean loads once and stays
@@ -312,10 +328,54 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
     }
     return true;
 }
+
+void ABorn2FlapFlightPawn::UpdateAeroAudio(float Dt)
+{
+    if (!AudioSynth || !bHealthy)
+        return;
+
+    const FVector P = Body->GetComponentLocation();
+    const FVector V = Body->GetPhysicsLinearVelocity() / 100.0;
+    const FVector Wind = Born2FlapWind::Sample(P, WorldTime);
+    const FVector AirVel = V - Wind;
+
+    born2flap::aeroaudio::FTelemetry Tel;
+    Tel.airspeed = AirVel.Size();
+    Tel.wingbeat_hz = 2.0 + 5.0 * Throttle;
+    Tel.altitude = GetAltitude();
+    Tel.thermal_strength = FMath::Clamp((double)Wind.Z / 6.0, 0.0, 1.0);
+    const double Load = FMath::Clamp(LastMechanicalPower / 50.0, 0.0, 1.0);
+    Tel.servo_load_l = Load;
+    Tel.servo_load_r = Load;
+    Tel.sweep_rate = Dt > 0.f ? FMath::Abs((double)(LeftFlap - PrevLeftFlap)) / Dt : 0.0;
+    Tel.phase_error_rad = LastPhaseError;
+    Tel.k_gain_mod = LastKGainMod;
+    Tel.stall_margin = FMath::Clamp((Tel.airspeed - 3.5) / 6.0, 0.0, 1.0);
+
+    // Listener-relative perspective from the camera.
+    const FVector CamLoc = Camera->GetComponentLocation();
+    const FVector ToBird = P - CamLoc;
+    const double DistCm = ToBird.Size();
+    Tel.listener_distance = FMath::Max(DistCm / 100.0, 0.5);
+    const FVector ToBirdN = DistCm > 1.0 ? ToBird / DistCm : Camera->GetForwardVector();
+    const FVector CamFwd = Camera->GetForwardVector();
+    Tel.listener_bearing = FMath::Atan2(FVector::CrossProduct(CamFwd, ToBirdN).Z, FVector::DotProduct(CamFwd, ToBirdN));
+    Tel.approach_speed = -FVector::DotProduct(V, ToBirdN);
+
+    born2flap::ui::FProps Voices[5];
+    born2flap::aeroaudio::Mix(Tel, Voices);
+    const char* const* Names = born2flap::aeroaudio::VoiceNames();
+    for (int32 I = 0; I < 5; ++I)
+        AudioSynth->SetVoiceParams(Names[I], Voices[I]);
+
+    PrevLeftFlap = LeftFlap;
+}
+
 void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
     const float Dt = FMath::Clamp(DeltaSeconds, 0.f, .1f);
+    WorldTime += Dt;
     float Effort = 0, Steer = 0, Pitch = 0, Roll = 0;
     float MouseX = 0, MouseY = 0, Wheel = 0;
     bool WDown = false, MuteMouseYaw = false, MuteMouseRoll = false;
@@ -457,6 +517,7 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     // Match the solver's geometric dihedral and commanded wing incidence.
     LeftShoulder->SetRelativeRotation(FRotator(8 * PitchInput, 0, LeftFlap + 8));
     RightShoulder->SetRelativeRotation(FRotator(8 * PitchInput, 0, -RightFlap - 8));
+    UpdateAeroAudio(Dt);
     if (bVectors)
     {
         DrawDebugDirectionalArrow(GetWorld(), P, P + AeroForce * 25, 15, FColor::Cyan, false, 0, 0, 2);
