@@ -1,0 +1,50 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+$LOAD_PATH.unshift File.expand_path("../lib", __dir__)
+require "born2flap"
+
+HUD = <<~HAML
+  %Overlay{ id: "HUD" }
+    %Panel{ material: "FrostedGlass", effect: "speed_blur" }
+      %VBox
+        %Text{ bind: "title" }
+          = "BORN-2-FLAP"
+        %Button{ material: "EmissiveHud", effect: "flap_glow" }
+          = "FLAP"
+HAML
+
+bus  = Born2Flap::EventBus.new
+root = Born2Flap::UI::Root.new(bus: bus)
+driver = Born2Flap::UI::EffectDriver.new(bus: bus)
+
+tree = Born2Flap::UI::HamlParser.parse(HUD)
+driver.bind_tree(tree)
+
+bus.subscribe(:ui_patch) { |p| puts "  [ui_patch]   #{p[:patch].map { |o| o[:op] }.inspect}" }
+bus.subscribe(:ui_effect) { |p| p[:ops].each { |o| puts "  [ui_effect]  #{o[0]} #{o[1].inspect} => #{o[2].inspect}" } }
+
+puts "=== Mount (tree → :ui_patch) ==="
+root.render(tree)
+bus.drain
+
+puts
+puts "=== Physik treibt Effekte (Telemetrie → :ui_effect) ==="
+t = Born2Flap::UI::Effects::Telemetry.default
+
+# Flap glow over one wingbeat cycle (3 Hz), plus rising airspeed.
+[0.00, 0.08, 0.17, 0.25, 0.33].each do |time|
+  telemetry = t.merge(time: time, airspeed: 10.0 + time * 100.0)
+  puts "  t=#{format('%.2f', time)}s  airspeed=#{format('%.1f', telemetry.airspeed)} m/s"
+  driver.drive(telemetry)
+  bus.drain
+end
+
+puts
+puts "=== Progressive Blur (Fokus-Ebene vs. Höhe) ==="
+focused = Born2Flap::UI::EffectDriver.new(bus: bus).bind(:progressive_blur, path: [0, 0])
+[100.0, 150.0, 300.0].each do |alt|
+  telemetry = t.merge(altitude: alt, focus_depth: 100.0)
+  params = Born2Flap::UI::Effects.compute(:progressive_blur, telemetry)
+  puts "  alt=#{format('%4.0f', alt)}m → BlurNear=#{format('%.0f', params['BlurNear'])}"
+end

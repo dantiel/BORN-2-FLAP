@@ -21,11 +21,11 @@ Emitter austauschen, erzeugt `%Button` kein `<button>` mehr — sondern ein
 Unreal-Widget.
 
 Deshalb führen wir **UMGHAML** ein: ein eigener, schlanker HAML-Subset-Parser
-im Ruby-Brain (kein CoffeeHAML, keine Browser-Abhängigkeit). Er kompiliert
+im Ruby-Brain. Er kompiliert
 die HAML-Quelle in einen **neutralen Widget-Baum** statt in HTML.
 
 ```text
-CoffeeHAML / UMGHAML (eine Grammatik)
+UMGHAML (eine Grammatik)
         │  eigener Parser im Brain (kein HTML-Emitter!)
         ▼
 neutraler Widget-Baum (Node-Tree · JSON-tauglich · mruby-freundlich)
@@ -57,12 +57,6 @@ UMG/Slate   HTML/React   React Native
 über den HTML-Emitter, im Spiel über den UMG-Emitter, auf dem Telefon über
 den React-Native-Emitter. **Ein Alphabet, drei Gesichter.**
 
-## Warum kein CoffeeHAML im Kern
-
-CoffeeHAML ist ein Web-Templating mit fest verdrahtetem HTML-Emitter. Im
-Spielkern brauchen wir keinen Browser, also auch keinen HTML-Emitter.
-UMGHAML trennt die Grammatik vom Emitter — es ist ein eigenes Modul, das
-später als eigenständiges **Ruby-Gem `umghaml`** veröffentlicht wird.
 
 ## Live-Propagation: `react-native-umg`
 
@@ -142,10 +136,3 @@ Brain/lib/born2flap/ui/emitter.rb   # UMG / HTML / RN Emitter
 ```
 
 Tests laufen unter System-Ruby mit `minitest` (`Brain/test/ui_test.rb`).
-
-## Zu vermeiden
-
-- Eine JS-Engine (React Native) in Unreal einbetten.
-- CoffeeHAML/HTML als Quelle der Wahrheit im Spielkern (die Quelle ist der
-  neutrale Node-Baum; HTML ist nur ein Emitter).
-- Zustand im Renderer halten (alles lebt im Baum/Root).

@@ -59,6 +59,8 @@ bool FBorn2FlapMathBridge::Load()
         LoadExport<DestroyFirmwareVehicleFn>(LibraryHandle, TEXT("b2f_math_destroy_firmware_vehicle"));
     StepFirmwareVehicle =
         LoadExport<StepFirmwareVehicleFn>(LibraryHandle, TEXT("b2f_math_step_firmware_vehicle"));
+    SetWindPhaseNoise =
+        LoadExport<SetWindPhaseNoiseFn>(LibraryHandle, TEXT("b2f_math_set_wind_phase_noise"));
 
     if (!AbiVersion || !RuntimeInit || !RuntimeShutdown || !CreateFirmwareVehicle ||
         !DestroyFirmwareVehicle || !StepFirmwareVehicle)
@@ -126,6 +128,7 @@ void FBorn2FlapMathBridge::Unload()
     RuntimeShutdown = nullptr;
     DestroyFirmwareVehicle = nullptr;
     StepFirmwareVehicle = nullptr;
+    SetWindPhaseNoise = nullptr;
     if (LibraryHandle)
     {
         // The process owns the loader reference, not this aircraft.
@@ -138,4 +141,9 @@ bool FBorn2FlapMathBridge::Step(
 {
     return Context && StepFirmwareVehicle &&
         StepFirmwareVehicle(Context, &Pilot, &Body, &Output) != 0;
+}
+
+bool FBorn2FlapMathBridge::InjectWindPhaseNoise(double NoiseRadS) const
+{
+    return Context && SetWindPhaseNoise && SetWindPhaseNoise(Context, NoiseRadS) != 0;
 }

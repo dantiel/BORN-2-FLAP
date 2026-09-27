@@ -1,0 +1,45 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+# transport_demo — the Brain's tick loop, emitting NDJSON op frames to stdout.
+# Pipe/file it straight into the C++ host:
+#   ruby bin/transport_demo > /tmp/ops.ndjson
+#   ./umg_transport_test /tmp/ops.ndjson
+
+$LOAD_PATH.unshift File.expand_path("../lib", __dir__)
+require "born2flap"
+
+UI = Born2Flap::UI
+B  = Born2Flap
+
+HUD = <<~HAML
+  %Overlay{ id: "HUD" }
+    %VBox
+      %Text{ bind: "title" }
+        = "BORN-2-FLAP"
+      %Slider{ bind: "throttle", min: 0, max: 100, effect: :speed_blur }
+HAML
+
+bus = B::EventBus.new
+root = UI::Root.new(bus: bus)
+driver = UI::EffectDriver.new(bus: bus)
+transport = UI::Transport.new(bus: bus, io: $stdout)
+
+# The rendered TOP widget (not the document root) — keeps effect and patch
+# paths aligned (both relative to the Overlay as `[]`).
+tree = UI::HamlParser.parse(HUD).children.first
+
+# Tick 1: mount the HUD.
+root.render(tree)
+driver.bind_tree(tree)
+transport.flush
+
+# Ticks 2..5: physics drives the slider's speed-blur (no structural change).
+[12.0, 24.0, 36.0, 60.0].each_with_index do |airspeed, i|
+  driver.drive(UI::Effects::Telemetry.default.merge(time: i * 0.1, airspeed: airspeed))
+  transport.flush
+end
+
+# Tick 6: structural change — retitle the HUD text.
+changed = UI::HamlParser.parse(HUD.gsub("BORN-2-FLAP", "BORN-2-FLAP II")).children.first
+root.render(changed)
+transport.flush

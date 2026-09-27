@@ -24,6 +24,10 @@ public:
     // flap angles + battery observables out.
     bool Step(const B2F_PilotInput& Pilot, const B2F_BodyState& Body, B2F_FirmwareOutput& Output) const;
 
+    // Inject the environmental wind phase noise η [rad/s] the MathCore resonance
+    // layer is designed to counter. Takes effect next step; no-op if unready.
+    bool InjectWindPhaseNoise(double NoiseRadS) const;
+
     const FString& GetStatus() const { return Status; }
 
 private:
@@ -34,6 +38,7 @@ private:
     using DestroyFirmwareVehicleFn = void (*)(B2F_MathContext*);
     using StepFirmwareVehicleFn = int32_t (*)(
         B2F_MathContext*, const B2F_PilotInput*, const B2F_BodyState*, B2F_FirmwareOutput*);
+    using SetWindPhaseNoiseFn = int32_t (*)(B2F_MathContext*, double);
 
     void* LibraryHandle = nullptr;
     B2F_MathContext* Context = nullptr;
@@ -41,5 +46,6 @@ private:
     RuntimeShutdownFn RuntimeShutdown = nullptr;
     DestroyFirmwareVehicleFn DestroyFirmwareVehicle = nullptr;
     StepFirmwareVehicleFn StepFirmwareVehicle = nullptr;
+    SetWindPhaseNoiseFn SetWindPhaseNoise = nullptr;
     FString Status = TEXT("Math backend not loaded");
 };

@@ -14,6 +14,9 @@
 #include "Kismet/GameplayStatics.h"
 #include "Materials/MaterialInterface.h"
 #include "World/Born2FlapValley.h"
+#include "World/Born2FlapWindLeaves.h"
+#include "UI/Born2FlapUIBridge.h"
+#include "Racing/Born2FlapRacing.h"
 #include "GameFramework/PlayerController.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
@@ -43,6 +46,21 @@ void ABorn2FlapGameMode::BeginPlay()
     Super::BeginPlay();
     UWorld *World = GetWorld();
     World->GetWorldSettings()->bForceNoPrecomputedLighting = true;
+    // Wire the Ruby Brain ↔ UMG transport (react-native-umg). The bridge tails
+    // the NDJSON frame source and applies frames to the UMG renderer each tick;
+    // it is a no-op unless -B2FUIFile=/-B2FUIBrain= is supplied.
+    {
+        FActorSpawnParameters UIParams;
+        UIParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+        World->SpawnActor<ABorn2FlapUIBridge>(FVector::ZeroVector, FRotator::ZeroRotator, UIParams);
+    }
+    // Racing mode: ghost recorder + replay manager. Records every round and
+    // re-flies the past rounds as shadow doppelgängers (disabled in flight tests).
+    {
+        FActorSpawnParameters RacingParams;
+        RacingParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+        World->SpawnActor<ABorn2FlapRacingManager>(FVector::ZeroVector, FRotator::ZeroRotator, RacingParams);
+    }
     FActorSpawnParameters Params;
     Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
     if (bNatureLevel)
@@ -51,6 +69,7 @@ void ABorn2FlapGameMode::BeginPlay()
         // Entry still supports the procedural fallback for old launch scripts.
         if (!TActorIterator<ABorn2FlapValley>(World))
             World->SpawnActor<ABorn2FlapValley>();
+        World->SpawnActor<ABorn2FlapWindLeaves>(FVector::ZeroVector, FRotator::ZeroRotator, Params);
         return;
     }
     auto *Sun = World->SpawnActor<ADirectionalLight>(FVector(0, 0, 1000), FRotator(-35, -35, 0), Params);
