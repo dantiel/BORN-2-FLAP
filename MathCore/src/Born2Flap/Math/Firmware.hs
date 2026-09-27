@@ -359,7 +359,10 @@ flappingBranch prof aileronNorm elevatorNorm rc params state dt =
       amplitude = throttlePct * ampMaxHz
 
       -- Steering commands (deg).
-      aileronCmd = -aileronNorm * profAileronScale prof * 0.01 * steerMaxDeg
+      -- Powered roll comes from differential stroke timing/skew. A static
+      -- differential dihedral here opposed that roll as the wing load changed.
+      -- The glide branch retains its differential held-wing positions.
+      aileronCmd = 0
       elevatorCmd = elevatorNorm * profElevatorScale prof * 0.01 * steerMaxDeg
       flapCenterCmd = profFlappingAngleDeg prof
 

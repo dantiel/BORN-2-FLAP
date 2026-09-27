@@ -128,3 +128,19 @@ remain coupled because the same wings generate thrust, lift and drag. The native
 solver runs at 240 Hz, but forces are averaged per game frame, so trajectories
 are not identical across frame rates. A fully coupled physics-substep solve,
 added mass and transmitter support beyond Windows joystick devices remain further work.
+
+## Current RavenCrow integration - 2026-09-27
+
+The earlier flight tables above describe the previous tuning. Current tuning
+adds swept-strip flow, 16-degree resting dihedral, wing incidence control and
+opposite stroke timing for powered roll. Tail panels are shallow anhedral.
+The rendered input/settings check covers signed axis gains, saved preferences,
+model selection, camera landing anchors and FPV. Native channel authority,
+energy balance, ABI and lateral restoring/damping checks pass.
+
+The 60/144 FPS flight and Ravenstonefield launch checks pass. The 30 FPS
+turn assertion and 180-second neutral-stick soak fail with this tuning. The stricter new
+neutral-stick bank-recovery check currently **fails**: after imposed banks,
+the powered bird does not reliably return close to level. Positive static
+dihedral response is insufficient to establish dynamic spiral stability.
+This is a remaining handling limitation; there is no hidden auto-level torque.

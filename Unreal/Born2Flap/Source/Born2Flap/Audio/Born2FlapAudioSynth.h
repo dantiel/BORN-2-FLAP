@@ -26,6 +26,8 @@ public:
     // against the audio render thread (FCriticalSection).
     void SetVoiceParams(const std::string& Name, const born2flap::ui::FProps& Params);
 
+    bool CheckRenderedAudio();
+
 protected:
     virtual bool Init(int32& SampleRate) override;
     virtual int32 OnGenerateAudio(float* OutAudio, int32 NumSamples) override;
@@ -33,4 +35,7 @@ protected:
 private:
     born2flap::audio::FAudioEngine Engine;
     FCriticalSection VoiceLock;
+    bool bMeasureAudio=false;
+    uint64 RenderedSamples=0, InvalidSamples=0;
+    double SquareSum=0, Peak=0;
 };

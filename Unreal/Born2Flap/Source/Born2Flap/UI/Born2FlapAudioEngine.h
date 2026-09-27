@@ -28,6 +28,8 @@
 
 namespace born2flap::audio {
 
+inline constexpr double AudioPi = 3.14159265358979323846;
+
 using born2flap::ui::FProps;
 
 struct FVoice {
@@ -53,7 +55,7 @@ public:
         for (auto& kv : voices) {
             double mono = RenderVoice(kv.second);
             double pan = clamp(kv.second.p, "pan", -1.0, 1.0);
-            double ang = (pan + 1.0) * 0.25 * M_PI;  // 0..π/2 constant-power
+            double ang = (pan + 1.0) * 0.25 * AudioPi;  // 0..π/2 constant-power
             accL += mono * std::cos(ang);
             accR += mono * std::sin(ang);
         }
@@ -90,7 +92,7 @@ private:
     // One-pole low-pass with per-voice state.
     double LowPass(double& state, double x, double cutoffHz) {
         double dt = 1.0 / sr;
-        double rc = 1.0 / (2.0 * M_PI * std::max(1.0, cutoffHz));
+        double rc = 1.0 / (2.0 * AudioPi * std::max(1.0, cutoffHz));
         double a = dt / (dt + rc);
         state += a * (x - state);
         return state;
@@ -112,17 +114,17 @@ private:
             double cutoff = (200.0 + 6000.0 * num(p, "brightness", 0.0)) * pitch;
             double f = LowPass(v.lp, n, cutoff);
             double gust = 1.0 + num(p, "gust_depth", 0.0) * 0.5
-                              * std::sin(2.0 * M_PI * num(p, "gust_rate", 1.0) * t);
+                              * std::sin(2.0 * AudioPi * num(p, "gust_rate", 1.0) * t);
             return f * gain * gust * 0.4;
         }
         if (kind == "wing") {
             double rate = num(p, "rate", 3.0) * pitch;
-            double phi = 2.0 * M_PI * rate * t;
+            double phi = 2.0 * AudioPi * rate * t;
             double tone = num(p, "tone", 0.5);
             double fund = std::sin(phi) * tone;
             double sub = std::sin(phi * 0.5) * tone * 0.5;
             // once-per-cycle downstroke pulse
-            double env = std::pow(std::max(0.0, std::sin(phi + M_PI * 0.5)), 8.0);
+            double env = std::pow(std::max(0.0, std::sin(phi + 3.14159265358979323846 * 0.5)), 8.0);
             double n = Noise(v);
             double cutoff = (300.0 + 4000.0 * num(p, "brightness", 0.0)) * pitch;
             double whoosh = LowPass(v.lp, n, cutoff);
@@ -133,9 +135,9 @@ private:
         if (kind == "servo") {
             double chirpAmt = num(p, "chirp", 0.0);
             double sweep = num(p, "sweep", 8.0);
-            double fchirp = (4000.0 + 3000.0 * std::sin(2.0 * M_PI * sweep * t)) * pitch;
-            double chirp = std::sin(2.0 * M_PI * fchirp * t);
-            double pulse = 0.5 + 0.5 * std::sin(2.0 * M_PI * 20.0 * t);  // stridulation
+            double fchirp = (4000.0 + 3000.0 * std::sin(2.0 * AudioPi * sweep * t)) * pitch;
+            double chirp = std::sin(2.0 * AudioPi * fchirp * t);
+            double pulse = 0.5 + 0.5 * std::sin(2.0 * AudioPi * 20.0 * t);  // stridulation
             double c = chirp * (0.5 + 0.5 * pulse) * chirpAmt;
 
             double groan = num(p, "groan", 0.0);
@@ -145,7 +147,7 @@ private:
             double saw = 2.0 * ph - 1.0;
             double distorted = std::tanh(2.0 * saw * (1.0 + strain * 3.0));
             double g = distorted * groan * (0.6 + 0.4 * strain);
-            double harsh = std::sin(2.0 * M_PI * fg * 3.0 * t) * strain * 0.3;
+            double harsh = std::sin(2.0 * AudioPi * fg * 3.0 * t) * strain * 0.3;
             return (c * 0.3 + g * 0.5 + harsh) * gain;
         }
         // leaves
@@ -153,7 +155,7 @@ private:
         double hp = n - LowPass(v.lp, n, 1500.0 * pitch);
         double rustle = LowPass(v.lp2, hp, 6000.0 * pitch);
         double turb = num(p, "turbulence", 0.0);
-        double env = 0.5 + 0.5 * std::sin(2.0 * M_PI * (2.0 + 5.0 * turb) * t);
+        double env = 0.5 + 0.5 * std::sin(2.0 * AudioPi * (2.0 + 5.0 * turb) * t);
         return rustle * gain * env * 0.5;
     }
 };

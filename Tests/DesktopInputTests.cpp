@@ -15,6 +15,12 @@ int main()
     require(near(DesktopInput::KeyboardThrottle(true,false,false),.72), "W normal throttle");
     require(near(DesktopInput::KeyboardThrottle(true,false,true),1), "Shift+W full throttle");
     require(near(DesktopInput::KeyboardThrottle(true,true,true),.32), "Ctrl takes priority over Shift");
+    for(double e : {0.,.35,.65,1.})
+    {
+        require(near(DesktopInput::Expo(1,e),1)&&near(DesktopInput::Expo(-1,e),-1),"expo retains full signed throw");
+        require(near(DesktopInput::Expo(.5,e),-DesktopInput::Expo(-.5,e)),"expo is symmetric");
+    }
+    require(near(DesktopInput::Expo(.5,0),.5)&&near(DesktopInput::Expo(.5,1),.125),"expo off is linear; full expo softens centre");
     for(int fps : {30,60,144})
     {
         DesktopInput d;
@@ -79,6 +85,11 @@ int main()
         step(0,false,0,0,0,-2*DesktopInput::MouseTravel,-2*DesktopInput::MouseTravel);
         for(int i=0;i<fps;++i)step();
         require(near(d.roll,-1)&&near(d.pitch,-1)&&near(d.yaw,-1),"negative mouse channels must reach and hold full travel");
+        d = {};
+        d.Step(dt,0,false,0,0,0,900,900,0,false,false,false,-1,.5,0);
+        require(near(d.mouseRoll,-.5)&&near(d.mousePitch,.25)&&near(d.mouseYaw,0),"signed per-axis gains invert, scale and disable independently");
+        for(int i=0;i<2*fps;++i) d.Step(dt,0,false,1,0,1,0,0,0,false,false,false,-1,.5,0);
+        require(d.roll>0&&near(d.yaw,1),"mouse gain inversion and zero must not invert or disable keyboard");
     }
     std::cout << "Desktop input: throttle ownership/memory, low mode, mouse mixing/mutes and 30/60/144 FPS passed\n";
 }

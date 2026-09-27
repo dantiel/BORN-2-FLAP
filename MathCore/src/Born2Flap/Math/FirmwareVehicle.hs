@@ -28,7 +28,7 @@ import Born2Flap.Math.Resonance
 import Born2Flap.Math.Vehicle
   ( VehicleInput(..), VehicleOutput(..)
   , StripState(..), StripResult(..), initialStrips
-  , stepWingWithStroke
+  , stepWingWithStroke, wingRootHeight
   , addVec, crossVec, scaleVec, magnitude, zeroVec, radians )
 
 data FirmwareVehicleState = FirmwareVehicleState
@@ -107,7 +107,7 @@ components (Vec3 a b c) = [a,b,c]
 
 -- Both positive stroke coordinates raise the wing. The left hinge axis is -X.
 hingeTorque :: Double -> [StripResult] -> Double
-hingeTorque side = (* side) . sum . map (x . resultMoment)
+hingeTorque side = (* side) . sum . map (\r -> x (resultMoment r) + wingRootHeight * y (resultForce r))
 
 advanceFirmwareVehicle
   :: RcChannels -> FirmwareParams -> ServoSpec -> BatterySpec
@@ -161,7 +161,7 @@ advanceFirmwareVehicle rc params servo battery dt bodyVel bodyRates state
           nextFw' = nextFw { fwKGainMod = kGainModNext }
 
           -- 3. Actual flap deviation → wing physics.
-          input = VehicleInput dt bodyVel bodyRates 0 0 elevatorNorm 0
+          input = VehicleInput dt bodyVel bodyRates 0 (crsfToNorm (rcAileron rc)) elevatorNorm 0
           strokeL = radians leftFlapDeg
           strokeR = radians rightFlapDeg
           rateL = radians (servoRateDegPerSec nextServoL)
@@ -184,18 +184,22 @@ advanceFirmwareVehicle rc params servo battery dt bodyVel bodyRates state
           wingMoment = foldr (addVec . resultMoment) zeroVec wingResults
           speed = magnitude bodyVel
           bodyDrag = scaleVec (-0.5 * 1.225 * 0.032 * speed) bodyVel
-          -- Two real inverted-V panels, 35 degrees down, with mixed ruddervators.
+          -- Two real inverted-V panels, 12 degrees down, with mixed ruddervators.
           -- Each panel sees its own local flow and produces force at its own arm;
           -- the resulting pitch/yaw/roll coupling is geometric, not an added torque.
-          cant = radians 35
+          cant = radians 12
+          -- A direct flap-power/ruddervator mix balances the wing drive's changing
+          -- pitching moment. Glide returns to its shallow incidence; no attitude,
+          -- altitude or speed target is involved.
+          tailTrim = -2.1 - 22 * mixThrottlePct mix * mixThrottlePct mix
           tailPanel side =
-            let arm = Vec3 (-0.48) (side * 0.12) (-0.12 * tan cant)
+            let arm = Vec3 (-0.85) (side * 0.12) (-0.12 * tan cant)
                 normal = Vec3 0 (side * sin cant) (cos cant)
                 flow = addVec bodyVel (crossVec bodyRates arm)
                 normalFlow = y flow * y normal + z flow * z normal
-                incidence = radians ((-2 - 18 * elevatorNorm) * cos cant
-                                      - side * 18 * rudderNorm * sin cant)
-                (fx, fn) = tailSurface 0.034 incidence (x flow) normalFlow
+                incidence = radians ((tailTrim - 18 * elevatorNorm) * cos cant
+                                      - side * 30 * rudderNorm * sin cant)
+                (fx, fn) = tailSurface 0.0242 incidence (x flow) normalFlow
                 panelForce = addVec (Vec3 fx 0 0) (scaleVec fn normal)
             in (panelForce, crossVec arm panelForce)
           panels = map tailPanel [-1,1]

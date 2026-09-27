@@ -11,6 +11,7 @@ module Born2Flap.Math.Vehicle
   , StripState(..)
   , StripResult(..)
   , stripCount
+  , wingRootHeight
   , emptyStrip
   , initialStrips
   , stepWingWithStroke
@@ -190,6 +191,11 @@ stepWingWithStroke side stroke strokeRate input states =
       deformed = applyStructure input transported
   in (deformed, map resultState deformed)
 
+-- High wing / low centre of mass. The side-force lever contributes natural
+-- lateral stability; it is not an attitude-dependent restoring torque.
+wingRootHeight :: Double
+wingRootHeight = 0.10
+
 stepStrip :: Double -> Double -> Double -> VehicleInput -> Int -> StripState -> StripResult
 stepStrip side stroke strokeRate input index old =
   let dt = stepSeconds input
@@ -210,13 +216,17 @@ stepStrip side stroke strokeRate input index old =
       -- Use section velocity through air throughout (not a mixture of air
       -- velocity and body velocity). Drag must do negative work. The normal
       -- rotates with the flap; positive stroke raises BOTH wings.
-      position = Vec3 0 (side * radius * cos dihedral) (radius * sin dihedral + bend)
+      position = Vec3 0 (side * radius * cos dihedral) (wingRootHeight + radius * sin dihedral + bend)
       normal = Vec3 0 (-side * sin dihedral) (cos dihedral)
-      spanAxis = Vec3 0 (side * cos dihedral) (sin dihedral)
+      -- Resolve flow in the swept section plane. Ignoring sweep here removed
+      -- its differential lift in sideslip, despite it being in the planform.
+      sweep = shapeSweepRad wp fraction
+      chordAxis = Vec3 (cos sweep) (side * sin sweep * cos dihedral) (sin sweep * sin dihedral)
+      spanAxis = Vec3 (-sin sweep) (side * cos sweep * cos dihedral) (cos sweep * sin dihedral)
       flapVelocity = scaleVec (radius * strokeRate) normal
       sectionVelocity = addVec velocity (addVec (crossVec rates position) flapVelocity)
       dot (Vec3 a b c) (Vec3 d e f) = a*d + b*e + c*f
-      chordVelocity = vx sectionVelocity
+      chordVelocity = dot sectionVelocity chordAxis
       normalVelocity = dot sectionVelocity normal
       spanVelocity = dot sectionVelocity spanAxis
       planarSpeed = sqrt (chordVelocity * chordVelocity + normalVelocity * normalVelocity)
@@ -228,7 +238,10 @@ stepStrip side stroke strokeRate input index old =
       -- toward the handwing), instead of driving a rigid plate deep into stall.
       -- No flap motion means no feathering; body sink still changes incidence.
       feather = (0.55 + 0.20 * fraction) * atan2 (radius * strokeRate) (max 1.5 (abs chordVelocity))
-      alpha = twist + radians (8 * clamp (-1) 1 (pitchCommand input))
+      -- Differential feathering supplies roll authority during both glide and
+      -- powered strokes; common incidence supplies the acrobatic pitch range.
+      alpha = twist + radians (24 * clamp (-1) 1 (pitchCommand input)
+                                - side * 18 * clamp (-1) 1 (rollCommand input))
                 + aeroTwist + feather + atan2 (-normalVelocity) chordVelocity
       alphaEff = alpha - zeroLiftAngle camberPrev
       alphaRate = (alpha - stripPreviousAlpha old) / dt
@@ -264,7 +277,7 @@ stepStrip side stroke strokeRate input index old =
       flowZ = normalVelocity / safeSpeed
       -- Lift is orthogonal to section velocity, drag opposes it, including
       -- reverse flow. In particular a passive falling wing cannot add energy.
-      chordForce = Vec3 (-drag * flowX - lift * flowZ) 0 0
+      chordForce = scaleVec (-drag * flowX - lift * flowZ) chordAxis
       normalForce = scaleVec (-drag * flowZ + lift * flowX) normal
       spanDrag = scaleVec (-0.5 * 1.225 * area * sideCd * abs spanVelocity * spanVelocity) spanAxis
       force = addVec chordForce (addVec normalForce spanDrag)

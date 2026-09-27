@@ -11,6 +11,7 @@ class USceneComponent;
 class USpringArmComponent;
 class UCameraComponent;
 class UBorn2FlapAudioSynth;
+class SWidget;
 // RC channels drive the native actuators. All forces and moments are aerodynamic.
 UCLASS()
 class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
@@ -21,6 +22,21 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     virtual ~ABorn2FlapFlightPawn() override;
     virtual void BeginPlay() override;
     virtual void Tick(float DeltaSeconds) override;
+    virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+    virtual void CalcCamera(float DeltaTime, FMinimalViewInfo& OutResult) override;
+    void ToggleGroundView();
+    void ToggleFpvView();
+    bool IsFpvAirView() const { return bFpvAirView; }
+    FString GetCameraLabel() const;
+    void SelectBirdModel(int32 Index);
+    int32 GetBirdModel() const { return BirdModel; }
+    FVector GetMouseGains() const { return MouseGains; }
+    void SetMouseGain(int32 Axis, float Gain);
+    float GetControlExpo() const { return ControlExpo; }
+    void SetControlExpo(float Value) { if(FMath::IsFinite(Value)) ControlExpo=FMath::Clamp(Value,0.f,1.f); }
+    void OpenFlightSettings();
+    void CloseFlightSettings();
+    bool IsFlightSettingsOpen() const { return SettingsWidget.IsValid(); }
     bool IsFlying() const { return bFlying; }
     bool IsHealthy() const { return bHealthy; }
     float GetAltitude() const;
@@ -40,15 +56,35 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     UPROPERTY(VisibleAnywhere) TObjectPtr<USceneComponent> VisualRoot;
     UPROPERTY(VisibleAnywhere) TObjectPtr<USceneComponent> LeftShoulder;
     UPROPERTY(VisibleAnywhere) TObjectPtr<USceneComponent> RightShoulder;
+    UPROPERTY() TObjectPtr<USceneComponent> PrototypeRoot;
+    UPROPERTY() TObjectPtr<USceneComponent> RavenRoot;
+    UPROPERTY() TObjectPtr<USceneComponent> RavenLeftShoulder;
+    UPROPERTY() TObjectPtr<USceneComponent> RavenRightShoulder;
     UPROPERTY(VisibleAnywhere) TObjectPtr<USpringArmComponent> CameraBoom;
     UPROPERTY(VisibleAnywhere) TObjectPtr<UCameraComponent> Camera;
     UPROPERTY(VisibleAnywhere) TObjectPtr<UBorn2FlapAudioSynth> AudioSynth;
+    UPROPERTY() TObjectPtr<UCameraComponent> GroundCamera;
+    UPROPERTY() TObjectPtr<UCameraComponent> FpvCamera;
+    FVector GroundAnchor = FVector::ZeroVector, LastLanding = FVector::ZeroVector;
+    FRotator GroundGaze = FRotator::ZeroRotator;
+    bool bGroundView = false, bFpvAirView = false, bCameraGrounded = false, bGroundGazeReady = false;
+    double CameraTime = 0, GroundSettleTime = 0;
+    void RememberLanding(FVector Position);
+    void UpdateLandingCamera(float Dt);
+    bool CheckFlightCameras();
     TUniquePtr<FBorn2FlapMathBridge> MathBridge;
     TUniquePtr<FBorn2FlapRcController> RcController;
     double Accumulator = 0, LogTime = 0, WorldTime = 0;
     double LastMechanicalPower = 0, LastPhaseError = 0, LastKGainMod = 1;
     float PrevLeftFlap = 0;
     born2flap::DesktopInput Desktop;
+    float ControlExpo=.65f;
+    FVector MouseGains = FVector(1, -1, 1);
+    int32 BirdModel = 0;
+    TSharedPtr<SWidget> SettingsWidget;
+    void BuildRavenCrow();
+    void LoadFlightPreferences();
+    void SaveFlightPreferences();
     float Throttle = 0, RollInput = 0, YawInput = 0, PitchInput = 0, LeftFlap = 0, RightFlap = 0, BatterySoc = 1;
     bool bFlying = false, bHealthy = false, bVectors = false, bReturning = false;
     FVector AeroForce = FVector::ZeroVector, AeroMoment = FVector::ZeroVector;
@@ -60,6 +96,8 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     double TestBeforePullSpeed = 0, TestPullSpeed = 0, TestBeforePullHeight = 0, TestPullHeight = 0;
     double TestFlapMin = 80, TestFlapMax = -80;
     double TestGlideWingDiff = 0, TestRollWingDiff = 0;
+    double TestBeforeTurnYaw = 0;
+    double TestTurnTravel = 0;
     bool bTestIdle = false, bTestTurn = false, bTestLand = false, bTestReset = false, bTestSecondFlight = false;
     void BuildGeometry();
     void ResetFlight(bool bSafety = false);
@@ -70,6 +108,8 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     bool StepMath(float DeltaSeconds);
     void UpdateAeroAudio(float DeltaSeconds);
     void CheckFlightTest();
+    bool bHandlingTest = false;
+    double TestLeftRecovery = 0, TestRightRecovery = 0;
     bool bDesktopInputTest = false, bDesktopTestPass = true;
     double DesktopTestTime = 0;
     int32 DesktopTestStage = -1;
