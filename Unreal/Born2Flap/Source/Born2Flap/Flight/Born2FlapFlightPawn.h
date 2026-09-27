@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include "CoreMinimal.h"
 #include "GameFramework/Pawn.h"
 #include "Math/Born2FlapMathBridge.h"
@@ -9,6 +9,7 @@ class UBoxComponent;
 class USceneComponent;
 class USpringArmComponent;
 class UCameraComponent;
+class UBorn2FlapAudioSynth;
 // RC channels drive the native actuators. All forces and moments are aerodynamic.
 UCLASS()
 class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
@@ -38,9 +39,12 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     UPROPERTY(VisibleAnywhere) TObjectPtr<USceneComponent> RightShoulder;
     UPROPERTY(VisibleAnywhere) TObjectPtr<USpringArmComponent> CameraBoom;
     UPROPERTY(VisibleAnywhere) TObjectPtr<UCameraComponent> Camera;
+    UPROPERTY(VisibleAnywhere) TObjectPtr<UBorn2FlapAudioSynth> AudioSynth;
     TUniquePtr<FBorn2FlapMathBridge> MathBridge;
     TUniquePtr<FBorn2FlapRcController> RcController;
-    double Accumulator = 0, LogTime = 0;
+    double Accumulator = 0, LogTime = 0, WorldTime = 0;
+    double LastMechanicalPower = 0, LastPhaseError = 0, LastKGainMod = 1;
+    float PrevLeftFlap = 0;
     born2flap::RcKeyboard Keyboard;
     float Throttle = 0, RollInput = 0, YawInput = 0, PitchInput = 0, LeftFlap = 0, RightFlap = 0, BatterySoc = 1;
     bool bFlying = false, bHealthy = false, bVectors = false, bReturning = false;
@@ -61,5 +65,6 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     void OnBodyHit(UPrimitiveComponent *HitComponent, AActor *OtherActor, UPrimitiveComponent *OtherComponent,
                    FVector NormalImpulse, const FHitResult &Hit);
     bool StepMath(float DeltaSeconds);
+    void UpdateAeroAudio(float DeltaSeconds);
     void CheckFlightTest();
 };
