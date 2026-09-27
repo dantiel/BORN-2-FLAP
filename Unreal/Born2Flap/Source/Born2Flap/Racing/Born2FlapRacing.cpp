@@ -123,6 +123,10 @@ void ABorn2FlapRacingManager::BeginPlay()
     Super::BeginPlay();
     bEnabled = !FParse::Param(FCommandLine::Get(), TEXT("B2FFlightTest")) &&
                !FParse::Param(FCommandLine::Get(), TEXT("B2FSoakTest")) &&
+               !FParse::Param(FCommandLine::Get(), TEXT("B2FRavenFlightTest")) &&
+               !FParse::Param(FCommandLine::Get(), TEXT("B2FHandlingTest")) &&
+               !FParse::Param(FCommandLine::Get(), TEXT("B2FDesktopInputTest")) &&
+               !FParse::Param(FCommandLine::Get(), TEXT("B2FAudioTest")) &&
                !FParse::Param(FCommandLine::Get(), TEXT("B2FNoRacing"));
     GhostDir = FPaths::ProjectSavedDir() / TEXT("Racing/Ghosts");
     IFileManager::Get().MakeDirectory(*GhostDir, /*Tree=*/true);

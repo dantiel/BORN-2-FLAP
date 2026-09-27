@@ -70,17 +70,21 @@ bool FBorn2FlapMathBridge::Load()
         Unload();
         return false;
     }
-    bRuntimeInitialized = RuntimeInit() != 0;
-    if (!bRuntimeInitialized)
+    const uint32 FoundVersion = AbiVersion();
+    if (FoundVersion != B2F_MATH_ABI_VERSION)
     {
-        Status = TEXT("Haskell runtime initialization failure");
+        Status = FString::Printf(TEXT("Physics ABI %u; expected %u. Rebuild and restart the game."),
+                                 FoundVersion, B2F_MATH_ABI_VERSION);
+        UE_LOG(LogTemp, Error, TEXT("%s Library: %s"), *Status, *LibraryPath);
         Unload();
         return false;
     }
 
-    if (AbiVersion() != B2F_MATH_ABI_VERSION)
+    bRuntimeInitialized = RuntimeInit() != 0;
+    if (!bRuntimeInitialized)
     {
-        Status = TEXT("Haskell math backend ABI mismatch");
+        Status = TEXT("Haskell runtime initialization failure");
+        UE_LOG(LogTemp, Error, TEXT("%s"), *Status);
         Unload();
         return false;
     }
@@ -99,6 +103,7 @@ bool FBorn2FlapMathBridge::Load()
     if (!Context)
     {
         Status = TEXT("Haskell math backend could not create a firmware vehicle context");
+        UE_LOG(LogTemp, Error, TEXT("%s"), *Status);
         Unload();
         return false;
     }

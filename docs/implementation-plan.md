@@ -135,3 +135,42 @@ Ein Physikfeature ist erst fertig, wenn es:
 - Telemetrie zur Diagnose liefert
 - sein Performancebudget einhält
 - die Physikversion oder Replays nicht unkontrolliert bricht
+
+## Geplant: Servo-Montagewinkel und reale Fluegelanlenkung
+
+Stand 2026-09-27: Die aktuelle parallele Montage bleibt vorerst unveraendert.
+Die Erweiterung ist geplant, noch nicht implementiert.
+
+Konstruktionsgrundlage laut Projektautor: Keiner seiner realen servoangetriebenen
+Schlagfluegelvoegel verwendet parallele Montageachsen. Die Servos sind bis zu
+30 Grad auseinander gerichtet montiert; ihre nach hinten verlaengerten
+Rotationsachsen treffen sich im hinteren Rumpf oder am Leitwerk. Die Fluegel
+sind nach vorn ausgestreckt und drehen um diese schraeg nach hinten gerichteten
+Achsen. Nach seiner Erfahrung ermoeglicht diese Konstruktion eine direktere
+Steuerung durch Fluegelausschlag. Vor Umsetzung ist am konkreten Modell zu
+klaeren, ob die Winkelangabe je Servo gegen die Rumpfachse oder als Gesamtwinkel
+zwischen beiden Achsen gemessen wird.
+
+Geplanter Umfang fuer Physik und spaeteren Hangar:
+
+- Gelenkposition, raeumliche Achsorientierung, Servo-Nullstellung und
+  Fluegelanbindung je Seite im Modell definieren. Montagewinkel getrennt von
+  Fluegelpfeilung, V-Stellung und Profileinstellwinkel behandeln.
+- Aus tatsaechlichem Servowinkel und Anlenkung die Position, Orientierung und
+  Bewegungsgeschwindigkeit jedes Fluegelelements ableiten. Gekoppelte
+  Einstellwinkel- und Schlagbewegungen sollen aus der Konstruktion entstehen.
+- Lokale Anstroemung, Auftrieb und Widerstand pro Element und pro Fluegel
+  berechnen; die beweglichen Hebelarme zum Schwerpunkt einschliesslich dessen
+  vertikaler Lage fuer die Koerpermomente verwenden. Aerodynamische Lasten
+  auf die jeweilige reale Servoachse fuer die Aktuatorrueckkopplung projizieren.
+- Dieselbe Montagegeometrie fuer Physik, sichtbare Animation, Hangar und
+  Konfigurationsimport verwenden. Die parallele Montage als Referenzfall erhalten.
+- Parallelmontage und gespiegelte Schraegmontagen durch Geometrie-, Kraft-,
+  Moment- und Leistungschecks vergleichen; anschliessend mit realen
+  Konstruktionen und Beobachtungen des Projektautors validieren.
+
+Offener Pruefpunkt: Der Projektautor vermutet, dass die derzeitigen
+Widerstandskraefte je Fluegel noch nicht angemessen erfasst werden. Dies ist
+eine zu untersuchende Hypothese, kein bestaetigter Fehler. Die Untersuchung
+soll lokale Widerstandskraefte, Kraftangriffspunkte und ihre Momente getrennt
+ausweisen; die Montageerweiterung allein gilt nicht als Nachweis einer Korrektur.

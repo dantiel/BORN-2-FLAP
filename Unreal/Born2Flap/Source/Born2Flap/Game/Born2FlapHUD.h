@@ -3,6 +3,7 @@
 #include "GameFramework/HUD.h"
 #include "Born2FlapHUD.generated.h"
 class FBorn2FlapRcController;
+class ABorn2FlapFlightPawn;
 class ABorn2FlapRacingManager;
 UCLASS()
 class BORN2FLAP_API ABorn2FlapHUD : public AHUD
@@ -12,6 +13,9 @@ class BORN2FLAP_API ABorn2FlapHUD : public AHUD
     virtual void DrawHUD() override;
 
   private:
+    bool bHideRavenHUD = false;
+    bool bShowChannels = true;
+    void DrawChannels(const ABorn2FlapFlightPawn& Bird);
     void DrawRcPanel(const FBorn2FlapRcController &Rc);
     TWeakObjectPtr<ABorn2FlapRacingManager> CachedRacing;
 };

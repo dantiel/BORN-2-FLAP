@@ -17,7 +17,9 @@ Der Hangar verbindet Konstruktion, Konfiguration und Personalisierung. Spieler s
 
 - Anzahl und Anordnung der Flügelpaare
 - Spannweite, Sehne, Fläche und Profil
-- Gelenkposition und Montagewinkel
+- Gelenkposition und Montagewinkel je Servo, getrennt von V-Stellung und
+  Profileinstellwinkel; geplante schraege Montageachsen gemaess
+  [Entwicklungsplan](implementation-plan.md#geplant-servo-montagewinkel-und-reale-fluegelanlenkung)
 - Schlag-, Pitch- und Sweep-Bereich
 - Steifigkeit und einfache Verformungsparameter
 

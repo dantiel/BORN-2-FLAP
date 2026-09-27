@@ -8,6 +8,11 @@ target_include_directories(rc_input_tests PRIVATE ../Native/include)
 target_compile_features(rc_input_tests PRIVATE cxx_std_17)
 add_test(NAME rc_input_tests COMMAND rc_input_tests)
 
+add_executable(desktop_input_tests DesktopInputTests.cpp)
+target_include_directories(desktop_input_tests PRIVATE ../Native/include)
+target_compile_features(desktop_input_tests PRIVATE cxx_std_17)
+add_test(NAME desktop_input_tests COMMAND desktop_input_tests)
+
 add_executable(rc_calibration_tests RcCalibrationTests.cpp)
 target_include_directories(rc_calibration_tests PRIVATE ../Native/include)
 target_compile_features(rc_calibration_tests PRIVATE cxx_std_17)

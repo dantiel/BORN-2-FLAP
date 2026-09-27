@@ -48,9 +48,9 @@ data SectionProfile = SectionProfile
 -- only modest membrane billow.
 defaultBirdArmSection :: SectionProfile
 defaultBirdArmSection = SectionProfile
-  { spRestCamber = 0.05
+  { spRestCamber = 0.035
   , spReflex = 0.15
-  , spMembraneK = 0.02
+  , spMembraneK = 0.012
   , spMembraneTau = 0.05
   }
 
@@ -59,9 +59,9 @@ defaultBirdArmSection = SectionProfile
 -- region that cups more readily.
 defaultBirdHandSection :: SectionProfile
 defaultBirdHandSection = SectionProfile
-  { spRestCamber = 0.03
+  { spRestCamber = 0.025
   , spReflex = 0.40
-  , spMembraneK = 0.06
+  , spMembraneK = 0.035
   , spMembraneTau = 0.04
   }
 
