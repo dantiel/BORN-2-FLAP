@@ -138,9 +138,30 @@ The rendered input/settings check covers signed axis gains, saved preferences,
 model selection, camera landing anchors and FPV. Native channel authority,
 energy balance, ABI and lateral restoring/damping checks pass.
 
-The 60/144 FPS flight and Ravenstonefield launch checks pass. The 30 FPS
-turn assertion and 180-second neutral-stick soak fail with this tuning. The stricter new
-neutral-stick bank-recovery check currently **fails**: after imposed banks,
-the powered bird does not reliably return close to level. Positive static
-dihedral response is insufficient to establish dynamic spiral stability.
-This is a remaining handling limitation; there is no hidden auto-level torque.
+The earlier run passed 60/144 FPS flight and Ravenstonefield launch, but failed
+the 30 FPS turn assertion, neutral-stick soak and bank recovery. A later check
+of the installed binaries at commit `ae91be0` on 27 September 2026 produced the
+following baseline (without rebuilding or changing tuning):
+
+| Check | Result | Observation |
+| --- | --- | --- |
+| C++ controls/core suite | PASS | All four CTest cases |
+| Unreal desktop input | PASS | Throttle memory, sticky mouse axes, click reset, additive keyboard and button mutes |
+| Native lateral derivatives | PASS | Mirrored sideslip restoring moments and roll damping |
+| Native planar flight energy | PASS | 30-second energy changes: glide -201.515 J, 72% power +60.196 J, full power +181.087 J |
+| Unreal flight, 30 FPS | FAIL | Boost altitude 2.127 m versus coast altitude 1.511 m; required gain is greater than 2 m |
+| Unreal flight, 60/144 FPS | FAIL | Grounded at the boost/pull-up checkpoints |
+| Unreal neutral-stick soak | FAIL | Grounded after 180 seconds; peak altitude 18.13 m |
+| Ravenstonefield launch | PASS | Altitude 4.26 m, speed 8.45 m/s, wing travel 90.01 degrees |
+| Unreal bank recovery | FAIL | Recovery-window maximum banks 38.08/29.42 degrees after imposed +20/-20 degree banks; required below 12 degrees |
+
+All six Unreal flight cases report zero safety resets and zero native math
+failures. Planar energy and static lateral checks do not establish full 3D
+flight stability. Handling remains unresolved; there is no hidden auto-level
+torque. Logs are in `Unreal/Born2Flap/Saved/Logs/flight-test-*.log`,
+`flight-soak.log`, `raven-flight-test.log` and `handling-test.log`.
+
+Tested DLL SHA-256 hashes, to distinguish this installed build from earlier trials:
+
+- `Binaries/ThirdParty/born2flap_math.dll`: `CDDACC10BBC2F215048C39E84E60F8317814B0B4190B8DC6593F359DBBDCCFB6`
+- `Binaries/Win64/UnrealEditor-Born2Flap.dll`: `6E6CCF9D1197DF2E252B95C8E477C90707D54E7B747D16832C8C463817ACAD21`
