@@ -20,7 +20,7 @@ double Noise(double X,double Y) { return FMath::PerlinNoise2D(FVector2D(X,Y)); }
 double Hill(double X,double Y,double Cx,double Cy,double Rx,double Ry)
 { return FMath::Exp(-FMath::Square((X-Cx)/Rx)-FMath::Square((Y-Cy)/Ry)); }
 constexpr double InnerExtent=192000., InnerStep=600., OuterStep=9600.;
-constexpr int32 CurrentWorldVersion=2;
+constexpr int32 CurrentWorldVersion=3;
 }
 
 ABorn2FlapValley::ABorn2FlapValley()
@@ -187,6 +187,7 @@ void ABorn2FlapValley::PlantForest()
         for(const FVector2D& Site:{FVector2D(-16000,-15500),FVector2D(-27000,-19000),FVector2D(-8500,-21000),
                                   FVector2D(27000,-15500),FVector2D(32000,-13500),FVector2D(29000,20500)})
             if(FVector2D(X-Site.X,Y-Site.Y).Size()<3200) return true;
+        if(X>-49200 && X<-26000 && Y>-44300 && Y<-34800) return true;
         return false;
     };
     FRandomStream R(260926); int32 Count=0;
@@ -254,7 +255,6 @@ void ABorn2FlapValley::Tick(float DeltaSeconds)
         if(PC->WasInputKeyJustPressed(EKeys::LeftBracket))RadioVolume=FMath::Max(0.f,RadioVolume-.08f);
         if(PC->WasInputKeyJustPressed(EKeys::RightBracket))RadioVolume=FMath::Min(1.f,RadioVolume+.08f);
         if(Radio)Radio->SetVolumeMultiplier(RadioVolume);
-        if(PC->WasInputKeyJustPressed(EKeys::F6))SetPhotoView(PhotoIndex>=4?-1:PhotoIndex+1);
     }
     CaptureTime+=DeltaSeconds;
     if(FParse::Param(FCommandLine::Get(),TEXT("B2FRavenCapture")))

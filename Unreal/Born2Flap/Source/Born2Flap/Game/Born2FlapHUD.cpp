@@ -19,6 +19,7 @@ void ABorn2FlapHUD::DrawHUD()
     auto *Bird = Cast<ABorn2FlapFlightPawn>(GetOwningPawn());
     if (!Bird)
         return;
+    if (Bird->IsFlightSettingsOpen()) return;
     auto* PC = GetOwningPlayerController();
     if (PC->WasInputKeyJustPressed(EKeys::F2)) bShowChannels = !bShowChannels;
     if (PC->WasInputKeyJustPressed(EKeys::F7)) bHideRavenHUD = !bHideRavenHUD;
@@ -50,7 +51,8 @@ void ABorn2FlapHUD::DrawHUD()
             DrawText(Valley->HasRadioTrack()?(Valley->IsRadioOn()?TEXT("TURBORAVEN"):TEXT("RADIO PAUSED")):TEXT("RADIO / NO SIGNAL"),Ivory,W-330,H-85,GEngine->GetMediumFont(),.9);
             DrawText(FString::Printf(TEXT("M pause   [ / ] volume  %.0f%%"),Valley->GetRadioVolume()*100),Muted,W-330,H-55,GEngine->GetSmallFont(),.85);
         }
-        DrawText(TEXT("F2 channels   F3 RC   F4 training   F6 views   F7 HUD   CLICK reset mouse / HOLD L yaw off, R roll off"),Muted,34,H-24,GEngine->GetSmallFont(),.85);
+        DrawText(TEXT("F6 ground / air   V chase / FPV   F8 bird + controls   F2 channels   F3 RC   F4 level   F7 HUD"),Muted,34,H-24,GEngine->GetSmallFont(),.85);
+        DrawText(Bird->GetCameraLabel(), FLinearColor(.68f,.74f,.70f), 47, 110, GEngine->GetSmallFont(), .8f);
         if (bShowChannels) DrawChannels(*Bird);
         return;
     }
@@ -93,11 +95,12 @@ void ABorn2FlapHUD::DrawHUD()
     DrawRect(FLinearColor(.015f, .035f, .045f, .82f), 20, Y, Canvas->SizeX - 40, 65);
     DrawText(TEXT("SPACE launch   W throttle   CTRL+W low   SHIFT+W full   WHEEL fine   MOUSE + ARROWS/A/D steering   R reset"),
              Cream, 38, Y + 12, GEngine->GetSmallFont(), 1.05f);
-    DrawText(TEXT("CLICK resets mouse sticks / HOLD LMB mute yaw, RMB mute roll   F2 channels   F3 RC   F4 level   F7 HUD"),
+    DrawText(TEXT("CLICK centres mouse   F6 ground / air   V chase / FPV   F8 bird + controls   F2 channels   F3 RC   F4 level   F7 HUD"),
              Muted, 38, Y + 38, GEngine->GetSmallFont(), 1.f);
     if (Rc && Rc->IsPanelOpen())
         DrawRcPanel(*Rc);
-    if (bShowChannels) DrawChannels(*Bird);
+    DrawText(Bird->GetCameraLabel(), FLinearColor(.68f,.74f,.70f), 47, 110, GEngine->GetSmallFont(), .8f);
+        if (bShowChannels) DrawChannels(*Bird);
 }
 void ABorn2FlapHUD::DrawChannels(const ABorn2FlapFlightPawn& Bird)
 {

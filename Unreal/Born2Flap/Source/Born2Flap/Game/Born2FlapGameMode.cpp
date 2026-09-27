@@ -35,7 +35,8 @@ void ABorn2FlapGameMode::InitGame(const FString &MapName, const FString &Options
         FParse::Value(FCommandLine::Get(), TEXT("B2FLevel="), Level);
     bNatureLevel = !Level.Equals(TEXT("Training"), ESearchCase::IgnoreCase) &&
                    !FParse::Param(FCommandLine::Get(), TEXT("B2FFlightTest")) &&
-                   !FParse::Param(FCommandLine::Get(), TEXT("B2FSoakTest"));
+                   !FParse::Param(FCommandLine::Get(), TEXT("B2FSoakTest")) &&
+                   !FParse::Param(FCommandLine::Get(), TEXT("B2FHandlingTest"));
 }
 double ABorn2FlapGameMode::GroundHeight(double X, double Y) const
 {

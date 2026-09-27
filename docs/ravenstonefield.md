@@ -20,6 +20,7 @@ low rather than becoming an alpine range.
 | Crow's Acre | 520, 190 | Larger delta island with a collapsed boathouse |
 | Last Scrap | 670, 95 | Smaller, poorer island with a dead trunk and rusted debris |
 | The Raven Watch | 290, 205 | Nearby inhabited gatehouse: fly-through arch, timber lookout, tiled roof, keeper's cottage and lanterns |
+| Panel housing | -460 to -295, -370 to -422 | Four distant apartment slabs behind the forest, away from the flight meadow |
 | Raven Lake | 965, 245 | Broad reflective water with shallow shelves |
 
 Deadwood, small weathered skeletons, rusted culvert hoops, a pier and field
@@ -44,15 +45,28 @@ return-to-launch behavior.
 | --- | --- |
 | M | Pause/resume radio |
 | [ / ] | Lower/raise radio volume |
-| F6 | Cycle five scenic views, then return to flight camera |
+| F6 | Switch between the following bird camera and the last-landing ground camera |
+| V | Choose chase or body-mounted FPV for the airborne camera |
 | F7 | Hide/show flight HUD |
+| F8 | Pause flight and open bird selection / signed mouse response sliders |
 | F4 | Switch between Ravenstonefield and the training course |
 
-Existing flight and RC controls are preserved. Scenic views change the camera;
-they do not pause flight physics.
+The chase camera follows behind the bird with a level horizon. The low ground
+camera stays beside the latest landing spot, turns to follow the bird and adds
+subtle handheld drift and motion blur. It moves to the next landing location
+only when the bird settles there; Space launches from that new location.
+FPV is mounted ahead of the bird's head and inherits its bank/pitch, with a small
+wingbeat vibration. V chooses chase or FPV while F6 returns to the same ground
+observer. Camera switches do not affect flight physics. F8 also offers the
+airborne-camera choice and remembers it. Fixed scenic views are no longer part
+of the gameplay camera cycle; the old offline landscape capture command remains.
 
 Mouse steering is always available alongside keyboard steering: mouse Y pitches;
-mouse X adds yaw and roll. Move up to raise the nose, right to turn/bank right.
+mouse X adds yaw and roll. F8 provides independent roll, pitch and yaw gains from
+−2 to +2: negative reverses direction, zero disables that mouse axis, and magnitude
+controls sensitivity. The new default pitch gain is −1; roll/yaw default to +1.
+At gain 1, 1800 pixels moves a stick from neutral to full travel, with fine-control
+expo near the centre. Keyboard direction is unaffected by these mouse settings.
 Mouse displacement sets persistent stick positions: pitch, yaw and roll hold
 when movement stops. Click either mouse button to reset all three mouse axes to
 neutral. Opposing keyboard input cancels the mouse contribution while held.
@@ -67,6 +81,22 @@ While W is held it wins, even if the wheel moves. R resets all desktop controls.
 F2 toggles a compact live THR/PIT/YAW/ROLL display and the stored wheel value;
 F7 hides/shows the entire HUD in either level. A configured USB RC transmitter
 still has priority while enabled; F3 opens its setup panel.
+
+### Selectable birds
+
+RAVENCROW is the default: a folded, ray-like black fuselage, angular crow head,
+rectangular wing panels and seven long parallel shard pinions on each wing.
+Every visible surface is a flat-shaded triangle. Layered charcoal/navy facets
+catch the daylight; the continuous triangular tail forms a shallow inverted V.
+The original teal prototype is also selectable in F8. Selection changes the
+visual airframe; both currently use the same provisional aerodynamic model.
+
+F8 pauses the simulation while editing. Save & Return, Escape or F8 resumes
+flight; changing mouse gains centres the stored mouse sticks. Model selection
+and gains persist across restarts and level changes in
+`Saved/Config/FlightPreferences.ini`. Flight reset does not erase preferences.
+The procedural model is in `Born2FlapRavenCrow.cpp`; its material is reproduced
+by `Tools/create_ravencrow_materials.py`.
 
 ## Build and regenerate
 

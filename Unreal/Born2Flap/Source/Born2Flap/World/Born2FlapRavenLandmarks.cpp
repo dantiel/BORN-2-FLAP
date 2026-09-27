@@ -314,6 +314,33 @@ void ABorn2FlapValley::BuildLandmarks()
     BuildBarn(FVector(32000,-13500,0),17,.85,true);
     BuildBarn(FVector(34000,-20000,0),-35,.78,true);
     BuildBridge();BuildCastle();BuildRelics();
+    // Distant panel housing behind the woodland, clear of the launch meadow.
+    for(int Block=0; Block<4; ++Block)
+    {
+        const FVector Site(-46000+Block*5500,-37000-(Block%2)*5200,0);
+        const double Base=GroundHeight(Site.X,Site.Y)-180;
+        const double Height=1500+(Block%2)*300;
+        auto Box=[&](FVector P,FVector Size,const TCHAR* Mat,bool Solid=false)
+        { Part(TEXT("Cube"),Mat,Site+FVector(P.X,P.Y,P.Z+Base),Size/100,FRotator::ZeroRotator,Solid); };
+        Box(FVector(0,0,Height/2),FVector(4200,1250,Height),TEXT("Plaster"),true);
+        Box(FVector(0,0,Height+35),FVector(4300,1340,70),TEXT("Concrete"),true);
+        Box(FVector(0,0,100),FVector(4320,1360,200),TEXT("Stone"),true);
+        for(int Floor=0; Floor<int(Height/300); ++Floor)
+            for(int Window=0; Window<14; ++Window)
+                for(int Side:{-1,1})
+                {
+                    const double X=-1910+Window*290,Z=Floor*300+205;
+                    Box(FVector(X,Side*631,Z),FVector(115,12,155),TEXT("Window"));
+                    if(Window%4==1) {
+                        Box(FVector(X,Side*708,Z-85),FVector(210,166,18),TEXT("Concrete"));
+                        Box(FVector(X,Side*785,Z-38),FVector(210,14,90),TEXT("Ivory"));
+                    }
+                }
+        for(int Seam=0;Seam<15;++Seam)
+            Box(FVector(-2100+Seam*300,-632,Height/2),FVector(5,8,Height),TEXT("Stone"));
+        Box(FVector(0,-690,155),FVector(155,140,310),TEXT("Timber"),true);
+    }
+
     // A crooked split-rail fence separates the old barns from the flight field.
     for(int I=0;I<60;++I)
     {

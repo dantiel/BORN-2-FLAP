@@ -1,6 +1,7 @@
 """Real DLL flight-energy regression: no altitude/speed controller or extra lift.
 
-The body is held level here. Separate Unreal tests exercise attitude and contact.
+Pitch is free so the power-dependent tail trim can establish its flying attitude.
+Roll/yaw remain constrained to the symmetry plane; Unreal tests full 3D/contact.
 The same hinge actuator/battery selection is used by the game's math bridge.
 """
 import ctypes as c
@@ -21,18 +22,26 @@ def trajectory(backend, effort, seconds=30):
     assert context
     dt, mass, altitude = 1/240, .45, 100.0
     velocity = [8.5, 0., 2.2]
+    pitch, pitch_rate, pitch_inertia = 0., 0., .046
     initial_energy = mass * (9.81*altitude + .5*sum(v*v for v in velocity))
     samples = []
     try:
         for i in range(round(seconds/dt)):
-            state = Body(dt, (c.c_double*3)(*velocity), (c.c_double*3)(0,0,0))
+            cp, sp = math.cos(pitch), math.sin(pitch)
+            local_velocity = (cp*velocity[0]+sp*velocity[2], 0,
+                              -sp*velocity[0]+cp*velocity[2])
+            state = Body(dt, (c.c_double*3)(*local_velocity), (c.c_double*3)(0,-pitch_rate,0))
             output = Output()
             assert backend.step(context, c.byref(Pilot(effort,0,0,0)), c.byref(state), c.byref(output))
             assert all(math.isfinite(v) for v in output.values)
-            for axis in range(3):
-                velocity[axis] += (output.values[axis]/mass - (9.81 if axis == 2 else 0))*dt
+            fx, _, fz = output.values[:3]
+            velocity[0] += (cp*fx-sp*fz)/mass*dt
+            velocity[2] += ((sp*fx+cp*fz)/mass-9.81)*dt
+            pitch_rate -= output.values[4]/pitch_inertia*dt
+            pitch += pitch_rate*dt
+            assert abs(pitch) < math.pi/2, 'neutral flight tumbles in pitch'
             altitude += velocity[2]*dt
-            energy = mass*(9.81*altitude + .5*sum(v*v for v in velocity))
+            energy = mass*(9.81*altitude + .5*sum(v*v for v in velocity)) + .5*pitch_inertia*pitch_rate**2
             if effort == 0:
                 assert energy <= initial_energy+.02, 'glide creates energy without flapping'
             assert math.dist(velocity, [0,0,0]) < 25, 'runaway airspeed'
