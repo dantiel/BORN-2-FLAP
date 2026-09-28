@@ -55,7 +55,7 @@ void ABorn2FlapGameMode::BeginPlay()
         UIParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
         World->SpawnActor<ABorn2FlapUIBridge>(FVector::ZeroVector, FRotator::ZeroRotator, UIParams);
     }
-    // Racing mode: ghost recorder + replay manager. Records every round and
+    // Racing mode: replay-spirit recorder + manager. Records every round and
     // re-flies the past rounds as shadow doppelgängers (disabled in flight tests).
     {
         FActorSpawnParameters RacingParams;

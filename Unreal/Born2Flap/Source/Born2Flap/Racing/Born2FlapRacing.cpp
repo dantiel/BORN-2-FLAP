@@ -1,5 +1,5 @@
 #include "Racing/Born2FlapRacing.h"
-#include "Racing/Born2FlapGhost.h"
+#include "Racing/Born2FlapSpirit.h"
 #include "Flight/Born2FlapFlightPawn.h"
 #include "Game/Born2FlapGameMode.h"
 #include "Kismet/GameplayStatics.h"
@@ -13,13 +13,13 @@
 
 namespace
 {
-constexpr uint32 GhostMagic = 0x32474642u; // "BFG2"
-constexpr uint32 GhostVersion = 1;
-constexpr int32 MaxGhosts = 12;            // keep every round playable, bounded
+constexpr uint32 SpiritMagic = 0x32534642u; // "BFS2"
+constexpr uint32 SpiritVersion = 1;
+constexpr int32 MaxSpirits = 12;            // keep every round playable, bounded
 constexpr double MinRoundSeconds = 1.0;
 } // namespace
 
-bool FB2FGhostRecording::Sample(double Time, FVector &OutPos, FQuat &OutRot, float &OutLFlap, float &OutRFlap) const
+bool FB2FSpiritRecording::Sample(double Time, FVector &OutPos, FQuat &OutRot, float &OutLFlap, float &OutRFlap) const
 {
     if (Frames.Num() < 2)
         return false;
@@ -34,8 +34,8 @@ bool FB2FGhostRecording::Sample(double Time, FVector &OutPos, FQuat &OutRot, flo
         else
             Hi = Mid;
     }
-    const FB2FGhostFrame &A = Frames[Lo];
-    const FB2FGhostFrame &B = Frames[Hi];
+    const FB2FSpiritFrame &A = Frames[Lo];
+    const FB2FSpiritFrame &B = Frames[Hi];
     const double Span = B.Time - A.Time;
     const double Alpha = Span > UE_SMALL_NUMBER ? FMath::Clamp((T - A.Time) / Span, 0.0, 1.0) : 0.0;
     OutPos = A.Position + (B.Position - A.Position) * Alpha;
@@ -45,11 +45,11 @@ bool FB2FGhostRecording::Sample(double Time, FVector &OutPos, FQuat &OutRot, flo
     return true;
 }
 
-bool SaveGhostRecording(FB2FGhostRecording &Recording, const FString &Path)
+bool SaveSpiritRecording(FB2FSpiritRecording &Recording, const FString &Path)
 {
     TArray<uint8> Bytes;
     FMemoryWriter Ar(Bytes, /*bIsPersistent=*/true);
-    uint32 Magic = GhostMagic, Version = GhostVersion;
+    uint32 Magic = SpiritMagic, Version = SpiritVersion;
     Ar << Magic;
     Ar << Version;
     Ar << Recording.Name;
@@ -60,7 +60,7 @@ bool SaveGhostRecording(FB2FGhostRecording &Recording, const FString &Path)
     Ar << Recording.GatesPassed;
     int32 Count = Recording.Frames.Num();
     Ar << Count;
-    for (FB2FGhostFrame &F : Recording.Frames)
+    for (FB2FSpiritFrame &F : Recording.Frames)
     {
         Ar << F.Time;
         Ar << F.Position;
@@ -72,7 +72,7 @@ bool SaveGhostRecording(FB2FGhostRecording &Recording, const FString &Path)
     return FFileHelper::SaveArrayToFile(Bytes, *Path);
 }
 
-bool LoadGhostRecording(const FString &Path, FB2FGhostRecording &Recording)
+bool LoadSpiritRecording(const FString &Path, FB2FSpiritRecording &Recording)
 {
     TArray<uint8> Bytes;
     if (!FFileHelper::LoadFileToArray(Bytes, *Path))
@@ -80,10 +80,10 @@ bool LoadGhostRecording(const FString &Path, FB2FGhostRecording &Recording)
     FMemoryReader Ar(Bytes, /*bIsPersistent=*/true);
     uint32 Magic = 0, Version = 0;
     Ar << Magic;
-    if (Magic != GhostMagic)
+    if (Magic != SpiritMagic)
         return false;
     Ar << Version;
-    if (Version != GhostVersion)
+    if (Version != SpiritVersion)
         return false;
     Ar << Recording.Name;
     Ar << Recording.Duration;
@@ -98,7 +98,7 @@ bool LoadGhostRecording(const FString &Path, FB2FGhostRecording &Recording)
     Recording.Frames.Reset(Count);
     for (int32 I = 0; I < Count; ++I)
     {
-        FB2FGhostFrame F;
+        FB2FSpiritFrame F;
         Ar << F.Time;
         Ar << F.Position;
         Ar << F.Rotation;
@@ -113,7 +113,7 @@ bool LoadGhostRecording(const FString &Path, FB2FGhostRecording &Recording)
 ABorn2FlapRacingManager::ABorn2FlapRacingManager()
 {
     PrimaryActorTick.bCanEverTick = true;
-    // Read the final, physics-integrated pose each frame so ghosts trace the
+    // Read the final, physics-integrated pose each frame so spirits trace the
     // exact flown path, not the pre-physics command pose.
     PrimaryActorTick.TickGroup = TG_PostPhysics;
 }
@@ -128,48 +128,52 @@ void ABorn2FlapRacingManager::BeginPlay()
                !FParse::Param(FCommandLine::Get(), TEXT("B2FDesktopInputTest")) &&
                !FParse::Param(FCommandLine::Get(), TEXT("B2FAudioTest")) &&
                !FParse::Param(FCommandLine::Get(), TEXT("B2FNoRacing"));
-    GhostDir = FPaths::ProjectSavedDir() / TEXT("Racing/Ghosts");
-    IFileManager::Get().MakeDirectory(*GhostDir, /*Tree=*/true);
+    SpiritDir = FPaths::ProjectSavedDir() / TEXT("Racing/Spirits");
+    IFileManager::Get().MakeDirectory(*SpiritDir, /*Tree=*/true);
     if (bEnabled)
-        LoadAllGhosts();
+        LoadAllSpirits();
 }
 
-void ABorn2FlapRacingManager::LoadAllGhosts()
+void ABorn2FlapRacingManager::LoadAllSpirits()
 {
-    LoadedGhosts.Reset();
+    LoadedSpirits.Reset();
     TArray<FString> Files;
-    IFileManager::Get().FindFiles(Files, *(GhostDir / TEXT("*.b2fg")), /*Files=*/true, /*Directories=*/false);
+    IFileManager::Get().FindFiles(Files, *(SpiritDir / TEXT("*.b2fs")), /*Files=*/true, /*Directories=*/false);
     Files.Sort(); // YYYYMMDD_HHMMSS filenames sort chronologically
     for (const FString &File : Files)
     {
-        FB2FGhostRecording Recording;
-        if (LoadGhostRecording(GhostDir / File, Recording))
+        FB2FSpiritRecording Recording;
+        if (LoadSpiritRecording(SpiritDir / File, Recording))
         {
             Recording.Name = FPaths::GetBaseFilename(File);
-            LoadedGhosts.Add(MoveTemp(Recording));
+            Recording.SourceFile = SpiritDir / File;
+            LoadedSpirits.Add(MoveTemp(Recording));
         }
     }
-    // Trim the oldest while always keeping the champion.
-    int32 Champion = 0;
-    for (int32 I = 1; I < LoadedGhosts.Num(); ++I)
-        if (LoadedGhosts[I].Distance > LoadedGhosts[Champion].Distance)
-            Champion = I;
-    while (LoadedGhosts.Num() > MaxGhosts)
-    {
-        int32 Victim = (Champion > 0) ? 0 : 1; // drop the non-champion oldest
-        if (Victim == Champion)
-            Victim = (Champion + 1) % LoadedGhosts.Num();
-        LoadedGhosts.RemoveAt(Victim);
-        if (Victim < Champion)
-            --Champion;
-    }
+    TrimToLimit();
     BestDistance = BestDuration = 0;
-    for (const auto &G : LoadedGhosts)
+    for (const auto &G : LoadedSpirits)
         if (G.Distance > BestDistance)
         {
             BestDistance = G.Distance;
             BestDuration = G.Duration;
         }
+}
+
+void ABorn2FlapRacingManager::TrimToLimit()
+{
+    if (LoadedSpirits.Num() <= MaxSpirits)
+        return;
+    // Keep the best rounds and cull the worst attempts first (shortest distance).
+    // The champion is always retained — it is the best round by definition.
+    LoadedSpirits.Sort([](const FB2FSpiritRecording &A, const FB2FSpiritRecording &B) { return A.Distance > B.Distance; });
+    while (LoadedSpirits.Num() > MaxSpirits)
+    {
+        const FB2FSpiritRecording Victim = LoadedSpirits.Pop(/*bAllowShrinking=*/false);
+        if (!Victim.SourceFile.IsEmpty())
+            IFileManager::Get().Delete(*Victim.SourceFile);
+        UE_LOG(LogTemp, Display, TEXT("RacingSpiritCull removed %s (%.1f m)"), *Victim.Name, Victim.Distance);
+    }
 }
 
 void ABorn2FlapRacingManager::Tick(float DeltaSeconds)
@@ -193,25 +197,25 @@ void ABorn2FlapRacingManager::Tick(float DeltaSeconds)
         RoundTime += DeltaSeconds;
         RecordFrame(Bird.Get());
     }
-    for (const auto &Weak : GhostActors)
-        if (auto *Ghost = Weak.Get())
-            Ghost->Advance(DeltaSeconds);
+    for (const auto &Weak : SpiritActors)
+        if (auto *Spirit = Weak.Get())
+            Spirit->Advance(DeltaSeconds);
 }
 
 void ABorn2FlapRacingManager::BeginRound()
 {
-    ActiveRecording = FB2FGhostRecording{};
-    ActiveRecording.Name = FString::Printf(TEXT("Runde %02d"), LoadedGhosts.Num() + 1);
+    ActiveRecording = FB2FSpiritRecording{};
+    ActiveRecording.Name = FString::Printf(TEXT("Runde %02d"), LoadedSpirits.Num() + 1);
     RoundTime = 0;
     LastPosition = Bird->GetActorLocation();
     bRecording = true;
-    SpawnGhosts();
-    UE_LOG(LogTemp, Display, TEXT("RacingRoundBegin ghosts=%d rounds=%d"), GhostActors.Num(), LoadedGhosts.Num());
+    SpawnSpirits();
+    UE_LOG(LogTemp, Display, TEXT("RacingRoundBegin spirits=%d rounds=%d"), SpiritActors.Num(), LoadedSpirits.Num());
 }
 
 void ABorn2FlapRacingManager::RecordFrame(const ABorn2FlapFlightPawn *Pawn)
 {
-    FB2FGhostFrame F;
+    FB2FSpiritFrame F;
     F.Time = RoundTime;
     F.Position = Pawn->GetActorLocation();
     F.Rotation = Pawn->GetActorQuat();
@@ -235,61 +239,63 @@ void ABorn2FlapRacingManager::EndRound()
     {
         if (auto *Mode = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode()))
             ActiveRecording.GatesPassed = Mode->GetGatesPassed();
-        const FString Path = GhostDir / (FDateTime::Now().ToString(TEXT("%Y%m%d_%H%M%S")) + TEXT(".b2fg"));
-        if (SaveGhostRecording(ActiveRecording, Path))
+        const FString Path = SpiritDir / (FDateTime::Now().ToString(TEXT("%Y%m%d_%H%M%S")) + TEXT(".b2fs"));
+        ActiveRecording.SourceFile = Path;
+        if (SaveSpiritRecording(ActiveRecording, Path))
         {
             const bool NewBest = ActiveRecording.Distance > BestDistance;
-            LoadedGhosts.Add(ActiveRecording);
+            LoadedSpirits.Add(ActiveRecording);
             if (NewBest)
             {
                 BestDistance = ActiveRecording.Distance;
                 BestDuration = ActiveRecording.Duration;
             }
+            TrimToLimit();
             UE_LOG(LogTemp, Display,
-                   TEXT("RacingRoundEnd dist=%.1fm dur=%.1fs gates=%d ghosts=%d%s"), ActiveRecording.Distance,
-                   ActiveRecording.Duration, ActiveRecording.GatesPassed, LoadedGhosts.Num(),
+                   TEXT("RacingRoundEnd dist=%.1fm dur=%.1fs gates=%d spirits=%d%s"), ActiveRecording.Distance,
+                   ActiveRecording.Duration, ActiveRecording.GatesPassed, LoadedSpirits.Num(),
                    NewBest ? TEXT(" NEW_BEST") : TEXT(""));
         }
     }
-    ActiveRecording = FB2FGhostRecording{};
+    ActiveRecording = FB2FSpiritRecording{};
     bRecording = false;
     RoundTime = 0;
-    ClearGhostActors();
+    ClearSpiritActors();
 }
 
-void ABorn2FlapRacingManager::SpawnGhosts()
+void ABorn2FlapRacingManager::SpawnSpirits()
 {
-    ClearGhostActors();
-    if (LoadedGhosts.Num() == 0)
+    ClearSpiritActors();
+    if (LoadedSpirits.Num() == 0)
         return;
     int32 Champion = 0;
-    for (int32 I = 1; I < LoadedGhosts.Num(); ++I)
-        if (LoadedGhosts[I].Distance > LoadedGhosts[Champion].Distance)
+    for (int32 I = 1; I < LoadedSpirits.Num(); ++I)
+        if (LoadedSpirits[I].Distance > LoadedSpirits[Champion].Distance)
             Champion = I;
-    for (int32 I = 0; I < LoadedGhosts.Num(); ++I)
+    for (int32 I = 0; I < LoadedSpirits.Num(); ++I)
         if (I != Champion)
-            SpawnGhost(LoadedGhosts[I], false);
-    SpawnGhost(LoadedGhosts[Champion], true);
+            SpawnSpirit(LoadedSpirits[I], false);
+    SpawnSpirit(LoadedSpirits[Champion], true);
 }
 
-void ABorn2FlapRacingManager::SpawnGhost(const FB2FGhostRecording &Recording, bool bChampion)
+void ABorn2FlapRacingManager::SpawnSpirit(const FB2FSpiritRecording &Recording, bool bChampion)
 {
     FActorSpawnParameters Params;
     Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-    if (auto *Ghost = GetWorld()->SpawnActor<ABorn2FlapGhost>(ABorn2FlapGhost::StaticClass(), FVector::ZeroVector,
-                                                              FRotator::ZeroRotator, Params))
+    if (auto *Spirit = GetWorld()->SpawnActor<ABorn2FlapSpirit>(ABorn2FlapSpirit::StaticClass(), FVector::ZeroVector,
+                                                                FRotator::ZeroRotator, Params))
     {
-        Ghost->SetupGhost(Recording, bChampion);
-        GhostActors.Add(Ghost);
+        Spirit->SetupSpirit(Recording, bChampion);
+        SpiritActors.Add(Spirit);
     }
 }
 
-void ABorn2FlapRacingManager::ClearGhostActors()
+void ABorn2FlapRacingManager::ClearSpiritActors()
 {
-    for (const auto &Weak : GhostActors)
-        if (auto *Ghost = Weak.Get())
-            Ghost->Destroy();
-    GhostActors.Reset();
+    for (const auto &Weak : SpiritActors)
+        if (auto *Spirit = Weak.Get())
+            Spirit->Destroy();
+    SpiritActors.Reset();
 }
 
 FString ABorn2FlapRacingManager::GetRacingStatus() const
@@ -303,6 +309,6 @@ FString ABorn2FlapRacingManager::GetRacingStatus() const
 FString ABorn2FlapRacingManager::GetBestLine() const
 {
     if (BestDistance <= 0)
-        return FString::Printf(TEXT("Geister %d fliegen mit"), GetGhostCount());
-    return FString::Printf(TEXT("Best  %.0f m in %.1f s  ·  Geister %d"), BestDistance, BestDuration, GetGhostCount());
+        return FString::Printf(TEXT("Spirits %d fliegen mit"), GetSpiritCount());
+    return FString::Printf(TEXT("Best  %.0f m in %.1f s  ·  Spirits %d"), BestDistance, BestDuration, GetSpiritCount());
 }
