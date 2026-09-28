@@ -87,7 +87,7 @@ still has priority while enabled; F3 opens its setup panel.
 RAVENCROW is the default: a folded, ray-like black fuselage, angular crow head,
 rectangular wing panels and seven long parallel shard pinions on each wing.
 Every visible surface is a flat-shaded triangle. Layered charcoal/navy facets
-catch the daylight; the continuous triangular tail forms a shallow inverted V.
+catch the daylight; the fanned tail spreads to a wide trailing edge in a shallow inverted V.
 The original teal prototype is also selectable in F8. Selection changes the
 visual airframe; both currently use the same provisional aerodynamic model.
 

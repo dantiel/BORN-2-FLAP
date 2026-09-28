@@ -1,3 +1,4 @@
+#include "Flight/Born2FlapRavenMesh.h"
 #include "Flight/Born2FlapFlightPawn.h"
 #include "ProceduralMeshComponent.h"
 #include "Materials/MaterialInterface.h"
@@ -47,15 +48,20 @@ struct FShardMesh
 const FLinearColor Ink(.018,.025,.035), Slate(.05,.067,.088), Edge(.10,.13,.16);
 }
 
-void ABorn2FlapFlightPawn::BuildRavenCrow()
+USceneComponent* Born2FlapRaven::Build(AActor* Owner, USceneComponent* Parent,
+                                        USceneComponent*& OutLeftShoulder,
+                                        USceneComponent*& OutRightShoulder)
 {
-    auto Node = [&](FName Name,USceneComponent* Parent,FVector Position)
+    if (!Owner || !Parent)
+        return nullptr;
+    OutLeftShoulder = OutRightShoulder = nullptr;
+    auto Node = [&](FName Name,USceneComponent* P,FVector Position)
     {
-        auto* C = NewObject<USceneComponent>(this,Name);
-        AddInstanceComponent(C); C->SetupAttachment(Parent); C->SetRelativeLocation(Position); C->RegisterComponent();
+        auto* C = NewObject<USceneComponent>(Owner,Name);
+        Owner->AddInstanceComponent(C); C->SetupAttachment(P); C->SetRelativeLocation(Position); C->RegisterComponent();
         return C;
     };
-    RavenRoot = Node(TEXT("RavenCrow"),VisualRoot,FVector::ZeroVector);
+    auto* RavenRoot = Node(TEXT("RavenCrow"),Parent,FVector::ZeroVector);
     FShardMesh BodyMesh;
     // A narrow architectural shoulder and keel, angular crow brow and spear beak.
     BodyMesh.Fold({55,0,7},{12,14,1},{-63,0,-3},{12,-14,1},8,Ink);
@@ -76,13 +82,14 @@ void ABorn2FlapFlightPawn::BuildRavenCrow()
         // Small inset amber eye is a triangle, not a luminous sphere.
         BodyMesh.Tri({43,Side*8.8,16},{37,Side*10.4,17},{40,Side*10.,14},FLinearColor(.34,.19,.055));
         FShardMesh Tail;
+        // Fanned delta tail: shallow anhedral, spread to a wide trailing edge,
+        // so the tail reads as a fan rather than a single backward spike.
         auto TP = [Side](double X,double Y) { return FVector(X,Side*Y,1-Y*FMath::Tan(FMath::DegreesToRadians(12.))); };
-        // Continuous delta tail: shallow anhedral, a single aft point, no fork.
-        Tail.Tri(TP(-61,0),TP(-72,22),TP(-118,0),Slate);
-        Tail.Tri(TP(-64,0),TP(-72,17),TP(-111,0),Ink);
-        Tail.Install(this,RavenRoot,*FString::Printf(TEXT("RavenTail%d"),Side));
+        Tail.Tri(TP(-61,0),TP(-112,22),TP(-112,0),Slate);
+        Tail.Tri(TP(-64,0),TP(-107,17),TP(-107,0),Ink);
+        Tail.Install(Owner,RavenRoot,*FString::Printf(TEXT("RavenTail%d"),Side));
         auto* Shoulder=Node(*FString::Printf(TEXT("RavenShoulder%d"),Side),RavenRoot,FVector(3,Side*11,10));
-        if (Side<0) RavenLeftShoulder=Shoulder; else RavenRightShoulder=Shoulder;
+        if (Side<0) OutLeftShoulder=Shoulder; else OutRightShoulder=Shoulder;
         auto W = [Side](double X,double Y,double Z=0) { return FVector(X,Side*Y*1.4,Z); };
         FShardMesh Wing;
         Wing.Fold(W(17,0),W(12,39),W(-25,43),W(-30,5),2.8,Ink);
@@ -98,14 +105,13 @@ void ABorn2FlapFlightPawn::BuildRavenCrow()
         // Smaller covert plates retain the rectangular inner-wing impression.
         for (int I=0; I<5; ++I)
             Wing.Fold(W(8-I*6,9),W(12-I*6,18),W(3-I*6,41),W(1-I*6,25),2.1,Slate*.65f);
-        Wing.Install(this,Shoulder,*FString::Printf(TEXT("RavenWing%d"),Side));
+        Wing.Install(Owner,Shoulder,*FString::Printf(TEXT("RavenWing%d"),Side));
     }
-    BodyMesh.Install(this,RavenRoot,TEXT("RavenBody"));
+    BodyMesh.Install(Owner,RavenRoot,TEXT("RavenBody"));
+    return RavenRoot;
 }
 
-void ABorn2FlapFlightPawn::SelectBirdModel(int32 Index)
+void ABorn2FlapFlightPawn::BuildRavenCrow()
 {
-    BirdModel=FMath::Clamp(Index,0,1);
-    if (PrototypeRoot) PrototypeRoot->SetVisibility(BirdModel==1,true);
-    if (RavenRoot) RavenRoot->SetVisibility(BirdModel==0,true);
+    RavenRoot = Born2FlapRaven::Build(this, VisualRoot, RavenLeftShoulder, RavenRightShoulder);
 }

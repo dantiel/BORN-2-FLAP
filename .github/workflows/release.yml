@@ -1,6 +1,6 @@
 name: Release packaging
 
-# Builds and attaches distributable artifacts (macOS .dmg + Windows .zip) to a
+# Builds and attaches distributable artifacts (macOS .dmg + Windows .zip/.exe) to a
 # GitHub Release. Runs on self-hosted runners because Unreal Engine does not fit
 # on the 14 GB disk of GitHub-hosted runners, and the Haskell native library
 # must be compiled natively on each platform (no practical cross-compile).
@@ -13,27 +13,61 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to build
+        required: true
+        type: string
+      platform:
+        description: Platform to package
+        type: choice
+        options: [windows, macos, both]
+        default: windows
+
+permissions:
+  contents: write
 
 jobs:
   macos-dmg:
+    if: github.event_name == 'push' || inputs.platform == 'macos' || inputs.platform == 'both'
     runs-on: [self-hosted, macOS, ARM64]
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+          lfs: true
       - name: Package macOS .dmg
-        run: bash Tools/package-mac.sh "${{ github.ref_name }}"
+        run: bash Tools/package-mac.sh "$RELEASE_TAG"
       - name: Upload to release
         uses: softprops/action-gh-release@v2
         with:
-          files: build/release/${{ github.ref_name }}/*.dmg
+          tag_name: ${{ env.RELEASE_TAG }}
+          draft: true
+          fail_on_unmatched_files: true
+          files: build/release/${{ env.RELEASE_TAG }}/*.dmg
 
   windows-exe:
+    if: github.event_name == 'push' || inputs.platform == 'windows' || inputs.platform == 'both'
     runs-on: [self-hosted, Windows, X64]
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+          lfs: true
       - name: Package Windows build
-        shell: pwsh
-        run: Tools/package-win.ps1 -Tag "${{ github.ref_name }}"
+        shell: powershell
+        run: Tools/package-win.ps1 -Tag $env:RELEASE_TAG
       - name: Upload to release
         uses: softprops/action-gh-release@v2
         with:
-          files: build/release/${{ github.ref_name }}/*.zip
+          tag_name: ${{ env.RELEASE_TAG }}
+          draft: true
+          fail_on_unmatched_files: true
+          files: |
+            build/release/${{ env.RELEASE_TAG }}/*.zip
+            build/release/${{ env.RELEASE_TAG }}/*-extract.exe
+            build/release/${{ env.RELEASE_TAG }}/*.sha256
