@@ -39,6 +39,7 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     bool IsFlightSettingsOpen() const { return SettingsWidget.IsValid(); }
     bool IsFlying() const { return bFlying; }
     bool IsHealthy() const { return bHealthy; }
+    bool IsBlindFlight() const { return bBlind; }
     float GetAltitude() const;
     float GetSpeed() const;
     float GetEffort() const { return Throttle; }
@@ -86,7 +87,7 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     void LoadFlightPreferences();
     void SaveFlightPreferences();
     float Throttle = 0, RollInput = 0, YawInput = 0, PitchInput = 0, LeftFlap = 0, RightFlap = 0, BatterySoc = 1;
-    bool bFlying = false, bHealthy = false, bVectors = false, bReturning = false;
+    bool bFlying = false, bHealthy = false, bVectors = false, bReturning = false, bBlind = false;
     FVector AeroForce = FVector::ZeroVector, AeroMoment = FVector::ZeroVector;
     int32 SafetyResets = 0, MathFailures = 0, BoundaryReturns = 0;
     // The integration test uses the actual pawn/controller/Chaos path.
@@ -107,6 +108,7 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
                    FVector NormalImpulse, const FHitResult &Hit);
     bool StepMath(float DeltaSeconds);
     void UpdateAeroAudio(float DeltaSeconds);
+    void SetBlindFlight(bool bOn);
     void CheckFlightTest();
     bool bHandlingTest = false;
     double TestLeftRecovery = 0, TestRightRecovery = 0;
