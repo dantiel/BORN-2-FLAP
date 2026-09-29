@@ -153,7 +153,7 @@ def pbr_material(name, color=None, diffuse=None, normal=None, rough=0.8,
 
 def water_material(name, color, rough=0.08, specular=0.6, opacity=0.85,
                    swell_scale=0.003, swell_amp=0.6, ripple_amp=0.06,
-                   shore_color=(0.05, 0.30, 0.32), waves=None):
+                   shore_color=(0.03, 0.22, 0.25), waves=None):
     """Translucent ocean surface with real vertex-displaced parallel swells.
 
     A three-octave travelling normal (long swell + chop + fine glitter ripple)
@@ -181,14 +181,16 @@ def water_material(name, color, rough=0.08, specular=0.6, opacity=0.85,
     p = node(m, 'WorldPosition')
     t = node(m, 'Time')
     # Shore fade: turquoise shallows grade into open-water colour with distance.
-    bc = custom(m, '''float s=saturate((P.y-10000.0)/8000.0);
+    bc = custom(m, '''float s=saturate((P.y-10000.0)/4000.0);
 return lerp(float3(%.6g,%.6g,%.6g), float3(%.6g,%.6g,%.6g), s);''' % (
         shore_color[0], shore_color[1], shore_color[2],
         color[0], color[1], color[2]), {'P': p})
     output(bc, 'BASE_COLOR')
     output(node(m, 'Constant', r=rough), 'ROUGHNESS')
     output(node(m, 'Constant', r=specular), 'SPECULAR')
-    output(node(m, 'Constant', r=opacity), 'OPACITY')
+    op = custom(m, '''float s=saturate((P.y-10000.0)/4000.0);
+return lerp(%.6g, %.6g, s);''' % (opacity * 0.7, opacity), {'P': p}, 1)
+    output(op, 'OPACITY')
     # Three-octave travelling normal: long swell, chop, and fine glitter ripple.
     n = custom(m, '''float2 q=P.xy*%.6g;
 float2 n=float2(cos(q.x*0.8+q.y*0.42+T*0.9),sin(q.y*1.1-q.x*0.3-T*0.7))*%.6g;
@@ -215,7 +217,7 @@ return normalize(float3(n,1));''' % (swell_scale, swell_amp, swell_amp * 0.36, r
     # Real vertex-displaced parallel swells: the surface rolls shoreward (-Y),
     # amplitude ramping from flat at the waterline to full offshore. This is what
     # makes the sea actually undulate instead of merely shimmering per-pixel.
-    wpo = custom(m, '''float shore=smoothstep(10000.0,16000.0,P.y);
+    wpo = custom(m, '''float shore=smoothstep(10000.0,14000.0,P.y);
 float h=sin(P.y*0.0016+T*0.85)*80.0;
 h+=sin(P.y*0.0028+T*1.35+sin(P.x*0.00035)*1.8)*40.0;
 h+=sin(P.y*0.0041-T*1.9)*18.0;
@@ -250,22 +252,33 @@ def sand_material(name, diffuse, normal, rough=0.8, rough_tex=None, tiling_cm=30
         output(node(m, 'Constant', r=rough), 'ROUGHNESS')
     ns = sample_tex(m, normal, ('world', tiling_cm), normal=True)
     p = node(m, 'WorldPosition')
-    code = '''float2 q=P.xy*%.6g;
-float rx=sin(q.x*1.0+q.y*0.6)*0.5+sin(q.x*2.3-q.y*1.7)*0.25+sin(q.x*4.7+q.y*3.1)*0.12;
-float ry=sin(q.y*1.1-q.x*0.4)*0.5+sin(q.y*2.7+q.x*1.3)*0.25+sin(q.y*4.3-q.x*2.1)*0.12;
+    # Irregular (non-sinusoidal) relief via UE value-noise nodes: fine grain
+    # (two decorrelated samples for x/y) plus coarse wind streaks elongated
+    # along the shore (X) so the sand reads wind-and-sea-trodden, not sine.
+    gx = node(m, 'Multiply'); wire(p, gx, 'A'); gx.set_editor_property('const_b', relief_scale)
+    nz_gx = node(m, 'Noise', levels=2, output_min=-1.0, output_max=1.0); wire(gx, nz_gx, '')
+    gy = node(m, 'Multiply'); wire(p, gy, 'A'); gy.set_editor_property('const_b', relief_scale * 1.7)
+    nz_gy = node(m, 'Noise', levels=2, output_min=-1.0, output_max=1.0); wire(gy, nz_gy, '')
+    wv = node(m, 'Constant3Vector', constant=u.LinearColor(0.0009, 0.006, 0.006))
+    ws = node(m, 'Multiply'); wire(p, ws, 'A'); wire(wv, ws, 'B')
+    nz_w = node(m, 'Noise', levels=2, output_min=-1.0, output_max=1.0); wire(ws, nz_w, '')
+    code = '''float rx=NX*%.6g + W*0.2;
+float ry=NY*%.6g + W*0.55;
 float3 tn=normalize(float3(TN.x*2.0-1.0, TN.y*2.0-1.0, saturate(TN.z*2.0-1.0)+0.25));
-float3 r=normalize(float3(tn.x+rx*%.6g, tn.y+ry*%.6g, 1.0));
+float3 r=normalize(float3(tn.x+rx, tn.y+ry, 1.0));
 return normalize(float3(lerp(0.0, r.x, %.6g), lerp(0.0, r.y, %.6g), 1.0));
-''' % (relief_scale, relief_strength, relief_strength, normal_strength, normal_strength)
+''' % (relief_strength, relief_strength, normal_strength, normal_strength)
     n = node(m, 'Custom', code=code,
              output_type=u.CustomMaterialOutputType.CMOT_FLOAT3)
     pins = []
-    for k in ('P', 'TN'):
+    for k in ('NX', 'NY', 'W', 'TN'):
         pin = u.CustomInput()
         pin.set_editor_property('input_name', k)
         pins.append(pin)
     n.set_editor_property('inputs', pins)
-    wire(p, n, 'P')
+    wire(nz_gx, n, 'NX')
+    wire(nz_gy, n, 'NY')
+    wire(nz_w, n, 'W')
     wire(ns, n, 'TN', 'RGB')
     output(n, 'NORMAL')
     lib.recompile_material(m)
@@ -653,6 +666,24 @@ for i in range(150):
 # A dense fir copse anchors the far tip, where the beach meets the water.
 for i in range(45):
     x = rng.uniform(42800, 44900)
+    y = rng.uniform(1500, 7200)
+    mesh = rng.choice(foliage_meshes['Fir'])
+    foliage('Dune-end fir copse', (x, y, 0), mesh, rng.uniform(260, 640), rot=(0, rng.uniform(0, 360), 0), ground_z=0)
+# Mirrored lush dune vegetation at the west end of the beach.
+for i in range(150):
+    x = rng.uniform(-44900, -39700)
+    y = rng.uniform(-900, 8600)
+    kind = rng.choice(('Grass', 'Grass', 'Grass', 'Fir', 'Fir', 'Rock'))
+    mesh = rng.choice(foliage_meshes[kind])
+    if kind == 'Fir':
+        h = rng.uniform(200, 540)
+    elif kind == 'Rock':
+        h = rng.uniform(40, 130)
+    else:
+        h = rng.uniform(50, 230)
+    foliage('Dune-end lush', (x, y, 0), mesh, h, rot=(0, rng.uniform(0, 360), 0), ground_z=0)
+for i in range(45):
+    x = rng.uniform(-44900, -42800)
     y = rng.uniform(1500, 7200)
     mesh = rng.choice(foliage_meshes['Fir'])
     foliage('Dune-end fir copse', (x, y, 0), mesh, rng.uniform(260, 640), rot=(0, rng.uniform(0, 360), 0), ground_z=0)
