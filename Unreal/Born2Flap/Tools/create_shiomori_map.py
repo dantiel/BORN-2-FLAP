@@ -36,6 +36,22 @@ def output(n, prop, pin=''):
     lib.connect_material_property(n, pin, getattr(u.MaterialProperty, 'MP_' + prop))
 
 
+def custom(m, code, inputs, size=3):
+    """Custom HLSL node with named inputs (mirrors create_ravenstonefield_assets.py)."""
+    n = node(m, 'Custom', code=code,
+             output_type=getattr(u.CustomMaterialOutputType,
+                                 'CMOT_FLOAT' + (str(size) if size > 1 else '1')))
+    pins = []
+    for k in inputs:
+        pin = u.CustomInput()
+        pin.set_editor_property('input_name', k)
+        pins.append(pin)
+    n.set_editor_property('inputs', pins)
+    for k, v in inputs.items():
+        wire(v, n, k)
+    return n
+
+
 def load_texture(subdir, stem, name, normal=False, srgb=True):
     src = ROOT / subdir / (stem + '.jpg')
     if not src.exists():
@@ -77,7 +93,7 @@ def sample_tex(m, tex, tiling=None, normal=False):
             mask.set_editor_property('r', True)
             mask.set_editor_property('g', True)
             mask.set_editor_property('b', False)
-            wire(wp, mask, '', 'XYZ')
+            wire(wp, mask, 'Input')
             wire(mask, sc, 'A')
         else:
             sc.set_editor_property('const_b', val)
@@ -108,7 +124,7 @@ def pbr_material(name, color=None, diffuse=None, normal=None, rough=0.8,
         wp = node(m, 'WorldPosition')
         sc = node(m, 'Multiply')
         sc.set_editor_property('const_b', noise_var)
-        wire(wp, sc, 'A', 'XYZ')
+        wire(wp, sc, 'A')
         nz = node(m, 'Noise', levels=2, output_min=0.85, output_max=1.0)
         wire(sc, nz, 'Position')
         nm = node(m, 'Multiply')
@@ -135,54 +151,57 @@ def pbr_material(name, color=None, diffuse=None, normal=None, rough=0.8,
     return m
 
 
-def water_material(name, color, rough, specular, ripple, fine, wave_strength=0.35,
-                   fine_strength=0.18, waves=None, wave_repeats=300.0, wave_speed=-0.06):
+def water_material(name, color, rough, specular, scatter, absorb, phase_g=0.25,
+                   opacity=0.035, swell_scale=0.006, swell_amp=1.0, waves=None):
+    """Single Layer Water surface (matches Ravenstonefield's M_LakeWater).
+
+    Depth-graded colour comes from the scattering/absorption pair; the normal is
+    a layered procedural swell so the surface refracts realistically without
+    relying on mesh UVs (the bay plane is a single low-poly quad).
+    """
     path = '/Game/Shiomori/Materials/M_' + name
     m = u.load_asset(path) if ela.does_asset_exist(path) else assets.create_asset(
         'M_' + name, '/Game/Shiomori/Materials', u.Material, u.MaterialFactoryNew())
     lib.delete_all_material_expressions(m)
+    m.set_editor_property('shading_model', u.MaterialShadingModel.MSM_SINGLE_LAYER_WATER)
     output(node(m, 'Constant3Vector', constant=u.LinearColor(*color)), 'BASE_COLOR')
     output(node(m, 'Constant', r=rough), 'ROUGHNESS')
     output(node(m, 'Constant', r=specular), 'SPECULAR')
-    flat = node(m, 'Constant3Vector', constant=u.LinearColor(0, 0, 1))
-    # Parallel swell: a directional wave normal, tiled and panned toward the
-    # shore (-V, i.e. -Y) so long crests roll in as the surf approaches.
-    n = flat
+    output(node(m, 'Constant', r=opacity), 'OPACITY')
+    p = node(m, 'WorldPosition')
+    t = node(m, 'Time')
+    # Two-octave travelling swell (world-space), then an optional panned wave
+    # normal for long crests rolling shoreward.
+    n = custom(m, '''float2 q=P.xy*%.6g;
+float2 n=float2(cos(q.x+q.y*.39+T*1.3),sin(q.y*1.13-q.x*.27-T*.85))*.055;
+n+=float2(sin(q.x*2.3+q.y*1.2-T*1.7),cos(q.y*2.1-q.x*.8+T*1.2))*.022;
+return normalize(float3(n*%.6g,1));''' % (swell_scale, swell_amp), {'P': p, 'T': t})
     if waves is not None:
         uv = node(m, 'TextureCoordinate')
         rep = node(m, 'Multiply')
-        rep.set_editor_property('const_b', wave_repeats)
+        rep.set_editor_property('const_b', 300.0)
         wire(uv, rep, 'A')
-        pw = node(m, 'Panner', speed_x=0.0, speed_y=wave_speed)
+        pw = node(m, 'Panner', speed_x=0.0, speed_y=-0.06)
         wire(rep, pw, 'Coordinate')
         sw = node(m, 'TextureSample', texture=waves)
         sw.set_editor_property('sampler_type', u.MaterialSamplerType.SAMPLERTYPE_NORMAL)
         wire(pw, sw, 'Coordinates')
-        bw = node(m, 'LinearInterpolate', const_alpha=0.55)
-        wire(flat, bw, 'A')
+        bw = node(m, 'LinearInterpolate', const_alpha=0.45)
+        wire(n, bw, 'A')
         wire(sw, bw, 'B', 'RGB')
         n = bw
-    p1 = node(m, 'Panner', speed_x=0.02, speed_y=0.028)
-    s1 = node(m, 'TextureSample', texture=ripple)
-    s1.set_editor_property('sampler_type', u.MaterialSamplerType.SAMPLERTYPE_NORMAL)
-    wire(p1, s1, 'Coordinates')
-    b1 = node(m, 'LinearInterpolate', const_alpha=wave_strength)
-    wire(n, b1, 'A')
-    wire(s1, b1, 'B', 'RGB')
-    p2 = node(m, 'Panner', speed_x=-0.014, speed_y=0.01)
-    s2 = node(m, 'TextureSample', texture=fine)
-    s2.set_editor_property('sampler_type', u.MaterialSamplerType.SAMPLERTYPE_NORMAL)
-    wire(p2, s2, 'Coordinates')
-    b2 = node(m, 'LinearInterpolate', const_alpha=fine_strength)
-    wire(b1, b2, 'A')
-    wire(s2, b2, 'B', 'RGB')
-    output(b2, 'NORMAL')
-    fres = node(m, 'Fresnel')
-    sheen = node(m, 'Multiply')
-    tint = node(m, 'Constant3Vector', constant=u.LinearColor(0.55, 0.72, 0.85))
-    wire(fres, sheen, 'A')
-    wire(tint, sheen, 'B')
-    output(sheen, 'EMISSIVE_COLOR')
+    output(n, 'NORMAL')
+    water = node(m, 'SingleLayerWaterMaterialOutput')
+    wire(node(m, 'Constant3Vector', constant=u.LinearColor(*scatter)), water, 'ScatteringCoefficients')
+    wire(node(m, 'Constant3Vector', constant=u.LinearColor(*absorb)), water, 'AbsorptionCoefficients')
+    wire(node(m, 'Constant', r=phase_g), water, 'PhaseG')
+    # Subtle animated caustics on the seabed behind the surface.
+    caust = custom(m, '''float2 q=P.xy*.032;
+q+=float2(sin(q.y*.63+T*.37),sin(q.x*.71-T*.31))*.7;
+float a=pow(1-abs(sin(q.x+sin(q.y+T*.5))),16);
+float b=pow(1-abs(sin(q.y*.93+sin(q.x-T*.43))),16);
+return 1+(a+b)*0.4;''', {'P': p, 'T': t}, 1)
+    wire(caust, water, 'ColorScaleBehindWater')
     lib.recompile_material(m)
     ela.save_asset(path)
     return m
@@ -200,7 +219,6 @@ concrete_r = load_texture('concrete_floor_02', 'Rough', 'T_Concrete_Rough', srgb
 basalt_d = load_texture('aerial_rocks_02', 'Diffuse', 'T_Basalt_Diffuse')
 basalt_n = load_texture('aerial_rocks_02', 'nor_dx', 'T_Basalt_Normal', normal=True, srgb=False)
 basalt_r = load_texture('aerial_rocks_02', 'Rough', 'T_Basalt_Rough', srgb=False)
-ripple_n = u.load_asset('/Game/Nature/Textures/T_rock_04_nor_dx') or sand_n
 
 
 def opt_texture(subdir, stem, name, normal=False, srgb=True):
@@ -258,11 +276,13 @@ mats['Orange'] = pbr_material('Orange', color=(0.8, 0.25, 0.075), rough=0.45,
 mats['Window'] = pbr_material('Window', color=(0.04, 0.1, 0.13), rough=0.12,
                               metallic=0.85, specular=1.0)
 mats['Bush'] = pbr_material('Bush', color=(0.09, 0.24, 0.13), rough=0.85, specular=0.4)
-mats['Water'] = water_material('Water', (0.02, 0.14, 0.19), 0.12, 0.8, ripple_n, sand_n,
-                               waves=wave_n)
-mats['Shallows'] = water_material('Shallows', (0.03, 0.3, 0.33), 0.2, 0.6, ripple_n, sand_n,
-                                  wave_strength=0.25, fine_strength=0.14, waves=wave_n,
-                                  wave_repeats=500.0, wave_speed=-0.09)
+mats['Water'] = water_material('Water', (0.01, 0.05, 0.09), 0.08, 0.5,
+                               scatter=(0.002, 0.005, 0.008),
+                               absorb=(0.0035, 0.0017, 0.0010), waves=wave_n)
+mats['Shallows'] = water_material('Shallows', (0.02, 0.18, 0.20), 0.12, 0.5,
+                                  scatter=(0.002, 0.006, 0.008),
+                                  absorb=(0.0018, 0.0008, 0.0005),
+                                  swell_scale=0.01, swell_amp=0.6, waves=wave_n)
 mats['Foam'] = pbr_material('Foam', color=(0.9, 0.94, 0.93), rough=0.35, specular=0.3)
 
 # Translucent foam with soft, noisy edges.
@@ -275,7 +295,7 @@ output(node(foam, 'Constant', r=0.35), 'ROUGHNESS')
 wp = node(foam, 'WorldPosition')
 sc = node(foam, 'Multiply')
 sc.set_editor_property('const_b', 0.02)
-wire(wp, sc, 'A', 'XYZ')
+wire(wp, sc, 'A')
 nz = node(foam, 'Noise', levels=3, output_min=0.0, output_max=1.0)
 wire(sc, nz, 'Position')
 op = node(foam, 'Multiply')
@@ -298,7 +318,7 @@ output(node(cloud, 'Constant', r=0.6), 'ROUGHNESS')
 wp = node(cloud, 'WorldPosition')
 sc = node(cloud, 'Multiply')
 sc.set_editor_property('const_b', 0.004)
-wire(wp, sc, 'A', 'XYZ')
+wire(wp, sc, 'A')
 nz = node(cloud, 'Noise', levels=4, output_min=0.2, output_max=1.0)
 wire(sc, nz, 'Position')
 op = node(cloud, 'Multiply')
