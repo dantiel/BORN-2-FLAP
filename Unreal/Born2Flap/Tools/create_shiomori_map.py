@@ -201,6 +201,16 @@ return normalize(float3(n,1));''' % (swell_scale, swell_amp, swell_amp * 0.36, r
         wire(sw, bw, 'B', 'RGB')
         n = bw
     output(n, 'NORMAL')
+    # Real vertex-displaced parallel swells: the surface rolls shoreward (-Y),
+    # amplitude ramping from flat at the waterline to full offshore. This is what
+    # makes the sea actually undulate instead of merely shimmering per-pixel.
+    wpo = custom(m, '''float shore=smoothstep(10000.0,22000.0,P.y);
+float h=sin(P.y*0.0016+T*0.85)*80.0;
+h+=sin(P.y*0.0028+T*1.35+sin(P.x*0.00035)*1.8)*40.0;
+h+=sin(P.y*0.0041-T*1.9)*18.0;
+h+=sin(P.x*0.0009+T*0.6)*22.0;
+return float3(0.0,0.0,h*shore);''', {'P': p, 'T': t}, 3)
+    output(wpo, 'WORLD_POSITION_OFFSET')
     water = node(m, 'SingleLayerWaterMaterialOutput')
     wire(node(m, 'Constant3Vector', constant=u.LinearColor(*scatter)), water, 'ScatteringCoefficients')
     wire(node(m, 'Constant3Vector', constant=u.LinearColor(*absorb)), water, 'AbsorptionCoefficients')
@@ -369,6 +379,117 @@ foliage_meshes = {
 count = 0
 
 
+# --------------------------------------------------------------------------- #
+# Procedural mesh helpers: a subdivided ocean plane for real vertex-displaced  #
+# swells, and smooth shoreline ribbons that replace the old rectangular strips. #
+# --------------------------------------------------------------------------- #
+def build_mesh(name, verts, tris, uvs=None):
+    """Create/rebuild /Game/Shiomori/Meshes/SM_<name> from a triangle soup.
+
+    verts are (x, y, z) world-centimetre triples; tris are (i0, i1, i2) index
+    triples wound counter-clockwise (+Z normal, faces up); uvs is an optional
+    parallel list of (u, v) pairs for UV0. World-space materials ignore UVs, so
+    the channel is optional, but it keeps the mesh build well-formed.
+    """
+    path = '/Game/Shiomori/Meshes/SM_' + name
+    if ela.does_asset_exist(path):
+        sm = u.load_asset(path)
+    else:
+        ela.make_directory('/Game/Shiomori/Meshes')
+        sm = assets.create_asset('SM_' + name, '/Game/Shiomori/Meshes', u.StaticMesh, None)
+    md = sm.create_static_mesh_description()
+    md.reserve_new_vertices(len(verts))
+    md.reserve_new_vertex_instances(len(verts))
+    md.reserve_new_polygons(len(tris))
+    pg = md.create_polygon_group()
+    vids = []
+    for (x, y, z) in verts:
+        v = md.create_vertex()
+        md.set_vertex_position(v, u.Vector(x, y, z))
+        vids.append(v)
+    insts = []
+    for v in vids:
+        insts.append(md.create_vertex_instance(v))
+    if uvs is not None:
+        for k, inst in enumerate(insts):
+            md.set_vertex_instance_uv(inst, u.Vector2D(uvs[k][0], uvs[k][1]), 0)
+    for (a, b, c) in tris:
+        md.create_triangle(pg, [insts[a], insts[b], insts[c]])
+    sm.build_from_static_mesh_descriptions([md])
+    ela.save_asset(path)
+    return sm
+
+
+def place_mesh(label, p, mesh, mat, rot=(0, 0, 0), collision=False):
+    """Spawn a pre-built (world-sized) mesh actor; no scaling applied."""
+    global count
+    a = u.EditorLevelLibrary.spawn_actor_from_class(u.StaticMeshActor, u.Vector(*p), u.Rotator(*rot))
+    a.set_actor_label(label)
+    a.set_editor_property('tags', [label])
+    c = a.static_mesh_component
+    c.set_static_mesh(mesh)
+    c.set_material(0, mat)
+    c.set_collision_profile_name('BlockAll' if collision else 'NoCollision')
+    count += 1
+    return a
+
+
+def waterline(x):
+    return 10000 + 300 * math.sin(x * 0.00042 + 1.7) + 190 * math.sin(x * 0.0011 + 4.2) + 80 * math.sin(x * 0.0024 + 0.6)
+
+
+def shore_detail(x):
+    """High-frequency organic jitter so the waterline reads as a natural coast,
+    not a clean sine curve."""
+    return 90 * math.sin(x * 0.0037 + 1.1) + 55 * math.sin(x * 0.0079 + 3.4) + 30 * math.sin(x * 0.0143 + 5.7)
+
+
+def make_ocean_grid(ncols=384, nrows=384, half=200000.0, cy=55000.0, z=-50.0):
+    """Subdivided 4 km x 4 km plane for vertex-displaced swells (~10 m spacing)."""
+    verts, uvs, tris = [], [], []
+    for j in range(nrows):
+        y = cy - half + (2.0 * half) * j / (nrows - 1)
+        for i in range(ncols):
+            x = -half + (2.0 * half) * i / (ncols - 1)
+            verts.append((x, y, z))
+            uvs.append((i / (ncols - 1), j / (nrows - 1)))
+    stride = ncols
+    for j in range(nrows - 1):
+        for i in range(ncols - 1):
+            a = j * stride + i
+            tris.append((a, a + 1, a + stride + 1))
+            tris.append((a, a + stride + 1, a + stride))
+    return verts, tris, uvs
+
+
+def make_ribbon(x0, x1, ncols, nrows, y_inshore, y_offshore, z_inshore, z_offshore, jitter=0.0):
+    """A smooth strip following the waterline. y/z are lerped inshore->offshore."""
+    verts, uvs, tris = [], [], []
+    for j in range(nrows + 1):
+        t = j / nrows
+        for i in range(ncols + 1):
+            x = x0 + (x1 - x0) * i / ncols
+            wl = waterline(x) + shore_detail(x)
+            y = y_inshore + (y_offshore - y_inshore) * t
+            if jitter:
+                y += jitter * math.sin(x * 0.0053 + t * 2.1)
+            z = z_inshore + (z_offshore - z_inshore) * t
+            verts.append((x, wl + y, z))
+            uvs.append((i / ncols, t))
+    stride = ncols + 1
+    for j in range(nrows):
+        for i in range(ncols):
+            a = j * stride + i
+            tris.append((a, a + 1, a + stride + 1))
+            tris.append((a, a + stride + 1, a + stride))
+    return verts, tris, uvs
+
+
+ocean_mesh = build_mesh('OceanGrid', *make_ocean_grid())
+wet_sand_mesh = build_mesh('ShoreWetSand', *make_ribbon(-45000.0, 45000.0, 720, 5, -550.0, 300.0, -5.0, -90.0))
+foam_mesh = build_mesh('ShoreFoam', *make_ribbon(-45000.0, 45000.0, 900, 3, 120.0, 440.0, -47.0, -47.0, jitter=40.0))
+
+
 def part(label, p, size, mat='Concrete', shape='Cube', rot=(0, 0, 0), collision=True):
     global count
     a = u.EditorLevelLibrary.spawn_actor_from_class(u.StaticMeshActor, u.Vector(*p), u.Rotator(*rot))
@@ -414,29 +535,15 @@ def foliage(label, p, mesh, height, rot=(0, 0, 0), ground_z=None):
 # Coordinates: sea to +Y, promenade to -Y, 900 m beach running east-west.
 part('Long beach / clear flight sand', (0, 4400, -70), (90000, 11200, 140), 'Sand')
 part('Seabed', (0, 45000, -650), (250000, 200000, 400), 'WetSand')
-part('Open bay', (0, 55000, -50), (400000, 400000, 1), 'Water', 'Plane', collision=False)
-# Natural shoreline: a meandering waterline of overlapping wet-sand tongues that
-# slope from the dry beach into the surf, over a shallow sand shelf that grades
-# the water from turquoise to deep blue. This replaces the old straight
-# "ruler" strips with a scalloped, organic transition.
-def waterline(x):
-    return 10000 + 300 * math.sin(x * 0.00042 + 1.7) + 190 * math.sin(x * 0.0011 + 4.2) + 80 * math.sin(x * 0.0024 + 0.6)
-
+# Real vertex-displaced ocean surface (subdivided grid) instead of a flat quad.
+place_mesh('Open bay', (0, 0, 0), ocean_mesh, mats['Water'])
+# Natural shoreline: a single smooth wet-sand ribbon sloping into the surf and a
+# continuous rolling foam line, both following the meandering waterline.
+place_mesh('Wet-sand ribbon', (0, 0, 0), wet_sand_mesh, mats['WetSand'])
+place_mesh('Surf foam ribbon', (0, 0, 0), foam_mesh, mats['Foam'])
 # Shallow sand shelf: the seabed rises toward the beach so the water is shallow
 # (turquoise) inshore and deep (blue) offshore.
 part('Shallow sand shelf', (0, 17500, -225), (90000, 15000, 310), 'WetSand', rot=(0, 0, -1.18), collision=False)
-# Meandering wet-sand tongues and broken foam that follow the waterline.
-for i in range(110):
-    x = -45000 + i * 820 + rng.uniform(-260, 260)
-    wl = waterline(x)
-    w = rng.uniform(600, 1700)
-    d = rng.uniform(300, 620)
-    roll = math.degrees(math.atan(55.0 / d))
-    part('Wet-sand tongue', (x, wl + 60, -26), (w, d, 3), 'WetSand',
-         rot=(0, rng.uniform(-14, 14), -roll), collision=False)
-    part('Broken surf line', (x + rng.uniform(-160, 160), wl + rng.uniform(20, 170), -46),
-         (rng.uniform(350, 1300), rng.uniform(25, 90), 1), 'Foam', 'Plane',
-         rot=(0, rng.uniform(-20, 20), 0), collision=False)
 part('Raised promenade', (0, -2650, 50), (90000, 1700, 200), 'Sterile')
 part('Industrial hinterland', (0, -27000, -100), (150000, 48000, 500), 'Industry')
 # Six continuous, shallow stair treads run the entire beach edge.
@@ -488,14 +595,26 @@ for i in range(180):
     mesh = rng.choice(foliage_meshes[kind])
     h = rng.uniform(60, 260) if kind == 'Grass' else rng.uniform(120, 320) if kind == 'Fir' else rng.uniform(50, 160)
     foliage('Backshore scrub', (x, y, 150), mesh, h, rot=(0, rng.uniform(0, 360), 0), ground_z=150)
-# A bushy end of the beach; the main sand stays intentionally uncluttered.
-for i in range(65):
-    x = rng.uniform(40200, 44900)
-    y = rng.uniform(-800, 7500)
-    kind = rng.choice(('Grass', 'Grass', 'Fir', 'Fir'))
+# Lush dune vegetation at the east end of the beach: a layered tangle of tall
+# firs, dense dune grass, low scrub and a few rocks spilling toward the surf.
+for i in range(150):
+    x = rng.uniform(39700, 44900)
+    y = rng.uniform(-900, 8600)
+    kind = rng.choice(('Grass', 'Grass', 'Grass', 'Fir', 'Fir', 'Rock'))
     mesh = rng.choice(foliage_meshes[kind])
-    h = rng.uniform(70, 200)
-    foliage('Dune-end bush', (x, y, 0), mesh, h, rot=(0, rng.uniform(0, 360), 0), ground_z=0)
+    if kind == 'Fir':
+        h = rng.uniform(200, 540)
+    elif kind == 'Rock':
+        h = rng.uniform(40, 130)
+    else:
+        h = rng.uniform(50, 230)
+    foliage('Dune-end lush', (x, y, 0), mesh, h, rot=(0, rng.uniform(0, 360), 0), ground_z=0)
+# A dense fir copse anchors the far tip, where the beach meets the water.
+for i in range(45):
+    x = rng.uniform(42800, 44900)
+    y = rng.uniform(1500, 7200)
+    mesh = rng.choice(foliage_meshes['Fir'])
+    foliage('Dune-end fir copse', (x, y, 0), mesh, rng.uniform(260, 640), rot=(0, rng.uniform(0, 360), 0), ground_z=0)
 # Volcanic island, to the left, curves around the bay.
 part('Basalt island foundation', (-37000, 26000, -600), (17000, 27000, 4400), 'Basalt', 'Sphere')
 for i in range(60):
@@ -540,6 +659,16 @@ try:
     fog.component.set_editor_property('fog_inscattering_color', u.LinearColor(.55, .68, .82))
 except Exception:
     pass
+# Planar reflection on the water surface: real mirrored sky/building/vegetation
+# reflections for the Single Layer Water, instead of normal-shimmer alone.
+refl = u.EditorLevelLibrary.spawn_actor_from_class(u.PlanarReflection, u.Vector(0, 18000, 0), u.Rotator(0, 0, 0))
+refl.set_actor_label('Water planar reflection')
+pc = refl.get_component_by_class(u.PlanarReflectionComponent)
+if pc:
+    try:
+        pc.set_editor_property('normal_distortion_strength', 320.0)
+    except Exception:
+        pass
 # Saved viewpoints also make the generated map easy to inspect in the editor.
 for name, p, target in [('Bay overlook', (12000, -14000, 15000), (-12000, 10000, 0)),
                         ('Tidewalk', (-1500, -500, 650), (1000, -2700, 250)),
