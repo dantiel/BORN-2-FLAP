@@ -181,7 +181,7 @@ def water_material(name, color, rough=0.08, specular=0.6, opacity=0.85,
     p = node(m, 'WorldPosition')
     t = node(m, 'Time')
     # Shore fade: turquoise shallows grade into open-water colour with distance.
-    bc = custom(m, '''float s=saturate((P.y-9800.0)/14000.0);
+    bc = custom(m, '''float s=saturate((P.y-10000.0)/8000.0);
 return lerp(float3(%.6g,%.6g,%.6g), float3(%.6g,%.6g,%.6g), s);''' % (
         shore_color[0], shore_color[1], shore_color[2],
         color[0], color[1], color[2]), {'P': p})
@@ -215,13 +215,59 @@ return normalize(float3(n,1));''' % (swell_scale, swell_amp, swell_amp * 0.36, r
     # Real vertex-displaced parallel swells: the surface rolls shoreward (-Y),
     # amplitude ramping from flat at the waterline to full offshore. This is what
     # makes the sea actually undulate instead of merely shimmering per-pixel.
-    wpo = custom(m, '''float shore=smoothstep(10000.0,22000.0,P.y);
+    wpo = custom(m, '''float shore=smoothstep(10000.0,16000.0,P.y);
 float h=sin(P.y*0.0016+T*0.85)*80.0;
 h+=sin(P.y*0.0028+T*1.35+sin(P.x*0.00035)*1.8)*40.0;
 h+=sin(P.y*0.0041-T*1.9)*18.0;
 h+=sin(P.x*0.0009+T*0.6)*22.0;
 return float3(0.0,0.0,h*shore);''', {'P': p, 'T': t}, 3)
     output(wpo, 'WORLD_POSITION_OFFSET')
+    lib.recompile_material(m)
+    ela.save_asset(path)
+    return m
+
+
+def sand_material(name, diffuse, normal, rough=0.8, rough_tex=None, tiling_cm=300.0,
+                  relief_scale=0.02, relief_strength=0.6, normal_strength=0.6,
+                  tint=None):
+    """Beach sand: tiled grain normal plus a large-scale wind/sea/footprint
+    relief so the surface reads as naturally uneven, not a flat smooth plane."""
+    path = '/Game/Shiomori/Materials/M_' + name
+    m = u.load_asset(path) if ela.does_asset_exist(path) else assets.create_asset(
+        'M_' + name, '/Game/Shiomori/Materials', u.Material, u.MaterialFactoryNew())
+    lib.delete_all_material_expressions(m)
+    bc = sample_tex(m, diffuse, ('world', tiling_cm))
+    if tint is not None:
+        t = node(m, 'Constant3Vector', constant=u.LinearColor(*tint))
+        mul = node(m, 'Multiply')
+        wire(bc, mul, 'A')
+        wire(t, mul, 'B')
+        bc = mul
+    output(bc, 'BASE_COLOR')
+    if rough_tex is not None:
+        output(sample_tex(m, rough_tex, ('world', tiling_cm)), 'ROUGHNESS', 'R')
+    else:
+        output(node(m, 'Constant', r=rough), 'ROUGHNESS')
+    ns = sample_tex(m, normal, ('world', tiling_cm), normal=True)
+    p = node(m, 'WorldPosition')
+    code = '''float2 q=P.xy*%.6g;
+float rx=sin(q.x*1.0+q.y*0.6)*0.5+sin(q.x*2.3-q.y*1.7)*0.25+sin(q.x*4.7+q.y*3.1)*0.12;
+float ry=sin(q.y*1.1-q.x*0.4)*0.5+sin(q.y*2.7+q.x*1.3)*0.25+sin(q.y*4.3-q.x*2.1)*0.12;
+float3 tn=normalize(float3(TN.x*2.0-1.0, TN.y*2.0-1.0, saturate(TN.z*2.0-1.0)+0.25));
+float3 r=normalize(float3(tn.x+rx*%.6g, tn.y+ry*%.6g, 1.0));
+return normalize(float3(lerp(0.0, r.x, %.6g), lerp(0.0, r.y, %.6g), 1.0));
+''' % (relief_scale, relief_strength, relief_strength, normal_strength, normal_strength)
+    n = node(m, 'Custom', code=code,
+             output_type=u.CustomMaterialOutputType.CMOT_FLOAT3)
+    pins = []
+    for k in ('P', 'TN'):
+        pin = u.CustomInput()
+        pin.set_editor_property('input_name', k)
+        pins.append(pin)
+    n.set_editor_property('inputs', pins)
+    wire(p, n, 'P')
+    wire(ns, n, 'TN', 'RGB')
+    output(n, 'NORMAL')
     lib.recompile_material(m)
     ela.save_asset(path)
     return m
@@ -264,11 +310,10 @@ if sand_d2:
 # Build the PBR material palette.                                             #
 # --------------------------------------------------------------------------- #
 mats = {}
-mats['Sand'] = pbr_material('Sand', diffuse=sand_d, normal=sand_n, rough_tex=sand_r,
-                            tiling=('world', 150.0), normal_strength=0.5, noise_var=0.002)
-mats['WetSand'] = pbr_material('WetSand', diffuse=sand_d, normal=sand_n, rough=0.35,
-                               tiling=('world', 150.0), normal_strength=0.4,
-                               tint=(0.52, 0.47, 0.4))
+mats['Sand'] = sand_material('Sand', sand_d, sand_n, rough_tex=sand_r, tiling_cm=300.0,
+                             normal_strength=0.65)
+mats['WetSand'] = sand_material('WetSand', sand_d, sand_n, rough=0.35, tiling_cm=300.0,
+                                normal_strength=0.5, tint=(0.52, 0.47, 0.4))
 mats['Concrete'] = pbr_material('Concrete', diffuse=concrete_d, normal=concrete_n,
                                 rough_tex=concrete_r, tiling=('world', 120.0),
                                 normal_strength=0.6, noise_var=0.0015)
@@ -662,7 +707,7 @@ refl.set_actor_label('Water planar reflection')
 pc = refl.get_component_by_class(u.PlanarReflectionComponent)
 if pc:
     try:
-        pc.set_editor_property('normal_distortion_strength', 320.0)
+        pc.set_editor_property('normal_distortion_strength', 80.0)
     except Exception:
         pass
 # Saved viewpoints also make the generated map easy to inspect in the editor.
