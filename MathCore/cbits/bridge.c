@@ -21,6 +21,11 @@ extern void hs_b2f_math_destroy_firmware_vehicle(HsPtr context);
 extern HsInt32 hs_b2f_math_step_firmware_vehicle(HsPtr context, HsPtr pilot, HsPtr body, HsPtr output);
 extern HsInt32 hs_b2f_math_set_stabilization(HsPtr context, HsWord32 enabled);
 extern HsInt32 hs_b2f_math_set_wind_phase_noise(HsPtr context, HsDouble noise);
+extern HsInt32 hs_b2f_math_get_wing_shape(HsPtr context, HsWord32 capacity, HsPtr left, HsPtr right);
+
+B2F_EXPORT HsInt32 b2f_math_get_wing_shape(HsPtr context, HsWord32 capacity, HsPtr left, HsPtr right) {
+    return hs_b2f_math_get_wing_shape(context, capacity, left, right);
+}
 
 B2F_EXPORT HsWord32 b2f_math_abi_version(void) {
     /* Version probing must be safe before the RTS starts. */

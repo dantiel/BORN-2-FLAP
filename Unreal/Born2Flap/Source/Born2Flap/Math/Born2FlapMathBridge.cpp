@@ -61,6 +61,9 @@ bool FBorn2FlapMathBridge::Load()
         LoadExport<StepFirmwareVehicleFn>(LibraryHandle, TEXT("b2f_math_step_firmware_vehicle"));
     SetWindPhaseNoise =
         LoadExport<SetWindPhaseNoiseFn>(LibraryHandle, TEXT("b2f_math_set_wind_phase_noise"));
+    GetWingShape = LoadExport<GetWingShapeFn>(LibraryHandle, TEXT("b2f_math_get_wing_shape"));
+    if (!GetWingShape)
+        UE_LOG(LogTemp, Warning, TEXT("Wing deformation unavailable: rebuild the Haskell backend for wing-shape telemetry."));
 
     if (!AbiVersion || !RuntimeInit || !RuntimeShutdown || !CreateFirmwareVehicle ||
         !DestroyFirmwareVehicle || !StepFirmwareVehicle)
@@ -129,6 +132,7 @@ void FBorn2FlapMathBridge::Unload()
     DestroyFirmwareVehicle = nullptr;
     StepFirmwareVehicle = nullptr;
     SetWindPhaseNoise = nullptr;
+    GetWingShape = nullptr;
     if (LibraryHandle)
     {
         // The process owns the loader reference, not this aircraft.
@@ -146,4 +150,9 @@ bool FBorn2FlapMathBridge::Step(
 bool FBorn2FlapMathBridge::InjectWindPhaseNoise(double NoiseRadS) const
 {
     return Context && SetWindPhaseNoise && SetWindPhaseNoise(Context, NoiseRadS) != 0;
+}
+
+bool FBorn2FlapMathBridge::ReadWingShape(B2F_WingSection* Left, B2F_WingSection* Right) const
+{
+    return Context && GetWingShape && GetWingShape(Context, B2F_WING_STATIONS, Left, Right) == B2F_WING_STATIONS;
 }

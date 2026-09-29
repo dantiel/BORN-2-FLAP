@@ -14,6 +14,7 @@
 void ABorn2FlapHUD::DrawHUD()
 {
     Super::DrawHUD();
+    if(FParse::Param(FCommandLine::Get(),TEXT("B2FCoastTest"))) return;
     if (!Canvas)
         return;
     auto *Bird = Cast<ABorn2FlapFlightPawn>(GetOwningPawn());
@@ -34,10 +35,10 @@ void ABorn2FlapHUD::DrawHUD()
         const FLinearColor Ivory(.93,.91,.81), Muted(.68,.74,.70), Amber(.88,.63,.31), Ink(.014,.028,.025,.72);
         const float W = Canvas->SizeX, H = Canvas->SizeY;
         DrawRect(Amber,32,35,3,63);
-        DrawText(TEXT("B O R N  2  F L A P   /   A U T U M N"),Muted,47,33,GEngine->GetSmallFont(),.9);
-        DrawText(TEXT("RAVENSTONEFIELD"),Ivory,45,51,GEngine->GetLargeFont(),1.15);
+        DrawText(Mode->IsCoastLevel()?TEXT("B O R N  2  F L A P   /   S E A  B R E E Z E"):TEXT("B O R N  2  F L A P   /   A U T U M N"),Muted,47,33,GEngine->GetSmallFont(),.9);
+        DrawText(Mode->IsCoastLevel()?TEXT("SHIOMORI BAY"):TEXT("RAVENSTONEFIELD"),Ivory,45,51,GEngine->GetLargeFont(),1.15);
         const FVector P=Bird->GetActorLocation();
-        DrawText(ABorn2FlapValley::PlaceName(P.X,P.Y),Amber,47,85,GEngine->GetSmallFont(),.95);
+        DrawText(Mode->IsCoastLevel()?TEXT("TIDEWALK / BASALT COVE"):ABorn2FlapValley::PlaceName(P.X,P.Y),Amber,47,85,GEngine->GetSmallFont(),.95);
         DrawRect(Ink,32,H-120,425,83);
         DrawText(FString::Printf(TEXT("%5.1f m       %4.1f m/s       %.0f%% battery"),Bird->GetAltitude(),Bird->GetSpeed(),Bird->GetBattery()*100),Ivory,48,H-109,GEngine->GetMediumFont(),.9);
         DrawText(Bird->GetFlightStatus(),Muted,48,H-79,GEngine->GetSmallFont(),.9);
