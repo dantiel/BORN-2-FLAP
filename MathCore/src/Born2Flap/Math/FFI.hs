@@ -33,9 +33,10 @@ foreign export ccall "hs_b2f_math_destroy_firmware_vehicle" b2f_math_destroy_fir
 foreign export ccall "hs_b2f_math_step_firmware_vehicle" b2f_math_step_firmware_vehicle :: Ptr () -> Ptr () -> Ptr () -> Ptr () -> IO Int32
 foreign export ccall "hs_b2f_math_set_stabilization" b2f_math_set_stabilization :: Ptr () -> Word32 -> IO Int32
 foreign export ccall "hs_b2f_math_set_wind_phase_noise" b2f_math_set_wind_phase_noise :: Ptr () -> Double -> IO Int32
+foreign export ccall "hs_b2f_math_reconfigure_firmware_vehicle" b2f_math_reconfigure_firmware_vehicle :: Ptr () -> Ptr () -> IO Int32
 
 b2f_math_abi_version :: IO Word32
-b2f_math_abi_version = pure 4
+b2f_math_abi_version = pure 5
 
 b2f_math_runtime_init :: IO Int32
 b2f_math_runtime_init = pure 1
@@ -116,6 +117,24 @@ data FwConfig = FwConfig
   , cfgBatteryCapacity   :: !Double
   }
 
+-- | Live tuning profile: servo + battery + controller knobs the in-game hangar
+-- edits. Every field is an explicit double — the C++ host always sends a
+-- complete profile (no \"0 = default\" sentinel).
+data TuningConfig = TuningConfig
+  { tgServoSpeed        :: !Double  -- ^ no-load slew rate [deg/s]
+  , tgStallTorque       :: !Double  -- ^ stall torque [N·m]
+  , tgBackdrive         :: !Double  -- ^ backdrive compliance [deg/s per N·m]
+  , tgBatteryVoltage    :: !Double  -- ^ nominal voltage [V]
+  , tgBatteryResistance :: !Double  -- ^ internal resistance [Ω]
+  , tgBatteryCapacity   :: !Double  -- ^ capacity [Ah]
+  , tgFlapBaseFreqDh    :: !Double  -- ^ flap frequency ceiling [deci-Hz, 10..200]
+  , tgMountAngleDeg     :: !Double  -- ^ flap stroke centre offset (mount) [deg]
+  , tgGlideAngleDeg     :: !Double  -- ^ glide incidence [deg]
+  , tgStrokeFerocity    :: !Double  -- ^ downstroke ferocity [0..100]
+  , tgAileronScale      :: !Double  -- ^ aileron mix [0..100]
+  , tgElevatorScale     :: !Double  -- ^ elevator mix [0..100]
+  }
+
 b2f_math_create_firmware_vehicle :: Ptr () -> IO (Ptr ())
 b2f_math_create_firmware_vehicle configPointer = do
   config <- if configPointer == nullPtr
@@ -170,6 +189,61 @@ b2f_math_set_wind_phase_noise contextPointer noiseRadS
       writeIORef contextRef context
         { fwcState = (fwcState context) { fvWindPhaseNoise = noiseRadS } }
       pure 1
+
+-- | Apply a complete live tuning profile to an existing firmware-vehicle
+-- context. Servo, battery and the exposed controller knobs are swapped in
+-- place; the loop state (oscillator, strips, envelope, resonance) is kept, so
+-- edits are smooth and take effect on the next step.
+b2f_math_reconfigure_firmware_vehicle :: Ptr () -> Ptr () -> IO Int32
+b2f_math_reconfigure_firmware_vehicle contextPointer tuningPointer
+  | contextPointer == nullPtr || tuningPointer == nullPtr = pure 0
+  | otherwise = run `catch` failure
+  where
+    run = do
+      tuning <- peekTuning tuningPointer
+      contextRef <- deRefStablePtr (castPtrToStablePtr contextPointer :: StablePtr (IORef FwContext))
+      context <- readIORef contextRef
+      writeIORef contextRef (applyTuning tuning context)
+      pure 1
+    failure :: SomeException -> IO Int32
+    failure _ = pure 0
+
+peekTuning :: Ptr () -> IO TuningConfig
+peekTuning pointer = do
+  values <- mapM (peekElemOff (castPtr pointer :: Ptr CDouble)) [0 .. 11]
+  case map (\(CDouble value) -> value) values of
+    [speed, stall, backdrive, voltage, resistance, capacity, freq, mount, glide, ferocity, aileron, elevator] ->
+      pure (TuningConfig speed stall backdrive voltage resistance capacity freq mount glide ferocity aileron elevator)
+    _ -> error "unreachable tuning layout"
+
+applyTuning :: TuningConfig -> FwContext -> FwContext
+applyTuning t ctx =
+  let servo = ServoSpec
+        { servoNoLoadSpeedDegPerSec = max 1 (tgServoSpeed t)
+        , servoStallTorqueNm = max 0 (tgStallTorque t)
+        , servoBackdriveDegPerSecNm = max 0 (tgBackdrive t)
+        }
+      battery = (fwcBattery ctx)
+        { batteryNominalVoltage = max 0 (tgBatteryVoltage t)
+        , batteryInternalResistanceOhm = max 0 (tgBatteryResistance t)
+        , batteryCapacityAh = max 0 (tgBatteryCapacity t)
+        }
+      profile = (fwProfile (fwcParams ctx))
+        { profFlappingAngleDeg = clampRange (-15) 15 (tgMountAngleDeg t)
+        , profGlideAngleDeg = clampRange (-15) 15 (tgGlideAngleDeg t)
+        , profStrokeFerocity = clampRange 0 100 (tgStrokeFerocity t)
+        , profAileronScale = clampRange 0 100 (tgAileronScale t)
+        , profElevatorScale = clampRange 0 100 (tgElevatorScale t)
+        }
+      params = (fwcParams ctx)
+        { fwServoSpeedMs = 60000 / servoNoLoadSpeedDegPerSec servo
+        , fwFlapBaseFreqDh = clampRange 10 200 (tgFlapBaseFreqDh t)
+        , fwProfile = profile
+        }
+  in ctx { fwcServo = servo, fwcBattery = battery, fwcParams = params }
+
+clampRange :: Double -> Double -> Double -> Double
+clampRange lo hi = max lo . min hi
 
 b2f_math_step_firmware_vehicle :: Ptr () -> Ptr () -> Ptr () -> Ptr () -> IO Int32
 b2f_math_step_firmware_vehicle contextPointer pilotPointer bodyPointer outputPointer

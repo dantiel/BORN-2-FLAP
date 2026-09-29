@@ -12,6 +12,13 @@ class USpringArmComponent;
 class UCameraComponent;
 class UBorn2FlapAudioSynth;
 class SWidget;
+// Live-tuning surface the hangar edits: servo, battery and the exposed
+// controller knobs. Mirrors B2F_TuningConfig field order.
+enum class ETuningField : uint8
+{
+    ServoSpeed, StallTorque, Backdrive, BatteryVoltage, BatteryResistance, BatteryCapacity,
+    FlapBaseFreq, MountAngle, GlideAngle, StrokeFerocity, AileronScale, ElevatorScale, Count
+};
 // RC channels drive the native actuators. All forces and moments are aerodynamic.
 UCLASS()
 class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
@@ -30,6 +37,8 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     FString GetCameraLabel() const;
     void SelectBirdModel(int32 Index);
     int32 GetBirdModel() const { return BirdModel; }
+    float GetTuning(ETuningField Field) const;
+    void SetTuning(ETuningField Field, float Value);
     FVector GetMouseGains() const { return MouseGains; }
     void SetMouseGain(int32 Axis, float Gain);
     float GetControlExpo() const { return ControlExpo; }
@@ -82,6 +91,8 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     float ControlExpo=.65f;
     FVector MouseGains = FVector(1, -1, 1);
     int32 BirdModel = 0;
+    B2F_TuningConfig Tuning{};
+    void ApplyTuning();
     TSharedPtr<SWidget> SettingsWidget;
     void BuildRavenCrow();
     void LoadFlightPreferences();

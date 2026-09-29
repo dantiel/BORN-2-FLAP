@@ -48,9 +48,9 @@ struct FShardMesh
 const FLinearColor Ink(.018,.025,.035), Slate(.05,.067,.088), Edge(.10,.13,.16);
 }
 
-USceneComponent* Born2FlapRaven::Build(AActor* Owner, USceneComponent* Parent,
-                                        USceneComponent*& OutLeftShoulder,
-                                        USceneComponent*& OutRightShoulder)
+TObjectPtr<USceneComponent> Born2FlapRaven::Build(AActor* Owner, TObjectPtr<USceneComponent> Parent,
+                                                   TObjectPtr<USceneComponent>& OutLeftShoulder,
+                                                   TObjectPtr<USceneComponent>& OutRightShoulder)
 {
     if (!Owner || !Parent)
         return nullptr;
@@ -114,4 +114,15 @@ USceneComponent* Born2FlapRaven::Build(AActor* Owner, USceneComponent* Parent,
 void ABorn2FlapFlightPawn::BuildRavenCrow()
 {
     RavenRoot = Born2FlapRaven::Build(this, VisualRoot, RavenLeftShoulder, RavenRightShoulder);
+}
+
+void ABorn2FlapFlightPawn::SelectBirdModel(int32 Index)
+{
+    BirdModel = FMath::Clamp(Index, 0, 1);
+    // 0 = the ivory/teal prototype, 1 = the folded-shard raven-crow. Both hang
+    // off VisualRoot; toggle which airframe is visible (children included).
+    if (PrototypeRoot)
+        PrototypeRoot->SetVisibility(BirdModel == 0, /*bPropagateToChildren=*/true);
+    if (RavenRoot)
+        RavenRoot->SetVisibility(BirdModel == 1, /*bPropagateToChildren=*/true);
 }

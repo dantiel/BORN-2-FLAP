@@ -12,10 +12,15 @@ module Born2Flap
       # html = [tag, default_class]; rn = React Native component name.
       PRIMITIVES = {
         overlay:  { umg: "Overlay",        html: ["div", "overlay"],  rn: "View" },
-        panel:    { umg: "Border",         html: ["div", "panel"],    rn: "View" },
+        panel:    { umg: "Panel",          html: ["div", "panel"],    rn: "View" },
         vbox:     { umg: "VerticalBox",    html: ["div", "vbox"],     rn: "View" },
         hbox:     { umg: "HorizontalBox",  html: ["div", "hbox"],     rn: "View" },
         text:     { umg: "TextBlock",      html: ["span", "text"],    rn: "Text" },
+        label:    { umg: "TextBlock",      html: ["span", "label"],   rn: "Text" },
+        value:    { umg: "Value",          html: ["span", "value"],   rn: "View" },
+        stat:     { umg: "Stat",           html: ["div", "stat"],     rn: "View" },
+        banner:   { umg: "Banner",         html: ["div", "banner"],   rn: "View" },
+        divider:  { umg: "Divider",        html: ["hr", nil],         rn: "View" },
         button:   { umg: "Button",         html: ["button", nil],     rn: "TouchableOpacity" },
         slider:   { umg: "Slider",         html: ["input", nil],      rn: "Slider" },
         progress: { umg: "ProgressBar",    html: ["progress", nil],   rn: "ProgressBar" },

@@ -28,6 +28,10 @@ public:
     // layer is designed to counter. Takes effect next step; no-op if unready.
     bool InjectWindPhaseNoise(double NoiseRadS) const;
 
+    // Apply a complete live tuning profile (servo/battery/controller knobs) to
+    // the running context in place. Takes effect next step; no-op if unready.
+    bool Reconfigure(const B2F_TuningConfig& Tuning) const;
+
     const FString& GetStatus() const { return Status; }
 
 private:
@@ -39,6 +43,7 @@ private:
     using StepFirmwareVehicleFn = int32_t (*)(
         B2F_MathContext*, const B2F_PilotInput*, const B2F_BodyState*, B2F_FirmwareOutput*);
     using SetWindPhaseNoiseFn = int32_t (*)(B2F_MathContext*, double);
+    using ReconfigureFn = int32_t (*)(B2F_MathContext*, const B2F_TuningConfig*);
 
     void* LibraryHandle = nullptr;
     B2F_MathContext* Context = nullptr;
@@ -47,5 +52,6 @@ private:
     DestroyFirmwareVehicleFn DestroyFirmwareVehicle = nullptr;
     StepFirmwareVehicleFn StepFirmwareVehicle = nullptr;
     SetWindPhaseNoiseFn SetWindPhaseNoise = nullptr;
+    ReconfigureFn ReconfigureFirmwareVehicle = nullptr;
     FString Status = TEXT("Math backend not loaded");
 };
