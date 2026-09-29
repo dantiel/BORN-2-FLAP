@@ -1,0 +1,30 @@
+"""Build the two-sided, UV paintable membrane material."""
+import unreal
+
+path = '/Game/Birds/M_WingMembrane'
+lib = unreal.MaterialEditingLibrary
+unreal.EditorAssetLibrary.make_directory('/Game/Birds')
+mat = unreal.load_asset(path) if unreal.EditorAssetLibrary.does_asset_exist(path) else unreal.AssetToolsHelpers.get_asset_tools().create_asset('M_WingMembrane', '/Game/Birds', unreal.Material, unreal.MaterialFactoryNew())
+mat.set_editor_property('two_sided', True)
+lib.delete_all_material_expressions(mat)
+vertex = lib.create_material_expression(mat, unreal.MaterialExpressionVertexColor)
+paint = lib.create_material_expression(mat, unreal.MaterialExpressionTextureSampleParameter2D)
+paint.set_editor_property('parameter_name', 'WingPaint')
+paint.set_editor_property('texture', unreal.load_asset('/Engine/EngineResources/WhiteSquareTexture'))
+strength = lib.create_material_expression(mat, unreal.MaterialExpressionScalarParameter)
+strength.set_editor_property('parameter_name', 'PaintStrength')
+strength.set_editor_property('default_value', 0.0)
+alpha = lib.create_material_expression(mat, unreal.MaterialExpressionMultiply)
+lib.connect_material_expressions(paint, 'A', alpha, 'A')
+lib.connect_material_expressions(strength, '', alpha, 'B')
+mix = lib.create_material_expression(mat, unreal.MaterialExpressionLinearInterpolate)
+lib.connect_material_expressions(vertex, 'RGB', mix, 'A')
+lib.connect_material_expressions(paint, 'RGB', mix, 'B')
+lib.connect_material_expressions(alpha, '', mix, 'Alpha')
+lib.connect_material_property(mix, '', unreal.MaterialProperty.MP_BASE_COLOR)
+roughness = lib.create_material_expression(mat, unreal.MaterialExpressionConstant)
+roughness.set_editor_property('r', .65)
+lib.connect_material_property(roughness, '', unreal.MaterialProperty.MP_ROUGHNESS)
+lib.recompile_material(mat)
+unreal.EditorAssetLibrary.save_asset(path)
+unreal.log('WING_MEMBRANE_MATERIAL_READY')

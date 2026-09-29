@@ -13,6 +13,6 @@ namespace Born2FlapRaven
     // receive the two components that drive wing flap. Safe to call once per
     // owner; returns nullptr when Owner or Parent is null.
     USceneComponent* Build(AActor* Owner, USceneComponent* Parent,
-                           USceneComponent*& OutLeftShoulder,
-                           USceneComponent*& OutRightShoulder);
+                           TObjectPtr<USceneComponent>& OutLeftShoulder,
+                           TObjectPtr<USceneComponent>& OutRightShoulder, int32 Design=0);
 }

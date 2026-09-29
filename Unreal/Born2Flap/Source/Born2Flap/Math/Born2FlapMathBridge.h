@@ -27,6 +27,7 @@ public:
     // Inject the environmental wind phase noise η [rad/s] the MathCore resonance
     // layer is designed to counter. Takes effect next step; no-op if unready.
     bool InjectWindPhaseNoise(double NoiseRadS) const;
+    bool ReadWingShape(B2F_WingSection* Left, B2F_WingSection* Right) const;
 
     const FString& GetStatus() const { return Status; }
 
@@ -39,6 +40,7 @@ private:
     using StepFirmwareVehicleFn = int32_t (*)(
         B2F_MathContext*, const B2F_PilotInput*, const B2F_BodyState*, B2F_FirmwareOutput*);
     using SetWindPhaseNoiseFn = int32_t (*)(B2F_MathContext*, double);
+    using GetWingShapeFn = int32_t (*)(B2F_MathContext*, uint32_t, B2F_WingSection*, B2F_WingSection*);
 
     void* LibraryHandle = nullptr;
     B2F_MathContext* Context = nullptr;
@@ -47,5 +49,6 @@ private:
     DestroyFirmwareVehicleFn DestroyFirmwareVehicle = nullptr;
     StepFirmwareVehicleFn StepFirmwareVehicle = nullptr;
     SetWindPhaseNoiseFn SetWindPhaseNoise = nullptr;
+    GetWingShapeFn GetWingShape = nullptr;
     FString Status = TEXT("Math backend not loaded");
 };

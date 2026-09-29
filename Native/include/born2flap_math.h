@@ -107,6 +107,21 @@ B2F_API int32_t b2f_math_step_firmware_vehicle(
 B2F_API int32_t b2f_math_set_stabilization(B2F_MathContext* context, uint32_t enabled);
 B2F_API int32_t b2f_math_set_wind_phase_noise(B2F_MathContext* context, double noise_rad_s);
 
+/* Optional, read-only ABI v4 extension. No changes to existing output layouts.
+ * Root-to-tip strip midpoints, left then right in separate caller-owned arrays.
+ * Returns station count, or 0 for invalid arguments/insufficient capacity or an
+ * unsupported backend. Does not advance or mutate the simulation. */
+#define B2F_WING_STATIONS 16u
+typedef struct B2F_WingSection {
+    double span_fraction;
+    double chord_m;
+    double bend_m;       /* solver's body-Z displacement, not flap-normal */
+    double twist_rad;    /* geometric incidence + elastic torsion, nose-up + */
+    double camber;       /* signed membrane height / local chord */
+} B2F_WingSection;
+B2F_API int32_t b2f_math_get_wing_shape(B2F_MathContext* context,
+    uint32_t capacity, B2F_WingSection* left, B2F_WingSection* right);
+
 #ifdef __cplusplus
 }
 #endif
