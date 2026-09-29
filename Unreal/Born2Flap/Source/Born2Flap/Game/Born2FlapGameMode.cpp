@@ -16,6 +16,7 @@
 #include "World/Born2FlapValley.h"
 #include "World/Born2FlapWindLeaves.h"
 #include "UI/Born2FlapUIBridge.h"
+#include "UI/Born2FlapFlightHUD.h"
 #include "Racing/Born2FlapRacing.h"
 #include "GameFramework/PlayerController.h"
 #include "Misc/CommandLine.h"
@@ -54,6 +55,14 @@ void ABorn2FlapGameMode::BeginPlay()
         FActorSpawnParameters UIParams;
         UIParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
         World->SpawnActor<ABorn2FlapUIBridge>(FVector::ZeroVector, FRotator::ZeroRotator, UIParams);
+    }
+    // The semantic glass cockpit — the native flight HUD. Builds its own
+    // component tree from real telemetry each tick (the in-game face of the
+    // Ruby-authored UMGHAML grammar).
+    {
+        FActorSpawnParameters CockpitParams;
+        CockpitParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+        World->SpawnActor<ABorn2FlapFlightHUD>(FVector::ZeroVector, FRotator::ZeroRotator, CockpitParams);
     }
     // Racing mode: replay-spirit recorder + manager. Records every round and
     // re-flies the past rounds as shadow doppelgängers (disabled in flight tests).

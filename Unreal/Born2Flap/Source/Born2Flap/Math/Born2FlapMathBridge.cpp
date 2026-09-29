@@ -61,9 +61,11 @@ bool FBorn2FlapMathBridge::Load()
         LoadExport<StepFirmwareVehicleFn>(LibraryHandle, TEXT("b2f_math_step_firmware_vehicle"));
     SetWindPhaseNoise =
         LoadExport<SetWindPhaseNoiseFn>(LibraryHandle, TEXT("b2f_math_set_wind_phase_noise"));
+    ReconfigureFirmwareVehicle =
+        LoadExport<ReconfigureFn>(LibraryHandle, TEXT("b2f_math_reconfigure_firmware_vehicle"));
 
     if (!AbiVersion || !RuntimeInit || !RuntimeShutdown || !CreateFirmwareVehicle ||
-        !DestroyFirmwareVehicle || !StepFirmwareVehicle)
+        !DestroyFirmwareVehicle || !StepFirmwareVehicle || !ReconfigureFirmwareVehicle)
     {
         Status = TEXT("Haskell math backend has an incomplete C ABI");
         UE_LOG(LogTemp, Error, TEXT("%s"), *Status);
@@ -129,6 +131,7 @@ void FBorn2FlapMathBridge::Unload()
     DestroyFirmwareVehicle = nullptr;
     StepFirmwareVehicle = nullptr;
     SetWindPhaseNoise = nullptr;
+    ReconfigureFirmwareVehicle = nullptr;
     if (LibraryHandle)
     {
         // The process owns the loader reference, not this aircraft.
@@ -146,4 +149,9 @@ bool FBorn2FlapMathBridge::Step(
 bool FBorn2FlapMathBridge::InjectWindPhaseNoise(double NoiseRadS) const
 {
     return Context && SetWindPhaseNoise && SetWindPhaseNoise(Context, NoiseRadS) != 0;
+}
+
+bool FBorn2FlapMathBridge::Reconfigure(const B2F_TuningConfig& Tuning) const
+{
+    return Context && ReconfigureFirmwareVehicle && ReconfigureFirmwareVehicle(Context, &Tuning) != 0;
 }

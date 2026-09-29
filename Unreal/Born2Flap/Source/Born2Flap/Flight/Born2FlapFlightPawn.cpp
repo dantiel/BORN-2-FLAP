@@ -82,8 +82,90 @@ ABorn2FlapFlightPawn::ABorn2FlapFlightPawn()
     FpvCamera->SetFieldOfView(95);
     FpvCamera->SetAutoActivate(false);
     AutoPossessPlayer = EAutoReceiveInput::Player0;
+    // Default hangar tuning = the prototype flight hardware (3S 1.3 Ah, 8 Nm
+    // servo) plus the simulator's controller base. LoadFlightPreferences may
+    // override these before the first ApplyTuning.
+    Tuning.servo_no_load_speed_deg_s = 1200;
+    Tuning.servo_stall_torque_nm = 8;
+    Tuning.servo_backdrive_deg_s_nm = 20;
+    Tuning.battery_voltage = 11.1;
+    Tuning.battery_resistance_ohm = 0.08;
+    Tuning.battery_capacity_ah = 1.3;
+    Tuning.flap_base_freq_dhz = 32;
+    Tuning.mount_angle_deg = 0;
+    Tuning.glide_angle_deg = -4;
+    Tuning.stroke_ferocity = 50;
+    Tuning.aileron_scale = 60;
+    Tuning.elevator_scale = 55;
 }
 ABorn2FlapFlightPawn::~ABorn2FlapFlightPawn() = default;
+namespace
+{
+float TuningClamp(ETuningField Field, float Value)
+{
+    switch (Field)
+    {
+    case ETuningField::ServoSpeed:        return FMath::Clamp(Value, 100.f, 2400.f);
+    case ETuningField::StallTorque:       return FMath::Clamp(Value, 0.5f, 20.f);
+    case ETuningField::Backdrive:         return FMath::Clamp(Value, 0.f, 100.f);
+    case ETuningField::BatteryVoltage:    return FMath::Clamp(Value, 3.7f, 22.2f);
+    case ETuningField::BatteryResistance: return FMath::Clamp(Value, 0.01f, 0.5f);
+    case ETuningField::BatteryCapacity:   return FMath::Clamp(Value, 0.1f, 5.f);
+    case ETuningField::FlapBaseFreq:      return FMath::Clamp(Value, 10.f, 200.f);
+    case ETuningField::MountAngle:        return FMath::Clamp(Value, -15.f, 15.f);
+    case ETuningField::GlideAngle:        return FMath::Clamp(Value, -15.f, 15.f);
+    case ETuningField::StrokeFerocity:    return FMath::Clamp(Value, 0.f, 100.f);
+    case ETuningField::AileronScale:      return FMath::Clamp(Value, 0.f, 100.f);
+    case ETuningField::ElevatorScale:     return FMath::Clamp(Value, 0.f, 100.f);
+    default: return 0.f;
+    }
+}
+} // namespace
+float ABorn2FlapFlightPawn::GetTuning(ETuningField Field) const
+{
+    switch (Field)
+    {
+    case ETuningField::ServoSpeed:        return float(Tuning.servo_no_load_speed_deg_s);
+    case ETuningField::StallTorque:       return float(Tuning.servo_stall_torque_nm);
+    case ETuningField::Backdrive:         return float(Tuning.servo_backdrive_deg_s_nm);
+    case ETuningField::BatteryVoltage:    return float(Tuning.battery_voltage);
+    case ETuningField::BatteryResistance: return float(Tuning.battery_resistance_ohm);
+    case ETuningField::BatteryCapacity:   return float(Tuning.battery_capacity_ah);
+    case ETuningField::FlapBaseFreq:      return float(Tuning.flap_base_freq_dhz);
+    case ETuningField::MountAngle:        return float(Tuning.mount_angle_deg);
+    case ETuningField::GlideAngle:        return float(Tuning.glide_angle_deg);
+    case ETuningField::StrokeFerocity:    return float(Tuning.stroke_ferocity);
+    case ETuningField::AileronScale:      return float(Tuning.aileron_scale);
+    case ETuningField::ElevatorScale:     return float(Tuning.elevator_scale);
+    default: return 0.f;
+    }
+}
+void ABorn2FlapFlightPawn::SetTuning(ETuningField Field, float Value)
+{
+    Value = TuningClamp(Field, Value);
+    switch (Field)
+    {
+    case ETuningField::ServoSpeed:        Tuning.servo_no_load_speed_deg_s = Value; break;
+    case ETuningField::StallTorque:       Tuning.servo_stall_torque_nm = Value; break;
+    case ETuningField::Backdrive:         Tuning.servo_backdrive_deg_s_nm = Value; break;
+    case ETuningField::BatteryVoltage:    Tuning.battery_voltage = Value; break;
+    case ETuningField::BatteryResistance: Tuning.battery_resistance_ohm = Value; break;
+    case ETuningField::BatteryCapacity:   Tuning.battery_capacity_ah = Value; break;
+    case ETuningField::FlapBaseFreq:      Tuning.flap_base_freq_dhz = Value; break;
+    case ETuningField::MountAngle:        Tuning.mount_angle_deg = Value; break;
+    case ETuningField::GlideAngle:        Tuning.glide_angle_deg = Value; break;
+    case ETuningField::StrokeFerocity:    Tuning.stroke_ferocity = Value; break;
+    case ETuningField::AileronScale:      Tuning.aileron_scale = Value; break;
+    case ETuningField::ElevatorScale:     Tuning.elevator_scale = Value; break;
+    default: return;
+    }
+    ApplyTuning();
+}
+void ABorn2FlapFlightPawn::ApplyTuning()
+{
+    if (MathBridge && MathBridge->IsReady())
+        MathBridge->Reconfigure(Tuning);
+}
 void ABorn2FlapFlightPawn::BuildGeometry()
 {
     static ConstructorHelpers::FObjectFinder<UStaticMesh> Sphere(TEXT("/Engine/BasicShapes/Sphere.Sphere"));
@@ -223,6 +305,8 @@ void ABorn2FlapFlightPawn::ResetFlight(bool bSafety)
         ++SafetyResets;
     // Recreate all firmware/servo/aeroelastic/battery/history state. RTS stays pinned.
     bHealthy = MathBridge && MathBridge->Load();
+    if (bHealthy)
+        ApplyTuning();
     bFlying = bReturning = false;
     Desktop = {};
     Throttle = RollInput = YawInput = PitchInput = LeftFlap = RightFlap = 0;
