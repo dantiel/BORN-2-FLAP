@@ -154,13 +154,14 @@ def pbr_material(name, color=None, diffuse=None, normal=None, rough=0.8,
 def water_material(name, color, rough=0.08, specular=0.6, opacity=0.85,
                    swell_scale=0.003, swell_amp=0.6, ripple_amp=0.06,
                    shore_color=(0.03, 0.22, 0.25), waves=None):
-    """Translucent ocean surface with real vertex-displaced parallel swells.
+    """Translucent ocean with depth-graded colour/opacity, Fresnel sky reflection,
+    index-of-refraction bending, and vertex-displaced parallel swells.
 
-    A three-octave travelling normal (long swell + chop + fine glitter ripple)
-    drives the specular shimmer and a shore fade grades turquoise shallows into
-    open-water colour. The surface itself is displaced by WorldPositionOffset so
-    the sea visibly rolls shoreward; Single Layer Water cannot take WPO, so this
-    is a standard translucent material — robust and clearly visible.
+    Depth is SceneDepth - PixelDepth (the water-column thickness above the opaque
+    seabed), so the shallow turquoise grades smoothly into deep ocean following the
+    seabed slope — no hard distance banding. Shallow water is transparent (the sand
+    shows through) and deep water is opaque. Single Layer Water cannot take WPO, so
+    this is a standard translucent material — robust and clearly visible.
     """
     path = '/Game/Shiomori/Materials/M_' + name
     m = u.load_asset(path) if ela.does_asset_exist(path) else assets.create_asset(
@@ -178,18 +179,30 @@ def water_material(name, color, rough=0.08, specular=0.6, opacity=0.85,
         pass
     m.set_editor_property('blend_mode', u.BlendMode.BLEND_TRANSLUCENT)
     m.set_editor_property('two_sided', True)
+    # Index-of-refraction refraction: bend the seabed seen through the water.
+    m.set_editor_property('refraction_method', u.RefractionMode.RM_INDEX_OF_REFRACTION)
+    output(node(m, 'Constant', r=1.33), 'REFRACTION')
     p = node(m, 'WorldPosition')
     t = node(m, 'Time')
-    # Shore fade: turquoise shallows grade into open-water colour with distance.
-    bc = custom(m, '''float s=saturate((P.y-10000.0)/4000.0);
-return lerp(float3(%.6g,%.6g,%.6g), float3(%.6g,%.6g,%.6g), s);''' % (
+    sd = node(m, 'SceneDepth')
+    pd = node(m, 'PixelDepth')
+    fn = node(m, 'Fresnel')
+    # Depth-graded colour: SceneDepth-PixelDepth is the water-column thickness,
+    # so the shallow turquoise grades into deep ocean following the seabed slope
+    # (no hard distance banding). Fresnel adds a sky reflection near the horizon.
+    bc = custom(m, '''float d=SceneDepth-PixelDepth;
+float3 w=lerp(float3(%.6g,%.6g,%.6g), float3(%.6g,%.6g,%.6g), saturate(d/600.0));
+float3 sky=float3(0.30,0.50,0.72);
+return lerp(w, sky, saturate(Fresnel*0.55));''' % (
         shore_color[0], shore_color[1], shore_color[2],
-        color[0], color[1], color[2]), {'P': p})
+        color[0], color[1], color[2]),
+        {'SceneDepth': sd, 'PixelDepth': pd, 'Fresnel': fn})
     output(bc, 'BASE_COLOR')
     output(node(m, 'Constant', r=rough), 'ROUGHNESS')
     output(node(m, 'Constant', r=specular), 'SPECULAR')
-    op = custom(m, '''float s=saturate((P.y-10000.0)/4000.0);
-return lerp(%.6g, %.6g, s);''' % (opacity * 0.7, opacity), {'P': p}, 1)
+    # Depth-graded opacity: transparent shallows (sand shows through) -> opaque deep.
+    op = custom(m, '''float d=max(SceneDepth-PixelDepth,0.0);
+return 1.0-exp(-d/140.0);''', {'SceneDepth': sd, 'PixelDepth': pd}, 1)
     output(op, 'OPACITY')
     # Three-octave travelling normal: long swell, chop, and fine glitter ripple.
     n = custom(m, '''float2 q=P.xy*%.6g;
