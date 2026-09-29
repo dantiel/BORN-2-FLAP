@@ -152,30 +152,40 @@ def pbr_material(name, color=None, diffuse=None, normal=None, rough=0.8,
 
 
 def water_material(name, color, rough, specular, scatter, absorb, phase_g=0.25,
-                   opacity=0.035, swell_scale=0.006, swell_amp=1.0, waves=None):
+                   opacity=0.035, swell_scale=0.003, swell_amp=0.55,
+                   ripple_amp=0.06, shore_color=(0.02, 0.24, 0.27), waves=None):
     """Single Layer Water surface (matches Ravenstonefield's M_LakeWater).
 
-    Depth-graded colour comes from the scattering/absorption pair; the normal is
-    a layered procedural swell so the surface refracts realistically without
-    relying on mesh UVs (the bay plane is a single low-poly quad).
+    A three-octave travelling normal (long swell + chop + fine glitter ripple)
+    drives the refraction and specular shimmer so the sea visibly moves; a shore
+    fade grades turquoise shallows into open-water colour; animated caustics
+    dance on the seabed. The bay plane is a single quad, so all motion is
+    per-pixel (world-space, UV-independent) rather than vertex displacement.
     """
     path = '/Game/Shiomori/Materials/M_' + name
     m = u.load_asset(path) if ela.does_asset_exist(path) else assets.create_asset(
         'M_' + name, '/Game/Shiomori/Materials', u.Material, u.MaterialFactoryNew())
     lib.delete_all_material_expressions(m)
     m.set_editor_property('shading_model', u.MaterialShadingModel.MSM_SINGLE_LAYER_WATER)
-    output(node(m, 'Constant3Vector', constant=u.LinearColor(*color)), 'BASE_COLOR')
+    p = node(m, 'WorldPosition')
+    t = node(m, 'Time')
+    # Shore fade: turquoise shallows grade into open-water colour with distance.
+    bc = custom(m, '''float s=saturate((P.y-9800.0)/14000.0);
+return lerp(float3(%.6g,%.6g,%.6g), float3(%.6g,%.6g,%.6g), s);''' % (
+        shore_color[0], shore_color[1], shore_color[2],
+        color[0], color[1], color[2]), {'P': p})
+    output(bc, 'BASE_COLOR')
     output(node(m, 'Constant', r=rough), 'ROUGHNESS')
     output(node(m, 'Constant', r=specular), 'SPECULAR')
     output(node(m, 'Constant', r=opacity), 'OPACITY')
-    p = node(m, 'WorldPosition')
-    t = node(m, 'Time')
-    # Two-octave travelling swell (world-space), then an optional panned wave
-    # normal for long crests rolling shoreward.
+    # Three-octave travelling normal: long swell, chop, and fine glitter ripple.
     n = custom(m, '''float2 q=P.xy*%.6g;
-float2 n=float2(cos(q.x+q.y*.39+T*1.3),sin(q.y*1.13-q.x*.27-T*.85))*.055;
-n+=float2(sin(q.x*2.3+q.y*1.2-T*1.7),cos(q.y*2.1-q.x*.8+T*1.2))*.022;
-return normalize(float3(n*%.6g,1));''' % (swell_scale, swell_amp), {'P': p, 'T': t})
+float2 n=float2(cos(q.x*0.8+q.y*0.42+T*0.9),sin(q.y*1.1-q.x*0.3-T*0.7))*%.6g;
+n+=float2(sin(q.x*2.7+q.y*1.3-T*1.6),cos(q.y*2.4-q.x*0.9+T*1.4))*%.6g;
+float2 r=P.xy*0.022;
+n+=float2(sin(r.x*1.3+r.y*0.9+T*3.2),cos(r.y*1.7-r.x*0.5-T*2.8))*%.6g;
+return normalize(float3(n,1));''' % (swell_scale, swell_amp, swell_amp * 0.36, ripple_amp),
+               {'P': p, 'T': t})
     if waves is not None:
         uv = node(m, 'TextureCoordinate')
         rep = node(m, 'Multiply')
@@ -195,12 +205,12 @@ return normalize(float3(n*%.6g,1));''' % (swell_scale, swell_amp), {'P': p, 'T':
     wire(node(m, 'Constant3Vector', constant=u.LinearColor(*scatter)), water, 'ScatteringCoefficients')
     wire(node(m, 'Constant3Vector', constant=u.LinearColor(*absorb)), water, 'AbsorptionCoefficients')
     wire(node(m, 'Constant', r=phase_g), water, 'PhaseG')
-    # Subtle animated caustics on the seabed behind the surface.
+    # Animated caustics on the seabed behind the surface.
     caust = custom(m, '''float2 q=P.xy*.032;
 q+=float2(sin(q.y*.63+T*.37),sin(q.x*.71-T*.31))*.7;
 float a=pow(1-abs(sin(q.x+sin(q.y+T*.5))),16);
 float b=pow(1-abs(sin(q.y*.93+sin(q.x-T*.43))),16);
-return 1+(a+b)*0.4;''', {'P': p, 'T': t}, 1)
+return 1+(a+b)*0.85;''', {'P': p, 'T': t}, 1)
     wire(caust, water, 'ColorScaleBehindWater')
     lib.recompile_material(m)
     ela.save_asset(path)
@@ -296,8 +306,23 @@ wp = node(foam, 'WorldPosition')
 sc = node(foam, 'Multiply')
 sc.set_editor_property('const_b', 0.02)
 wire(wp, sc, 'A')
+# Drift the foam edge over time so the surf line subtly breathes and rolls.
+tm = node(foam, 'Time')
+spd = node(foam, 'Multiply')
+spd.set_editor_property('const_b', 14.0)
+wire(tm, spd, 'A')
+z0 = node(foam, 'Constant', r=0.0)
+t2 = node(foam, 'AppendVector')
+wire(spd, t2, 'A')
+wire(z0, t2, 'B')
+t3 = node(foam, 'AppendVector')
+wire(t2, t3, 'A')
+wire(z0, t3, 'B')
+add = node(foam, 'Add')
+wire(sc, add, 'A')
+wire(t3, add, 'B')
 nz = node(foam, 'Noise', levels=3, output_min=0.0, output_max=1.0)
-wire(sc, nz, 'Position')
+wire(add, nz, 'Position')
 op = node(foam, 'Multiply')
 op.set_editor_property('const_b', 0.5)
 wire(nz, op, 'A')
@@ -390,12 +415,28 @@ def foliage(label, p, mesh, height, rot=(0, 0, 0), ground_z=None):
 part('Long beach / clear flight sand', (0, 4400, -70), (90000, 11200, 140), 'Sand')
 part('Seabed', (0, 45000, -650), (250000, 200000, 400), 'WetSand')
 part('Open bay', (0, 55000, -50), (400000, 400000, 1), 'Water', 'Plane', collision=False)
-# Gentle sculpted shoreline: wet sand sloping from the beach into the surf.
-part('Shoreline wet-sand slope', (0, 10400, -25), (90000, 1000, 4), 'WetSand', rot=(0, 0, -2.86), collision=False)
-part('Shallow turquoise margin', (0, 11400, -48), (90000, 2000, 1), 'Shallows', 'Plane', collision=False)
-for i in range(40):
-    part('Broken surf line', (-44000 + i * 2200 + rng.uniform(-200, 200), 10050 + rng.uniform(-30, 60), -45),
-         (rng.uniform(400, 1200), rng.uniform(20, 70), 1), 'Foam', 'Plane', collision=False)
+# Natural shoreline: a meandering waterline of overlapping wet-sand tongues that
+# slope from the dry beach into the surf, over a shallow sand shelf that grades
+# the water from turquoise to deep blue. This replaces the old straight
+# "ruler" strips with a scalloped, organic transition.
+def waterline(x):
+    return 10000 + 300 * math.sin(x * 0.00042 + 1.7) + 190 * math.sin(x * 0.0011 + 4.2) + 80 * math.sin(x * 0.0024 + 0.6)
+
+# Shallow sand shelf: the seabed rises toward the beach so the water is shallow
+# (turquoise) inshore and deep (blue) offshore.
+part('Shallow sand shelf', (0, 17500, -225), (90000, 15000, 310), 'WetSand', rot=(0, 0, -1.18), collision=False)
+# Meandering wet-sand tongues and broken foam that follow the waterline.
+for i in range(110):
+    x = -45000 + i * 820 + rng.uniform(-260, 260)
+    wl = waterline(x)
+    w = rng.uniform(600, 1700)
+    d = rng.uniform(300, 620)
+    roll = math.degrees(math.atan(55.0 / d))
+    part('Wet-sand tongue', (x, wl + 60, -26), (w, d, 3), 'WetSand',
+         rot=(0, rng.uniform(-14, 14), -roll), collision=False)
+    part('Broken surf line', (x + rng.uniform(-160, 160), wl + rng.uniform(20, 170), -46),
+         (rng.uniform(350, 1300), rng.uniform(25, 90), 1), 'Foam', 'Plane',
+         rot=(0, rng.uniform(-20, 20), 0), collision=False)
 part('Raised promenade', (0, -2650, 50), (90000, 1700, 200), 'Sterile')
 part('Industrial hinterland', (0, -27000, -100), (150000, 48000, 500), 'Industry')
 # Six continuous, shallow stair treads run the entire beach edge.
