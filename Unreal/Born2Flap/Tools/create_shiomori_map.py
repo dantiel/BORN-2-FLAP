@@ -93,13 +93,13 @@ def sample_tex(m, tex, tiling=None, normal=False):
             mask.set_editor_property('r', True)
             mask.set_editor_property('g', True)
             mask.set_editor_property('b', False)
-            wire(wp, mask, 'Input')
+            wire(wp, mask, '')
             wire(mask, sc, 'A')
         else:
             sc.set_editor_property('const_b', val)
             uv = node(m, 'TextureCoordinate')
             wire(uv, sc, 'A')
-        wire(sc, s, 'Coordinates')
+        wire(sc, s, 'UVs')
     return s
 
 
@@ -126,7 +126,7 @@ def pbr_material(name, color=None, diffuse=None, normal=None, rough=0.8,
         sc.set_editor_property('const_b', noise_var)
         wire(wp, sc, 'A')
         nz = node(m, 'Noise', levels=2, output_min=0.85, output_max=1.0)
-        wire(sc, nz, 'Position')
+        wire(sc, nz, '')
         nm = node(m, 'Multiply')
         wire(bc, nm, 'A')
         wire(nz, nm, 'B')
@@ -151,22 +151,33 @@ def pbr_material(name, color=None, diffuse=None, normal=None, rough=0.8,
     return m
 
 
-def water_material(name, color, rough, specular, scatter, absorb, phase_g=0.25,
-                   opacity=0.035, swell_scale=0.003, swell_amp=0.55,
-                   ripple_amp=0.06, shore_color=(0.02, 0.24, 0.27), waves=None):
-    """Single Layer Water surface (matches Ravenstonefield's M_LakeWater).
+def water_material(name, color, rough=0.08, specular=0.6, opacity=0.85,
+                   swell_scale=0.003, swell_amp=0.6, ripple_amp=0.06,
+                   shore_color=(0.05, 0.30, 0.32), waves=None):
+    """Translucent ocean surface with real vertex-displaced parallel swells.
 
     A three-octave travelling normal (long swell + chop + fine glitter ripple)
-    drives the refraction and specular shimmer so the sea visibly moves; a shore
-    fade grades turquoise shallows into open-water colour; animated caustics
-    dance on the seabed. The bay plane is a single quad, so all motion is
-    per-pixel (world-space, UV-independent) rather than vertex displacement.
+    drives the specular shimmer and a shore fade grades turquoise shallows into
+    open-water colour. The surface itself is displaced by WorldPositionOffset so
+    the sea visibly rolls shoreward; Single Layer Water cannot take WPO, so this
+    is a standard translucent material — robust and clearly visible.
     """
     path = '/Game/Shiomori/Materials/M_' + name
     m = u.load_asset(path) if ela.does_asset_exist(path) else assets.create_asset(
         'M_' + name, '/Game/Shiomori/Materials', u.Material, u.MaterialFactoryNew())
     lib.delete_all_material_expressions(m)
-    m.set_editor_property('shading_model', u.MaterialShadingModel.MSM_SINGLE_LAYER_WATER)
+    # A Single Layer Water output node survives delete_all_material_expressions
+    # (it is bound to the shading model); remove it so this is a plain translucent
+    # surface — the SLW pass cannot take WorldPositionOffset, which hid the sea.
+    for e in list(lib.get_material_expressions(m)):
+        if type(e).__name__ == 'MaterialExpressionSingleLayerWaterMaterialOutput':
+            lib.delete_material_expression(m, e)
+    try:
+        m.set_editor_property('shading_model', u.MaterialShadingModel.MSM_DEFAULT_LIT)
+    except Exception:
+        pass
+    m.set_editor_property('blend_mode', u.BlendMode.BLEND_TRANSLUCENT)
+    m.set_editor_property('two_sided', True)
     p = node(m, 'WorldPosition')
     t = node(m, 'Time')
     # Shore fade: turquoise shallows grade into open-water colour with distance.
@@ -195,7 +206,7 @@ return normalize(float3(n,1));''' % (swell_scale, swell_amp, swell_amp * 0.36, r
         wire(rep, pw, 'Coordinate')
         sw = node(m, 'TextureSample', texture=waves)
         sw.set_editor_property('sampler_type', u.MaterialSamplerType.SAMPLERTYPE_NORMAL)
-        wire(pw, sw, 'Coordinates')
+        wire(pw, sw, 'UVs')
         bw = node(m, 'LinearInterpolate', const_alpha=0.45)
         wire(n, bw, 'A')
         wire(sw, bw, 'B', 'RGB')
@@ -211,17 +222,6 @@ h+=sin(P.y*0.0041-T*1.9)*18.0;
 h+=sin(P.x*0.0009+T*0.6)*22.0;
 return float3(0.0,0.0,h*shore);''', {'P': p, 'T': t}, 3)
     output(wpo, 'WORLD_POSITION_OFFSET')
-    water = node(m, 'SingleLayerWaterMaterialOutput')
-    wire(node(m, 'Constant3Vector', constant=u.LinearColor(*scatter)), water, 'ScatteringCoefficients')
-    wire(node(m, 'Constant3Vector', constant=u.LinearColor(*absorb)), water, 'AbsorptionCoefficients')
-    wire(node(m, 'Constant', r=phase_g), water, 'PhaseG')
-    # Animated caustics on the seabed behind the surface.
-    caust = custom(m, '''float2 q=P.xy*.032;
-q+=float2(sin(q.y*.63+T*.37),sin(q.x*.71-T*.31))*.7;
-float a=pow(1-abs(sin(q.x+sin(q.y+T*.5))),16);
-float b=pow(1-abs(sin(q.y*.93+sin(q.x-T*.43))),16);
-return 1+(a+b)*0.85;''', {'P': p, 'T': t}, 1)
-    wire(caust, water, 'ColorScaleBehindWater')
     lib.recompile_material(m)
     ela.save_asset(path)
     return m
@@ -296,12 +296,8 @@ mats['Orange'] = pbr_material('Orange', color=(0.8, 0.25, 0.075), rough=0.45,
 mats['Window'] = pbr_material('Window', color=(0.04, 0.1, 0.13), rough=0.12,
                               metallic=0.85, specular=1.0)
 mats['Bush'] = pbr_material('Bush', color=(0.09, 0.24, 0.13), rough=0.85, specular=0.4)
-mats['Water'] = water_material('Water', (0.01, 0.05, 0.09), 0.08, 0.5,
-                               scatter=(0.002, 0.005, 0.008),
-                               absorb=(0.0035, 0.0017, 0.0010), waves=wave_n)
-mats['Shallows'] = water_material('Shallows', (0.02, 0.18, 0.20), 0.12, 0.5,
-                                  scatter=(0.002, 0.006, 0.008),
-                                  absorb=(0.0018, 0.0008, 0.0005),
+mats['Water'] = water_material('Water', (0.02, 0.10, 0.22), rough=0.08, specular=0.6, waves=wave_n)
+mats['Shallows'] = water_material('Shallows', (0.02, 0.18, 0.20), rough=0.12, specular=0.6,
                                   swell_scale=0.01, swell_amp=0.6, waves=wave_n)
 mats['Foam'] = pbr_material('Foam', color=(0.9, 0.94, 0.93), rough=0.35, specular=0.3)
 
@@ -332,7 +328,7 @@ add = node(foam, 'Add')
 wire(sc, add, 'A')
 wire(t3, add, 'B')
 nz = node(foam, 'Noise', levels=3, output_min=0.0, output_max=1.0)
-wire(add, nz, 'Position')
+wire(add, nz, '')
 op = node(foam, 'Multiply')
 op.set_editor_property('const_b', 0.5)
 wire(nz, op, 'A')
@@ -355,7 +351,7 @@ sc = node(cloud, 'Multiply')
 sc.set_editor_property('const_b', 0.004)
 wire(wp, sc, 'A')
 nz = node(cloud, 'Noise', levels=4, output_min=0.2, output_max=1.0)
-wire(sc, nz, 'Position')
+wire(sc, nz, '')
 op = node(cloud, 'Multiply')
 op.set_editor_property('const_b', 0.85)
 wire(nz, op, 'A')
