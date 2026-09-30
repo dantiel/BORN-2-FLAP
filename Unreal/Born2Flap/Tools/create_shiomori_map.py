@@ -275,7 +275,7 @@ return float3(0.0,0.0,h*shore);''', {'P': p, 'T': t}, 3)
 
 
 def sand_material(name, diffuse, normal, rough=0.8, rough_tex=None, tiling_cm=300.0,
-                  relief_scale=0.02, relief_strength=0.08, normal_strength=0.6,
+                  relief_scale=0.02, relief_strength=0.6, normal_strength=0.6,
                   tint=None):
     """Beach sand: tiled grain normal plus a large-scale wind/sea/footprint
     relief so the surface reads as naturally uneven, not a flat smooth plane."""
@@ -290,11 +290,11 @@ def sand_material(name, diffuse, normal, rough=0.8, rough_tex=None, tiling_cm=30
         wire(bc, mul, 'A')
         wire(t, mul, 'B')
         bc = mul
-    pos = node(m, 'WorldPosition')
-    wet = custom(m, 'return 1-smoothstep(-50, -16, P.z);', {'P': pos}, 1)
-    bc = custom(m, 'return C*lerp(1.0,.72,W);', {'C': bc, 'W': wet})
     output(bc, 'BASE_COLOR')
-    output(custom(m, 'return lerp(.82,.45,W);', {'W': wet}, 1), 'ROUGHNESS')
+    if rough_tex is not None:
+        output(sample_tex(m, rough_tex, ('world', tiling_cm)), 'ROUGHNESS', 'R')
+    else:
+        output(node(m, 'Constant', r=rough), 'ROUGHNESS')
     ns = sample_tex(m, normal, ('world', tiling_cm), normal=True)
     p = node(m, 'WorldPosition')
     # Irregular (non-sinusoidal) relief via UE value-noise nodes: fine grain
@@ -309,7 +309,7 @@ def sand_material(name, diffuse, normal, rough=0.8, rough_tex=None, tiling_cm=30
     nz_w = node(m, 'Noise', levels=2, output_min=-1.0, output_max=1.0); wire(ws, nz_w, '')
     code = '''float rx=NX*%.6g + W*0.2;
 float ry=NY*%.6g + W*0.55;
-float3 tn=normalize(TN);
+float3 tn=normalize(float3(TN.x*2.0-1.0, TN.y*2.0-1.0, saturate(TN.z*2.0-1.0)+0.25));
 float3 r=normalize(float3(tn.x+rx, tn.y+ry, 1.0));
 return normalize(float3(lerp(0.0, r.x, %.6g), lerp(0.0, r.y, %.6g), 1.0));
 ''' % (relief_strength, relief_strength, normal_strength, normal_strength)
@@ -369,7 +369,7 @@ if sand_d2:
 # --------------------------------------------------------------------------- #
 mats = {}
 mats['Sand'] = sand_material('Sand', sand_d, sand_n, rough_tex=sand_r, tiling_cm=300.0,
-                             normal_strength=0.7, relief_scale=0.015, relief_strength=0.20)
+                             normal_strength=0.65)
 mats['WetSand'] = sand_material('WetSand', sand_d, sand_n, rough=0.35, tiling_cm=300.0,
                                 normal_strength=0.5, tint=(0.52, 0.47, 0.4))
 mats['Concrete'] = pbr_material('Concrete', diffuse=concrete_d, normal=concrete_n,
