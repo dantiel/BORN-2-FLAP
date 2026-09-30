@@ -7,15 +7,20 @@
 //
 //   Ruby Brain ── Wire JSON ──▶ ApplyOpsJson ──▶ FRenderer ──▶ UWidget tree
 //
-// The five discrete HostConfig ops map to UMG mutations, and set_material_params
-// maps to UMaterialInstanceDynamic::SetScalarParameterValue (the physics-driven
-// crown-jewel effects computed Ruby-side).
+// On top of the raw primitives it adds a *semantic component layer* (see
+// Born2FlapUiTheme.h / Born2FlapUiComposite.h): `Panel`, `Value`, `Stat`,
+// `Gauge`, `Banner`, `Button`, `Slider`, `Divider` are pre-styled composite
+// widgets, so the Brain says `gauge label:"Höhe" value: h tone: :accent`
+// and the host resolves the look — the Brain never styles.
 
 #include "CoreMinimal.h"
 #include "UObject/Object.h"
 #include "Templates/UniquePtr.h"
+#include "Types/SlateEnums.h"
 #include "UI/Born2FlapUiOps.h"
 #include "UI/Born2FlapUiTree.h"
+#include "UI/Born2FlapUiTheme.h"
+#include "UI/Born2FlapUiComposite.h"
 #include "UI/Born2FlapAudioEngine.h"
 #include "Born2FlapUIRenderer.generated.h"
 
@@ -24,6 +29,18 @@ class UPanelWidget;
 class UUserWidget;
 class UCanvasPanel;
 class UMaterialInstanceDynamic;
+
+// Per-panel layout intent. The reconciler mounts children *after* the parent's
+// UpdateProps, so we cache spacing/alignment here and re-apply on every insert.
+struct FLayoutState
+{
+    float Spacing = 0.f;
+    bool bSpacing = false;
+    EHorizontalAlignment H = HAlign_Fill;
+    EVerticalAlignment V = VAlign_Top;
+    bool bH = false;
+    bool bV = false;
+};
 
 UCLASS()
 class BORN2FLAP_API UBorn2FlapUIRenderer : public UObject
@@ -62,9 +79,20 @@ private:
     void EnsureViewport();
     UMaterialInstanceDynamic* GetOrCreateDynamicMaterial(UWidget* W);
 
+    // ---- semantic component layer -----------------------------------------
+    UBorn2FlapComposite* BuildComponent(const FString& Type);
+    void ApplyCompositeProps(UBorn2FlapComposite* C, const born2flap::ui::FProps& Props);
+    void ApplyPrimitiveProps(UWidget* W, const born2flap::ui::FProps& Props);
+
+    // ---- layout -----------------------------------------------------------
+    void StoreContainerLayout(UPanelWidget* Panel, const born2flap::ui::FProps& Props);
+    void ApplyStoredLayout(UPanelWidget* Panel);
+    void ApplyStoredLayoutToChild(UPanelWidget* Panel, int32 Index);
+
     TUniquePtr<Renderer> RendererImpl;
     TUniquePtr<born2flap::audio::FAudioEngine> AudioEngine;
     UPROPERTY() UUserWidget* RootHost = nullptr;
     UPROPERTY() UCanvasPanel* ViewportCanvas = nullptr;
     TMap<UWidget*, UMaterialInstanceDynamic*> MaterialCache;
+    TMap<UPanelWidget*, FLayoutState> LayoutState;
 };

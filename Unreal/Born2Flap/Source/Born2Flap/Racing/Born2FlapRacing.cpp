@@ -176,7 +176,7 @@ void ABorn2FlapRacingManager::TrimToLimit()
         const FB2FSpiritRecording Victim = LoadedSpirits.Pop(EAllowShrinking::No);
         if (!Victim.SourceFile.IsEmpty())
             IFileManager::Get().Delete(*Victim.SourceFile);
-        UE_LOG(LogTemp, Display, TEXT("RacingSpiritCull removed %s (%.1f m)"), *Victim.Name, Victim.Distance);
+        UE_LOG(LogTemp, Display, TEXT("RacingSpiritCull removed %s (%f m)"), *Victim.Name, Victim.Distance);
     }
 }
 
@@ -256,7 +256,7 @@ void ABorn2FlapRacingManager::EndRound()
             }
             TrimToLimit();
             UE_LOG(LogTemp, Display,
-                   TEXT("RacingRoundEnd dist=%.1fm dur=%.1fs gates=%d spirits=%d%s"), ActiveRecording.Distance,
+                   TEXT("RacingRoundEnd dist=%f m dur=%f s gates=%d spirits=%d%s"), ActiveRecording.Distance,
                    ActiveRecording.Duration, ActiveRecording.GatesPassed, LoadedSpirits.Num(),
                    NewBest ? TEXT(" NEW_BEST") : TEXT(""));
         }

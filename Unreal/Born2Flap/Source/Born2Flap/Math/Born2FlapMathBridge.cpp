@@ -61,12 +61,13 @@ bool FBorn2FlapMathBridge::Load()
         LoadExport<StepFirmwareVehicleFn>(LibraryHandle, TEXT("b2f_math_step_firmware_vehicle"));
     SetWindPhaseNoise =
         LoadExport<SetWindPhaseNoiseFn>(LibraryHandle, TEXT("b2f_math_set_wind_phase_noise"));
+    ReconfigureFirmwareVehicle =
+        LoadExport<ReconfigureFn>(LibraryHandle, TEXT("b2f_math_reconfigure_firmware_vehicle"));
     GetWingShape = LoadExport<GetWingShapeFn>(LibraryHandle, TEXT("b2f_math_get_wing_shape"));
     if (!GetWingShape)
         UE_LOG(LogTemp, Warning, TEXT("Wing deformation unavailable: rebuild the Haskell backend for wing-shape telemetry."));
-
     if (!AbiVersion || !RuntimeInit || !RuntimeShutdown || !CreateFirmwareVehicle ||
-        !DestroyFirmwareVehicle || !StepFirmwareVehicle)
+        !DestroyFirmwareVehicle || !StepFirmwareVehicle || !ReconfigureFirmwareVehicle)
     {
         Status = TEXT("Haskell math backend has an incomplete C ABI");
         UE_LOG(LogTemp, Error, TEXT("%s"), *Status);
@@ -132,8 +133,8 @@ void FBorn2FlapMathBridge::Unload()
     DestroyFirmwareVehicle = nullptr;
     StepFirmwareVehicle = nullptr;
     SetWindPhaseNoise = nullptr;
-    GetWingShape = nullptr;
-    if (LibraryHandle)
+    ReconfigureFirmwareVehicle = nullptr;
+    GetWingShape = nullptr;    if (LibraryHandle)
     {
         // The process owns the loader reference, not this aircraft.
         LibraryHandle = nullptr;
@@ -152,6 +153,10 @@ bool FBorn2FlapMathBridge::InjectWindPhaseNoise(double NoiseRadS) const
     return Context && SetWindPhaseNoise && SetWindPhaseNoise(Context, NoiseRadS) != 0;
 }
 
+bool FBorn2FlapMathBridge::Reconfigure(const B2F_TuningConfig& Tuning) const
+{
+    return Context && ReconfigureFirmwareVehicle && ReconfigureFirmwareVehicle(Context, &Tuning) != 0;
+}
 bool FBorn2FlapMathBridge::ReadWingShape(B2F_WingSection* Left, B2F_WingSection* Right) const
 {
     return Context && GetWingShape && GetWingShape(Context, B2F_WING_STATIONS, Left, Right) == B2F_WING_STATIONS;

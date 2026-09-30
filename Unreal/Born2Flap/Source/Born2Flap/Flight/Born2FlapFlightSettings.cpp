@@ -24,6 +24,48 @@ FString PreferencesPath()
     return FPaths::ProjectSavedDir()/(FParse::Param(FCommandLine::Get(),TEXT("B2FDesktopInputTest"))
         ? TEXT("Automation/FlightPreferences.ini") : TEXT("Config/FlightPreferences.ini"));
 }
+const TCHAR* TuningKey(ETuningField Field)
+{
+    switch (Field)
+    {
+    case ETuningField::ServoSpeed: return TEXT("ServoSpeed");
+    case ETuningField::StallTorque: return TEXT("StallTorque");
+    case ETuningField::Backdrive: return TEXT("Backdrive");
+    case ETuningField::BatteryVoltage: return TEXT("BatteryVoltage");
+    case ETuningField::BatteryResistance: return TEXT("BatteryResistance");
+    case ETuningField::BatteryCapacity: return TEXT("BatteryCapacity");
+    case ETuningField::FlapBaseFreq: return TEXT("FlapBaseFreq");
+    case ETuningField::MountAngle: return TEXT("MountAngle");
+    case ETuningField::GlideAngle: return TEXT("GlideAngle");
+    case ETuningField::StrokeFerocity: return TEXT("StrokeFerocity");
+    case ETuningField::AileronScale: return TEXT("AileronScale");
+    case ETuningField::ElevatorScale: return TEXT("ElevatorScale");
+    default: return TEXT("");
+    }
+}
+struct FTuningRow
+{
+    ETuningField Field;
+    const TCHAR* Label;
+    const TCHAR* Unit;
+    float Min, Max;
+    int32 Decimals;
+};
+const FTuningRow TuningRows[] =
+{
+    { ETuningField::ServoSpeed, TEXT("SERVO SPEED"), TEXT("°/s"), 100, 2400, 0 },
+    { ETuningField::StallTorque, TEXT("STALL TORQUE"), TEXT("N·m"), 0.5f, 20, 1 },
+    { ETuningField::Backdrive, TEXT("BACKDRIVE"), TEXT("°/s per N·m"), 0, 100, 0 },
+    { ETuningField::BatteryVoltage, TEXT("BATTERY VOLTAGE"), TEXT("V"), 3.7f, 22.2f, 1 },
+    { ETuningField::BatteryResistance, TEXT("BATTERY RESISTANCE"), TEXT("Ω"), 0.01f, 0.5f, 2 },
+    { ETuningField::BatteryCapacity, TEXT("BATTERY CAPACITY"), TEXT("Ah"), 0.1f, 5, 2 },
+    { ETuningField::FlapBaseFreq, TEXT("FLAP FREQ CEILING"), TEXT("dHz"), 10, 200, 0 },
+    { ETuningField::MountAngle, TEXT("MOUNT ANGLE"), TEXT("°"), -15, 15, 0 },
+    { ETuningField::GlideAngle, TEXT("GLIDE ANGLE"), TEXT("°"), -15, 15, 0 },
+    { ETuningField::StrokeFerocity, TEXT("STROKE FEROCITY"), TEXT("%"), 0, 100, 0 },
+    { ETuningField::AileronScale, TEXT("AILERON SCALE"), TEXT("%"), 0, 100, 0 },
+    { ETuningField::ElevatorScale, TEXT("ELEVATOR SCALE"), TEXT("%"), 0, 100, 0 },
+};
 class SFlightSettings : public SCompoundWidget
 {
 public:
@@ -88,6 +130,21 @@ public:
         [SNew(SSlider).MinValue(0).MaxValue(1).StepSize(.05f).MouseUsesStep(true)
           .Value_Lambda([this] { return Bird.IsValid() ? Bird->GetControlExpo() : .65f; })
           .OnValueChanged_Lambda([this](float Value) { if(Bird.IsValid()) Bird->SetControlExpo(Value); })];
+        Label(TEXT("H A N G A R   /   TUNING"),16);
+        Label(TEXT("Live edits reach the firmware on the next physics step — the bird re-tunes itself."),12);
+        for (const FTuningRow& Row : TuningRows)
+        {
+            Rows->AddSlot().AutoHeight().Padding(0,5,0,2)
+            [SNew(STextBlock).Text_Lambda([this,Row] {
+                const float Value = Bird.IsValid() ? Bird->GetTuning(Row.Field) : 0.f;
+                return FText::FromString(FString::Printf(TEXT("%s   %s %s"), Row.Label,
+                    *FString::SanitizeFloat(Value, Row.Decimals), Row.Unit));
+            })];
+            Rows->AddSlot().AutoHeight().Padding(0,2,0,9)
+            [SNew(SSlider).MinValue(Row.Min).MaxValue(Row.Max).MouseUsesStep(false)
+              .Value_Lambda([this,Row] { return Bird.IsValid() ? Bird->GetTuning(Row.Field) : 0.f; })
+              .OnValueChanged_Lambda([this,Row](float Value) { if(Bird.IsValid()) Bird->SetTuning(Row.Field, Value); })];
+        }
         Rows->AddSlot().AutoHeight()
         [SNew(SButton).Text(FText::FromString(TEXT("SAVE & RETURN TO FLIGHT   /   Esc or F8"))).ContentPadding(14)
           .OnClicked_Lambda([this] { if(Bird.IsValid()) Bird->CloseFlightSettings(); return FReply::Handled(); })];
@@ -110,6 +167,13 @@ void ABorn2FlapFlightPawn::LoadFlightPreferences()
         Config.GetDouble(TEXT("Mouse"),*FString::Printf(TEXT("Gain%d"),Axis),Gain);
         MouseGains[Axis]=FMath::IsFinite(Gain) ? FMath::Clamp(Gain,-2.,2.) : 1.;
     }
+    for(uint8 I=0;I<uint8(ETuningField::Count);++I)
+    {
+        const ETuningField Field=ETuningField(I);
+        float Value=GetTuning(Field);
+        Config.GetFloat(TEXT("Tuning"),TuningKey(Field),Value);
+        SetTuning(Field,Value);
+    }
 }
 void ABorn2FlapFlightPawn::SaveFlightPreferences()
 {
@@ -120,6 +184,11 @@ void ABorn2FlapFlightPawn::SaveFlightPreferences()
     Config.SetBool(TEXT("Flight"),TEXT("FpvAirView"),bFpvAirView);
     for(int32 Axis=0;Axis<3;++Axis)
         Config.SetDouble(TEXT("Mouse"),*FString::Printf(TEXT("Gain%d"),Axis),MouseGains[Axis]);
+    for(uint8 I=0;I<uint8(ETuningField::Count);++I)
+    {
+        const ETuningField Field=ETuningField(I);
+        Config.SetFloat(TEXT("Tuning"),TuningKey(Field),GetTuning(Field));
+    }
     Config.Write(Path);
 }
 void ABorn2FlapFlightPawn::SetMouseGain(int32 Axis,float Gain)
