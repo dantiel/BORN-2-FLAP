@@ -1,0 +1,45 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+# flight_hud_demo — the glass cockpit, live: simulates telemetry and emits the
+# NDJSON op stream a C++ host tails (Unreal's UIBridge or Tools/umg_transport_test).
+#
+#   ruby bin/flight_hud_demo > /tmp/cockpit.ndjson
+#   ./umg_transport_test /tmp/cockpit.ndjson
+
+$LOAD_PATH.unshift File.expand_path("../lib", __dir__)
+require "born2flap"
+require "born2flap/ui/flight_hud"
+
+UI   = Born2Flap::UI
+bus  = Born2Flap::EventBus.new
+root = UI::Root.new(bus: bus)
+transport = UI::Transport.new(bus: bus, io: $stdout)
+
+# Mount the cockpit once.
+tree = UI::FlightHud.tree
+root.render(tree)
+transport.flush
+
+# A short "take-off" arc: climb, gain speed, ease the throttle.
+telemetry = []
+20.times do |i|
+  t = i / 20.0
+  telemetry << {
+    altitude: (t * 120).round(1),          # m, climbing
+    climb:    (8 * Math.sin(t * Math::PI)).round(1), # m/s, easing at the top
+    speed:    (3 + 14 * Math.sin(t * Math::PI / 2)).round(1), # m/s
+    battery:  (100 - t * 4).round(0),      # %
+    throttle: (t < 0.15 ? 0.9 : 0.7).round(2),
+    status:   t < 0.1 ? "START" : "FLUG"
+  }
+end
+
+# Live propagation: each tick only the changed readouts emit update_props.
+telemetry.each do |t|
+  root.render(UI::FlightHud.build(t))
+  transport.flush
+end
+
+# Landed.
+root.render(UI::FlightHud.build(altitude: 0, climb: 0, speed: 0, battery: 98, throttle: 0, status: "GELANDET"))
+transport.flush

@@ -13,7 +13,7 @@
 extern "C" {
 #endif
 
-#define B2F_MATH_ABI_VERSION 4u
+#define B2F_MATH_ABI_VERSION 5u
 
 typedef struct B2F_MathContext B2F_MathContext;
 
@@ -107,6 +107,27 @@ B2F_API int32_t b2f_math_step_firmware_vehicle(
 B2F_API int32_t b2f_math_set_stabilization(B2F_MathContext* context, uint32_t enabled);
 B2F_API int32_t b2f_math_set_wind_phase_noise(B2F_MathContext* context, double noise_rad_s);
 
+/* Live tuning profile (ABI v5). The in-game hangar edits servo, battery and
+ * the exposed controller knobs; the host sends a complete profile and the
+ * MathCore swaps them into the running context in place (loop state kept). */
+typedef struct B2F_TuningConfig {
+    double servo_no_load_speed_deg_s;
+    double servo_stall_torque_nm;
+    double servo_backdrive_deg_s_nm;
+    double battery_voltage;
+    double battery_resistance_ohm;
+    double battery_capacity_ah;
+    double flap_base_freq_dhz;   /* 10..200 */
+    double mount_angle_deg;      /* flap stroke centre offset (mount), -15..+15 */
+    double glide_angle_deg;      /* -15..+15 */
+    double stroke_ferocity;      /* 0..100 */
+    double aileron_scale;        /* 0..100 */
+    double elevator_scale;       /* 0..100 */
+} B2F_TuningConfig;
+
+B2F_API int32_t b2f_math_reconfigure_firmware_vehicle(
+    B2F_MathContext* context,
+    const B2F_TuningConfig* config);
 /* Optional, read-only ABI v4 extension. No changes to existing output layouts.
  * Root-to-tip strip midpoints, left then right in separate caller-owned arrays.
  * Returns station count, or 0 for invalid arguments/insufficient capacity or an
@@ -121,7 +142,6 @@ typedef struct B2F_WingSection {
 } B2F_WingSection;
 B2F_API int32_t b2f_math_get_wing_shape(B2F_MathContext* context,
     uint32_t capacity, B2F_WingSection* left, B2F_WingSection* right);
-
 #ifdef __cplusplus
 }
 #endif

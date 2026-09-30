@@ -11,6 +11,7 @@
 #include "Misc/Parse.h"
 #include "Racing/Born2FlapRacing.h"
 #include "Kismet/GameplayStatics.h"
+#include "UI/Born2FlapFlightHUD.h"
 void ABorn2FlapHUD::DrawHUD()
 {
     Super::DrawHUD();
@@ -27,6 +28,10 @@ void ABorn2FlapHUD::DrawHUD()
     const auto* Controller = Bird->GetRcController();
     if (Controller && Controller->IsPanelOpen()) { DrawRcPanel(*Controller); return; }
     if (bHideRavenHUD || FParse::Param(FCommandLine::Get(), TEXT("B2FRavenCapture"))) return;
+    // When the semantic glass cockpit (ABorn2FlapFlightHUD) is alive, it owns
+    // the brand + telemetry readouts — the imperative canvas keeps only the
+    // functional bits (RC panel, channels, radio, key hints, camera label).
+    const bool bSemanticHUD = (bool)TActorIterator<ABorn2FlapFlightHUD>(GetWorld());
     if (auto *Mode = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode()); Mode && Mode->IsNatureLevel())
     {
         const auto *Rc = Bird->GetRcController();
@@ -34,15 +39,18 @@ void ABorn2FlapHUD::DrawHUD()
         if (bHideRavenHUD || FParse::Param(FCommandLine::Get(), TEXT("B2FRavenCapture"))) return;
         const FLinearColor Ivory(.93,.91,.81), Muted(.68,.74,.70), Amber(.88,.63,.31), Ink(.014,.028,.025,.72);
         const float W = Canvas->SizeX, H = Canvas->SizeY;
-        DrawRect(Amber,32,35,3,63);
-        DrawText(Mode->IsCoastLevel()?TEXT("B O R N  2  F L A P   /   S E A  B R E E Z E"):TEXT("B O R N  2  F L A P   /   A U T U M N"),Muted,47,33,GEngine->GetSmallFont(),.9);
-        DrawText(Mode->IsCoastLevel()?TEXT("SHIOMORI BAY"):TEXT("RAVENSTONEFIELD"),Ivory,45,51,GEngine->GetLargeFont(),1.15);
-        const FVector P=Bird->GetActorLocation();
-        DrawText(Mode->IsCoastLevel()?TEXT("TIDEWALK / BASALT COVE"):ABorn2FlapValley::PlaceName(P.X,P.Y),Amber,47,85,GEngine->GetSmallFont(),.95);
-        DrawRect(Ink,32,H-120,425,83);
-        DrawText(FString::Printf(TEXT("%5.1f m       %4.1f m/s       %.0f%% battery"),Bird->GetAltitude(),Bird->GetSpeed(),Bird->GetBattery()*100),Ivory,48,H-109,GEngine->GetMediumFont(),.9);
-        DrawText(Bird->GetFlightStatus(),Muted,48,H-79,GEngine->GetSmallFont(),.9);
-        DrawText(TEXT("SPACE launch  W / CTRL+W / SHIFT+W  WHEEL fine"),Ivory,48,H-55,GEngine->GetSmallFont(),.85);
+        if (!bSemanticHUD)
+        {
+            DrawRect(Amber,32,35,3,63);
+            DrawText(Mode->IsCoastLevel()?TEXT("B O R N  2  F L A P   /   S E A  B R E E Z E"):TEXT("B O R N  2  F L A P   /   A U T U M N"),Muted,47,33,GEngine->GetSmallFont(),.9);
+            DrawText(Mode->IsCoastLevel()?TEXT("SHIOMORI BAY"):TEXT("RAVENSTONEFIELD"),Ivory,45,51,GEngine->GetLargeFont(),1.15);
+            const FVector P=Bird->GetActorLocation();
+            DrawText(Mode->IsCoastLevel()?TEXT("TIDEWALK / BASALT COVE"):ABorn2FlapValley::PlaceName(P.X,P.Y),Amber,47,85,GEngine->GetSmallFont(),.95);
+            DrawRect(Ink,32,H-120,425,83);
+            DrawText(FString::Printf(TEXT("%5.1f m       %4.1f m/s       %.0f%% battery"),Bird->GetAltitude(),Bird->GetSpeed(),Bird->GetBattery()*100),Ivory,48,H-109,GEngine->GetMediumFont(),.9);
+            DrawText(Bird->GetFlightStatus(),Muted,48,H-79,GEngine->GetSmallFont(),.9);
+            DrawText(TEXT("SPACE launch  W / CTRL+W / SHIFT+W  WHEEL fine"),Ivory,48,H-55,GEngine->GetSmallFont(),.85);
+        }
         auto It=TActorIterator<ABorn2FlapValley>(GetWorld());
         if (It)
         {
@@ -71,21 +79,24 @@ void ABorn2FlapHUD::DrawHUD()
         DrawText(TEXT("F5: Vogel zeigen    R: Reset    SPACE: Start"), Muted, 40, 68, GEngine->GetSmallFont(), 1.f);
         return;
     }
-    DrawRect(FLinearColor(.015f, .035f, .045f, .82f), 20, 20, 445, 232);
-    DrawText(TEXT("BORN 2 FLAP"), Cream, 38, 30, GEngine->GetLargeFont(), 1.7f);
-    DrawText(TEXT("RC STICKS  /  AERODYNAMIC FLIGHT"), Gold, 40, 65, GEngine->GetSmallFont(), 1.1f);
-    DrawText(Bird->GetFlightStatus(), Cream, 40, 93, GEngine->GetSmallFont(), 1.05f);
-    DrawText(FString::Printf(TEXT("HEIGHT  %4.1f m     SPEED  %4.1f m/s"), Bird->GetAltitude(), Bird->GetSpeed()),
-             Cream, 40, 123, GEngine->GetMediumFont(), 1.f);
-    DrawText(FString::Printf(TEXT("CLIMB  %+.1f m/s    EFFORT  %.0f%%    BATTERY  %.0f%%"), Bird->GetClimbRate(),
-                             Bird->GetEffort() * 100, Bird->GetBattery() * 100),
-             Cream, 40, 156, GEngine->GetSmallFont(), 1.f);
-    const FVector Sticks = Bird->GetRcSticks();
-    const FVector2D Wings = Bird->GetWingAngles();
-    DrawText(FString::Printf(TEXT("RC  YAW %+.2f    ROLL %+.2f    PITCH %+.2f"), Sticks.Z, Sticks.X, Sticks.Y), Gold,
-             40, 184, GEngine->GetSmallFont(), 1.f);
-    DrawText(FString::Printf(TEXT("WINGS  L %+.1f deg    R %+.1f deg"), Wings.X, Wings.Y), Muted, 40, 212,
-             GEngine->GetSmallFont(), 1.f);
+    if (!bSemanticHUD)
+    {
+        DrawRect(FLinearColor(.015f, .035f, .045f, .82f), 20, 20, 445, 232);
+        DrawText(TEXT("BORN 2 FLAP"), Cream, 38, 30, GEngine->GetLargeFont(), 1.7f);
+        DrawText(TEXT("RC STICKS  /  AERODYNAMIC FLIGHT"), Gold, 40, 65, GEngine->GetSmallFont(), 1.1f);
+        DrawText(Bird->GetFlightStatus(), Cream, 40, 93, GEngine->GetSmallFont(), 1.05f);
+        DrawText(FString::Printf(TEXT("HEIGHT  %4.1f m     SPEED  %4.1f m/s"), Bird->GetAltitude(), Bird->GetSpeed()),
+                 Cream, 40, 123, GEngine->GetMediumFont(), 1.f);
+        DrawText(FString::Printf(TEXT("CLIMB  %+.1f m/s    EFFORT  %.0f%%    BATTERY  %.0f%%"), Bird->GetClimbRate(),
+                                 Bird->GetEffort() * 100, Bird->GetBattery() * 100),
+                 Cream, 40, 156, GEngine->GetSmallFont(), 1.f);
+        const FVector Sticks = Bird->GetRcSticks();
+        const FVector2D Wings = Bird->GetWingAngles();
+        DrawText(FString::Printf(TEXT("RC  YAW %+.2f    ROLL %+.2f    PITCH %+.2f"), Sticks.Z, Sticks.X, Sticks.Y), Gold,
+                 40, 184, GEngine->GetSmallFont(), 1.f);
+        DrawText(FString::Printf(TEXT("WINGS  L %+.1f deg    R %+.1f deg"), Wings.X, Wings.Y), Muted, 40, 212,
+                 GEngine->GetSmallFont(), 1.f);
+    }
     if (auto *Mode = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode()))
         DrawText(Mode->IsNatureLevel() ? TEXT("WALDTAL  /  F4: Uebungsgelaende")
                                        : FString::Printf(TEXT("UEBUNG  %d / %d  /  F4: Waldtal"),
