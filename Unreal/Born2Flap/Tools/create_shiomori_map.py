@@ -232,7 +232,7 @@ float3 sky=float3(0.30,0.52,0.74);
 float3 col=lerp(w, sky, saturate(Fresnel*0.6));
 float ramp=smoothstep(10000.0,24000.0,P.y);
 float h=(sin(P.y*.0016+T*.85)*44.0+sin(P.y*.0028+T*1.35)*22.0+sin(P.y*.0041-T*1.9)*10.0)*ramp;
-float surf=smoothstep(120.0,20.0,d)*Foam;
+float surf=smoothstep(35.0,8.0,d)*Foam;
 float crest=smoothstep(35.0,90.0,h)*Foam*Foam;
 return lerp(col, float3(0.94,0.96,0.96), saturate(surf+crest));''' % (
         shore_color[0], shore_color[1], shore_color[2], color[0], color[1], color[2]),
@@ -291,10 +291,10 @@ def sand_material(name, diffuse, normal, rough=0.8, rough_tex=None, tiling_cm=30
         wire(t, mul, 'B')
         bc = mul
     pos = node(m, 'WorldPosition')
-    wet = custom(m, 'return 1-smoothstep(-45, -3, P.z);', {'P': pos}, 1)
-    bc = custom(m, 'return C*lerp(1.0,.58,W);', {'C': bc, 'W': wet})
+    wet = custom(m, 'return 1-smoothstep(-50, -16, P.z);', {'P': pos}, 1)
+    bc = custom(m, 'return C*lerp(1.0,.72,W);', {'C': bc, 'W': wet})
     output(bc, 'BASE_COLOR')
-    output(custom(m, 'return lerp(.86,.28,W);', {'W': wet}, 1), 'ROUGHNESS')
+    output(custom(m, 'return lerp(.82,.45,W);', {'W': wet}, 1), 'ROUGHNESS')
     ns = sample_tex(m, normal, ('world', tiling_cm), normal=True)
     p = node(m, 'WorldPosition')
     # Irregular (non-sinusoidal) relief via UE value-noise nodes: fine grain
@@ -369,7 +369,7 @@ if sand_d2:
 # --------------------------------------------------------------------------- #
 mats = {}
 mats['Sand'] = sand_material('Sand', sand_d, sand_n, rough_tex=sand_r, tiling_cm=300.0,
-                             normal_strength=0.7, relief_scale=0.015, relief_strength=0.16)
+                             normal_strength=0.7, relief_scale=0.015, relief_strength=0.20)
 mats['WetSand'] = sand_material('WetSand', sand_d, sand_n, rough=0.35, tiling_cm=300.0,
                                 normal_strength=0.5, tint=(0.52, 0.47, 0.4))
 mats['Concrete'] = pbr_material('Concrete', diffuse=concrete_d, normal=concrete_n,
@@ -594,8 +594,8 @@ def beach_height(x, y):
     d = y - waterline(x)
     # Natural, X-only dune crests (non-negative berms) that fade to zero at the
     # waterline. X-only keeps the offshore drop monotonic in Y for the coast test.
-    dune = max(0.0, 20.0 + 30 * math.sin(x * 0.00038 + 1.2) + 18 * math.sin(x * 0.0013 + 4.1)
-               + 9 * math.sin(x * 0.0029 + 0.7))
+    dune = max(20.0, 40.0 + 50 * math.sin(x * 0.00029 + 1.2) + 30 * math.sin(x * 0.00091 + 4.1)
+               + 15 * math.sin(x * 0.0023 + 0.7) + 8 * math.sin(x * 0.0047 + 2.9))
     if d <= -2500:
         return dune
     if d < 0:
