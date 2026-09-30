@@ -1,4 +1,5 @@
 #include "Flight/Born2FlapFlightPawn.h"
+#include "Flight/Born2FlapWingMesh.h"
 #include "Camera/CameraComponent.h"
 #include "Components/BoxComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -211,15 +212,21 @@ void ABorn2FlapFlightPawn::BuildGeometry()
             LeftShoulder = Shoulder;
         else
             RightShoulder = Shoulder;
-        Part(*FString::Printf(TEXT("Wing%d"), Side), Shoulder, Sphere.Object, FVector(-4, Side * 38, 0),
-             FVector(.45, .85, .045), FRotator(0, Side * 8, 0), TEXT("Teal"));
-        for (int I = 0; I < 5; ++I)
-            Part(*FString::Printf(TEXT("Feather%d_%d"), Side, I), Shoulder, Sphere.Object,
-                 FVector(-16 - I * 3, Side * (49 + I * 9), -1), FVector(.43 - I * .035, .20, .035),
-                 FRotator(0, Side * (15 + I * 7), 0), I % 2 ? TEXT("Ivory") : TEXT("Teal"));
         Part(*FString::Printf(TEXT("Tail%d"), Side), PrototypeRoot, Sphere.Object, FVector(-85, Side * 14, -3),
              FVector(.36, .42, .025), FRotator(0, 0, Side * 12), TEXT("Teal"));
     }
+}
+int32 ABorn2FlapFlightPawn::DefaultBirdModel() const
+{
+    // Every field owns a silhouette: the Peregrine hunts the Shiomori coast,
+    // the RavenCrow rules the nature valley, and the Prototype trains in the
+    // indoor arena. Loading a map therefore swaps the bird automatically.
+    const auto* GameMode = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode());
+    if (GameMode && GameMode->IsCoastLevel())
+        return 2;                       // Shiomori Bay -> Peregrine (falcon)
+    if (GameMode && !GameMode->IsNatureLevel())
+        return 1;                       // Training -> Prototype
+    return 0;                           // Ravenstonefield / nature -> RavenCrow
 }
 void ABorn2FlapFlightPawn::BeginPlay()
 {
@@ -281,7 +288,17 @@ void ABorn2FlapFlightPawn::BeginPlay()
     if (bBlind)
         UE_LOG(LogTemp, Display, TEXT("BlindFlight: bird hidden — fly by ear (F5 toggles)"));
     BuildRavenCrow();
+    for (int32 Side : {-1,1})
+    {
+        auto* Wing=NewObject<UBorn2FlapWingMesh>(this,*FString::Printf(TEXT("PrototypeMembrane%d"),Side));
+        AddInstanceComponent(Wing);
+        Wing->SetupAttachment(Side<0 ? LeftShoulder.Get() : RightShoulder.Get());
+        Wing->RegisterComponent();
+        Wing->InitializeWing(Side,1);
+    }
+    SetWingPaint(WingPaint);
     LoadFlightPreferences();
+    BirdModel = DefaultBirdModel();
     SelectBirdModel(BirdModel);
     ResetFlight();
     SetBlindFlight(bBlind);
@@ -299,6 +316,13 @@ void ABorn2FlapFlightPawn::BeginPlay()
         PC->bShowMouseCursor = false;
     }
 }
+void ABorn2FlapFlightPawn::SetWingPaint(UTexture2D* Texture)
+{
+    WingPaint=Texture;
+    TInlineComponentArray<UBorn2FlapWingMesh*> Wings(this);
+    for(auto* Wing : Wings) Wing->SetPaintTexture(Texture);
+}
+
 void ABorn2FlapFlightPawn::ResetFlight(bool bSafety)
 {
     if (bSafety)
@@ -383,6 +407,7 @@ void ABorn2FlapFlightPawn::SetBlindFlight(bool bOn)
     bBlind = bOn;
     if (VisualRoot)
         VisualRoot->SetVisibility(!bBlind, true);
+    SelectBirdModel(BirdModel);
 }
 bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
 {
@@ -398,8 +423,9 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
     // No-slip ground shelter: a resting bird is below the free-stream wind.
     // Smoothly recover the atmospheric field over the first two metres.
     const double Shelter=FMath::SmoothStep(0.0,2.0,double(GetAltitude()));
-    const FVector Wind = bFlightTest ? FVector::ZeroVector : Born2FlapWind::Sample(BodyPos, WorldTime)*Shelter;
-    MathBridge->InjectWindPhaseNoise(bFlightTest ? 0.0 : Born2FlapWind::PhaseNoise(BodyPos, WorldTime)*Shelter);
+    const auto* WindMode=Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode());
+    const FVector Wind = bFlightTest ? FVector::ZeroVector : (WindMode?WindMode->WindAt(BodyPos,WorldTime):Born2FlapWind::Sample(BodyPos,WorldTime))*Shelter;
+    MathBridge->InjectWindPhaseNoise(bFlightTest ? 0.0 : (WindMode && WindMode->IsCoastLevel() ? Wind.Size()*.15 : Born2FlapWind::PhaseNoise(BodyPos, WorldTime))*Shelter);
     B2F_PilotInput Pilot{};
     Pilot.throttle = Throttle;
     Pilot.roll = RollInput;
@@ -635,8 +661,8 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         ResetFlight(true);
         return;
     }
-    if (Mode && Mode->IsNatureLevel() && ABorn2FlapValley::IsWater(P.X, P.Y) &&
-        P.Z < ABorn2FlapValley::WaterHeight + 10)
+    if (Mode && Mode->IsWater(P.X, P.Y) &&
+        P.Z < Mode->WaterHeight() + 10)
     {
         UE_LOG(LogTemp, Display, TEXT("FlightWaterLanding: returning to the clearing"));
         ResetFlight();
@@ -687,6 +713,17 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     // Match the solver's geometric dihedral and commanded wing incidence.
     LeftShoulder->SetRelativeRotation(FRotator(24 * PitchInput + 18 * RollInput, 0, LeftFlap + 16));
     RightShoulder->SetRelativeRotation(FRotator(24 * PitchInput - 18 * RollInput, 0, -RightFlap - 16));
+    if(MembraneLeftShoulder) MembraneLeftShoulder->SetRelativeRotation(LeftShoulder->GetRelativeRotation());
+    if(MembraneRightShoulder) MembraneRightShoulder->SetRelativeRotation(RightShoulder->GetRelativeRotation());
+    B2F_WingSection LeftShape[B2F_WING_STATIONS], RightShape[B2F_WING_STATIONS];
+    if(MathBridge && MathBridge->ReadWingShape(LeftShape,RightShape))
+    {
+        for(USceneComponent* Shoulder : {LeftShoulder.Get(),RightShoulder.Get(),RavenLeftShoulder.Get(),RavenRightShoulder.Get(),MembraneLeftShoulder.Get(),MembraneRightShoulder.Get()})
+            if(Shoulder)
+                for(USceneComponent* Child : Shoulder->GetAttachChildren())
+                    if(auto* Wing=Cast<UBorn2FlapWingMesh>(Child))
+                        Wing->ApplyShape((Shoulder==LeftShoulder || Shoulder==RavenLeftShoulder || Shoulder==MembraneLeftShoulder) ? LeftShape : RightShape,Body->GetComponentTransform());
+    }
     UpdateAeroAudio(Dt);
     if (bVectors)
     {

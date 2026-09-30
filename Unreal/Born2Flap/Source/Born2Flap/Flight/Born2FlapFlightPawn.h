@@ -39,7 +39,11 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     int32 GetBirdModel() const { return BirdModel; }
     float GetTuning(ETuningField Field) const;
     void SetTuning(ETuningField Field, float Value);
-    FVector GetMouseGains() const { return MouseGains; }
+    int32 DefaultBirdModel() const;
+    UFUNCTION(BlueprintCallable, Category="Wing")
+    void SetWingPaint(UTexture2D* Texture);
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Wing")
+    TObjectPtr<UTexture2D> WingPaint;    FVector GetMouseGains() const { return MouseGains; }
     void SetMouseGain(int32 Axis, float Gain);
     float GetControlExpo() const { return ControlExpo; }
     void SetControlExpo(float Value) { if(FMath::IsFinite(Value)) ControlExpo=FMath::Clamp(Value,0.f,1.f); }
@@ -68,6 +72,9 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     UPROPERTY(VisibleAnywhere) TObjectPtr<USceneComponent> RightShoulder;
     UPROPERTY() TObjectPtr<USceneComponent> PrototypeRoot;
     UPROPERTY() TObjectPtr<USceneComponent> RavenRoot;
+    UPROPERTY() TObjectPtr<USceneComponent> MembraneRoot;
+    UPROPERTY() TObjectPtr<USceneComponent> MembraneLeftShoulder;
+    UPROPERTY() TObjectPtr<USceneComponent> MembraneRightShoulder;
     UPROPERTY() TObjectPtr<USceneComponent> RavenLeftShoulder;
     UPROPERTY() TObjectPtr<USceneComponent> RavenRightShoulder;
     UPROPERTY(VisibleAnywhere) TObjectPtr<USpringArmComponent> CameraBoom;

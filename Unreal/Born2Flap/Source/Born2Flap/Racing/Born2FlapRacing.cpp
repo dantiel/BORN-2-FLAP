@@ -128,7 +128,11 @@ void ABorn2FlapRacingManager::BeginPlay()
                !FParse::Param(FCommandLine::Get(), TEXT("B2FDesktopInputTest")) &&
                !FParse::Param(FCommandLine::Get(), TEXT("B2FAudioTest")) &&
                !FParse::Param(FCommandLine::Get(), TEXT("B2FNoRacing"));
-    SpiritDir = FPaths::ProjectSavedDir() / TEXT("Racing/Spirits");
+    // Namespace replays per level (map): only spirits recorded in the current
+    // level fly here, so recordings never bleed across Shiomori / Training /
+    // Ravenstonefield. GetMapName() is a stable per-level key that is
+    // independent of the B2FLevel alias used to launch.
+    SpiritDir = FPaths::ProjectSavedDir() / TEXT("Racing/Spirits") / GetWorld()->GetMapName();
     IFileManager::Get().MakeDirectory(*SpiritDir, /*Tree=*/true);
     if (bEnabled)
         LoadAllSpirits();
