@@ -94,11 +94,11 @@ public:
         };
         Label(TEXT("R A V E N   /   FLIGHT DESK"),24);
         Label(TEXT("Flight paused  •  choose your silhouette"),12);
-        for (int32 Model=0; Model<2; ++Model)
+        for (int32 Model=0; Model<3; ++Model)
             Rows->AddSlot().AutoHeight().Padding(0,0,0,8)
             [SNew(SButton).ContentPadding(FMargin(14,10))
               .Text_Lambda([this,Model] { return FText::FromString(FString(Bird.IsValid() && Bird->GetBirdModel()==Model ? TEXT("●  ") : TEXT("○  "))+
-                  (Model==0 ? TEXT("RAVENCROW  /  folded obsidian & comb pinions") : TEXT("PROTOTYPE  /  original teal bird"))); })
+                  (Model==0 ? TEXT("RAVENCROW  /  folded obsidian & comb pinions") : Model==1 ? TEXT("PROTOTYPE  /  elliptical feathers") : TEXT("PEREGRINE  /  falcon"))); })
               .OnClicked_Lambda([this,Model] { if(Bird.IsValid()) Bird->SelectBirdModel(Model); return FReply::Handled(); })];
         Rows->AddSlot().AutoHeight().Padding(0,5,0,14)
         [SNew(SButton).ContentPadding(10)
@@ -160,7 +160,6 @@ void ABorn2FlapFlightPawn::LoadFlightPreferences()
     FConfigFile Config; Config.Read(Path); Config.bCanSaveAllSections=true;
     Config.GetFloat(TEXT("Controls"),TEXT("Expo"),ControlExpo);
     ControlExpo=FMath::IsFinite(ControlExpo) ? FMath::Clamp(ControlExpo,0.f,1.f) : .65f;
-    Config.GetInt(TEXT("Flight"),TEXT("BirdModel"),BirdModel);
     Config.GetBool(TEXT("Flight"),TEXT("FpvAirView"),bFpvAirView);
     for(int32 Axis=0;Axis<3;++Axis)
     {
@@ -182,7 +181,6 @@ void ABorn2FlapFlightPawn::SaveFlightPreferences()
     FConfigFile Config; Config.Read(Path); Config.bCanSaveAllSections=true;
     IFileManager::Get().MakeDirectory(*FPaths::GetPath(Path),true);
     Config.SetFloat(TEXT("Controls"),TEXT("Expo"),ControlExpo);
-    Config.SetInt64(TEXT("Flight"),TEXT("BirdModel"),BirdModel);
     Config.SetBool(TEXT("Flight"),TEXT("FpvAirView"),bFpvAirView);
     for(int32 Axis=0;Axis<3;++Axis)
         Config.SetDouble(TEXT("Mouse"),*FString::Printf(TEXT("Gain%d"),Axis),MouseGains[Axis]);

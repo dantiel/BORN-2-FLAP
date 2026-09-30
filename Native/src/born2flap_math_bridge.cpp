@@ -122,3 +122,9 @@ extern "C" B2F_API int32_t b2f_math_set_wind_phase_noise(
     context->windPhaseNoise = noiseRadS;
     return 1;
 }
+
+extern "C" B2F_API int32_t b2f_math_get_wing_shape(
+    B2F_MathContext*, uint32_t, B2F_WingSection*, B2F_WingSection*) {
+    // The simplified fallback has no structural solver. Do not invent deformation.
+    return 0;
+}

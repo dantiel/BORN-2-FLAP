@@ -14,6 +14,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "Materials/MaterialInterface.h"
 #include "World/Born2FlapValley.h"
+#include "World/Born2FlapWind.h"
 #include "World/Born2FlapWindLeaves.h"
 #include "UI/Born2FlapUIBridge.h"
 #include "UI/Born2FlapFlightHUD.h"
@@ -22,6 +23,8 @@
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
 #include "EngineUtils.h"
+#include "Camera/CameraActor.h"
+#include "UnrealClient.h"
 ABorn2FlapGameMode::ABorn2FlapGameMode()
 {
     DefaultPawnClass = ABorn2FlapFlightPawn::StaticClass();
@@ -34,6 +37,7 @@ void ABorn2FlapGameMode::InitGame(const FString &MapName, const FString &Options
     FString Level = UGameplayStatics::ParseOption(Options, TEXT("Level"));
     if (Level.IsEmpty())
         FParse::Value(FCommandLine::Get(), TEXT("B2FLevel="), Level);
+    bCoastLevel = Level.Equals(TEXT("Shiomori"),ESearchCase::IgnoreCase) || (Level.IsEmpty() && MapName.Contains(TEXT("SHIOMORI")));
     bNatureLevel = !Level.Equals(TEXT("Training"), ESearchCase::IgnoreCase) &&
                    !FParse::Param(FCommandLine::Get(), TEXT("B2FFlightTest")) &&
                    !FParse::Param(FCommandLine::Get(), TEXT("B2FSoakTest")) &&
@@ -41,7 +45,31 @@ void ABorn2FlapGameMode::InitGame(const FString &MapName, const FString &Options
 }
 double ABorn2FlapGameMode::GroundHeight(double X, double Y) const
 {
+    if(bCoastLevel)
+    {
+        const double Island=FMath::Square((X+37000)/8500.)+FMath::Square((Y-26000)/13500.);
+        if(Island<1) return -600+2200*FMath::Sqrt(1-Island);
+        if(FMath::Abs(X)<=75000 && Y>=-51000 && Y<=-3000) return 150;
+        if(FMath::Abs(X)>45000 || Y>10000 || Y<-3500) return -400;
+        if(Y>=-1200) return 0;
+        return FMath::Clamp(FMath::CeilToDouble((-Y-1200)/100.)*25.,0.,150.);
+    }
     return bNatureLevel ? ABorn2FlapValley::GroundHeight(X, Y) : 0;
+}
+bool ABorn2FlapGameMode::IsWater(double X,double Y) const
+{
+    return bCoastLevel ? GroundHeight(X,Y)<-50 : bNatureLevel && ABorn2FlapValley::IsWater(X,Y);
+}
+double ABorn2FlapGameMode::WaterHeight() const { return bCoastLevel ? -50 : ABorn2FlapValley::WaterHeight; }
+FVector ABorn2FlapGameMode::WindAt(const FVector& P,double Time) const
+{
+    if(!bCoastLevel) return Born2FlapWind::Sample(P,Time);
+    const double Gust=.3*FMath::Sin(Time*.7+P.X*.0003);
+    // Onshore sea breeze meets the 1.5 m stepped seawall. A small, localized
+    // aerodynamic updraft decays inland, above the wall, and beyond its ends.
+    const double Lift=.85*FMath::Exp(-FMath::Square((P.Y+1400)/650.))*FMath::Exp(-FMath::Max(0.,P.Z-150)/650.)*
+        (1-FMath::SmoothStep(43000.,46000.,FMath::Abs(P.X)));
+    return FVector(.3+Gust,-3.2-Gust,Lift);
 }
 void ABorn2FlapGameMode::BeginPlay()
 {
@@ -73,6 +101,7 @@ void ABorn2FlapGameMode::BeginPlay()
     }
     FActorSpawnParameters Params;
     Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+    if(bCoastLevel) return; // Saved coastal map supplies geometry and atmosphere.
     if (bNatureLevel)
     {
         // Ravenstonefield carries its own atmosphere and can be saved as a map.
@@ -155,12 +184,48 @@ void ABorn2FlapGameMode::BeginPlay()
 void ABorn2FlapGameMode::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
+    if(bCoastLevel && FParse::Param(FCommandLine::Get(),TEXT("B2FCoastTest")))
+    {
+        CoastTestTime+=DeltaSeconds;
+        auto* PC=UGameplayStatics::GetPlayerController(this,0);
+        const TCHAR* Views[]={TEXT("Bay overlook"),TEXT("Tidewalk"),TEXT("Basalt cove")};
+        if(CoastCaptureStage<6 && CoastTestTime>2+CoastCaptureStage*2)
+        {
+            if(CoastCaptureStage%2==0)
+            {
+                for(TActorIterator<ACameraActor> It(GetWorld());It;++It)
+                    if(It->ActorHasTag(Views[CoastCaptureStage/2]) && PC) PC->SetViewTarget(*It);
+            }
+            else FScreenshotRequest::RequestScreenshot(FString::Printf(TEXT("SHIOMORI_%d.png"),CoastCaptureStage/2),false,false);
+            ++CoastCaptureStage;
+        }
+        if(CoastTestTime>15)
+        {
+            bool Pass=!IsWater(0,0) && IsWater(0,20000) && !IsWater(-37000,26000) && IsWater(-37000,11200);
+            Pass &= WindAt(FVector(0,-1400,350),0).Z>.3 && WindAt(FVector(0,6000,350),0).Z<.01;
+            for(const FVector& P : {FVector(2000,3000,0),FVector(2000,-1750,150),FVector(2000,-2500,150)})
+            {
+                FHitResult Hit;
+                const bool HitGround=GetWorld()->LineTraceSingleByChannel(Hit,P+FVector(0,0,700),P-FVector(0,0,700),ECC_Visibility);
+                Pass &= HitGround && FMath::Abs(Hit.ImpactPoint.Z-P.Z)<3;
+            }
+            int32 Shelters=0,Posts=0,Rocks=0;
+            for(TActorIterator<AStaticMeshActor> It(GetWorld());It;++It)
+            { Shelters+=It->ActorHasTag(TEXT("Shelter floating roof")); Posts+=It->ActorHasTag(TEXT("Volleyball post")); Rocks+=It->ActorHasTag(TEXT("Volcanic outcrop")); }
+            Pass &= Shelters==9 && Posts==2 && Rocks==60;
+            UE_LOG(LogTemp,Display,TEXT("ShiomoriTest %s: sand/stair/promenade collision, bay/island water mask, stair lift, shelters=%d posts=%d volcanic rocks=%d"),Pass?TEXT("PASS"):TEXT("FAIL"),Shelters,Posts,Rocks);
+            FPlatformMisc::RequestExitWithStatus(false,Pass?0:1);
+        }
+        return;
+    }
+
     if (auto *Player = UGameplayStatics::GetPlayerController(this, 0))
         if (Player->WasInputKeyJustPressed(EKeys::F4))
         {
-            UE_LOG(LogTemp, Display, TEXT("FlightLevel switch=%s"), bNatureLevel ? TEXT("Training") : TEXT("Ravenstonefield"));
-            UGameplayStatics::OpenLevel(this, bNatureLevel ? TEXT("/Engine/Maps/Entry") : TEXT("/Game/Ravenstonefield/Maps/RAVENSTONEFIELD"), true,
-                                        bNatureLevel ? TEXT("Level=Training") : TEXT("Level=Ravenstonefield"));
+            const TCHAR* Next=bCoastLevel?TEXT("Training"):bNatureLevel?TEXT("Shiomori"):TEXT("Ravenstonefield");
+            const TCHAR* Map=bCoastLevel?TEXT("/Engine/Maps/Entry"):bNatureLevel?TEXT("/Game/Shiomori/Maps/SHIOMORI"):TEXT("/Game/Ravenstonefield/Maps/RAVENSTONEFIELD");
+            UE_LOG(LogTemp,Display,TEXT("FlightLevel switch=%s"),Next);
+            UGameplayStatics::OpenLevel(this,Map,true,FString(TEXT("Level="))+Next);
             return;
         }
     auto *Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0));

@@ -4,6 +4,7 @@ module Born2Flap.Math.FFI where
 
 import Born2Flap.Math.Types (Vec3(..))
 import Born2Flap.Math.Vehicle
+import Born2Flap.Math.Planform (defaultBirdWing, shapeChord, shapeTwistRad)
 import Born2Flap.Math.PhaseEnvelope (phaseEnvelope, phaseCoverage)
 import Born2Flap.Math.Resonance (rsPhaseError)
 import Born2Flap.Math.Firmware
@@ -34,7 +35,33 @@ foreign export ccall "hs_b2f_math_step_firmware_vehicle" b2f_math_step_firmware_
 foreign export ccall "hs_b2f_math_set_stabilization" b2f_math_set_stabilization :: Ptr () -> Word32 -> IO Int32
 foreign export ccall "hs_b2f_math_set_wind_phase_noise" b2f_math_set_wind_phase_noise :: Ptr () -> Double -> IO Int32
 foreign export ccall "hs_b2f_math_reconfigure_firmware_vehicle" b2f_math_reconfigure_firmware_vehicle :: Ptr () -> Ptr () -> IO Int32
-
+foreign export ccall "hs_b2f_math_get_wing_shape" b2f_math_get_wing_shape :: Ptr () -> Word32 -> Ptr () -> Ptr () -> IO Int32
+b2f_math_get_wing_shape :: Ptr () -> Word32 -> Ptr () -> Ptr () -> IO Int32
+b2f_math_get_wing_shape contextPointer capacity leftPointer rightPointer
+  | contextPointer == nullPtr || leftPointer == nullPtr || rightPointer == nullPtr
+      || capacity < fromIntegral stripCount = pure 0
+  | otherwise = run `catch` failure
+  where
+    run = do
+      contextRef <- deRefStablePtr (castPtrToStablePtr contextPointer :: StablePtr (IORef FwContext))
+      context <- readIORef contextRef
+      let state = fwcState context
+          values strips = concat
+            [ let fraction = (fromIntegral i + 0.5) / fromIntegral stripCount
+              in [fraction, shapeChord defaultBirdWing fraction, stripBendM s,
+                  shapeTwistRad defaultBirdWing fraction + stripTwistAero s, stripCamber s]
+            | (i, s) <- zip [0 :: Int ..] strips ]
+          left = values (fvLeftStrips state)
+          right = values (fvRightStrips state)
+          valid xs = length xs == stripCount * 5 && all (\v -> not (isNaN v || isInfinite v)) xs
+          write pointer xs = sequence_
+            [pokeElemOff (castPtr pointer :: Ptr CDouble) i (CDouble v) | (i,v) <- zip [0..] xs]
+      if not (valid left && valid right) then pure 0 else do
+        write leftPointer left
+        write rightPointer right
+        pure (fromIntegral stripCount)
+    failure :: SomeException -> IO Int32
+    failure _ = pure 0
 b2f_math_abi_version :: IO Word32
 b2f_math_abi_version = pure 5
 

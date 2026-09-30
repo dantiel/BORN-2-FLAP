@@ -1,4 +1,6 @@
 #include "Flight/Born2FlapFlightPawn.h"
+#include "Flight/Born2FlapWingMesh.h"
+#include "Engine/Texture2D.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/PlayerInput.h"
 #include "InputKeyEventArgs.h"
@@ -29,6 +31,18 @@ void ABorn2FlapFlightPawn::CheckDesktopInputTest(float DeltaSeconds)
     auto Near = [](double A, double B) { return FMath::Abs(A-B) < .005; };
     if (Stage != DesktopTestStage)
     {
+        if(DesktopTestStage<0 && FParse::Param(FCommandLine::Get(),TEXT("B2FWingPaintPreview")))
+        {
+            auto* Paint=UTexture2D::CreateTransient(64,64,PF_B8G8R8A8);
+            auto& Mip=Paint->GetPlatformData()->Mips[0];
+            auto* Pixels=static_cast<FColor*>(Mip.BulkData.Lock(LOCK_READ_WRITE));
+            for(int32 Y=0; Y<64; ++Y)
+                for(int32 X=0; X<64; ++X)
+                    Pixels[Y*64+X]=((X/8+Y/8)%2) ? FColor(230,190,65) : FColor(30,80,135);
+            Mip.BulkData.Unlock();
+            Paint->UpdateResource();
+            SetWingPaint(Paint);
+        }
         bool Pass = bHealthy;
         switch (DesktopTestStage)
         {
@@ -61,7 +75,7 @@ void ABorn2FlapFlightPawn::CheckDesktopInputTest(float DeltaSeconds)
         case 25: Pass &= PitchInput < -.98 && RollInput > .98 && YawInput > .98; break;
         case 26: Pass &= RollInput < -.98 && PitchInput > .98 && Near(YawInput,0) && BirdModel==1; break;
         case 27: Pass &= RollInput < -.98 && PitchInput > .98 && Near(YawInput,0) && BirdModel==0; break;
-        case 28: Pass &= RollInput > .98 && PitchInput < -.98 && YawInput < -.98; break;
+        case 28: Pass &= RollInput > .98 && PitchInput < -.98 && YawInput < -.98 && BirdModel==2; break;
         }
         if (DesktopTestStage >= 0)
         {
@@ -73,6 +87,8 @@ void ABorn2FlapFlightPawn::CheckDesktopInputTest(float DeltaSeconds)
                 FScreenshotRequest::RequestScreenshot(TEXT("RAVENSTONEFIELD_CHANNELS.png"),true,false);
             if (DesktopTestStage == 0 && FParse::Param(FCommandLine::Get(),TEXT("B2FBirdPreview")))
                 FScreenshotRequest::RequestScreenshot(TEXT("RAVENCROW_MODEL.png"),true,false);
+            if (DesktopTestStage == 25 && FParse::Param(FCommandLine::Get(),TEXT("B2FBirdPreview")))
+                FScreenshotRequest::RequestScreenshot(TEXT("PROTOTYPE_MEMBRANE.png"),true,false);
         }
         // Only edges are injected for buttons; the engine maintains their held state.
         for (FKey K : {EKeys::W,EKeys::LeftControl,EKeys::LeftShift,EKeys::R,EKeys::LeftMouseButton,
@@ -96,11 +112,19 @@ void ABorn2FlapFlightPawn::CheckDesktopInputTest(float DeltaSeconds)
         case 21: Key(EKeys::LeftMouseButton,true); break;
         case 26: SetMouseGain(0,-1); SetMouseGain(1,1); SetMouseGain(2,0); SelectBirdModel(1); break;
         case 27: SelectBirdModel(0); break;
-        case 28: SetMouseGain(0,1); SetMouseGain(1,-1); SetMouseGain(2,-1); break;
+        case 28:
+            if(FParse::Param(FCommandLine::Get(),TEXT("B2FBirdPreview")))
+                FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateWeakLambda(this,[](float){FScreenshotRequest::RequestScreenshot(TEXT("PEREGRINE_FALCON.png"),true,false);return false;}),.3f);
+            SelectBirdModel(2); SetMouseGain(0,1); SetMouseGain(1,-1); SetMouseGain(2,-1); break;
         }
         if (Stage >= 29)
         {
             bDesktopTestPass &= CheckFlightCameras();
+            TInlineComponentArray<UBorn2FlapWingMesh*> Wings(this);
+            bool WingsPass=Wings.Num()==6;
+            for(auto* Wing : Wings) WingsPass &= Wing->HasValidDeformation();
+            UE_LOG(LogTemp,Display,TEXT("WingVisualTest %s: all three models receive solver bending, finite normals and stable UVs"),WingsPass ? TEXT("PASS") : TEXT("FAIL"));
+            bDesktopTestPass &= WingsPass;
             if (FParse::Param(FCommandLine::Get(),TEXT("B2FSettingsCapture")))
             {
                 // Core ticker keeps running while gameplay is paused by the actual Slate panel.

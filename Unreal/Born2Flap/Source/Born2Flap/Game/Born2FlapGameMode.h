@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include "CoreMinimal.h"
 #include "GameFramework/GameModeBase.h"
 #include "Born2FlapGameMode.generated.h"
@@ -14,10 +14,17 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     int32 GetGatesPassed() const { return GatesPassed; }
     int32 GetGateCount() const { return Gates.Num(); }
     bool IsNatureLevel() const { return bNatureLevel; }
+    bool IsCoastLevel() const { return bCoastLevel; }
+    bool IsWater(double X,double Y) const;
+    double WaterHeight() const;
+    FVector WindAt(const FVector& P,double Time) const;
     double GroundHeight(double X, double Y) const;
 
   private:
     TArray<FVector> Gates;
     int32 GatesPassed = 0;
     bool bNatureLevel = true;
+    bool bCoastLevel = false;
+    float CoastTestTime=0;
+    int32 CoastCaptureStage=0;
 };
