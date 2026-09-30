@@ -20,6 +20,7 @@
 #include "World/Born2FlapWindLeaves.h"
 #include "UI/Born2FlapUIBridge.h"
 #include "UI/Born2FlapFlightHUD.h"
+#include "UI/Born2FlapRadio.h"
 #include "Racing/Born2FlapRacing.h"
 #include "GameFramework/PlayerController.h"
 #include "Misc/CommandLine.h"
@@ -109,11 +110,26 @@ void ABorn2FlapGameMode::BeginPlay()
         RacingParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
         World->SpawnActor<ABorn2FlapRacingManager>(FVector::ZeroVector, FRotator::ZeroRotator, RacingParams);
     }
+    // Unified radio: one station + one semantic HUD drive every level. The
+    // playlist is data-driven per level (Config/DefaultGame.ini).
+    {
+        RadioStation = NewObject<UBorn2FlapRadioStation>(this);
+        const FString RadioLevel = bCoastLevel ? TEXT("Shiomori") : (bNatureLevel ? TEXT("Ravenstonefield") : TEXT("Training"));
+        RadioStation->Initialize(World, RadioLevel);
+        if (RadioStation->HasTrack())
+        {
+            FActorSpawnParameters RadioParams;
+            RadioParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+            RadioHUD = World->SpawnActor<ABorn2FlapRadioHUD>(FVector::ZeroVector, FRotator::ZeroRotator, RadioParams);
+            if (RadioHUD)
+                RadioHUD->SetStation(RadioStation);
+        }
+    }
     FActorSpawnParameters Params;
     Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
     if(bCoastLevel)
     {
-        BuildCoastRadio(); // Saved coastal map supplies geometry and atmosphere.
+        // Saved coastal map supplies geometry and atmosphere.
         return;
     }
     if (bNatureLevel)
@@ -195,47 +211,7 @@ void ABorn2FlapGameMode::BeginPlay()
              FRotator::ZeroRotator, TEXT("Stone"));
     }
 }
-void ABorn2FlapGameMode::BuildCoastRadio()
-{
-    static const TCHAR* TrackPaths[] = {
-        TEXT("/Game/Shiomori/Audio/SHIOMORI_BAY_I"),
-        TEXT("/Game/Shiomori/Audio/SHIOMORI_BAY_II")};
-    for (const TCHAR* P : TrackPaths)
-        if (auto* W = LoadObject<USoundWave>(nullptr, P))
-            CoastPlaylist.Add(W);
-    if (CoastPlaylist.IsEmpty())
-    {
-        UE_LOG(LogTemp, Error, TEXT("ShiomoriRadio: no tracks imported"));
-        return;
-    }
-    CoastRadio = UGameplayStatics::CreateSound2D(this, CoastPlaylist[0].Get(), CoastRadioVolume, 1.0f, 0.0f, nullptr, false, false);
-    if (!CoastRadio)
-    {
-        UE_LOG(LogTemp, Error, TEXT("ShiomoriRadio: CreateSound2D failed"));
-        return;
-    }
-    CoastRadio->OnAudioFinished.AddDynamic(this, &ABorn2FlapGameMode::OnCoastTrackFinished);
-    UE_LOG(LogTemp, Display, TEXT("ShiomoriRadio playlist=SHIOMORI tracks=%d"), CoastPlaylist.Num());
-}
-
-void ABorn2FlapGameMode::OnCoastTrackFinished()
-{
-    if (!CoastRadio || CoastPlaylist.IsEmpty())
-        return;
-    CoastTrackIndex = (CoastTrackIndex + 1) % CoastPlaylist.Num();
-    CoastRadio->SetSound(CoastPlaylist[CoastTrackIndex].Get());
-    if (bCoastRadioOn)
-        CoastRadio->Play();
-}
-
-bool ABorn2FlapGameMode::HasCoastRadioTrack() const { return CoastRadio && CoastRadio->Sound; }
-bool ABorn2FlapGameMode::IsCoastRadioOn() const { return bCoastRadioOn; }
-float ABorn2FlapGameMode::GetCoastRadioVolume() const { return CoastRadioVolume; }
-
-FString ABorn2FlapGameMode::GetCoastRadioTrackName() const
-{
-    return CoastRadio && CoastRadio->Sound ? CoastRadio->Sound->GetName() : FString();
-}
+bool ABorn2FlapGameMode::HasRadioTrack() const { return RadioStation && RadioStation->HasTrack(); }
 
 void ABorn2FlapGameMode::Tick(float DeltaSeconds)
 {
@@ -292,14 +268,15 @@ void ABorn2FlapGameMode::Tick(float DeltaSeconds)
         return;
     }
 
-    if (bCoastLevel && CoastRadio)
+    // Unified radio controls — identical across every level (M pause, [ / ] volume).
+    if (RadioStation)
     {
+        RadioStation->Tick(DeltaSeconds);
         if (auto* PC = UGameplayStatics::GetPlayerController(this, 0))
         {
-            if (PC->WasInputKeyJustPressed(EKeys::M)) { bCoastRadioOn = !bCoastRadioOn; CoastRadio->SetPaused(!bCoastRadioOn); }
-            if (PC->WasInputKeyJustPressed(EKeys::LeftBracket)) CoastRadioVolume = FMath::Max(0.f, CoastRadioVolume - .08f);
-            if (PC->WasInputKeyJustPressed(EKeys::RightBracket)) CoastRadioVolume = FMath::Min(1.f, CoastRadioVolume + .08f);
-            CoastRadio->SetVolumeMultiplier(CoastRadioVolume);
+            if (PC->WasInputKeyJustPressed(EKeys::M)) RadioStation->TogglePlayPause();
+            if (PC->WasInputKeyJustPressed(EKeys::LeftBracket)) RadioStation->AdjustVolume(-.08f);
+            if (PC->WasInputKeyJustPressed(EKeys::RightBracket)) RadioStation->AdjustVolume(+.08f);
         }
     }
 

@@ -262,11 +262,11 @@ return normalize(float3(n,1));''', {'P': p, 'T': t})
     output(n, 'NORMAL')
     # Vertex-displaced parallel swells rolling shoreward; amplitude ramps from
     # flat at the waterline to full offshore.
-    wpo = custom(m, '''float shore=smoothstep(10000.0,14000.0,P.y);
-float h=sin(P.y*0.0016+T*0.85)*80.0;
-h+=sin(P.y*0.0028+T*1.35+sin(P.x*0.00035)*1.8)*40.0;
-h+=sin(P.y*0.0041-T*1.9)*18.0;
-h+=sin(P.x*0.0009+T*0.6)*22.0;
+    wpo = custom(m, '''float shore=smoothstep(10000.0,24000.0,P.y);
+float h=sin(P.y*0.0016+T*0.85)*44.0;
+h+=sin(P.y*0.0028+T*1.35+sin(P.x*0.00035)*1.8)*22.0;
+h+=sin(P.y*0.0041-T*1.9)*10.0;
+h+=sin(P.x*0.0009+T*0.6)*12.0;
 return float3(0.0,0.0,h*shore);''', {'P': p, 'T': t}, 3)
     output(wpo, 'WORLD_POSITION_OFFSET')
     lib.recompile_material(m)
@@ -679,8 +679,12 @@ for j, x in enumerate(range(-40000, 41000, 10000)):
     puffs = [(0, 0, 62), (-290, -130, 44), (290, -130, 44), (-170, 130, 36),
              (170, 130, 36), (0, -210, 30), (0, 210, 28)]
     for i, (dx, dy, r) in enumerate(puffs):
+        # The big central puff is a soft landing perch; the smaller puffs stay
+        # open (fly-through). One collidable puff per shelter keeps the
+        # "Shelter floating roof" count for the world test intact.
         part('Shelter floating roof' if i == 0 else 'Shelter cloud puff',
-             (x + dx, -2750 + dy, 540), (r * 6, r * 4.4, r * 1.2), 'Cloud', 'Sphere', collision=False)
+             (x + dx, -2750 + dy, 540), (r * 6, r * 4.4, r * 1.2), 'Cloud', 'Sphere',
+             collision=(i == 0))
     part('Picnic table', (x, -2740, 235), (320, 100, 12), 'Wood')
     for dx in (-115, 115):
         part('Table trestle', (x + dx, -2740, 196), (18, 85, 80), 'Sterile')

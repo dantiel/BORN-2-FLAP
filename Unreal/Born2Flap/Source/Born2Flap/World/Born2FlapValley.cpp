@@ -13,6 +13,7 @@
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
 #include "UnrealClient.h"
+#include "Game/Born2FlapGameMode.h"
 
 namespace
 {
@@ -90,7 +91,7 @@ void ABorn2FlapValley::BeginPlay()
 {
     Super::BeginPlay();
     if(WorldVersion!=CurrentWorldVersion) BuildWorld();
-    BuildRadio();
+    // The radio is owned by the GameMode (unified across levels).
     if(FParse::Param(FCommandLine::Get(),TEXT("B2FRavenTest"))) ValidateWorld();
 }
 void ABorn2FlapValley::BuildGround(double Extent,double Step,bool Outer)
@@ -225,16 +226,14 @@ void ABorn2FlapValley::PlantForest()
     }
     UE_LOG(LogTemp,Display,TEXT("RavenVegetation trees=%d; autumn broadleaf, fir, dry grass, deadwood"),Count);
 }
-void ABorn2FlapValley::BuildRadio()
+bool ABorn2FlapValley::HasRadioTrack() const
 {
-    auto* Track=LoadObject<USoundWave>(nullptr,TEXT("/Game/Ravenstonefield/Audio/TURBORAVEN"));
-    if(!Track){UE_LOG(LogTemp,Error,TEXT("RavenRadio missing TURBORAVEN"));return;}
-    Radio=NewObject<UAudioComponent>(this);Radio->SetupAttachment(RootComponent);
-    Radio->bAutoActivate=false;Radio->bIsUISound=true;Radio->bAllowSpatialization=false;
-    Radio->SetSound(Track);Radio->SetVolumeMultiplier(RadioVolume);Radio->RegisterComponent();Radio->Play();
-    UE_LOG(LogTemp,Display,TEXT("RavenRadio playlist=RAVENSTONEFIELD track=TURBORAVEN duration=%.1f"),Track->Duration);
+    // The unified radio lives on the GameMode; the valley only reports it for
+    // the Ravenstonefield world validation (B2FRavenTest).
+    if (auto* Mode = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode()))
+        return Mode->HasRadioTrack();
+    return false;
 }
-bool ABorn2FlapValley::HasRadioTrack() const {return Radio && Radio->Sound;}
 void ABorn2FlapValley::SetPhotoView(int32 Index)
 {
     auto* PC=UGameplayStatics::GetPlayerController(this,0);if(!PC)return;
@@ -248,14 +247,7 @@ void ABorn2FlapValley::SetPhotoView(int32 Index)
 }
 void ABorn2FlapValley::Tick(float DeltaSeconds)
 {
-    Super::Tick(DeltaSeconds);auto* PC=UGameplayStatics::GetPlayerController(this,0);
-    if(PC)
-    {
-        if(PC->WasInputKeyJustPressed(EKeys::M)&&Radio){bRadioOn=!bRadioOn;Radio->SetPaused(!bRadioOn);}
-        if(PC->WasInputKeyJustPressed(EKeys::LeftBracket))RadioVolume=FMath::Max(0.f,RadioVolume-.08f);
-        if(PC->WasInputKeyJustPressed(EKeys::RightBracket))RadioVolume=FMath::Min(1.f,RadioVolume+.08f);
-        if(Radio)Radio->SetVolumeMultiplier(RadioVolume);
-    }
+    Super::Tick(DeltaSeconds);
     CaptureTime+=DeltaSeconds;
     if(FParse::Param(FCommandLine::Get(),TEXT("B2FRavenCapture")))
     {
