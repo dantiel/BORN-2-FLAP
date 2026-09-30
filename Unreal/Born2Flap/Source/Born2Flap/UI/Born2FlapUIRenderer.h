@@ -15,6 +15,7 @@
 
 #include "CoreMinimal.h"
 #include "UObject/Object.h"
+#include "Blueprint/UserWidget.h"
 #include "Templates/UniquePtr.h"
 #include "Types/SlateEnums.h"
 #include "UI/Born2FlapUiOps.h"
@@ -29,6 +30,16 @@ class UPanelWidget;
 class UUserWidget;
 class UCanvasPanel;
 class UMaterialInstanceDynamic;
+
+// Minimal concrete UUserWidget subclass so the runtime HUD can build a widget
+// tree without a Blueprint asset. UUserWidget itself is UCLASS(Abstract), so
+// CreateWidget<UUserWidget> returns nullptr and NewObject<UCanvasPanel> on the
+// null outer would assert.
+UCLASS()
+class BORN2FLAP_API UBorn2FlapRootWidget : public UUserWidget
+{
+    GENERATED_BODY()
+};
 
 // Per-panel layout intent. The reconciler mounts children *after* the parent's
 // UpdateProps, so we cache spacing/alignment here and re-apply on every insert.

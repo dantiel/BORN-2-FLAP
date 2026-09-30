@@ -276,7 +276,7 @@ void UBorn2FlapUIRenderer::EnsureViewport()
     UWorld* World = GetWorld();
     if (!World)
         return;
-    RootHost = CreateWidget<UUserWidget>(World);
+    RootHost = CreateWidget<UBorn2FlapRootWidget>(World);
     ViewportCanvas = NewObject<UCanvasPanel>(RootHost);
     RootHost->WidgetTree->RootWidget = ViewportCanvas;
     RootHost->AddToViewport();

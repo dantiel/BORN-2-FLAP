@@ -125,15 +125,15 @@ void ABorn2FlapFlightHUD::Refresh()
 
     // Blind flight is ear-only: collapse the whole cockpit (no banner — just
     // silence and sound). Settings panel owns the screen while open.
-    const bool bHidden = CachedBird->IsBlindFlight() || CachedBird->IsFlightSettingsOpen();
-    if (bHidden != bLastHidden)
+    const bool bCockpitHidden = CachedBird->IsBlindFlight() || CachedBird->IsFlightSettingsOpen();
+    if (bCockpitHidden != bLastHidden)
     {
         TArray<FOp> Ops;
-        Ops.Add(UpdateProps(FPath(), P({ {"visible", N(bHidden ? 0.0 : 1.0)} })));
+        Ops.Add(UpdateProps(FPath(), P({ {"visible", N(bCockpitHidden ? 0.0 : 1.0)} })));
         Renderer->ApplyOps(Ops);
-        bLastHidden = bHidden;
+        bLastHidden = bCockpitHidden;
     }
-    if (bHidden)
+    if (bCockpitHidden)
         return;
 
     TArray<FOp> Ops;
