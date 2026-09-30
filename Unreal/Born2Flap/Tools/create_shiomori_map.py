@@ -510,6 +510,25 @@ def place_mesh(label, p, mesh, mat, rot=(0, 0, 0), collision=False):
     return a
 
 
+def collision_box(label, cx, cy, top_z, sx, sy, thick=600.0):
+    """Invisible BlockAll box whose top face sits at top_z. The commandlet build
+    drops complex (triMesh) collision for procedural meshes, so the smooth beach
+    gets a stepped ramp of these primitive boxes (proven to collide)."""
+    global count
+    a = u.EditorLevelLibrary.spawn_actor_from_class(u.StaticMeshActor, u.Vector(cx, cy, top_z - thick / 2.0), u.Rotator())
+    a.set_actor_label(label)
+    a.set_editor_property('tags', ['BeachCollision'])
+    c = a.static_mesh_component
+    c.set_static_mesh(meshes['Cube'])
+    c.set_collision_profile_name('BlockAll')
+    c.set_visibility(False)
+    c.set_cast_shadow(False)
+    b = meshes['Cube'].get_bounds().box_extent
+    a.set_actor_scale3d(u.Vector(sx / (2.0 * b.x), sy / (2.0 * b.y), thick / (2.0 * b.z)))
+    count += 1
+    return a
+
+
 def waterline(x):
     return 10000 + 300 * math.sin(x * 0.00042 + 1.7) + 190 * math.sin(x * 0.0011 + 4.2) + 80 * math.sin(x * 0.0024 + 0.6)
 
@@ -604,7 +623,13 @@ def foliage(label, p, mesh, height, rot=(0, 0, 0), ground_z=None):
 
 
 # Coordinates: sea to +Y, promenade to -Y, 900 m beach running east-west.
-place_mesh('Long beach / clear flight sand', (0, 0, 0), beach_mesh, mats['Sand'], collision=True)
+place_mesh('Long beach / clear flight sand', (0, 0, 0), beach_mesh, mats['Sand'], collision=False)
+# The commandlet drops complex collision for procedural meshes, so the bird would
+# fall straight through the smooth beach. Lay an invisible stepped ramp of BlockAll
+# boxes over the same beach_height surface so the bird lands on the dry sand.
+for cx in range(-42500, 42501, 5000):
+    for cy in range(-200, 15801, 2000):
+        collision_box('Beach collision', cx, cy, beach_height(cx, cy), 5000, 2000)
 part('Deep seabed', (0, 45000, -2000), (400000, 420000, 500), 'WetSand')
 place_mesh('Open bay', (0, 0, 0), ocean_mesh, mats['Water'])
 part('Raised promenade', (0, -2400, 50), (90000, 1200, 200), 'Sterile')

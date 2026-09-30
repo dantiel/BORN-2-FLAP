@@ -50,8 +50,16 @@ double ABorn2FlapGameMode::GroundHeight(double X, double Y) const
         const double Island=FMath::Square((X+37000)/8500.)+FMath::Square((Y-26000)/13500.);
         if(Island<1) return -600+2200*FMath::Sqrt(1-Island);
         if(FMath::Abs(X)<=75000 && Y>=-51000 && Y<=-3000) return 150;
-        if(FMath::Abs(X)>45000 || Y>10000 || Y<-3500) return -400;
-        if(Y>=-1200) return 0;
+        if(FMath::Abs(X)>45000 || Y<-3500) return -1750;
+        if(Y>=-1200)
+        {
+            // Same continuous foreshore profile as create_shiomori_map.py.
+            const double Shore=10000+300*FMath::Sin(X*.00042+1.7)+190*FMath::Sin(X*.0011+4.2)+80*FMath::Sin(X*.0024+.6);
+            const double D=Y-Shore;
+            if(D<=-2500) return 0;
+            if(D<0) return -50*FMath::Square((D+2500)/2500);
+            return FMath::Max(-1750.,-50-.04*D);
+        }
         return FMath::Clamp(FMath::CeilToDouble((-Y-1200)/100.)*25.,0.,150.);
     }
     return bNatureLevel ? ABorn2FlapValley::GroundHeight(X, Y) : 0;
@@ -188,8 +196,8 @@ void ABorn2FlapGameMode::Tick(float DeltaSeconds)
     {
         CoastTestTime+=DeltaSeconds;
         auto* PC=UGameplayStatics::GetPlayerController(this,0);
-        const TCHAR* Views[]={TEXT("Bay overlook"),TEXT("Tidewalk"),TEXT("Basalt cove")};
-        if(CoastCaptureStage<6 && CoastTestTime>2+CoastCaptureStage*2)
+        const TCHAR* Views[]={TEXT("Bay overlook"),TEXT("Tidewalk"),TEXT("Basalt cove"),TEXT("Shoreline"),TEXT("East vegetation"),TEXT("West vegetation")};
+        if(CoastCaptureStage<12 && CoastTestTime>2+CoastCaptureStage*2)
         {
             if(CoastCaptureStage%2==0)
             {
@@ -199,7 +207,7 @@ void ABorn2FlapGameMode::Tick(float DeltaSeconds)
             else FScreenshotRequest::RequestScreenshot(FString::Printf(TEXT("SHIOMORI_%d.png"),CoastCaptureStage/2),false,false);
             ++CoastCaptureStage;
         }
-        if(CoastTestTime>15)
+        if(CoastTestTime>27)
         {
             bool Pass=!IsWater(0,0) && IsWater(0,20000) && !IsWater(-37000,26000) && IsWater(-37000,11200);
             Pass &= WindAt(FVector(0,-1400,350),0).Z>.3 && WindAt(FVector(0,6000,350),0).Z<.01;
@@ -209,10 +217,27 @@ void ABorn2FlapGameMode::Tick(float DeltaSeconds)
                 const bool HitGround=GetWorld()->LineTraceSingleByChannel(Hit,P+FVector(0,0,700),P-FVector(0,0,700),ECC_Visibility);
                 Pass &= HitGround && FMath::Abs(Hit.ImpactPoint.Z-P.Z)<3;
             }
+            // Transects cross dry sand, the waterline and submerged sand. This
+            // catches gaps, vertical shelf edges and stale collision/water masks.
+            for(double X : {-30000.,0.,30000.})
+            {
+                double Previous=GroundHeight(X,7000);
+                for(double Y=7250;Y<=15000;Y+=250)
+                {
+                    const double Z=GroundHeight(X,Y);
+                    FHitResult Hit;
+                    const bool Found=GetWorld()->LineTraceSingleByChannel(Hit,FVector(X,Y,700),FVector(X,Y,-1000),ECC_Visibility);
+                    Pass &= Found && FMath::Abs(Hit.ImpactPoint.Z-Z)<150;
+                    Pass &= Z<=Previous+.01 && Previous-Z<=10.1;
+                    Pass &= IsWater(X,Y)==(Z<-50);
+                    Previous=Z;
+                }
+            }
+            int32 West=0,East=0;
             int32 Shelters=0,Posts=0,Rocks=0;
             for(TActorIterator<AStaticMeshActor> It(GetWorld());It;++It)
-            { Shelters+=It->ActorHasTag(TEXT("Shelter floating roof")); Posts+=It->ActorHasTag(TEXT("Volleyball post")); Rocks+=It->ActorHasTag(TEXT("Volcanic outcrop")); }
-            Pass &= Shelters==9 && Posts==2 && Rocks==60;
+            { West+=It->ActorHasTag(TEXT("Coastal grass west")); East+=It->ActorHasTag(TEXT("Coastal grass east")); Shelters+=It->ActorHasTag(TEXT("Shelter floating roof")); Posts+=It->ActorHasTag(TEXT("Volleyball post")); Rocks+=It->ActorHasTag(TEXT("Volcanic outcrop")); }
+            Pass &= Shelters==9 && Posts==2 && Rocks==60 && West>500 && East>500;
             UE_LOG(LogTemp,Display,TEXT("ShiomoriTest %s: sand/stair/promenade collision, bay/island water mask, stair lift, shelters=%d posts=%d volcanic rocks=%d"),Pass?TEXT("PASS"):TEXT("FAIL"),Shelters,Posts,Rocks);
             FPlatformMisc::RequestExitWithStatus(false,Pass?0:1);
         }
