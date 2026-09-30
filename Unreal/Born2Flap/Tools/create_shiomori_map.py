@@ -29,11 +29,13 @@ def node(m, kind, **props):
 
 
 def wire(a, b, pin, output=''):
-    lib.connect_material_expressions(a, output, b, pin)
+    if not output and isinstance(a, u.MaterialExpressionWorldPosition):
+        output = 'XYZ'
+    assert lib.connect_material_expressions(a, output, b, pin), 'Invalid material connection: %s -> %s.%s' % (type(a).__name__, type(b).__name__, pin)
 
 
 def output(n, prop, pin=''):
-    lib.connect_material_property(n, pin, getattr(u.MaterialProperty, 'MP_' + prop))
+    assert lib.connect_material_property(n, pin, getattr(u.MaterialProperty, 'MP_' + prop)), 'Invalid material output: ' + prop
 
 
 def custom(m, code, inputs, size=3):
@@ -74,7 +76,7 @@ def load_texture(subdir, stem, name, normal=False, srgb=True):
     tex.set_editor_property('srgb', srgb)
     if normal:
         tex.set_editor_property('compression_settings', u.TextureCompressionSettings.TC_NORMALMAP)
-    ela.save_asset(path)
+    assert ela.save_asset(path), 'Failed to save ' + path
     return tex
 
 
@@ -147,15 +149,14 @@ def pbr_material(name, color=None, diffuse=None, normal=None, rough=0.8,
         output(node(m, 'Constant', r=metallic), 'METALLIC')
     output(node(m, 'Constant', r=specular), 'SPECULAR')
     lib.recompile_material(m)
-    ela.save_asset(path)
+    assert ela.save_asset(path), 'Failed to save ' + path
     return m
 
 
-def water_material(name, color, rough=0.08, specular=0.6, opacity=0.85,
-                   swell_scale=0.003, swell_amp=0.6, ripple_amp=0.06,
-                   shore_color=(0.03, 0.22, 0.25), waves=None):
+def water_material(name, color, rough=0.08, specular=0.6, shore_color=(0.03, 0.22, 0.25), waves=None):
     """Translucent ocean with depth-graded colour/opacity, Fresnel sky reflection,
-    index-of-refraction bending, and vertex-displaced parallel swells.
+    index-of-refraction bending, vertex-displaced parallel swells, and animated
+    foam (breaking surf line at the shoreline + white crests on the swells).
 
     Depth is SceneDepth - PixelDepth (the water-column thickness above the opaque
     seabed), so the shallow turquoise grades smoothly into deep ocean following the
@@ -179,7 +180,6 @@ def water_material(name, color, rough=0.08, specular=0.6, opacity=0.85,
         pass
     m.set_editor_property('blend_mode', u.BlendMode.BLEND_TRANSLUCENT)
     m.set_editor_property('two_sided', True)
-    # Index-of-refraction refraction: bend the seabed seen through the water.
     m.set_editor_property('refraction_method', u.RefractionMode.RM_INDEX_OF_REFRACTION)
     output(node(m, 'Constant', r=1.33), 'REFRACTION')
     p = node(m, 'WorldPosition')
@@ -187,49 +187,52 @@ def water_material(name, color, rough=0.08, specular=0.6, opacity=0.85,
     sd = node(m, 'SceneDepth')
     pd = node(m, 'PixelDepth')
     fn = node(m, 'Fresnel')
-    # Depth-graded colour: SceneDepth-PixelDepth is the water-column thickness,
-    # so the shallow turquoise grades into deep ocean following the seabed slope
-    # (no hard distance banding). Fresnel adds a sky reflection near the horizon.
+    # Animated foam: coarse world-space value noise drifting shoreward over time.
+    wp = node(m, 'WorldPosition')
+    sc = node(m, 'Multiply'); sc.set_editor_property('const_b', 0.0016); wire(wp, sc, 'A')
+    tm = node(m, 'Multiply'); tm.set_editor_property('const_b', 8.0); wire(t, tm, 'A')
+    z0 = node(m, 'Constant', r=0.0)
+    t2 = node(m, 'AppendVector'); wire(tm, t2, 'A'); wire(z0, t2, 'B')
+    t3 = node(m, 'AppendVector'); wire(t2, t3, 'A'); wire(z0, t3, 'B')
+    add = node(m, 'Add'); wire(sc, add, 'A'); wire(t3, add, 'B')
+    nz = node(m, 'Noise', levels=3, output_min=0.0, output_max=1.0); wire(add, nz, '')
+    # Base colour: depth gradient + Fresnel sky + animated foam (surf + crest).
     bc = custom(m, '''float d=SceneDepth-PixelDepth;
-float3 w=lerp(float3(%.6g,%.6g,%.6g), float3(%.6g,%.6g,%.6g), saturate(d/600.0));
-float3 sky=float3(0.30,0.50,0.72);
-return lerp(w, sky, saturate(Fresnel*0.55));''' % (
-        shore_color[0], shore_color[1], shore_color[2],
-        color[0], color[1], color[2]),
-        {'SceneDepth': sd, 'PixelDepth': pd, 'Fresnel': fn})
+float3 w=lerp(float3(%.6g,%.6g,%.6g), float3(%.6g,%.6g,%.6g), saturate(d/400.0));
+float3 sky=float3(0.30,0.52,0.74);
+float3 col=lerp(w, sky, saturate(Fresnel*0.6));
+float ramp=smoothstep(10000.0,14000.0,P.y);
+float h=(sin(P.y*.0016+T*.85)*80.0+sin(P.y*.0028+T*1.35)*40.0+sin(P.y*.0041-T*1.9)*18.0)*ramp;
+float surf=smoothstep(120.0,20.0,d)*Foam;
+float crest=smoothstep(35.0,90.0,h)*Foam*Foam;
+return lerp(col, float3(0.94,0.96,0.96), saturate(surf+crest));''' % (
+        shore_color[0], shore_color[1], shore_color[2], color[0], color[1], color[2]),
+        {'SceneDepth': sd, 'PixelDepth': pd, 'Fresnel': fn, 'P': p, 'T': t, 'Foam': nz})
     output(bc, 'BASE_COLOR')
     output(node(m, 'Constant', r=rough), 'ROUGHNESS')
     output(node(m, 'Constant', r=specular), 'SPECULAR')
-    # Depth-graded opacity: transparent shallows (sand shows through) -> opaque deep.
     op = custom(m, '''float d=max(SceneDepth-PixelDepth,0.0);
-return 1.0-exp(-d/140.0);''', {'SceneDepth': sd, 'PixelDepth': pd}, 1)
+return 1.0-exp(-d/120.0);''', {'SceneDepth': sd, 'PixelDepth': pd}, 1)
     output(op, 'OPACITY')
-    # Three-octave travelling normal: long swell, chop, and fine glitter ripple.
-    n = custom(m, '''float2 q=P.xy*%.6g;
-float2 n=float2(cos(q.x*0.8+q.y*0.42+T*0.9),sin(q.y*1.1-q.x*0.3-T*0.7))*%.6g;
-n+=float2(sin(q.x*2.7+q.y*1.3-T*1.6),cos(q.y*2.4-q.x*0.9+T*1.4))*%.6g;
+    # Travelling normal: long swell, chop, and fine glitter ripple.
+    n = custom(m, '''float2 q=P.xy*0.003;
+float2 n=float2(cos(q.x*0.8+q.y*0.42+T*0.9),sin(q.y*1.1-q.x*0.3-T*0.7))*0.6;
+n+=float2(sin(q.x*2.7+q.y*1.3-T*1.6),cos(q.y*2.4-q.x*0.9+T*1.4))*0.22;
 float2 r=P.xy*0.022;
-n+=float2(sin(r.x*1.3+r.y*0.9+T*3.2),cos(r.y*1.7-r.x*0.5-T*2.8))*%.6g;
-return normalize(float3(n,1));''' % (swell_scale, swell_amp, swell_amp * 0.36, ripple_amp),
-               {'P': p, 'T': t})
+n+=float2(sin(r.x*1.3+r.y*0.9+T*3.2),cos(r.y*1.7-r.x*0.5-T*2.8))*0.06;
+return normalize(float3(n,1));''', {'P': p, 'T': t})
     if waves is not None:
         uv = node(m, 'TextureCoordinate')
-        rep = node(m, 'Multiply')
-        rep.set_editor_property('const_b', 300.0)
-        wire(uv, rep, 'A')
-        pw = node(m, 'Panner', speed_x=0.0, speed_y=-0.06)
-        wire(rep, pw, 'Coordinate')
+        rep = node(m, 'Multiply'); rep.set_editor_property('const_b', 300.0); wire(uv, rep, 'A')
+        pw = node(m, 'Panner', speed_x=0.0, speed_y=-0.06); wire(rep, pw, 'Coordinate')
         sw = node(m, 'TextureSample', texture=waves)
         sw.set_editor_property('sampler_type', u.MaterialSamplerType.SAMPLERTYPE_NORMAL)
         wire(pw, sw, 'UVs')
-        bw = node(m, 'LinearInterpolate', const_alpha=0.45)
-        wire(n, bw, 'A')
-        wire(sw, bw, 'B', 'RGB')
+        bw = node(m, 'LinearInterpolate', const_alpha=0.45); wire(n, bw, 'A'); wire(sw, bw, 'B', 'RGB')
         n = bw
     output(n, 'NORMAL')
-    # Real vertex-displaced parallel swells: the surface rolls shoreward (-Y),
-    # amplitude ramping from flat at the waterline to full offshore. This is what
-    # makes the sea actually undulate instead of merely shimmering per-pixel.
+    # Vertex-displaced parallel swells rolling shoreward; amplitude ramps from
+    # flat at the waterline to full offshore.
     wpo = custom(m, '''float shore=smoothstep(10000.0,14000.0,P.y);
 float h=sin(P.y*0.0016+T*0.85)*80.0;
 h+=sin(P.y*0.0028+T*1.35+sin(P.x*0.00035)*1.8)*40.0;
@@ -238,12 +241,12 @@ h+=sin(P.x*0.0009+T*0.6)*22.0;
 return float3(0.0,0.0,h*shore);''', {'P': p, 'T': t}, 3)
     output(wpo, 'WORLD_POSITION_OFFSET')
     lib.recompile_material(m)
-    ela.save_asset(path)
+    assert ela.save_asset(path), 'Failed to save ' + path
     return m
 
 
 def sand_material(name, diffuse, normal, rough=0.8, rough_tex=None, tiling_cm=300.0,
-                  relief_scale=0.02, relief_strength=0.6, normal_strength=0.6,
+                  relief_scale=0.02, relief_strength=0.08, normal_strength=0.6,
                   tint=None):
     """Beach sand: tiled grain normal plus a large-scale wind/sea/footprint
     relief so the surface reads as naturally uneven, not a flat smooth plane."""
@@ -258,11 +261,11 @@ def sand_material(name, diffuse, normal, rough=0.8, rough_tex=None, tiling_cm=30
         wire(bc, mul, 'A')
         wire(t, mul, 'B')
         bc = mul
+    pos = node(m, 'WorldPosition')
+    wet = custom(m, 'return 1-smoothstep(-45, -3, P.z);', {'P': pos}, 1)
+    bc = custom(m, 'return C*lerp(1.0,.58,W);', {'C': bc, 'W': wet})
     output(bc, 'BASE_COLOR')
-    if rough_tex is not None:
-        output(sample_tex(m, rough_tex, ('world', tiling_cm)), 'ROUGHNESS', 'R')
-    else:
-        output(node(m, 'Constant', r=rough), 'ROUGHNESS')
+    output(custom(m, 'return lerp(.86,.28,W);', {'W': wet}, 1), 'ROUGHNESS')
     ns = sample_tex(m, normal, ('world', tiling_cm), normal=True)
     p = node(m, 'WorldPosition')
     # Irregular (non-sinusoidal) relief via UE value-noise nodes: fine grain
@@ -277,7 +280,7 @@ def sand_material(name, diffuse, normal, rough=0.8, rough_tex=None, tiling_cm=30
     nz_w = node(m, 'Noise', levels=2, output_min=-1.0, output_max=1.0); wire(ws, nz_w, '')
     code = '''float rx=NX*%.6g + W*0.2;
 float ry=NY*%.6g + W*0.55;
-float3 tn=normalize(float3(TN.x*2.0-1.0, TN.y*2.0-1.0, saturate(TN.z*2.0-1.0)+0.25));
+float3 tn=normalize(TN);
 float3 r=normalize(float3(tn.x+rx, tn.y+ry, 1.0));
 return normalize(float3(lerp(0.0, r.x, %.6g), lerp(0.0, r.y, %.6g), 1.0));
 ''' % (relief_strength, relief_strength, normal_strength, normal_strength)
@@ -295,7 +298,7 @@ return normalize(float3(lerp(0.0, r.x, %.6g), lerp(0.0, r.y, %.6g), 1.0));
     wire(ns, n, 'TN', 'RGB')
     output(n, 'NORMAL')
     lib.recompile_material(m)
-    ela.save_asset(path)
+    assert ela.save_asset(path), 'Failed to save ' + path
     return m
 
 
@@ -368,8 +371,6 @@ mats['Window'] = pbr_material('Window', color=(0.04, 0.1, 0.13), rough=0.12,
                               metallic=0.85, specular=1.0)
 mats['Bush'] = pbr_material('Bush', color=(0.09, 0.24, 0.13), rough=0.85, specular=0.4)
 mats['Water'] = water_material('Water', (0.02, 0.10, 0.22), rough=0.08, specular=0.6, waves=wave_n)
-mats['Shallows'] = water_material('Shallows', (0.02, 0.18, 0.20), rough=0.12, specular=0.6,
-                                  swell_scale=0.01, swell_amp=0.6, waves=wave_n)
 mats['Foam'] = pbr_material('Foam', color=(0.9, 0.94, 0.93), rough=0.35, specular=0.3)
 
 # Translucent foam with soft, noisy edges.
@@ -469,6 +470,8 @@ def build_mesh(name, verts, tris, uvs=None):
     md.reserve_new_vertex_instances(len(verts))
     md.reserve_new_polygons(len(tris))
     pg = md.create_polygon_group()
+    md.set_polygon_group_material_slot_name(pg, 'Surface')
+    sm.set_editor_property('static_materials', [u.StaticMaterial(material_slot_name='Surface')])
     vids = []
     for (x, y, z) in verts:
         v = md.create_vertex()
@@ -482,8 +485,14 @@ def build_mesh(name, verts, tris, uvs=None):
             md.set_vertex_instance_uv(inst, u.Vector2D(uvs[k][0], uvs[k][1]), 0)
     for (a, b, c) in tris:
         md.create_triangle(pg, [insts[a], insts[b], insts[c]])
-    sm.build_from_static_mesh_descriptions([md])
-    ela.save_asset(path)
+    # Keep the CPU copy of the render mesh (bAllowCPUAccess), otherwise the
+    # commandlet build drops the triMesh and the mesh has no complex collision.
+    try:
+        sm.set_editor_property('allow_cpu_access', True)
+    except Exception:
+        pass
+    sm.build_from_static_mesh_descriptions([md], False, False)
+    assert ela.save_asset(path), 'Failed to save ' + path
     return sm
 
 
@@ -505,56 +514,51 @@ def waterline(x):
     return 10000 + 300 * math.sin(x * 0.00042 + 1.7) + 190 * math.sin(x * 0.0011 + 4.2) + 80 * math.sin(x * 0.0024 + 0.6)
 
 
-def shore_detail(x):
-    """High-frequency organic jitter so the waterline reads as a natural coast,
-    not a clean sine curve."""
-    return 90 * math.sin(x * 0.0037 + 1.1) + 55 * math.sin(x * 0.0079 + 3.4) + 30 * math.sin(x * 0.0143 + 5.7)
+def make_ocean_grid():
+    xs = [-200000, -100000, -60000] + list(range(-50000, 50001, 250)) + [60000, 100000, 200000]
+    ys = [-145000, -20000, 0, 6000] + list(range(7000, 45001, 200)) + [55000, 75000, 120000, 255000]
+    verts = [(x, y, -50) for y in ys for x in xs]
+    uvs = [(x/150, y/150) for y in ys for x in xs]
+    tris = []
+    stride = len(xs)
+    for j in range(len(ys)-1):
+        for i in range(stride-1):
+            a=j*stride+i
+            tris.extend([(a,a+1,a+stride+1),(a,a+stride+1,a+stride)])
+    return verts,tris,uvs
 
 
-def make_ocean_grid(ncols=384, nrows=384, half=200000.0, cy=55000.0, z=-50.0):
-    """Subdivided 4 km x 4 km plane for vertex-displaced swells (~10 m spacing)."""
+def beach_height(x, y):
+    # Keep in sync with GroundHeight in Born2FlapGameMode.cpp.
+    d = y-waterline(x)
+    if d <= -2500:
+        return 0.0
+    if d < 0:
+        return -50*((d+2500)/2500)**2
+    return -50-.04*d
+
+
+def make_beach():
+    xs = list(range(-45000, 45001, 250))
+    offsets = [-12000, -10000, -6000, -3500] + list(range(-2500, 4001, 100)) + [5000, 7000, 10000, 15000, 25000, 40000]
     verts, uvs, tris = [], [], []
-    for j in range(nrows):
-        y = cy - half + (2.0 * half) * j / (nrows - 1)
-        for i in range(ncols):
-            x = -half + (2.0 * half) * i / (ncols - 1)
-            verts.append((x, y, z))
-            uvs.append((i / (ncols - 1), j / (nrows - 1)))
-    stride = ncols
-    for j in range(nrows - 1):
-        for i in range(ncols - 1):
-            a = j * stride + i
-            tris.append((a, a + 1, a + stride + 1))
-            tris.append((a, a + stride + 1, a + stride))
-    return verts, tris, uvs
-
-
-def make_ribbon(x0, x1, ncols, nrows, y_inshore, y_offshore, z_inshore, z_offshore, jitter=0.0):
-    """A smooth strip following the waterline. y/z are lerped inshore->offshore."""
-    verts, uvs, tris = [], [], []
-    for j in range(nrows + 1):
-        t = j / nrows
-        for i in range(ncols + 1):
-            x = x0 + (x1 - x0) * i / ncols
-            wl = waterline(x) + shore_detail(x)
-            y = y_inshore + (y_offshore - y_inshore) * t
-            if jitter:
-                y += jitter * math.sin(x * 0.0053 + t * 2.1)
-            z = z_inshore + (z_offshore - z_inshore) * t
-            verts.append((x, wl + y, z))
-            uvs.append((i / ncols, t))
-    stride = ncols + 1
-    for j in range(nrows):
-        for i in range(ncols):
-            a = j * stride + i
-            tris.append((a, a + 1, a + stride + 1))
-            tris.append((a, a + stride + 1, a + stride))
-    return verts, tris, uvs
+    for d in offsets:
+        for x in xs:
+            y = max(-1200, waterline(x)+d)
+            verts.append((x,y,beach_height(x,y)))
+            uvs.append((x/150,y/150))
+    stride=len(xs)
+    for j in range(len(offsets)-1):
+        for i in range(stride-1):
+            a=j*stride+i
+            tris.extend([(a,a+1,a+stride+1),(a,a+stride+1,a+stride)])
+    return verts,tris,uvs
 
 
 ocean_mesh = build_mesh('OceanGrid', *make_ocean_grid())
-wet_sand_mesh = build_mesh('ShoreWetSand', *make_ribbon(-45000.0, 45000.0, 720, 5, -550.0, 300.0, -5.0, -90.0))
-foam_mesh = build_mesh('ShoreFoam', *make_ribbon(-45000.0, 45000.0, 900, 3, 120.0, 440.0, -47.0, -47.0, jitter=40.0))
+beach_mesh = build_mesh('ContinuousBeach', *make_beach())
+beach_mesh.get_editor_property('body_setup').set_editor_property('collision_trace_flag', u.CollisionTraceFlag.CTF_USE_COMPLEX_AS_SIMPLE)
+ela.save_loaded_asset(beach_mesh)
 
 
 def part(label, p, size, mat='Concrete', shape='Cube', rot=(0, 0, 0), collision=True):
@@ -594,31 +598,23 @@ def foliage(label, p, mesh, height, rot=(0, 0, 0), ground_z=None):
     if ground_z is not None:
         origin, extent = a.get_actor_bounds(False)
         loc = a.get_actor_location()
-        a.set_actor_location(u.Vector(loc.x, loc.y, ground_z + (loc.z - origin.z)), False, False)
+        a.set_actor_location(u.Vector(loc.x, loc.y, ground_z + (loc.z - origin.z) + extent.z), False, False)
     count += 1
     return a
 
 
 # Coordinates: sea to +Y, promenade to -Y, 900 m beach running east-west.
-part('Long beach / clear flight sand', (0, 4400, -70), (90000, 11200, 140), 'Sand')
-part('Seabed', (0, 45000, -650), (250000, 200000, 400), 'WetSand')
-# Real vertex-displaced ocean surface (subdivided grid) instead of a flat quad.
+place_mesh('Long beach / clear flight sand', (0, 0, 0), beach_mesh, mats['Sand'], collision=True)
+part('Deep seabed', (0, 45000, -2000), (400000, 420000, 500), 'WetSand')
 place_mesh('Open bay', (0, 0, 0), ocean_mesh, mats['Water'])
-# Natural shoreline: a single smooth wet-sand ribbon sloping into the surf and a
-# continuous rolling foam line, both following the meandering waterline.
-place_mesh('Wet-sand ribbon', (0, 0, 0), wet_sand_mesh, mats['WetSand'])
-place_mesh('Surf foam ribbon', (0, 0, 0), foam_mesh, mats['Foam'])
-# Shallow sand shelf: the seabed rises toward the beach so the water is shallow
-# (turquoise) inshore and deep (blue) offshore.
-part('Shallow sand shelf', (0, 17500, -225), (90000, 15000, 310), 'WetSand', rot=(0, 0, -1.18), collision=False)
-part('Raised promenade', (0, -2650, 50), (90000, 1700, 200), 'Sterile')
+part('Raised promenade', (0, -2400, 50), (90000, 1200, 200), 'Sterile')
 part('Industrial hinterland', (0, -27000, -100), (150000, 48000, 500), 'Industry')
 # Six continuous, shallow stair treads run the entire beach edge.
 for i in range(6):
     h = (i + 1) * 25
     part('Tidewalk stair %02d' % i, (0, -1250 - i * 100, h / 2), (90000, 100, h), 'Sterile')
 part('Promenade edge', (0, -1880, 153), (90000, 24, 6), 'Sterile', collision=False)
-part('Service road', (0, -4400, 154), (100000, 1400, 8), 'Road')
+part('Service road', (0, -4400, 149), (100000, 1400, 18), 'Road')
 for x in range(-44000, 45000, 1300):
     part('Road dash', (x, -4400, 160), (520, 16, 2), 'Ivory', collision=False)
 # Open, cloud-like art shelters: slim white piers beneath a cluster of soft,
@@ -646,14 +642,14 @@ for j, x in enumerate(range(-43000, 44000, 6500)):
     w = rng.uniform(4200, 5600)
     h = rng.uniform(850, 1700)
     y = -8500 - rng.uniform(0, 2500)
-    part('Quiet warehouse %02d' % j, (x, y, 150 + h / 2), (w, 4600, h), 'Sterile')
+    part('Quiet warehouse %02d' % j, (x, y, 145 + h / 2), (w, 4600, h + 10), 'Sterile')
     part('Warehouse pale roof', (x, y, 160 + h), (w + 120, 4780, 60), 'Sterile')
     for dx in (-w * .32, 0, w * .32):
         part('Warehouse loading door', (x + dx, y + 2310, 430), (760, 20, 550), 'Window')
     part('Rooftop ventilation', (x + 600, y, 270 + h), (650, 500, 240), 'Industry')
     if j % 3 == 0:
         for dx in (0, 600):
-            part('Utility tank', (x + dx, y - 3100, 750), (460, 460, 1200), 'Industry', 'Cylinder')
+            part('Utility tank', (x + dx, y - 3100, 745), (460, 460, 1210), 'Industry', 'Cylinder')
 # Backshore scrub: real coastal vegetation instead of green spheres.
 for i in range(180):
     x = rng.uniform(-44500, 44500)
@@ -662,44 +658,25 @@ for i in range(180):
     mesh = rng.choice(foliage_meshes[kind])
     h = rng.uniform(60, 260) if kind == 'Grass' else rng.uniform(120, 320) if kind == 'Fir' else rng.uniform(50, 160)
     foliage('Backshore scrub', (x, y, 150), mesh, h, rot=(0, rng.uniform(0, 360), 0), ground_z=150)
-# Lush dune vegetation at the east end of the beach: a layered tangle of tall
-# firs, dense dune grass, low scrub and a few rocks spilling toward the surf.
-for i in range(150):
-    x = rng.uniform(39700, 44900)
-    y = rng.uniform(-900, 8600)
-    kind = rng.choice(('Grass', 'Grass', 'Grass', 'Fir', 'Fir', 'Rock'))
-    mesh = rng.choice(foliage_meshes[kind])
-    if kind == 'Fir':
-        h = rng.uniform(200, 540)
-    elif kind == 'Rock':
-        h = rng.uniform(40, 130)
-    else:
-        h = rng.uniform(50, 230)
-    foliage('Dune-end lush', (x, y, 0), mesh, h, rot=(0, rng.uniform(0, 360), 0), ground_z=0)
-# A dense fir copse anchors the far tip, where the beach meets the water.
-for i in range(45):
-    x = rng.uniform(42800, 44900)
-    y = rng.uniform(1500, 7200)
-    mesh = rng.choice(foliage_meshes['Fir'])
-    foliage('Dune-end fir copse', (x, y, 0), mesh, rng.uniform(260, 640), rot=(0, rng.uniform(0, 360), 0), ground_z=0)
-# Mirrored lush dune vegetation at the west end of the beach.
-for i in range(150):
-    x = rng.uniform(-44900, -39700)
-    y = rng.uniform(-900, 8600)
-    kind = rng.choice(('Grass', 'Grass', 'Grass', 'Fir', 'Fir', 'Rock'))
-    mesh = rng.choice(foliage_meshes[kind])
-    if kind == 'Fir':
-        h = rng.uniform(200, 540)
-    elif kind == 'Rock':
-        h = rng.uniform(40, 130)
-    else:
-        h = rng.uniform(50, 230)
-    foliage('Dune-end lush', (x, y, 0), mesh, h, rot=(0, rng.uniform(0, 360), 0), ground_z=0)
-for i in range(45):
-    x = rng.uniform(-44900, -42800)
-    y = rng.uniform(1500, 7200)
-    mesh = rng.choice(foliage_meshes['Fir'])
-    foliage('Dune-end fir copse', (x, y, 0), mesh, rng.uniform(260, 640), rot=(0, rng.uniform(0, 360), 0), ground_z=0)
+# Layered coastal thickets: taller trees behind dense dune-grass edges.
+# Separate seeded RNG keeps other landmark placements stable as density changes.
+vrng = random.Random(301026)
+for side in (-1, 1):
+    for i in range(700):
+        x = side*vrng.uniform(40000, 44850)
+        y = vrng.uniform(-850, 7600)
+        # Irregular edge and openings, rather than a rectangular plantation.
+        if abs(x) < 40900+500*math.sin(y*.0014) and vrng.random()<.65:
+            continue
+        foliage('Coastal grass west' if side<0 else 'Coastal grass east',
+                (x,y,0), vrng.choice(foliage_meshes['Grass']), vrng.uniform(55,125),
+                rot=(0,vrng.uniform(0,360),0), ground_z=beach_height(x,y))
+    for i in range(110):
+        x = side*vrng.uniform(41600,44800)
+        y = vrng.uniform(-650,6900)
+        foliage('Coastal trees west' if side<0 else 'Coastal trees east',
+                (x,y,0), vrng.choice(foliage_meshes['Fir']), vrng.uniform(220,650),
+                rot=(0,vrng.uniform(0,360),0), ground_z=beach_height(x,y))
 # Volcanic island, to the left, curves around the bay.
 part('Basalt island foundation', (-37000, 26000, -600), (17000, 27000, 4400), 'Basalt', 'Sphere')
 for i in range(60):
@@ -744,20 +721,13 @@ try:
     fog.component.set_editor_property('fog_inscattering_color', u.LinearColor(.55, .68, .82))
 except Exception:
     pass
-# Planar reflection on the water surface: real mirrored sky/building/vegetation
-# reflections for the Single Layer Water, instead of normal-shimmer alone.
-refl = u.EditorLevelLibrary.spawn_actor_from_class(u.PlanarReflection, u.Vector(0, 18000, 0), u.Rotator(0, 0, 0))
-refl.set_actor_label('Water planar reflection')
-pc = refl.get_component_by_class(u.PlanarReflectionComponent)
-if pc:
-    try:
-        pc.set_editor_property('normal_distortion_strength', 80.0)
-    except Exception:
-        pass
 # Saved viewpoints also make the generated map easy to inspect in the editor.
 for name, p, target in [('Bay overlook', (12000, -14000, 15000), (-12000, 10000, 0)),
                         ('Tidewalk', (-1500, -500, 650), (1000, -2700, 250)),
-                        ('Basalt cove', (-22000, 12000, 5000), (-37000, 26000, 500))]:
+                        ('Basalt cove', (-22000, 12000, 5000), (-37000, 26000, 500)),
+                        ('Shoreline', (0, 7900, 220), (3500, 12500, -50)),
+                        ('East vegetation', (38700, 3000, 320), (43700, 4800, 240)),
+                        ('West vegetation', (-38500, 2800, 380), (-43800, 4800, 220))]:
     a = u.EditorLevelLibrary.spawn_actor_from_class(u.CameraActor, u.Vector(*p),
                                                     u.MathLibrary.find_look_at_rotation(u.Vector(*p), u.Vector(*target)))
     a.set_actor_label(name)
