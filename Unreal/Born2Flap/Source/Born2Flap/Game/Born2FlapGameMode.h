@@ -15,6 +15,7 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     virtual void InitGame(const FString &MapName, const FString &Options, FString &ErrorMessage) override;
     virtual void BeginPlay() override;
     virtual void Tick(float DeltaSeconds) override;
+    virtual void RestartPlayerAtPlayerStart(AController* NewPlayer, AActor* StartSpot) override;
     int32 GetGatesPassed() const { return GatesPassed; }
     int32 GetGateCount() const { return Gates.Num(); }
     bool IsNatureLevel() const { return bNatureLevel; }
