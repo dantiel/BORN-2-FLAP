@@ -75,7 +75,7 @@ double ABorn2FlapGameMode::GroundHeight(double X, double Y) const
             // waterline. Strictly offshore-decreasing, so it stays monotonic.
             const double Shore=10000+520*FMath::Sin(X*.00030+1.7)+300*FMath::Sin(X*.00105+4.2)
                               +160*FMath::Sin(X*.0024+.6)+85*FMath::Sin(X*.0056+2.3)+45*FMath::Sin(X*.013+5.1);
-            const double Dune=FMath::Max(0.,20.+30*FMath::Sin(X*.00038+1.2)+18*FMath::Sin(X*.0013+4.1)+9*FMath::Sin(X*.0029+.7));
+            const double Dune=FMath::Max(20.,40.+50*FMath::Sin(X*.00029+1.2)+30*FMath::Sin(X*.00091+4.1)+15*FMath::Sin(X*.0023+.7)+8*FMath::Sin(X*.0047+2.9));
             const double D=Y-Shore;
             if(D<=-2500) return Dune;
             if(D<0) return Dune*(-D/2500.)-50*FMath::Square((D+2500)/2500);
