@@ -22,9 +22,7 @@ class BORN2FLAP_API ABorn2FlapValley : public AActor
     static bool IsWater(double X, double Y);
     static constexpr double WaterHeight = -120;
     static FString PlaceName(double X, double Y);
-    bool IsRadioOn() const { return bRadioOn; }
     bool IsPhotoMode() const { return PhotoIndex >= 0; }
-    float GetRadioVolume() const { return RadioVolume; }
     bool HasRadioTrack() const;
 
   private:
@@ -40,7 +38,6 @@ class BORN2FLAP_API ABorn2FlapValley : public AActor
     void BuildBridge();
     void BuildCastle();
     void BuildRelics();
-    void BuildRadio();
     void SetPhotoView(int32 Index);
     void ValidateWorld();
     UHierarchicalInstancedStaticMeshComponent *Group(const FString &Mesh, const FString &Material,
@@ -52,12 +49,8 @@ class BORN2FLAP_API ABorn2FlapValley : public AActor
     UPROPERTY(VisibleAnywhere, Category="Ravenstonefield")
     int32 WorldVersion = 0;
     UPROPERTY(Transient)
-    TObjectPtr<UAudioComponent> Radio;
-    UPROPERTY(Transient)
     TObjectPtr<ACameraActor> PhotoCamera;
     TMap<FString, UHierarchicalInstancedStaticMeshComponent *> Groups;
-    bool bRadioOn = true;
-    float RadioVolume = .38f;
     int32 PhotoIndex = -1;
     double CaptureTime = 0;
     int32 CaptureStage = 0;

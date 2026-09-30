@@ -51,23 +51,8 @@ void ABorn2FlapHUD::DrawHUD()
             DrawText(Bird->GetFlightStatus(),Muted,48,H-79,GEngine->GetSmallFont(),.9);
             DrawText(TEXT("SPACE launch  W / CTRL+W / SHIFT+W  WHEEL fine"),Ivory,48,H-55,GEngine->GetSmallFont(),.85);
         }
-        auto It=TActorIterator<ABorn2FlapValley>(GetWorld());
-        if (It)
-        {
-            const auto *Valley=*It;
-            DrawRect(Ink,W-346,H-120,314,83);
-            DrawText(TEXT("RAVENSTONEFIELD  /  FIELD RADIO"),Amber,W-330,H-108,GEngine->GetSmallFont(),.85);
-            DrawText(Valley->HasRadioTrack()?(Valley->IsRadioOn()?TEXT("TURBORAVEN"):TEXT("RADIO PAUSED")):TEXT("RADIO / NO SIGNAL"),Ivory,W-330,H-85,GEngine->GetMediumFont(),.9);
-            DrawText(FString::Printf(TEXT("M pause   [ / ] volume  %.0f%%"),Valley->GetRadioVolume()*100),Muted,W-330,H-55,GEngine->GetSmallFont(),.85);
-        }
-        else if (Mode->IsCoastLevel())
-        {
-            DrawRect(Ink,W-346,H-120,314,83);
-            DrawText(TEXT("SHIOMORI BAY  /  BEACH RADIO"),Amber,W-330,H-108,GEngine->GetSmallFont(),.85);
-            FString CoastLine = Mode->HasCoastRadioTrack() ? (Mode->IsCoastRadioOn() ? Mode->GetCoastRadioTrackName() : FString(TEXT("RADIO PAUSED"))) : FString(TEXT("RADIO / NO SIGNAL"));
-            DrawText(CoastLine,Ivory,W-330,H-85,GEngine->GetMediumFont(),.9);
-            DrawText(FString::Printf(TEXT("M pause   [ / ] volume  %.0f%%"),Mode->GetCoastRadioVolume()*100),Muted,W-330,H-55,GEngine->GetSmallFont(),.85);
-        }
+        // The radio is rendered by the semantic ABorn2FlapRadioHUD (new UI
+        // system), not the imperative canvas.
         DrawText(TEXT("F6 ground / air   V chase / FPV   F8 bird + controls   F2 channels   F3 RC   F4 level   F7 HUD"),Muted,34,H-24,GEngine->GetSmallFont(),.85);
         DrawText(Bird->GetCameraLabel(), FLinearColor(.68f,.74f,.70f), 47, 110, GEngine->GetSmallFont(), .8f);
         if (bShowChannels) DrawChannels(*Bird);
