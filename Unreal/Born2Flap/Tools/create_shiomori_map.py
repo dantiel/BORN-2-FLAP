@@ -230,8 +230,8 @@ def water_material(name, color, rough=0.08, specular=0.6, shore_color=(0.03, 0.2
 float3 w=lerp(float3(%.6g,%.6g,%.6g), float3(%.6g,%.6g,%.6g), saturate(d/400.0));
 float3 sky=float3(0.30,0.52,0.74);
 float3 col=lerp(w, sky, saturate(Fresnel*0.6));
-float ramp=smoothstep(10000.0,14000.0,P.y);
-float h=(sin(P.y*.0016+T*.85)*80.0+sin(P.y*.0028+T*1.35)*40.0+sin(P.y*.0041-T*1.9)*18.0)*ramp;
+float ramp=smoothstep(10000.0,24000.0,P.y);
+float h=(sin(P.y*.0016+T*.85)*44.0+sin(P.y*.0028+T*1.35)*22.0+sin(P.y*.0041-T*1.9)*10.0)*ramp;
 float surf=smoothstep(120.0,20.0,d)*Foam;
 float crest=smoothstep(35.0,90.0,h)*Foam*Foam;
 return lerp(col, float3(0.94,0.96,0.96), saturate(surf+crest));''' % (
@@ -369,7 +369,7 @@ if sand_d2:
 # --------------------------------------------------------------------------- #
 mats = {}
 mats['Sand'] = sand_material('Sand', sand_d, sand_n, rough_tex=sand_r, tiling_cm=300.0,
-                             normal_strength=0.65)
+                             normal_strength=0.7, relief_scale=0.015, relief_strength=0.16)
 mats['WetSand'] = sand_material('WetSand', sand_d, sand_n, rough=0.35, tiling_cm=300.0,
                                 normal_strength=0.5, tint=(0.52, 0.47, 0.4))
 mats['Concrete'] = pbr_material('Concrete', diffuse=concrete_d, normal=concrete_n,
@@ -399,6 +399,9 @@ mats['Orange'] = pbr_material('Orange', color=(0.8, 0.25, 0.075), rough=0.45,
 mats['Window'] = pbr_material('Window', color=(0.04, 0.1, 0.13), rough=0.12,
                               metallic=0.85, specular=1.0)
 mats['Bush'] = pbr_material('Bush', color=(0.09, 0.24, 0.13), rough=0.85, specular=0.4)
+mats['Earth'] = pbr_material('Earth', diffuse=sand_d, normal=sand_n, rough_tex=sand_r,
+                             tiling=('world', 260.0), normal_strength=0.6,
+                             tint=(0.44, 0.46, 0.37))
 mats['Water'] = water_material('Water', (0.02, 0.10, 0.22), rough=0.08, specular=0.6, waves=wave_n)
 mats['Foam'] = pbr_material('Foam', color=(0.9, 0.94, 0.93), rough=0.35, specular=0.3)
 
@@ -559,31 +562,45 @@ def collision_box(label, cx, cy, top_z, sx, sy, thick=600.0):
 
 
 def waterline(x):
-    return 10000 + 300 * math.sin(x * 0.00042 + 1.7) + 190 * math.sin(x * 0.0011 + 4.2) + 80 * math.sin(x * 0.0024 + 0.6)
+    # Rugged shoreline: layered sine octaves carve gentle headlands and coves
+    # instead of a ruler-straight shore. Kept in sync with GroundHeight.cpp.
+    return (10000 + 520 * math.sin(x * 0.00030 + 1.7) + 300 * math.sin(x * 0.00105 + 4.2)
+            + 160 * math.sin(x * 0.0024 + 0.6) + 85 * math.sin(x * 0.0056 + 2.3)
+            + 45 * math.sin(x * 0.013 + 5.1))
 
 
 def make_ocean_grid():
+    # The sea plane now hugs the rugged waterline on its shoreward edge and only
+    # steps seaward from there. The old grid reached far inland (y down to
+    # -145000) and read as "water everywhere above the sand".
     xs = [-200000, -100000, -60000] + list(range(-50000, 50001, 250)) + [60000, 100000, 200000]
-    ys = [-145000, -20000, 0, 6000] + list(range(7000, 45001, 200)) + [55000, 75000, 120000, 255000]
-    verts = [(x, y, -50) for y in ys for x in xs]
-    uvs = [(x/150, y/150) for y in ys for x in xs]
+    near = [waterline(x) - 60.0 for x in xs]
+    off = [11500] + list(range(12000, 45001, 200)) + [55000, 75000, 120000, 255000]
+    rows = [[(x, near[i], -50.0) for i, x in enumerate(xs)]]
+    rows += [[(x, y, -50.0) for x in xs] for y in off]
+    verts = [v for row in rows for v in row]
+    uvs = [(x / 150.0, y / 150.0) for (x, y, _) in verts]
     tris = []
     stride = len(xs)
-    for j in range(len(ys)-1):
-        for i in range(stride-1):
-            a=j*stride+i
-            tris.extend([(a,a+1,a+stride+1),(a,a+stride+1,a+stride)])
-    return verts,tris,uvs
+    for j in range(len(rows) - 1):
+        for i in range(stride - 1):
+            a = j * stride + i
+            tris.extend([(a, a + 1, a + stride + 1), (a, a + stride + 1, a + stride)])
+    return verts, tris, uvs
 
 
 def beach_height(x, y):
     # Keep in sync with GroundHeight in Born2FlapGameMode.cpp.
-    d = y-waterline(x)
+    d = y - waterline(x)
+    # Natural, X-only dune crests (non-negative berms) that fade to zero at the
+    # waterline. X-only keeps the offshore drop monotonic in Y for the coast test.
+    dune = max(0.0, 20.0 + 30 * math.sin(x * 0.00038 + 1.2) + 18 * math.sin(x * 0.0013 + 4.1)
+               + 9 * math.sin(x * 0.0029 + 0.7))
     if d <= -2500:
-        return 0.0
+        return dune
     if d < 0:
-        return -50*((d+2500)/2500)**2
-    return -50-.04*d
+        return dune * (-d / 2500.0) - 50.0 * ((d + 2500.0) / 2500.0) ** 2
+    return max(-1750.0, -50.0 - 0.04 * d)
 
 
 def make_beach():
@@ -668,9 +685,22 @@ for i in range(6):
     h = (i + 1) * 25
     part('Tidewalk stair %02d' % i, (0, -1250 - i * 100, h / 2), (90000, 100, h), 'Sterile')
 part('Promenade edge', (0, -1880, 153), (90000, 24, 6), 'Sterile', collision=False)
-part('Service road', (0, -4400, 149), (100000, 1400, 18), 'Road')
-for x in range(-44000, 45000, 1300):
-    part('Road dash', (x, -4400, 160), (520, 16, 2), 'Ivory', collision=False)
+# A gently curving service road: the promenade and buildings stay straight, but
+# the road weaves like a real coastal drive (a chain of rotated asphalt slabs).
+def road_y(x):
+    return -4400 + 260 * math.sin(x * 0.00012 + 2.2) + 120 * math.sin(x * 0.00030 + 5.0)
+
+
+road_xs = list(range(-44000, 44001, 500))
+for i in range(len(road_xs) - 1):
+    x0, x1 = road_xs[i], road_xs[i + 1]
+    y0, y1 = road_y(x0), road_y(x1)
+    dx, dy = x1 - x0, y1 - y0
+    seg = math.hypot(dx, dy)
+    yaw = math.degrees(math.atan2(dy, dx))
+    part('Service road', ((x0 + x1) / 2.0, (y0 + y1) / 2.0, 149), (seg + 60, 1400, 18), 'Road', rot=(0, yaw, 0))
+    if i % 3 == 0:
+        part('Road dash', ((x0 + x1) / 2.0, (y0 + y1) / 2.0, 160), (520, 16, 2), 'Ivory', rot=(0, yaw, 0), collision=False)
 # Open, cloud-like art shelters: slim white piers beneath a cluster of soft,
 # translucent white puffs. One puff keeps the counted "Shelter floating roof" tag.
 for j, x in enumerate(range(-40000, 41000, 10000)):
@@ -708,6 +738,14 @@ for j, x in enumerate(range(-43000, 44000, 6500)):
     if j % 3 == 0:
         for dx in (0, 600):
             part('Utility tank', (x + dx, y - 3100, 745), (460, 460, 1210), 'Industry', 'Cylinder')
+# Rolling coastal hills behind the yard break up the otherwise flat hinterland.
+hrng = random.Random(77113)
+for i in range(22):
+    hx = hrng.uniform(-44500, 44500)
+    hy = hrng.uniform(-32000, -19000)
+    part('Coastal hill', (hx, hy, 150 - hrng.uniform(20, 100)),
+         (hrng.uniform(7000, 15000), hrng.uniform(6000, 12000), hrng.uniform(420, 760)),
+         'Earth', 'Sphere', rot=(0, hrng.uniform(0, 360), 0))
 # Backshore scrub: real coastal vegetation instead of green spheres.
 for i in range(180):
     x = rng.uniform(-44500, 44500)

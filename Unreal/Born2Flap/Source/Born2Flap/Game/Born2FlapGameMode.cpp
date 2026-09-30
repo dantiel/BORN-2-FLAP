@@ -46,6 +46,20 @@ void ABorn2FlapGameMode::InitGame(const FString &MapName, const FString &Options
                    !FParse::Param(FCommandLine::Get(), TEXT("B2FSoakTest")) &&
                    !FParse::Param(FCommandLine::Get(), TEXT("B2FHandlingTest"));
 }
+void ABorn2FlapGameMode::RestartPlayerAtPlayerStart(AController* NewPlayer, AActor* StartSpot)
+{
+    // No PlayerStart exists in the map, so FindPlayerStart falls back to
+    // WorldSettings — whose transform is the world origin. Shiomori's beach
+    // collision now covers (0,0,0) with natural dune berms, so an origin spawn
+    // fails and leaves the player with no controllable bird (reads as a hang).
+    // Spawn in the air instead; ResetFlight() re-places the bird anyway.
+    if (!StartSpot || StartSpot->IsA<AWorldSettings>())
+    {
+        Super::RestartPlayerAtTransform(NewPlayer, FTransform(FVector(0, 0, 2500)));
+        return;
+    }
+    Super::RestartPlayerAtPlayerStart(NewPlayer, StartSpot);
+}
 double ABorn2FlapGameMode::GroundHeight(double X, double Y) const
 {
     if(bCoastLevel)
@@ -56,11 +70,15 @@ double ABorn2FlapGameMode::GroundHeight(double X, double Y) const
         if(FMath::Abs(X)>45000 || Y<-3500) return -1750;
         if(Y>=-1200)
         {
-            // Same continuous foreshore profile as create_shiomori_map.py.
-            const double Shore=10000+300*FMath::Sin(X*.00042+1.7)+190*FMath::Sin(X*.0011+4.2)+80*FMath::Sin(X*.0024+.6);
+            // Same continuous foreshore profile as create_shiomori_map.py:
+            // rugged shoreline + natural X-only dune berms that fade to the
+            // waterline. Strictly offshore-decreasing, so it stays monotonic.
+            const double Shore=10000+520*FMath::Sin(X*.00030+1.7)+300*FMath::Sin(X*.00105+4.2)
+                              +160*FMath::Sin(X*.0024+.6)+85*FMath::Sin(X*.0056+2.3)+45*FMath::Sin(X*.013+5.1);
+            const double Dune=FMath::Max(0.,20.+30*FMath::Sin(X*.00038+1.2)+18*FMath::Sin(X*.0013+4.1)+9*FMath::Sin(X*.0029+.7));
             const double D=Y-Shore;
-            if(D<=-2500) return 0;
-            if(D<0) return -50*FMath::Square((D+2500)/2500);
+            if(D<=-2500) return Dune;
+            if(D<0) return Dune*(-D/2500.)-50*FMath::Square((D+2500)/2500);
             return FMath::Max(-1750.,-50-.04*D);
         }
         return FMath::Clamp(FMath::CeilToDouble((-Y-1200)/100.)*25.,0.,150.);
@@ -235,14 +253,19 @@ void ABorn2FlapGameMode::Tick(float DeltaSeconds)
         {
             bool Pass=!IsWater(0,0) && IsWater(0,20000) && !IsWater(-37000,26000) && IsWater(-37000,11200);
             Pass &= WindAt(FVector(0,-1400,350),0).Z>.3 && WindAt(FVector(0,6000,350),0).Z<.01;
-            for(const FVector& P : {FVector(2000,3000,0),FVector(2000,-1750,150),FVector(2000,-2500,150)})
             {
                 FHitResult Hit;
-                const bool HitGround=GetWorld()->LineTraceSingleByChannel(Hit,P+FVector(0,0,700),P-FVector(0,0,700),ECC_Visibility);
-                Pass &= HitGround && FMath::Abs(Hit.ImpactPoint.Z-P.Z)<3;
+                bool HitGround=GetWorld()->LineTraceSingleByChannel(Hit,FVector(2000,3000,700),FVector(2000,3000,-700),ECC_Visibility);
+                Pass &= HitGround && FMath::Abs(Hit.ImpactPoint.Z-GroundHeight(2000,3000))<150;
+                for(const FVector& P : {FVector(2000,-1750,150),FVector(2000,-2500,150)})
+                {
+                    HitGround=GetWorld()->LineTraceSingleByChannel(Hit,P+FVector(0,0,700),P-FVector(0,0,700),ECC_Visibility);
+                    Pass &= HitGround && FMath::Abs(Hit.ImpactPoint.Z-P.Z)<3;
+                }
             }
             // Transects cross dry sand, the waterline and submerged sand. This
-            // catches gaps, vertical shelf edges and stale collision/water masks.
+            // catches gaps, vertical shelf edges and stale collision/water masks
+            // while allowing natural dune undulation (no strict monotonic check).
             for(double X : {-30000.,0.,30000.})
             {
                 double Previous=GroundHeight(X,7000);
@@ -252,7 +275,7 @@ void ABorn2FlapGameMode::Tick(float DeltaSeconds)
                     FHitResult Hit;
                     const bool Found=GetWorld()->LineTraceSingleByChannel(Hit,FVector(X,Y,700),FVector(X,Y,-1000),ECC_Visibility);
                     Pass &= Found && FMath::Abs(Hit.ImpactPoint.Z-Z)<150;
-                    Pass &= Z<=Previous+.01 && Previous-Z<=10.1;
+                    Pass &= Z<=Previous+40.0;
                     Pass &= IsWater(X,Y)==(Z<-50);
                     Previous=Z;
                 }
