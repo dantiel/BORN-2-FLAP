@@ -13,6 +13,8 @@
 #include "GameFramework/WorldSettings.h"
 #include "Kismet/GameplayStatics.h"
 #include "Materials/MaterialInterface.h"
+#include "Components/AudioComponent.h"
+#include "Sound/SoundWave.h"
 #include "World/Born2FlapValley.h"
 #include "World/Born2FlapWind.h"
 #include "World/Born2FlapWindLeaves.h"
@@ -109,7 +111,11 @@ void ABorn2FlapGameMode::BeginPlay()
     }
     FActorSpawnParameters Params;
     Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-    if(bCoastLevel) return; // Saved coastal map supplies geometry and atmosphere.
+    if(bCoastLevel)
+    {
+        BuildCoastRadio(); // Saved coastal map supplies geometry and atmosphere.
+        return;
+    }
     if (bNatureLevel)
     {
         // Ravenstonefield carries its own atmosphere and can be saved as a map.
@@ -189,6 +195,48 @@ void ABorn2FlapGameMode::BeginPlay()
              FRotator::ZeroRotator, TEXT("Stone"));
     }
 }
+void ABorn2FlapGameMode::BuildCoastRadio()
+{
+    static const TCHAR* TrackPaths[] = {
+        TEXT("/Game/Shiomori/Audio/SHIOMORI_BAY_I"),
+        TEXT("/Game/Shiomori/Audio/SHIOMORI_BAY_II")};
+    for (const TCHAR* P : TrackPaths)
+        if (auto* W = LoadObject<USoundWave>(nullptr, P))
+            CoastPlaylist.Add(W);
+    if (CoastPlaylist.IsEmpty())
+    {
+        UE_LOG(LogTemp, Error, TEXT("ShiomoriRadio: no tracks imported"));
+        return;
+    }
+    CoastRadio = UGameplayStatics::CreateSound2D(this, CoastPlaylist[0].Get(), CoastRadioVolume, 1.0f, 0.0f, nullptr, false, false);
+    if (!CoastRadio)
+    {
+        UE_LOG(LogTemp, Error, TEXT("ShiomoriRadio: CreateSound2D failed"));
+        return;
+    }
+    CoastRadio->OnAudioFinished.AddDynamic(this, &ABorn2FlapGameMode::OnCoastTrackFinished);
+    UE_LOG(LogTemp, Display, TEXT("ShiomoriRadio playlist=SHIOMORI tracks=%d"), CoastPlaylist.Num());
+}
+
+void ABorn2FlapGameMode::OnCoastTrackFinished()
+{
+    if (!CoastRadio || CoastPlaylist.IsEmpty())
+        return;
+    CoastTrackIndex = (CoastTrackIndex + 1) % CoastPlaylist.Num();
+    CoastRadio->SetSound(CoastPlaylist[CoastTrackIndex].Get());
+    if (bCoastRadioOn)
+        CoastRadio->Play();
+}
+
+bool ABorn2FlapGameMode::HasCoastRadioTrack() const { return CoastRadio && CoastRadio->Sound; }
+bool ABorn2FlapGameMode::IsCoastRadioOn() const { return bCoastRadioOn; }
+float ABorn2FlapGameMode::GetCoastRadioVolume() const { return CoastRadioVolume; }
+
+FString ABorn2FlapGameMode::GetCoastRadioTrackName() const
+{
+    return CoastRadio && CoastRadio->Sound ? CoastRadio->Sound->GetName() : FString();
+}
+
 void ABorn2FlapGameMode::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
@@ -242,6 +290,17 @@ void ABorn2FlapGameMode::Tick(float DeltaSeconds)
             FPlatformMisc::RequestExitWithStatus(false,Pass?0:1);
         }
         return;
+    }
+
+    if (bCoastLevel && CoastRadio)
+    {
+        if (auto* PC = UGameplayStatics::GetPlayerController(this, 0))
+        {
+            if (PC->WasInputKeyJustPressed(EKeys::M)) { bCoastRadioOn = !bCoastRadioOn; CoastRadio->SetPaused(!bCoastRadioOn); }
+            if (PC->WasInputKeyJustPressed(EKeys::LeftBracket)) CoastRadioVolume = FMath::Max(0.f, CoastRadioVolume - .08f);
+            if (PC->WasInputKeyJustPressed(EKeys::RightBracket)) CoastRadioVolume = FMath::Min(1.f, CoastRadioVolume + .08f);
+            CoastRadio->SetVolumeMultiplier(CoastRadioVolume);
+        }
     }
 
     if (auto *Player = UGameplayStatics::GetPlayerController(this, 0))

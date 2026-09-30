@@ -80,6 +80,35 @@ def load_texture(subdir, stem, name, normal=False, srgb=True):
     return tex
 
 
+def radio():
+    """Import the two user-supplied beach songs as SoundWave assets."""
+    ela.make_directory('/Game/Shiomori/Audio')
+    for source_name, asset_name in [('Shiomori Bay I', 'SHIOMORI_BAY_I'),
+                                    ('Shiomori Bay II', 'SHIOMORI_BAY_II')]:
+        source = Path.home() / ('Downloads/' + source_name + '.mp3')
+        if not source.exists():
+            u.log_warning('Shiomori radio source missing: ' + str(source))
+            continue
+        path = '/Game/Shiomori/Audio/' + asset_name
+        if not ela.does_asset_exist(path):
+            task = u.AssetImportTask()
+            task.filename = str(source)
+            task.destination_path = '/Game/Shiomori/Audio'
+            task.destination_name = asset_name
+            task.automated = True
+            task.replace_existing = True
+            task.save = True
+            assets.import_asset_tasks([task])
+        wave = u.load_asset(path)
+        if not isinstance(wave, u.SoundWave):
+            u.log_warning('Shiomori radio track not a SoundWave: ' + asset_name)
+            continue
+        wave.set_editor_property('looping', False)
+        wave.set_editor_property('volume', 0.55)
+        assert ela.save_asset(path), 'Failed to save ' + path
+        u.log('SHIOMORI_RADIO track=' + asset_name + ' duration=' + str(wave.duration))
+
+
 def sample_tex(m, tex, tiling=None, normal=False):
     """TextureSample with optional tiling: ('world', cm) or ('uv', repeats)."""
     s = node(m, 'TextureSample', texture=tex)
@@ -760,6 +789,7 @@ for name, p, target in [('Bay overlook', (12000, -14000, 15000), (-12000, 10000,
     a.camera_component.set_editor_property('field_of_view', 70.)
 u.EditorLevelLibrary.set_level_viewport_camera_info(u.Vector(12000, -14000, 15000),
                                                     u.MathLibrary.find_look_at_rotation(u.Vector(12000, -14000, 15000), u.Vector(-12000, 10000, 0)))
+radio()
 u.EditorAssetLibrary.make_directory('/Game/Shiomori/Maps')
 assert u.EditorLoadingAndSavingUtils.save_map(world, '/Game/Shiomori/Maps/SHIOMORI')
 u.log('SHIOMORI_MAP_READY actors=' + str(count))
