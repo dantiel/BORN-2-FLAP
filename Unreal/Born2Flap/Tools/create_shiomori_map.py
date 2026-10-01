@@ -673,9 +673,11 @@ place_mesh('Long beach / clear flight sand', (0, 0, 0), beach_mesh, mats['Sand']
 # The commandlet drops complex collision for procedural meshes, so the bird would
 # fall straight through the smooth beach. Lay an invisible stepped ramp of BlockAll
 # boxes over the same beach_height surface so the bird lands on the dry sand.
-for cx in range(-42500, 42501, 5000):
+# The dunes vary with X (13-216 m crests); a 50 m X step staircases them by up to
+# ~50 cm, so the bird hovers above the sand. Denser X cells hug the dune surface.
+for cx in range(-42500, 42501, 500):
     for cy in range(-200, 15801, 2000):
-        collision_box('Beach collision', cx, cy, beach_height(cx, cy), 5000, 2000)
+        collision_box('Beach collision', cx, cy, beach_height(cx, cy), 500, 2000)
 part('Deep seabed', (0, 45000, -2000), (400000, 420000, 500), 'WetSand')
 place_mesh('Open bay', (0, 0, 0), ocean_mesh, mats['Water'])
 part('Raised promenade', (0, -2400, 50), (90000, 1200, 200), 'Sterile')
