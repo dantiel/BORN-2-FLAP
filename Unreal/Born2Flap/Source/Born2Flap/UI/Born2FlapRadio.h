@@ -75,7 +75,9 @@ private:
 
     UPROPERTY(Transient) TObjectPtr<UAudioComponent> Active = nullptr;
     UPROPERTY(Transient) TObjectPtr<UAudioComponent> Fader = nullptr;
-    TArray<TObjectPtr<USoundWave>> Playlist;
+    // UPROPERTY keeps the SoundWaves referenced so the GC does not collect them
+    // (they are only loaded via LoadObject, which returns non-rooted pointers).
+    UPROPERTY(Transient) TArray<TObjectPtr<USoundWave>> Playlist;
     FString StationName = TEXT("FIELD RADIO");
     int32 TrackIndex = 0;
     bool bPlaying = true;

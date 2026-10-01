@@ -32,7 +32,7 @@ def main():
         files = json.loads(read('https://api.polyhaven.com/files/' + name))
         manifest[name] = {'source': 'https://polyhaven.com/a/' + name, 'license': 'CC0', 'files': {}}
         for kind in ['Diffuse', 'nor_dx', 'Rough']:
-            info = files[kind]['1k']['jpg']
+            info = files[kind]['4k']['jpg']
             jobs.append((ROOT / name / (kind + '.jpg'), info))
             manifest[name]['files'][kind] = info
     (ROOT / 'manifest.json').write_text(json.dumps(manifest, indent=2), encoding='utf-8')
