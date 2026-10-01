@@ -53,6 +53,11 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     bool IsFlying() const { return bFlying; }
     bool IsHealthy() const { return bHealthy; }
     bool IsBlindFlight() const { return bBlind; }
+    // Optional visual aileron: twist the wings oppositely with roll input. Real
+    // flapping servos only flap, so this is off by default and kept for future
+    // actuators that can feather.
+    bool IsRollWingTwist() const { return bRollWingTwist; }
+    void SetRollWingTwist(bool bOn) { bRollWingTwist = bOn; }
     float GetAltitude() const;
     float GetSpeed() const;
     float GetEffort() const { return Throttle; }
@@ -106,6 +111,7 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     void SaveFlightPreferences();
     float Throttle = 0, RollInput = 0, YawInput = 0, PitchInput = 0, LeftFlap = 0, RightFlap = 0, BatterySoc = 1;
     bool bFlying = false, bHealthy = false, bVectors = false, bReturning = false, bBlind = false;
+    bool bRollWingTwist = false;
     FVector AeroForce = FVector::ZeroVector, AeroMoment = FVector::ZeroVector;
     int32 SafetyResets = 0, MathFailures = 0, BoundaryReturns = 0;
     // The integration test uses the actual pawn/controller/Chaos path.

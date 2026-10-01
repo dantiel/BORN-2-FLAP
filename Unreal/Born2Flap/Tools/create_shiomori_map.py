@@ -134,6 +134,21 @@ def sample_tex(m, tex, tiling=None, normal=False):
     return s
 
 
+def material_usage_flags(m):
+    """Enable the usage flags UE5.8 demands for programmatically-built materials.
+
+    Without 'used_with_nanite', a material applied to a Nanite-enabled mesh (or
+    any mesh in a game build) logs 'missing usage flag Nanite' and silently
+    falls back to the grey Default Material, which reads as washed-out empty
+    space (this hit the basalt island and the Nature foliage)."""
+    for prop in ('used_with_nanite', 'b_used_with_nanite'):
+        try:
+            m.set_editor_property(prop, True)
+            return
+        except Exception:
+            pass
+
+
 def pbr_material(name, color=None, diffuse=None, normal=None, rough=0.8,
                  rough_tex=None, tiling=None, normal_strength=0.7, tint=None,
                  metallic=0.0, specular=0.5, noise_var=0.0):
@@ -177,6 +192,7 @@ def pbr_material(name, color=None, diffuse=None, normal=None, rough=0.8,
     if metallic > 0:
         output(node(m, 'Constant', r=metallic), 'METALLIC')
     output(node(m, 'Constant', r=specular), 'SPECULAR')
+    material_usage_flags(m)
     lib.recompile_material(m)
     assert ela.save_asset(path), 'Failed to save ' + path
     return m
@@ -269,6 +285,7 @@ h+=sin(P.y*0.0041-T*1.9)*10.0;
 h+=sin(P.x*0.0009+T*0.6)*12.0;
 return float3(0.0,0.0,h*shore);''', {'P': p, 'T': t}, 3)
     output(wpo, 'WORLD_POSITION_OFFSET')
+    material_usage_flags(m)
     lib.recompile_material(m)
     assert ela.save_asset(path), 'Failed to save ' + path
     return m
@@ -326,6 +343,7 @@ return normalize(float3(lerp(0.0, r.x, %.6g), lerp(0.0, r.y, %.6g), 1.0));
     wire(nz_w, n, 'W')
     wire(ns, n, 'TN', 'RGB')
     output(n, 'NORMAL')
+    material_usage_flags(m)
     lib.recompile_material(m)
     assert ela.save_asset(path), 'Failed to save ' + path
     return m
@@ -605,11 +623,17 @@ def beach_height(x, y):
 
 def make_beach():
     xs = list(range(-45000, 45001, 250))
-    offsets = [-12000, -10000, -6000, -3500] + list(range(-2500, 4001, 100)) + [5000, 7000, 10000, 15000, 25000, 40000]
+    # Sand hugs the mainland shore and stops ~25 m offshore (d=2500). The old
+    # grid ran 400 m out to sea (d=40000, Y≈50000) and its floor dropped to
+    # Z=-1750, so a bright sand bed read as a slab deep under the island. The
+    # volcanic island ellipsoid's nearest point is Y=12500 (at X=-37000); cap the
+    # sand there so headlands (where waterline(x)+2500 reaches ~13600) never push
+    # bright sand under the island's submerged slope.
+    offsets = [-12000, -10000, -6000, -3500] + list(range(-2500, 2501, 100))
     verts, uvs, tris = [], [], []
     for d in offsets:
         for x in xs:
-            y = max(-1200, waterline(x)+d)
+            y = max(-1200, min(waterline(x)+d, 12500.0))
             verts.append((x,y,beach_height(x,y)))
             uvs.append((x/150,y/150))
     stride=len(xs)

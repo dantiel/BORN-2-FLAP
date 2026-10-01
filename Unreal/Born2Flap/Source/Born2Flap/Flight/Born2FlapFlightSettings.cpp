@@ -161,6 +161,7 @@ void ABorn2FlapFlightPawn::LoadFlightPreferences()
     Config.GetFloat(TEXT("Controls"),TEXT("Expo"),ControlExpo);
     ControlExpo=FMath::IsFinite(ControlExpo) ? FMath::Clamp(ControlExpo,0.f,1.f) : .65f;
     Config.GetBool(TEXT("Flight"),TEXT("FpvAirView"),bFpvAirView);
+    Config.GetBool(TEXT("Flight"),TEXT("RollWingTwist"),bRollWingTwist);
     for(int32 Axis=0;Axis<3;++Axis)
     {
         double Gain=MouseGains[Axis];
@@ -182,6 +183,7 @@ void ABorn2FlapFlightPawn::SaveFlightPreferences()
     IFileManager::Get().MakeDirectory(*FPaths::GetPath(Path),true);
     Config.SetFloat(TEXT("Controls"),TEXT("Expo"),ControlExpo);
     Config.SetBool(TEXT("Flight"),TEXT("FpvAirView"),bFpvAirView);
+    Config.SetBool(TEXT("Flight"),TEXT("RollWingTwist"),bRollWingTwist);
     for(int32 Axis=0;Axis<3;++Axis)
         Config.SetDouble(TEXT("Mouse"),*FString::Printf(TEXT("Gain%d"),Axis),MouseGains[Axis]);
     for(uint8 I=0;I<uint8(ETuningField::Count);++I)
