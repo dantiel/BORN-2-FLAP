@@ -104,7 +104,7 @@ void UBorn2FlapRadioStation::Initialize(UWorld* World, const FString& LevelName)
 
 void UBorn2FlapRadioStation::StartTrack(int32 Index, float StartVolume)
 {
-    if (!Active || !Playlist.IsValidIndex(Index))
+    if (!Active || !Playlist.IsValidIndex(Index) || !Playlist[Index])
         return;
     TrackIndex = Index;
     Active->SetSound(Playlist[Index].Get());
@@ -128,6 +128,8 @@ void UBorn2FlapRadioStation::Tick(float DeltaSeconds)
         if (Fader)
         {
             const int32 Next = (TrackIndex + 1) % Playlist.Num();
+            if (!Playlist.IsValidIndex(Next) || !Playlist[Next])
+                return;
             Fader->SetSound(Playlist[Next].Get());
             Fader->SetVolumeMultiplier(0.0f);
             Fader->Play();
@@ -149,7 +151,8 @@ void UBorn2FlapRadioStation::Tick(float DeltaSeconds)
             Active = Fader;
             Fader = Tmp;
             TrackIndex = (TrackIndex + 1) % Playlist.Num();
-            TrackDuration = Playlist[TrackIndex]->Duration;
+            if (Playlist.IsValidIndex(TrackIndex) && Playlist[TrackIndex])
+                TrackDuration = Playlist[TrackIndex]->Duration;
             // The new track has already been audible for Crossfade seconds.
             TrackStartTime = Crossfade;
             bCrossfading = false;

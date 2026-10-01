@@ -685,8 +685,8 @@ part('Industrial hinterland', (0, -27000, -100), (150000, 48000, 500), 'Industry
 # Six continuous, shallow stair treads run the entire beach edge.
 for i in range(6):
     h = (i + 1) * 25
-    part('Tidewalk stair %02d' % i, (0, -1250 - i * 100, h / 2), (90000, 100, h), 'Sterile')
-part('Promenade edge', (0, -1880, 153), (90000, 24, 6), 'Sterile', collision=False)
+    part('Tidewalk stair %02d' % i, (0, -1250 - i * 100, h / 2), (90000, 100, h), 'Concrete')
+part('Promenade edge', (0, -1880, 153), (90000, 24, 6), 'Concrete', collision=False)
 # A gently curving service road: the promenade and buildings stay straight, but
 # the road weaves like a real coastal drive (a chain of rotated asphalt slabs).
 def road_y(x):
