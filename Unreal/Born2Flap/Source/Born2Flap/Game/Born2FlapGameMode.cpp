@@ -21,10 +21,13 @@
 #include "UI/Born2FlapUIBridge.h"
 #include "UI/Born2FlapFlightHUD.h"
 #include "UI/Born2FlapRadio.h"
+#include "UI/Born2FlapSplash.h"
 #include "Racing/Born2FlapRacing.h"
 #include "GameFramework/PlayerController.h"
+#include "Blueprint/UserWidget.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
+#include "Misc/App.h"
 #include "EngineUtils.h"
 #include "Camera/CameraActor.h"
 #include "UnrealClient.h"
@@ -103,6 +106,12 @@ FVector ABorn2FlapGameMode::WindAt(const FVector& P,double Time) const
 void ABorn2FlapGameMode::BeginPlay()
 {
     Super::BeginPlay();
+    // Startup splash screen: show the artwork + loading bar on real launches.
+    // Automated runs (tests) pass -nosplash/-unattended and skip it entirely.
+    if (!FParse::Param(FCommandLine::Get(), TEXT("nosplash")) && !FApp::IsUnattended())
+    {
+        bSplashPending = true;
+    }
     UWorld *World = GetWorld();
     World->GetWorldSettings()->bForceNoPrecomputedLighting = true;
     // Wire the Ruby Brain ↔ UMG transport (react-native-umg). The bridge tails
@@ -234,6 +243,40 @@ bool ABorn2FlapGameMode::HasRadioTrack() const { return RadioStation && RadioSta
 void ABorn2FlapGameMode::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
+    // Startup splash: create on the first tick (the player controller exists by
+    // now), ease the loading bar to full, fade out, then remove.
+    if (bSplashPending)
+    {
+        bSplashPending = false;
+        if (APlayerController* PC = UGameplayStatics::GetPlayerController(this, 0))
+        {
+            SplashWidget = CreateWidget<UBorn2FlapSplash>(PC);
+            if (SplashWidget)
+            {
+                SplashWidget->AddToViewport(100);
+                SplashElapsed = 0.f;
+            }
+        }
+    }
+    if (SplashWidget)
+    {
+        static constexpr float LoadDuration = 2.4f;
+        static constexpr float FadeDuration = 0.5f;
+        SplashElapsed += DeltaSeconds;
+        const float T = FMath::Clamp(SplashElapsed / LoadDuration, 0.f, 1.f);
+        SplashWidget->SetProgress(T * T * (3.f - 2.f * T)); // smoothstep
+        if (SplashElapsed >= LoadDuration)
+        {
+            const float FadeT = FMath::Clamp((SplashElapsed - LoadDuration) / FadeDuration, 0.f, 1.f);
+            SplashWidget->SetRenderOpacity(1.f - FadeT);
+        }
+        if (SplashElapsed >= LoadDuration + FadeDuration)
+        {
+            SplashWidget->RemoveFromParent();
+            SplashWidget = nullptr;
+            SplashElapsed = -1.f;
+        }
+    }
     if(bCoastLevel && FParse::Param(FCommandLine::Get(),TEXT("B2FCoastTest")))
     {
         CoastTestTime+=DeltaSeconds;

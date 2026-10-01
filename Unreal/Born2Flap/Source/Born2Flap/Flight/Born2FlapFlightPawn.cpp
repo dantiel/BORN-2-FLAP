@@ -708,11 +708,14 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         Body->AddTorqueInRadians(AeroMoment * 10000.0);
     }
     VisualRoot->SetRelativeRotation(FRotator::ZeroRotator);
-    if (RavenLeftShoulder) RavenLeftShoulder->SetRelativeRotation(FRotator(24 * PitchInput + 18 * RollInput, 0, LeftFlap + 16));
-    if (RavenRightShoulder) RavenRightShoulder->SetRelativeRotation(FRotator(24 * PitchInput - 18 * RollInput, 0, -RightFlap - 16));
+    // Real flapping servos only flap; twisting the wings oppositely to command
+    // roll is an optional visual effect (off by default, see bRollWingTwist).
+    const float RollTwist = bRollWingTwist ? 18.f * RollInput : 0.f;
+    if (RavenLeftShoulder) RavenLeftShoulder->SetRelativeRotation(FRotator(24 * PitchInput + RollTwist, 0, LeftFlap + 16));
+    if (RavenRightShoulder) RavenRightShoulder->SetRelativeRotation(FRotator(24 * PitchInput - RollTwist, 0, -RightFlap - 16));
     // Match the solver's geometric dihedral and commanded wing incidence.
-    LeftShoulder->SetRelativeRotation(FRotator(24 * PitchInput + 18 * RollInput, 0, LeftFlap + 16));
-    RightShoulder->SetRelativeRotation(FRotator(24 * PitchInput - 18 * RollInput, 0, -RightFlap - 16));
+    LeftShoulder->SetRelativeRotation(FRotator(24 * PitchInput + RollTwist, 0, LeftFlap + 16));
+    RightShoulder->SetRelativeRotation(FRotator(24 * PitchInput - RollTwist, 0, -RightFlap - 16));
     if(MembraneLeftShoulder) MembraneLeftShoulder->SetRelativeRotation(LeftShoulder->GetRelativeRotation());
     if(MembraneRightShoulder) MembraneRightShoulder->SetRelativeRotation(RightShoulder->GetRelativeRotation());
     B2F_WingSection LeftShape[B2F_WING_STATIONS], RightShape[B2F_WING_STATIONS];

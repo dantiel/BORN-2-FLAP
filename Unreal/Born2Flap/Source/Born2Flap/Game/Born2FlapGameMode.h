@@ -5,6 +5,7 @@
 
 class UBorn2FlapRadioStation;
 class ABorn2FlapRadioHUD;
+class UBorn2FlapSplash;
 
 UCLASS()
 class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
@@ -37,4 +38,10 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     TObjectPtr<UBorn2FlapRadioStation> RadioStation;
     UPROPERTY(Transient)
     TObjectPtr<ABorn2FlapRadioHUD> RadioHUD;
+
+    // Startup splash (image + loading bar), shown on real launches only.
+    UPROPERTY(Transient)
+    TObjectPtr<UBorn2FlapSplash> SplashWidget;
+    float SplashElapsed = -1.f;
+    bool bSplashPending = false;
 };

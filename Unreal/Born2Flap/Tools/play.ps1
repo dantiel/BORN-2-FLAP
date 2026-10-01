@@ -4,4 +4,8 @@ $ErrorActionPreference = 'Stop'
 $project = (Resolve-Path (Join-Path $PSScriptRoot '../Born2Flap.uproject')).Path
 $log = Join-Path (Split-Path $project) ('Saved/Logs/play-'+$Level+'.log')
 $map = if ($Level -eq 'Shiomori') { '/Game/Shiomori/Maps/SHIOMORI' } elseif ($Level -eq 'Training') { '/Engine/Maps/Entry' } else { '/Game/Ravenstonefield/Maps/RAVENSTONEFIELD' }
-Start-Process -FilePath (Join-Path $EngineRoot 'Engine/Binaries/Win64/UnrealEditor.exe') -ArgumentList @(('"'+$project+'"'),$map,'-game','-windowed','-ResX=1600','-ResY=900',('-B2FLevel='+$Level),('-abslog="'+$log+'"')) -WorkingDirectory (Join-Path $EngineRoot 'Engine/Binaries/Win64') -WindowStyle Hidden -PassThru
+# NOTE: Do NOT pass -WindowStyle Hidden here. That sets STARTF_USESHOWWINDOW
+# with SW_HIDE on the process, which hides the GUI game window (the game then
+# runs in the background with audio but no window). The -Cmd.exe test scripts
+# hide the console window legitimately; this GUI launcher must stay visible.
+Start-Process -FilePath (Join-Path $EngineRoot 'Engine/Binaries/Win64/UnrealEditor.exe') -ArgumentList @(('\"'+$project+'\"'),$map,'-game','-windowed','-ResX=1600','-ResY=900',('-B2FLevel='+$Level),('-abslog=\"'+$log+'\"')) -WorkingDirectory (Join-Path $EngineRoot 'Engine/Binaries/Win64') -PassThru

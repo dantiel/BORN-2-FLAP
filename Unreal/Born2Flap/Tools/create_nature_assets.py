@@ -65,6 +65,15 @@ def texture(m, path, uv=None, normal=False):
 def save(material):
     if material.get_name() not in ('M_ValleyGround', 'M_River'):
         material.set_editor_property('used_with_instanced_static_meshes', True)
+    # UE5.8 logs 'missing usage flag Nanite! Default Material will be used'
+    # for programmatically-built materials and silently swaps them to the grey
+    # default, which reads as washed-out foliage/rock. Enable the flag.
+    for prop in ('used_with_nanite', 'b_used_with_nanite'):
+        try:
+            material.set_editor_property(prop, True)
+            break
+        except Exception:
+            pass
     EDIT.recompile_material(material)
     if not LIB.save_loaded_asset(material):
         raise RuntimeError('Could not save ' + material.get_path_name() + '; close the game before importing.')
