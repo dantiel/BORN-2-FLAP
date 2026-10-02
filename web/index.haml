@@ -140,6 +140,17 @@
           %span.section-num!= game_num
           %h2!= game_title
         %p.lead!= game_lead
+        %figure.video
+          .video-frame
+            %iframe{
+              src: "https://www.youtube-nocookie.com/embed/OM482dzy9Bc",
+              title: game_video_title,
+              allow: "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share",
+              allowfullscreen: true,
+              loading: "lazy",
+              referrerpolicy: "strict-origin-when-cross-origin"
+            }
+          %figcaption!= game_video_caption
         .cards.cards--wide
           .card
             %h3!= game_free_title
