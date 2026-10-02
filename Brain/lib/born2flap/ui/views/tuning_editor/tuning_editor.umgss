@@ -1,0 +1,15 @@
+// tuning_editor.umgss — presentation tokens for the hangar editor.
+//
+// Declares *semantic* style tokens (size / spacing), not pixels. The C++ host
+// resolves these in Born2FlapUiTheme.h. The Brain stays behaviour + intent.
+
+$field-space: s     // spacing token (layout gap scale)
+
+Banner
+  size: l
+
+Section
+  spacing: 2
+
+Field
+  spacing: $field-space

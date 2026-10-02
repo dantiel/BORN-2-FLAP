@@ -22,11 +22,13 @@
 #include "Components/ProgressBar.h"
 #include "Components/Image.h"
 #include "Components/Spacer.h"
+#include "Components/EditableTextBox.h"
 #include "Components/PanelWidget.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 #include "Brushes/SlateRoundedBoxBrush.h"
 #include "Styling/SlateColor.h"
+#include "Styling/SlateTypes.h"
 
 using namespace born2flap::ui;
 
@@ -108,6 +110,41 @@ FString ToneOf(const FProps& Props)
     return it == Props.end() ? FString() : Str(it->second);
 }
 
+// ---- semantic value formatting (the "prowess" of numeric components) ------
+// A component knows how to *read* its own value: decimals are inferred from
+// the step size unless an explicit `format` token ("int", "f1"…"f4") is given.
+// This is semantic formatting (how the value means something), not styling —
+// no fonts or colors are involved.
+
+int32 DecimalsForStep(double Step)
+{
+    Step = FMath::Abs(Step);
+    if (Step <= 0.0) return 2;
+    int32 D = 0;
+    while (Step < 1.0 - 1e-9 && D < 6) { Step *= 10.0; ++D; }
+    return D;
+}
+
+int32 DecimalsFor(const FProps& Props, double Step)
+{
+    auto it = Props.find("format");
+    if (it != Props.end())
+    {
+        const FString F = Str(it->second);
+        if (F == TEXT("int")) return 0;
+        if (F.Len() == 2 && F[0] == 'f' && F[1] >= '0' && F[1] <= '9')
+            return F[1] - '0';
+    }
+    return DecimalsForStep(Step);
+}
+
+FString Readout(double Value, int32 Decimals, const FString& Unit)
+{
+    FString S = FString::SanitizeFloat((float)Value, Decimals);
+    if (!Unit.IsEmpty()) S += Unit;
+    return S;
+}
+
 UBorn2FlapComposite* NewComposite(UObject* Outer, const FString& Type)
 {
     UBorn2FlapComposite* C = NewObject<UBorn2FlapComposite>(Outer);
@@ -123,6 +160,121 @@ UBorn2FlapUIRenderer::UBorn2FlapUIRenderer()
     : RendererImpl(MakeUnique<Renderer>(*this))
     , AudioEngine(MakeUnique<born2flap::audio::FAudioEngine>())
 {
+}
+
+// ---- action relay (UMG dynamic delegates → semantic component actions) ----
+
+void UBorn2FlapActionRelay::OnSlider(float Value)
+{
+    if (Renderer.IsValid())
+        Renderer->HandleSliderChanged(Composite, Value);
+}
+
+void UBorn2FlapActionRelay::OnClick()
+{
+    if (Renderer.IsValid())
+        Renderer->HandleClicked(Composite, OptionIndex);
+}
+
+void UBorn2FlapActionRelay::OnNumber(const FText& Text, ETextCommit::Type CommitMethod)
+{
+    if (Renderer.IsValid())
+        Renderer->HandleNumberCommitted(Composite, Text, CommitMethod);
+}
+
+// ---- semantic action handling (value semantics, zero styling) -------------
+
+void UBorn2FlapUIRenderer::EmitAction(const FString& Action, double Value, const FString& Text)
+{
+    if (Action.IsEmpty())
+        return;
+    OnComponentAction.Broadcast(Action, (float)Value, Text);
+}
+
+void UBorn2FlapUIRenderer::HandleSliderChanged(UBorn2FlapComposite* C, float Value)
+{
+    if (!C)
+        return;
+    // Snap to step so a slider with step=1 lands on whole numbers (the readout
+    // and the emitted value agree). Step/min/max are re-read from State.
+    double Step = FCString::Atof(*C->State.FindRef(TEXT("step")));
+    if (Step > 0.0)
+        Value = (float)(FMath::RoundToDouble(Value / Step) * Step);
+
+    const double Min = FCString::Atof(*C->State.FindRef(TEXT("min")));
+    const double Max = FCString::Atof(*C->State.FindRef(TEXT("max")));
+    if (C->State.Contains(TEXT("min")) && C->State.Contains(TEXT("max")))
+        Value = (float)FMath::Clamp((double)Value, Min, Max);
+
+    const int32 D = FCString::Atoi(*C->State.FindRef(TEXT("decimals")));
+    const FString Unit = C->State.FindRef(TEXT("unit"));
+    C->State.Add(TEXT("value"), Readout(Value, D, Unit));
+    if (UTextBlock* V = Cast<UTextBlock>(C->Part(TEXT("value"))))
+        V->SetText(FText::FromString(C->State.FindRef(TEXT("value"))));
+
+    EmitAction(C->Action, Value, TEXT(""));
+}
+
+void UBorn2FlapUIRenderer::HandleClicked(UBorn2FlapComposite* C, int32 OptionIndex)
+{
+    if (!C)
+        return;
+
+    const FString Type = C->SemanticType;
+
+    // Section folding is intrinsic behaviour — it works with or without an
+    // action key (the fold state itself is the semantics).
+    if (Type == TEXT("Section"))
+    {
+        const bool bOpen = !C->State.FindRef(TEXT("open")).Equals(TEXT("1"));
+        C->State.Add(TEXT("open"), bOpen ? TEXT("1") : TEXT("0"));
+        ApplySectionFold(C, bOpen);
+        EmitAction(C->Action, bOpen ? 1.0 : 0.0, TEXT(""));
+        return;
+    }
+
+    if (C->Action.IsEmpty())
+        return;
+
+    if (Type == TEXT("Toggle"))
+    {
+        const bool bNow = !C->State.FindRef(TEXT("value")).Equals(TEXT("1"));
+        C->State.Add(TEXT("value"), bNow ? TEXT("1") : TEXT("0"));
+        ApplyToggleState(C);
+        EmitAction(C->Action, bNow ? 1.0 : 0.0, TEXT(""));
+    }
+    else if (Type == TEXT("Select") && OptionIndex != INDEX_NONE)
+    {
+        C->State.Add(TEXT("selected"), FString::FromInt(OptionIndex));
+        ApplySelectSelection(C, OptionIndex);
+        EmitAction(C->Action, (double)OptionIndex, TEXT(""));
+    }
+    else
+    {
+        EmitAction(C->Action, 1.0, TEXT(""));
+    }
+}
+
+void UBorn2FlapUIRenderer::HandleNumberCommitted(UBorn2FlapComposite* C, const FText& Text, ETextCommit::Type Commit)
+{
+    if (!C || C->Action.IsEmpty())
+        return;
+    if (Commit != ETextCommit::OnEnter && Commit != ETextCommit::OnUserMovedFocus)
+        return;
+
+    double Value = FCString::Atof(*Text.ToString());
+    const double Min = FCString::Atof(*C->State.FindRef(TEXT("min")));
+    const double Max = FCString::Atof(*C->State.FindRef(TEXT("max")));
+    if (C->State.Contains(TEXT("min")) && C->State.Contains(TEXT("max")))
+        Value = FMath::Clamp(Value, Min, Max);
+
+    const int32 D = FCString::Atoi(*C->State.FindRef(TEXT("decimals")));
+    const FString Unit = C->State.FindRef(TEXT("unit"));
+    C->State.Add(TEXT("value"), Readout(Value, D, Unit));
+    if (UEditableTextBox* E = Cast<UEditableTextBox>(C->Part(TEXT("edit"))))
+        E->SetText(FText::FromString(C->State.FindRef(TEXT("value"))));
+
+    EmitAction(C->Action, Value, TEXT(""));
 }
 
 void UBorn2FlapUIRenderer::ApplyOpsJson(const FString& Json)
@@ -175,7 +327,9 @@ UWidget* UBorn2FlapUIRenderer::CreateInstance(const std::string& Type)
     // semantic composite components (pre-styled)
     if (T == TEXT("Panel") || T == TEXT("Value") || T == TEXT("Stat") ||
         T == TEXT("Gauge") || T == TEXT("Banner") || T == TEXT("Button") ||
-        T == TEXT("Slider") || T == TEXT("Divider"))
+        T == TEXT("Slider") || T == TEXT("Toggle") || T == TEXT("Select") ||
+        T == TEXT("NumberBox") || T == TEXT("Field") || T == TEXT("Section") ||
+        T == TEXT("Divider"))
     {
         return BuildComponent(T);
     }
@@ -259,6 +413,7 @@ void UBorn2FlapUIRenderer::BeginDestroy()
 {
     MaterialCache.Empty();
     LayoutState.Empty();
+    Relays.Empty();
     RendererImpl.Reset();
     if (RootHost)
         RootHost->RemoveFromParent();
@@ -398,6 +553,7 @@ UBorn2FlapComposite* UBorn2FlapUIRenderer::BuildComponent(const FString& Type)
         Btn->SetContent(Label);
         C->Parts.Add(TEXT("button"), Btn);
         C->Parts.Add(TEXT("label"), Label);
+        BindButton(Btn, C);
         return C;
     }
     if (Type == TEXT("Slider"))
@@ -421,6 +577,110 @@ UBorn2FlapComposite* UBorn2FlapUIRenderer::BuildComponent(const FString& Type)
         C->Parts.Add(TEXT("label"), Label);
         C->Parts.Add(TEXT("value"), ValueText);
         C->Parts.Add(TEXT("slider"), Slider);
+        BindSlider(Slider, C);
+        return C;
+    }
+    if (Type == TEXT("Toggle"))
+    {
+        UBorn2FlapComposite* C = NewComposite(this, TEXT("Toggle"));
+        C->SetPadding(FMargin(0.f));
+        UButton* Btn = NewObject<UButton>(this);
+        Btn->SetBackgroundColor(theme::BG_SOLID());
+        C->SetContent(Btn);
+        UHorizontalBox* Row = NewObject<UHorizontalBox>(this);
+        Btn->SetContent(Row);
+        UTextBlock* Label = NewObject<UTextBlock>(this);
+        Label->SetFont(theme::Font(TEXT("s"), 12));
+        Label->SetColorAndOpacity(FSlateColor(theme::FG_DIM()));
+        Row->AddChildToHorizontalBox(Label);
+        UTextBlock* Value = NewObject<UTextBlock>(this);
+        Value->SetFont(theme::Font(TEXT("s"), 12, true));
+        Row->AddChildToHorizontalBox(Value);
+        C->Parts.Add(TEXT("label"), Label);
+        C->Parts.Add(TEXT("value"), Value);
+        C->Parts.Add(TEXT("button"), Btn);
+        BindButton(Btn, C);
+        return C;
+    }
+    if (Type == TEXT("Select"))
+    {
+        UBorn2FlapComposite* C = NewComposite(this, TEXT("Select"));
+        UVerticalBox* Body = NewObject<UVerticalBox>(this);
+        C->SetContent(Body);
+        UTextBlock* Label = NewObject<UTextBlock>(this);
+        Label->SetFont(theme::Font(TEXT("s"), 12));
+        Label->SetColorAndOpacity(FSlateColor(theme::FG_DIM()));
+        Label->SetVisibility(ESlateVisibility::Collapsed);
+        Body->AddChildToVerticalBox(Label);
+        UHorizontalBox* Options = NewObject<UHorizontalBox>(this);
+        Body->AddChildToVerticalBox(Options);
+        C->Parts.Add(TEXT("label"), Label);
+        C->Parts.Add(TEXT("options"), Options);
+        return C;
+    }
+    if (Type == TEXT("NumberBox"))
+    {
+        UBorn2FlapComposite* C = NewComposite(this, TEXT("NumberBox"));
+        UVerticalBox* Body = NewObject<UVerticalBox>(this);
+        C->SetContent(Body);
+        UHorizontalBox* Head = NewObject<UHorizontalBox>(this);
+        Body->AddChildToVerticalBox(Head);
+        UTextBlock* Label = NewObject<UTextBlock>(this);
+        Label->SetFont(theme::Font(TEXT("s"), 12));
+        Label->SetColorAndOpacity(FSlateColor(theme::FG_DIM()));
+        Head->AddChildToHorizontalBox(Label);
+        UEditableTextBox* Edit = NewObject<UEditableTextBox>(this);
+        FEditableTextBoxStyle Style = Edit->WidgetStyle;
+        Style.TextStyle.Font = theme::Font(TEXT("m"), 14);
+        Style.TextStyle.ColorAndOpacity = FSlateColor(theme::FG());
+        Edit->SetWidgetStyle(Style);
+        Head->AddChildToHorizontalBox(Edit);
+        C->Parts.Add(TEXT("label"), Label);
+        C->Parts.Add(TEXT("edit"), Edit);
+        BindNumber(Edit, C);
+        return C;
+    }
+    if (Type == TEXT("Field"))
+    {
+        UBorn2FlapComposite* C = NewComposite(this, TEXT("Field"));
+        C->SetPadding(FMargin(0.f));
+        UHorizontalBox* Body = NewObject<UHorizontalBox>(this);
+        C->SetContent(Body);
+        UTextBlock* Label = NewObject<UTextBlock>(this);
+        Label->SetFont(theme::Font(TEXT("s"), 12));
+        Label->SetColorAndOpacity(FSlateColor(theme::FG_DIM()));
+        Body->AddChildToHorizontalBox(Label);
+        UHorizontalBox* Control = NewObject<UHorizontalBox>(this);
+        Body->AddChildToHorizontalBox(Control);
+        C->Parts.Add(TEXT("label"), Label);
+        C->Content = Control;
+        return C;
+    }
+    if (Type == TEXT("Section"))
+    {
+        UBorn2FlapComposite* C = NewComposite(this, TEXT("Section"));
+        UVerticalBox* Body = NewObject<UVerticalBox>(this);
+        C->SetContent(Body);
+        UButton* Header = NewObject<UButton>(this);
+        Header->SetBackgroundColor(theme::BG_SOLID());
+        Body->AddChildToVerticalBox(Header);
+        UHorizontalBox* HeadRow = NewObject<UHorizontalBox>(this);
+        Header->SetContent(HeadRow);
+        UTextBlock* Arrow = NewObject<UTextBlock>(this);
+        Arrow->SetFont(theme::Font(TEXT("m"), 14));
+        Arrow->SetColorAndOpacity(FSlateColor(theme::ACCENT()));
+        Arrow->SetText(FText::FromString(TEXT("▾")));
+        HeadRow->AddChildToHorizontalBox(Arrow);
+        UTextBlock* Title = NewObject<UTextBlock>(this);
+        Title->SetFont(theme::Font(TEXT("m"), 14, true));
+        HeadRow->AddChildToHorizontalBox(Title);
+        UVerticalBox* Content = NewObject<UVerticalBox>(this);
+        Body->AddChildToVerticalBox(Content);
+        C->Parts.Add(TEXT("header"), Header);
+        C->Parts.Add(TEXT("arrow"), Arrow);
+        C->Parts.Add(TEXT("title"), Title);
+        C->Content = Content;
+        BindButton(Header, C);
         return C;
     }
     if (Type == TEXT("Divider"))
@@ -447,7 +707,9 @@ void UBorn2FlapUIRenderer::ApplyCompositeProps(UBorn2FlapComposite* C, const FPr
     const FString Type = C->SemanticType;
     const FString Tone = ToneOf(Props);
     const FLinearColor ToneColor = theme::Tone(Tone, theme::FG());
-    const bool bInteractive = (Type == TEXT("Button") || Type == TEXT("Slider"));
+    const bool bInteractive = (Type == TEXT("Button") || Type == TEXT("Slider") ||
+                               Type == TEXT("Toggle") || Type == TEXT("Select") ||
+                               Type == TEXT("NumberBox") || Type == TEXT("Section"));
 
     // common
     if (Props.count("visible"))
@@ -460,6 +722,8 @@ void UBorn2FlapUIRenderer::ApplyCompositeProps(UBorn2FlapComposite* C, const FPr
         C->SetRenderOpacity(Num(Props.at("opacity"), 1.0));
     if (Props.count("padding"))
         C->SetPadding(ParseMargin(Props.at("padding")));
+    if (Props.count("action"))
+        C->Action = Str(Props.at("action"));
 
     if (Type == TEXT("Panel"))
     {
@@ -562,24 +826,108 @@ void UBorn2FlapUIRenderer::ApplyCompositeProps(UBorn2FlapComposite* C, const FPr
         UTextBlock* Label = Cast<UTextBlock>(C->Part(TEXT("label")));
         UTextBlock* ValueTxt = Cast<UTextBlock>(C->Part(TEXT("value")));
         if (Props.count("label") && Label) SetText(Label, Props.at("label"));
-        if (Props.count("value") && Slider) Slider->SetValue(Num(Props.at("value"), 0.0));
-        if (Props.count("min") && Slider) Slider->SetMinValue(Num(Props.at("min"), 0.0));
-        if (Props.count("max") && Slider) Slider->SetMaxValue(Num(Props.at("max"), 1.0));
-        if (Props.count("step") && Slider) Slider->SetStepSize(Num(Props.at("step"), 0.01));
-        if (!Tone.IsEmpty() && Slider) Slider->SetSliderHandleColor(ToneColor);
 
-        const bool bV = Props.count("value") != 0;
-        const bool bU = Props.count("unit") != 0;
-        if (bV) C->State.Add(TEXT("value"), FormatNum(Props.at("value")));
-        if (bU) C->State.Add(TEXT("unit"), Str(Props.at("unit")));
-        if (bV || bU)
-        {
-            FString D = C->State.FindRef(TEXT("value"));
-            D += C->State.FindRef(TEXT("unit"));
-            if (ValueTxt) ValueTxt->SetText(FText::FromString(D));
-        }
+        double Min  = Slider ? (double)Slider->GetMinValue()  : 0.0;
+        double Max  = Slider ? (double)Slider->GetMaxValue()  : 1.0;
+        double Step = Slider ? (double)Slider->GetStepSize()  : 0.01;
+        if (Props.count("min"))  { Min  = Props.at("min").AsNumber();  if (Slider) Slider->SetMinValue((float)Min);  }
+        if (Props.count("max"))  { Max  = Props.at("max").AsNumber();  if (Slider) Slider->SetMaxValue((float)Max);  }
+        if (Props.count("step")) { Step = Props.at("step").AsNumber(); if (Slider) Slider->SetStepSize((float)Step); }
+
+        // Semantic cache: the relay snaps/clamps/formats from these on move.
+        C->State.Add(TEXT("min"), FString::SanitizeFloat((float)Min));
+        C->State.Add(TEXT("max"), FString::SanitizeFloat((float)Max));
+        C->State.Add(TEXT("step"), FString::SanitizeFloat((float)Step));
+        C->State.Add(TEXT("decimals"), FString::FromInt(DecimalsFor(Props, Step)));
+        if (Props.count("unit")) C->State.Add(TEXT("unit"), Str(Props.at("unit")));
+
+        double Value = Props.count("value") ? Props.at("value").AsNumber()
+                                            : (Slider ? (double)Slider->GetValue() : 0.0);
+        if (Props.count("value") && Slider) Slider->SetValue((float)Value);
+        const int32 D = FCString::Atoi(*C->State.FindRef(TEXT("decimals")));
+        const FString Unit = C->State.FindRef(TEXT("unit"));
+        C->State.Add(TEXT("value"), Readout(Value, D, Unit));
+        if (ValueTxt) ValueTxt->SetText(FText::FromString(C->State.FindRef(TEXT("value"))));
+
+        if (!Tone.IsEmpty() && Slider) Slider->SetSliderHandleColor(ToneColor);
         if (!Tone.IsEmpty() && ValueTxt) ValueTxt->SetColorAndOpacity(FSlateColor(ToneColor));
+        if (Props.count("disabled") && Slider) Slider->SetIsEnabled(!Props.at("disabled").AsBool(false));
         StyleText(ValueTxt, Props);
+    }
+    else if (Type == TEXT("Toggle"))
+    {
+        UTextBlock* Label = Cast<UTextBlock>(C->Part(TEXT("label")));
+        if (Props.count("label") && Label) SetText(Label, Props.at("label"));
+        if (Props.count("on"))  C->State.Add(TEXT("on"),  Str(Props.at("on")));
+        if (Props.count("off")) C->State.Add(TEXT("off"), Str(Props.at("off")));
+        if (Props.count("value"))
+        {
+            C->State.Add(TEXT("value"), Props.at("value").AsBool(false) ? TEXT("1") : TEXT("0"));
+            ApplyToggleState(C);
+        }
+        if (Props.count("disabled"))
+            if (UButton* B = Cast<UButton>(C->Part(TEXT("button"))))
+                B->SetIsEnabled(!Props.at("disabled").AsBool(false));
+    }
+    else if (Type == TEXT("Select"))
+    {
+        UTextBlock* Label = Cast<UTextBlock>(C->Part(TEXT("label")));
+        if (Props.count("label") && Label) SetText(Label, Props.at("label"));
+        if (Props.count("options"))
+            RebuildSelectOptions(C, Props.at("options"));
+        if (Props.count("value"))
+        {
+            const int32 Index = (int32)Props.at("value").AsNumber(0);
+            C->State.Add(TEXT("selected"), FString::FromInt(Index));
+            ApplySelectSelection(C, Index);
+        }
+    }
+    else if (Type == TEXT("NumberBox"))
+    {
+        UTextBlock* Label = Cast<UTextBlock>(C->Part(TEXT("label")));
+        UEditableTextBox* Edit = Cast<UEditableTextBox>(C->Part(TEXT("edit")));
+        if (Props.count("label") && Label) SetText(Label, Props.at("label"));
+
+        double Min = 0.0, Max = 0.0, Step = 0.0;
+        if (Props.count("min"))  Min  = Props.at("min").AsNumber();
+        if (Props.count("max"))  Max  = Props.at("max").AsNumber();
+        if (Props.count("step")) Step = Props.at("step").AsNumber();
+        C->State.Add(TEXT("min"), FString::SanitizeFloat((float)Min));
+        C->State.Add(TEXT("max"), FString::SanitizeFloat((float)Max));
+        if (Props.count("unit")) C->State.Add(TEXT("unit"), Str(Props.at("unit")));
+        C->State.Add(TEXT("decimals"), FString::FromInt(DecimalsFor(Props, Step)));
+
+        double Value = Props.count("value") ? Props.at("value").AsNumber() : 0.0;
+        const int32 D = FCString::Atoi(*C->State.FindRef(TEXT("decimals")));
+        const FString Unit = C->State.FindRef(TEXT("unit"));
+        C->State.Add(TEXT("value"), Readout(Value, D, Unit));
+        if (Props.count("value") && Edit)
+            Edit->SetText(FText::FromString(C->State.FindRef(TEXT("value"))));
+        if (Props.count("placeholder") && Edit)
+            Edit->SetHintText(FText::FromString(Str(Props.at("placeholder"))));
+        if (Props.count("disabled") && Edit)
+            Edit->SetIsReadOnly(Props.at("disabled").AsBool(false));
+    }
+    else if (Type == TEXT("Field"))
+    {
+        UTextBlock* Label = Cast<UTextBlock>(C->Part(TEXT("label")));
+        if (Props.count("label") && Label) SetText(Label, Props.at("label"));
+        if (C->ContentPanel())
+            StoreContainerLayout(C->ContentPanel(), Props);
+    }
+    else if (Type == TEXT("Section"))
+    {
+        UTextBlock* Title = Cast<UTextBlock>(C->Part(TEXT("title")));
+        if (Props.count("title") && Title) SetText(Title, Props.at("title"));
+        if (Props.count("open"))
+        {
+            const bool bOpen = Props.at("open").AsBool(true);
+            C->State.Add(TEXT("open"), bOpen ? TEXT("1") : TEXT("0"));
+            ApplySectionFold(C, bOpen);
+        }
+        if (Props.count("disabled"))
+            if (UButton* H = Cast<UButton>(C->Part(TEXT("header"))))
+                H->SetIsEnabled(!Props.at("disabled").AsBool(false));
     }
     else if (Type == TEXT("Divider"))
     {
@@ -645,6 +993,125 @@ void UBorn2FlapUIRenderer::ApplyPrimitiveProps(UWidget* W, const FProps& Props)
 
     if (UPanelWidget* P = Cast<UPanelWidget>(W))
         StoreContainerLayout(P, Props);
+}
+
+// ---- interactivity wiring (thin, event-only — no styling) ------------------
+
+void UBorn2FlapUIRenderer::BindSlider(USlider* S, UBorn2FlapComposite* C)
+{
+    if (!S || !C)
+        return;
+    UBorn2FlapActionRelay* R = NewObject<UBorn2FlapActionRelay>(this);
+    R->Renderer = this;
+    R->Composite = C;
+    Relays.Add(R);
+    S->OnValueChanged.AddDynamic(R, &UBorn2FlapActionRelay::OnSlider);
+}
+
+void UBorn2FlapUIRenderer::BindButton(UButton* B, UBorn2FlapComposite* C, int32 OptionIndex)
+{
+    if (!B || !C)
+        return;
+    UBorn2FlapActionRelay* R = NewObject<UBorn2FlapActionRelay>(this);
+    R->Renderer = this;
+    R->Composite = C;
+    R->OptionIndex = OptionIndex;
+    Relays.Add(R);
+    B->OnClicked.AddDynamic(R, &UBorn2FlapActionRelay::OnClick);
+}
+
+void UBorn2FlapUIRenderer::BindNumber(UEditableTextBox* E, UBorn2FlapComposite* C)
+{
+    if (!E || !C)
+        return;
+    UBorn2FlapActionRelay* R = NewObject<UBorn2FlapActionRelay>(this);
+    R->Renderer = this;
+    R->Composite = C;
+    Relays.Add(R);
+    E->OnTextCommitted.AddDynamic(R, &UBorn2FlapActionRelay::OnNumber);
+}
+
+// Rebuild a Select's option buttons from a semantic `options` array of labels.
+// The selected option carries the accent tone; others are muted. Each option
+// is a self-describing button: it reports its own index via the shared relay.
+void UBorn2FlapUIRenderer::RebuildSelectOptions(UBorn2FlapComposite* C, const FValue& Options)
+{
+    if (!C)
+        return;
+    UHorizontalBox* Box = Cast<UHorizontalBox>(C->Part(TEXT("options")));
+    if (!Box)
+        return;
+
+    Box->ClearChildren();
+
+    TArray<FString> Labels;
+    if (Options.kind == FValue::Kind::Array)
+        for (const FValue& O : Options.arr)
+            Labels.Add(Str(O));
+    else if (Options.kind == FValue::Kind::String)
+        Labels.Add(Str(Options));
+
+    FString Csv;
+    for (int32 i = 0; i < Labels.Num(); ++i)
+    {
+        UButton* B = NewObject<UButton>(this);
+        B->SetBackgroundColor(theme::BG_SOLID());
+        UTextBlock* L = NewObject<UTextBlock>(this);
+        L->SetFont(theme::Font(TEXT("s"), 12));
+        L->SetColorAndOpacity(FSlateColor(theme::FG_DIM()));
+        L->SetText(FText::FromString(Labels[i]));
+        B->SetContent(L);
+        Box->AddChildToHorizontalBox(B);
+        BindButton(B, C, i);
+        Csv += (i ? TEXT(",") : TEXT("")) + Labels[i];
+    }
+    C->State.Add(TEXT("options"), Csv);
+}
+
+void UBorn2FlapUIRenderer::ApplySelectSelection(UBorn2FlapComposite* C, int32 Index)
+{
+    if (!C)
+        return;
+    UHorizontalBox* Box = Cast<UHorizontalBox>(C->Part(TEXT("options")));
+    if (!Box)
+        return;
+    const int32 N = Box->GetChildrenCount();
+    for (int32 i = 0; i < N; ++i)
+    {
+        UWidget* Child = Box->GetChildAt(i);
+        UButton* B = Cast<UButton>(Child);
+        UTextBlock* L = B ? Cast<UTextBlock>(B->GetContent()) : nullptr;
+        if (B) B->SetBackgroundColor(i == Index ? theme::ACCENT() : theme::BG_SOLID());
+        if (L) L->SetColorAndOpacity(i == Index
+            ? FSlateColor(FLinearColor(0.06f, 0.06f, 0.08f, 1.0f))
+            : FSlateColor(theme::FG_DIM()));
+    }
+}
+
+void UBorn2FlapUIRenderer::ApplyToggleState(UBorn2FlapComposite* C)
+{
+    if (!C)
+        return;
+    const bool bOn = C->State.FindRef(TEXT("value")).Equals(TEXT("1"));
+    UButton* B = Cast<UButton>(C->Part(TEXT("button")));
+    if (B) B->SetBackgroundColor(bOn ? theme::GOOD() : theme::BG_SOLID());
+    if (UTextBlock* V = Cast<UTextBlock>(C->Part(TEXT("value"))))
+    {
+        const FString On  = C->State.FindRef(TEXT("on")).IsEmpty()  ? TEXT("ON")  : C->State.FindRef(TEXT("on"));
+        const FString Off = C->State.FindRef(TEXT("off")).IsEmpty() ? TEXT("OFF") : C->State.FindRef(TEXT("off"));
+        V->SetText(FText::FromString(bOn ? On : Off));
+        V->SetColorAndOpacity(FSlateColor(bOn ? FLinearColor(0.06f, 0.06f, 0.08f, 1.0f) : theme::FG_DIM()));
+    }
+}
+
+void UBorn2FlapUIRenderer::ApplySectionFold(UBorn2FlapComposite* C, bool bOpen)
+{
+    if (!C)
+        return;
+    if (UPanelWidget* Body = C->ContentPanel())
+        Body->SetVisibility(bOpen ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
+    if (UTextBlock* Arrow = Cast<UTextBlock>(C->Part(TEXT("arrow"))))
+        Arrow->SetText(FText::FromString(bOpen ? TEXT("▾") : TEXT("▸")));
 }
 
 // ---- layout ----------------------------------------------------------------

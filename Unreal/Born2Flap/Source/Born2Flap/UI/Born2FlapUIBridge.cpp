@@ -8,8 +8,11 @@
 #include "UI/Born2FlapUIBridge.h"
 
 #include "UI/Born2FlapUIRenderer.h"
+#include "EngineUtils.h"
+#include "Flight/Born2FlapFlightPawn.h"
 #include "HAL/PlatformFileManager.h"
 #include "Misc/CommandLine.h"
+#include "Misc/FileHelper.h"
 #include "Misc/Parse.h"
 #include "Misc/Paths.h"
 
@@ -24,9 +27,35 @@ void ABorn2FlapUIBridge::BeginPlay()
 
     // Command-line override wins over any editor-configured defaults.
     FParse::Value(FCommandLine::Get(), TEXT("B2FUIFile="), FilePath);
+    FParse::Value(FCommandLine::Get(), TEXT("B2FTelemetry="), TelemetryPath);
     FParse::Value(FCommandLine::Get(), TEXT("B2FUIBrain="), BrainCommand);
 
+    // Defaults (dev): a per-project temp dir under Saved/ for the two streams.
+    if (FilePath.IsEmpty() || TelemetryPath.IsEmpty())
+    {
+        const FString Dir = FPaths::ProjectSavedDir() / TEXT("UMGHAML");
+        IPlatformFile& PF = FPlatformFileManager::Get().GetPlatformFile();
+        PF.CreateDirectoryTree(*Dir);
+        if (FilePath.IsEmpty())     FilePath     = Dir / TEXT("frames.ndjson");
+        if (TelemetryPath.IsEmpty()) TelemetryPath = Dir / TEXT("telemetry.ndjson");
+    }
+
     Renderer = NewObject<UBorn2FlapUIRenderer>(this);
+
+    // Default brain (dev): run the Ruby Brain from the repo via a PATH-resolving
+    // env. In a packaged build the script is absent, so the native C++ cockpit
+    // remains the fallback.
+    if (BrainCommand.IsEmpty())
+    {
+        FString Script = FPaths::ProjectDir() / TEXT("../../Brain/bin/umghaml_brain");
+        FPaths::CollapseRelativeDirectories(Script);
+        if (FPaths::FileExists(Script))
+        {
+            BrainCommand = FString::Printf(
+                TEXT("/usr/bin/env ruby \"%s\" \"%s\" \"%s\""),
+                *Script, *TelemetryPath, *FilePath);
+        }
+    }
 
     if (!BrainCommand.IsEmpty())
         SpawnBrain();
@@ -37,6 +66,8 @@ void ABorn2FlapUIBridge::BeginPlay()
 void ABorn2FlapUIBridge::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
+    if (IsBrainActive())
+        WriteTelemetry();
     DrainSource();
 }
 
@@ -113,6 +144,8 @@ void ABorn2FlapUIBridge::DrainSource()
 
     IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
     const int64 Size = PlatformFile.FileSize(*FilePath);
+    if (Size < FileOffset)
+        FileOffset = 0;  // the writer rotated/truncated the frame source
     if (Size <= FileOffset)
         return;
 
@@ -136,6 +169,34 @@ void ABorn2FlapUIBridge::DrainSource()
             LineBuffer.Add(Byte);
         }
     }
+}
+
+void ABorn2FlapUIBridge::WriteTelemetry()
+{
+    if (TelemetryPath.IsEmpty())
+        return;
+
+    ABorn2FlapFlightPawn* Pawn = nullptr;
+    TActorIterator<ABorn2FlapFlightPawn> It(GetWorld());
+    if (It)
+        Pawn = *It;
+    if (!Pawn)
+        return;
+
+    FString Status = Pawn->GetFlightStatus();
+    Status.ReplaceInline(TEXT("\""), TEXT("'"));
+
+    const FString Json = FString::Printf(
+        TEXT("{\"altitude\":%.1f,\"climb\":%.1f,\"speed\":%.1f,\"battery\":%.0f,\"throttle\":%.2f,\"status\":\"%s\"}"),
+        Pawn->GetAltitude(),
+        Pawn->GetClimbRate(),
+        Pawn->GetSpeed(),
+        Pawn->GetBattery() * 100.0f,
+        Pawn->GetEffort(),
+        *Status);
+
+    FFileHelper::SaveStringToFile(Json + LINE_TERMINATOR, *TelemetryPath,
+        FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
 }
 
 void ABorn2FlapUIBridge::ApplyFrame(const TArray<uint8>& Bytes)

@@ -23,6 +23,11 @@ module Born2Flap
         divider:  { umg: "Divider",        html: ["hr", nil],         rn: "View" },
         button:   { umg: "Button",         html: ["button", nil],     rn: "TouchableOpacity" },
         slider:   { umg: "Slider",         html: ["input", nil],      rn: "Slider" },
+        number:   { umg: "NumberBox",      html: ["input", nil],      rn: "TextInput" },
+        toggle:   { umg: "Toggle",         html: ["button", nil],     rn: "Switch" },
+        select:   { umg: "Select",         html: ["select", nil],     rn: "View" },
+        field:    { umg: "Field",          html: ["div", "field"],    rn: "View" },
+        section:  { umg: "Section",        html: ["section", nil],    rn: "View" },
         progress: { umg: "ProgressBar",    html: ["progress", nil],   rn: "ProgressBar" },
         image:    { umg: "Image",          html: ["img", nil],        rn: "Image" },
         list:     { umg: "ListView",       html: ["ul", nil],         rn: "FlatList" },
@@ -89,6 +94,7 @@ module Born2Flap
         tag, default_class = Emitter.html_spec(node.type)
         attrs = build_attrs(node, default_class)
         attrs["type"] ||= "range" if node.type == :slider
+        attrs["type"] ||= "number" if node.type == :number
 
         attr_str = attrs.map { |k, v| %(#{k}="#{Emitter.escape(v)}") }.join(" ")
 

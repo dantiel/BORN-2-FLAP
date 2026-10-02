@@ -1,0 +1,3 @@
+%VBox{ spacing: 4 }
+  %Banner#brand{ text: "BORN 2 FLAP", tone: "accent" }
+  %Stat{ label: "HÖHE", value: #{altitude}, unit: " m", tone: "good" }
