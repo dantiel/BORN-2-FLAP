@@ -1,0 +1,34 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+# view_demo — the view-controller architecture, live: one controller owns a
+# directory of `.umghaml` templates (+ `.umgss` themes), renders multiple
+# endpoints, and emits the neutral tree to all three faces (UMG/HTML/RN).
+#
+#   ruby bin/view_demo
+
+$LOAD_PATH.unshift File.expand_path("../lib", __dir__)
+require "born2flap"
+require "json"
+
+UI = Born2Flap::UI
+
+puts "=== FlightHud: one controller, two endpoints ==="
+puts "cockpit → #{UI::Views::FlightHud.render(:cockpit).type} (theme: xxl brand, spacing 2)"
+puts "minimal → #{UI::Views::FlightHud.render(:minimal).type} (#{UI::Views::FlightHud.render(:minimal).children.length} children)"
+puts
+
+puts "=== TuningEditor: data-driven rows from Ruby, structure from .umghaml ==="
+ed = UI::Views::TuningEditor.render(:editor)
+puts "sliders=#{ed.each.to_a.count { |n| n.type == :slider }} numbers=#{ed.each.to_a.count { |n| n.type == :number }} sections=#{ed.each.to_a.count { |n| n.type == :section }}"
+puts
+
+puts "=== UMG (JSON → Unreal) — first 260 chars ==="
+puts JSON.pretty_generate(UI::UMGEmitter.emit(UI::Views::FlightHud.render(:minimal)))[0, 260]
+puts
+
+puts "=== HTML (Web) — minimal endpoint ==="
+puts UI::HtmlEmitter.emit(UI::Views::FlightHud.render(:minimal))
+puts
+
+puts "=== React Native (JSX) — minimal endpoint ==="
+puts UI::RNEmitter.emit(UI::Views::FlightHud.render(:minimal))
