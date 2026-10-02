@@ -46,6 +46,32 @@ FOp UpdateProps(FPath Path, FProps Props)
 
 FPath Pth(std::initializer_list<int> I) { return FPath(I); }
 
+// Wind classification for the cockpit: simple, intuitive Beaufort-like words.
+FString WindWord(float SpeedMs)
+{
+    if (SpeedMs < 0.5f)  return FString(TEXT("RUHIG"));
+    if (SpeedMs < 4.0f)  return FString(TEXT("BRISE"));
+    if (SpeedMs < 8.0f)  return FString(TEXT("WINDIG"));
+    if (SpeedMs < 11.0f) return FString(TEXT("STARKER WIND"));
+    return FString(TEXT("STURM"));
+}
+
+const char* WindTone(float SpeedMs)
+{
+    if (SpeedMs < 0.5f)  return "good";
+    if (SpeedMs < 4.0f)  return "info";
+    if (SpeedMs < 8.0f)  return "normal";
+    if (SpeedMs < 11.0f) return "warn";
+    return "danger";
+}
+
+const TCHAR* Cardinal(float BearingDeg)
+{
+    static const TCHAR* Dirs[] = { TEXT("N"), TEXT("NO"), TEXT("O"), TEXT("SO"), TEXT("S"), TEXT("SW"), TEXT("W"), TEXT("NW") };
+    int32 I = FMath::FloorToInt(FMath::Fmod(BearingDeg + 22.5f, 360.0f) / 45.0f) % 8;
+    return Dirs[I];
+}
+
 }  // namespace
 
 ABorn2FlapFlightHUD::ABorn2FlapFlightHUD()
@@ -65,7 +91,8 @@ void ABorn2FlapFlightHUD::BeginPlay()
 //   [0,0]    brand banner
 //   [0,1]    "INSTRUMENTE" panel  → [0,1,0] alt, [0,1,1] climb, [0,1,2] speed
 //   [0,2]    "ENERGIE" panel       → [0,2,0] battery, [0,2,1] throttle
-//   [0,3]    status banner
+//   [0,3]    "WIND" panel          → [0,3,0] speed, [0,3,1] direction, [0,3,2] desc
+//   [0,4]    status banner
 void ABorn2FlapFlightHUD::BuildCockpit()
 {
     if (!Renderer)
@@ -88,6 +115,13 @@ void ABorn2FlapFlightHUD::BuildCockpit()
             {
                 Nd("Gauge", P({ {"label", S("BATTERIE")}, {"value", N(100)}, {"min", N(0)}, {"max", N(100)}, {"unit", S("%")}, {"tone", S("good")} })),
                 Nd("Gauge", P({ {"label", S("SCHUB")},   {"value", N(0)},   {"min", N(0)}, {"max", N(1)},                     {"tone", S("accent")} })),
+            }),
+
+            Nd("Panel", P({ {"title", S("WIND")}, {"spacing", N(2)} }),
+            {
+                Nd("Stat", P({ {"label", S("GESCHW.")}, {"value", N(0)}, {"unit", S(" m/s")}, {"tone", S("info")} })),
+                Nd("Stat", P({ {"label", S("RICHTUNG")}, {"value", N(0)}, {"unit", S("°")} })),
+                Nd("Banner", P({ {"text", S("RUHIG")}, {"tone", S("good")} })),
             }),
 
             Nd("Banner", P({ {"text", S("BEREIT")}, {"tone", S("normal")} })),
@@ -173,10 +207,32 @@ void ABorn2FlapFlightHUD::Refresh()
         LastThrottle = Throttle;
     }
 
+    const FVector Wind = CachedBird->GetWind();
+    const float WindSpeed = FVector2D(Wind.X, Wind.Y).Size();
+    const float WindBearing = FMath::Fmod(FMath::RadiansToDegrees(FMath::Atan2(Wind.X, Wind.Y)) + 360.0f, 360.0f);
+
+    if (!FMath::IsNearlyEqual(WindSpeed, LastWindSpeed))
+    {
+        Ops.Add(UpdateProps(Pth({0, 3, 0}), P({ {"value", N(WindSpeed)} })));
+        LastWindSpeed = WindSpeed;
+    }
+    if (!FMath::IsNearlyEqual(WindBearing, LastWindDir))
+    {
+        Ops.Add(UpdateProps(Pth({0, 3, 1}), P({ {"value", N(WindBearing)} })));
+        LastWindDir = WindBearing;
+    }
+
+    const FString WindDesc = WindWord(WindSpeed) + FString(TEXT(" · ")) + FString(Cardinal(WindBearing));
+    if (WindDesc != LastWindDesc)
+    {
+        Ops.Add(UpdateProps(Pth({0, 3, 2}), P({ {"text", S(TCHAR_TO_UTF8(*WindDesc))}, {"tone", S(WindTone(WindSpeed))} })));
+        LastWindDesc = WindDesc;
+    }
+
     const FString Status = CachedBird->GetFlightStatus();
     if (Status != LastStatus)
     {
-        Ops.Add(UpdateProps(Pth({0, 3}), P({ {"text", S(TCHAR_TO_UTF8(*Status))} })));
+        Ops.Add(UpdateProps(Pth({0, 4}), P({ {"text", S(TCHAR_TO_UTF8(*Status))} })));
         LastStatus = Status;
     }
 

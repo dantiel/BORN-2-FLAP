@@ -11,11 +11,17 @@
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SScrollBox.h"
+#include "Widgets/SOverlay.h"
 #include "Widgets/SBoxPanel.h"
 #include "Widgets/Text/STextBlock.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SSlider.h"
 #include "Framework/Application/SlateApplication.h"
+#include "Engine/Texture2D.h"
+#include "Brushes/SlateImageBrush.h"
+#include "Brushes/SlateColorBrush.h"
+#include "UObject/UObjectGlobals.h"
+#include "UObject/StrongObjectPtr.h"
 
 namespace
 {
@@ -71,6 +77,14 @@ class SFlightSettings : public SCompoundWidget
 public:
     SLATE_BEGIN_ARGS(SFlightSettings) {} SLATE_ARGUMENT(ABorn2FlapFlightPawn*, Bird) SLATE_END_ARGS()
     TWeakObjectPtr<ABorn2FlapFlightPawn> Bird;
+    TSharedPtr<FSlateBrush> BackgroundBrush;
+    // FSlateImageBrush stores its UObject via a plain (non-UPROPERTY) TObjectPtr,
+    // which does NOT keep the texture alive — GC collected born2flap-background
+    // between menu opens and the stale brush tripped IndexToObject(-1) on render.
+    // Hold a strong ref for the PROGRAM lifetime (static): the widget dies on menu
+    // close, and a member-level ref would release the texture so the NEXT LoadObject
+    // returns the same now-pending-kill object.
+    inline static TStrongObjectPtr<UTexture2D> BackgroundTexture;
     virtual bool SupportsKeyboardFocus() const override { return true; }
     virtual FReply OnKeyDown(const FGeometry& Geometry,const FKeyEvent& Event) override
     {
@@ -81,12 +95,44 @@ public:
     void Construct(const FArguments& Args)
     {
         Bird=Args._Bird;
+
+        // Full-page menu backdrop: born2flap-background.png stretched edge to
+        // edge, with a dark scrim over it so the panel stays readable. Falls
+        // back to a plain dark fill when the imported asset is not present.
+        if (!BackgroundTexture.IsValid())
+        {
+            UTexture2D* Loaded = LoadObject<UTexture2D>(nullptr,
+                TEXT("/Game/Splash/born2flap-background.born2flap-background"));
+            // IsValid() (global) rejects pending-kill / unreachable objects. LoadObject
+            // can return the stale GC-marked object if it has not been destroyed yet;
+            // wrapping that in a brush is what tripped IndexToObject(-1).
+            BackgroundTexture = IsValid(Loaded) ? TStrongObjectPtr<UTexture2D>(Loaded) : nullptr;
+        }
+        if (BackgroundTexture.IsValid())
+        {
+            UTexture2D* Tex = BackgroundTexture.Get();
+            BackgroundBrush = MakeShareable(new FSlateImageBrush(
+                Tex, FVector2D(Tex->GetSizeX(), Tex->GetSizeY())));
+        }
+        if (!BackgroundBrush.IsValid())
+        {
+            BackgroundBrush = MakeShareable(new FSlateColorBrush(FLinearColor(0.01f, 0.02f, 0.03f)));
+        }
+
         TSharedPtr<SVerticalBox> Rows;
-        ChildSlot.HAlign(HAlign_Center).VAlign(VAlign_Center)
-        [ SNew(SBox).WidthOverride(600).MaxDesiredHeight(650)
-          [ SNew(SBorder).Padding(32).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
-              .BorderBackgroundColor(FLinearColor(.025,.034,.043,.98))
-            [ SNew(SScrollBox) + SScrollBox::Slot() [ SAssignNew(Rows,SVerticalBox) ] ] ] ];
+        ChildSlot
+        [ SNew(SOverlay)
+          + SOverlay::Slot()
+          [ SNew(SBorder).BorderImage(BackgroundBrush.Get()).BorderBackgroundColor(FLinearColor::White) ]
+          + SOverlay::Slot()
+          [ SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
+              .BorderBackgroundColor(FLinearColor(0.f, 0.f, 0.f, 0.45f)) ]
+          + SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Center)
+          [ SNew(SBox).WidthOverride(600).MaxDesiredHeight(650)
+            [ SNew(SBorder).Padding(32).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
+                .BorderBackgroundColor(FLinearColor(.025,.034,.043,.98))
+              [ SNew(SScrollBox) + SScrollBox::Slot() [ SAssignNew(Rows,SVerticalBox) ] ] ] ]
+        ];
         auto Label=[&](FString Text,int32 Size,FLinearColor Colour=FLinearColor(.82,.85,.86))
         {
             Rows->AddSlot().AutoHeight().Padding(0,0,0,14)

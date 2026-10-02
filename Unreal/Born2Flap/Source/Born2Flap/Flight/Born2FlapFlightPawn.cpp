@@ -3,6 +3,7 @@
 #include "Camera/CameraComponent.h"
 #include "Components/BoxComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Engine/StaticMesh.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/GameViewportClient.h"
 #include "GameFramework/PlayerController.h"
@@ -82,6 +83,20 @@ ABorn2FlapFlightPawn::ABorn2FlapFlightPawn()
     FpvCamera->SetRelativeLocation(FVector(76,0,14));
     FpvCamera->SetFieldOfView(95);
     FpvCamera->SetAutoActivate(false);
+    // Atmospheric parhelion: a huge unlit additive sphere that follows the
+    // camera and renders halo/sun-dogs in WORLD space (depth-tested), so
+    // terrain and clouds genuinely occlude it — not a screen-space overlay.
+    SkyDome = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("SkyParhelionDome"));
+    SkyDome->SetupAttachment(Camera);
+    SkyDome->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    SkyDome->SetCastShadow(false);
+    SkyDome->SetRelativeScale3D(FVector(160, 160, 160)); // sphere r=50 -> 8000
+    static ConstructorHelpers::FObjectFinder<UStaticMesh> SphereMesh(
+        TEXT("/Engine/BasicShapes/Sphere.Sphere"));
+    if (SphereMesh.Succeeded())
+    {
+        SkyDome->SetStaticMesh(SphereMesh.Object);
+    }
     AutoPossessPlayer = EAutoReceiveInput::Player0;
     // Default hangar tuning = the prototype flight hardware (3S 1.3 Ah, 8 Nm
     // servo) plus the simulator's controller base. LoadFlightPreferences may
@@ -248,6 +263,21 @@ void ABorn2FlapFlightPawn::BeginPlay()
     Camera->PostProcessSettings.bOverride_AutoExposureBias = true;
     Camera->PostProcessSettings.AutoExposureMinBrightness = DaylightExposure;
     Camera->PostProcessSettings.AutoExposureMaxBrightness = DaylightExposure;
+    // Load the generated parhelion material onto the sky dome. It is created by
+    // the map generator, so it only exists at runtime (not at CDO construction
+    // time). If absent, hide the dome rather than drawing garbage.
+    if (SkyDome)
+    {
+        if (UMaterialInterface* ParhelionMat = LoadObject<UMaterialInterface>(
+                nullptr, TEXT("/Game/Shiomori/Materials/M_SunParhelion")))
+        {
+            SkyDome->SetMaterial(0, ParhelionMat);
+        }
+        else
+        {
+            SkyDome->SetVisibility(false);
+        }
+    }
     Camera->PostProcessSettings.AutoExposureBias = 0;
     Camera->PostProcessSettings.bOverride_MotionBlurAmount = true;
     Camera->PostProcessSettings.MotionBlurAmount = 0;
@@ -424,7 +454,8 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
     // Smoothly recover the atmospheric field over the first two metres.
     const double Shelter=FMath::SmoothStep(0.0,2.0,double(GetAltitude()));
     const auto* WindMode=Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode());
-    const FVector Wind = bFlightTest ? FVector::ZeroVector : (WindMode?WindMode->WindAt(BodyPos,WorldTime):Born2FlapWind::Sample(BodyPos,WorldTime))*Shelter;
+    CurrentWind = bFlightTest ? FVector::ZeroVector : (WindMode?WindMode->WindAt(BodyPos,WorldTime):Born2FlapWind::Sample(BodyPos,WorldTime));
+    const FVector Wind = CurrentWind * Shelter;
     MathBridge->InjectWindPhaseNoise(bFlightTest ? 0.0 : (WindMode && WindMode->IsCoastLevel() ? Wind.Size()*.15 : Born2FlapWind::PhaseNoise(BodyPos, WorldTime))*Shelter);
     B2F_PilotInput Pilot{};
     Pilot.throttle = Throttle;
@@ -708,14 +739,16 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         Body->AddTorqueInRadians(AeroMoment * 10000.0);
     }
     VisualRoot->SetRelativeRotation(FRotator::ZeroRotator);
-    // Real flapping servos only flap; twisting the wings oppositely to command
-    // roll is an optional visual effect (off by default, see bRollWingTwist).
+    // A 2-servo ornithopter has one actuator per wing: the flap hinge. The wing
+    // rotates around that single axis; pitch and roll are already encoded in
+    // LeftFlap/RightFlap (stroke-centre shift / differential), so there is no
+    // separate shoulder-pitch (incidence) term. Roll twist stays an optional,
+    // off-by-default visual flourish (see bRollWingTwist).
     const float RollTwist = bRollWingTwist ? 18.f * RollInput : 0.f;
-    if (RavenLeftShoulder) RavenLeftShoulder->SetRelativeRotation(FRotator(24 * PitchInput + RollTwist, 0, LeftFlap + 16));
-    if (RavenRightShoulder) RavenRightShoulder->SetRelativeRotation(FRotator(24 * PitchInput - RollTwist, 0, -RightFlap - 16));
-    // Match the solver's geometric dihedral and commanded wing incidence.
-    LeftShoulder->SetRelativeRotation(FRotator(24 * PitchInput + RollTwist, 0, LeftFlap + 16));
-    RightShoulder->SetRelativeRotation(FRotator(24 * PitchInput - RollTwist, 0, -RightFlap - 16));
+    if (RavenLeftShoulder) RavenLeftShoulder->SetRelativeRotation(FRotator(RollTwist, 0, LeftFlap + 16));
+    if (RavenRightShoulder) RavenRightShoulder->SetRelativeRotation(FRotator(-RollTwist, 0, -RightFlap - 16));
+    LeftShoulder->SetRelativeRotation(FRotator(RollTwist, 0, LeftFlap + 16));
+    RightShoulder->SetRelativeRotation(FRotator(-RollTwist, 0, -RightFlap - 16));
     if(MembraneLeftShoulder) MembraneLeftShoulder->SetRelativeRotation(LeftShoulder->GetRelativeRotation());
     if(MembraneRightShoulder) MembraneRightShoulder->SetRelativeRotation(RightShoulder->GetRelativeRotation());
     B2F_WingSection LeftShape[B2F_WING_STATIONS], RightShape[B2F_WING_STATIONS];

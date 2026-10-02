@@ -9,12 +9,13 @@
 #include "UObject/ConstructorHelpers.h"
 #include "Styling/SlateColor.h"
 #include "Widgets/Layout/Anchors.h"
+#include "UI/Born2FlapUiTheme.h"
 
 UBorn2FlapSplash::UBorn2FlapSplash(const FObjectInitializer& ObjectInitializer)
     : Super(ObjectInitializer)
 {
     static ConstructorHelpers::FObjectFinder<UTexture2D> SplashTex(
-        TEXT("/Game/Splash/born2flap-splash.born2flap-splash"));
+        TEXT("/Game/Splash/born2flap-splash-new.born2flap-splash-new"));
     SplashTexture = SplashTex.Succeeded() ? SplashTex.Object : nullptr;
 }
 
@@ -48,10 +49,9 @@ TSharedRef<SWidget> UBorn2FlapSplash::RebuildWidget()
         UTextBlock::StaticClass(), TEXT("StatusText"));
     Root->AddChild(StatusText);
     {
-        FSlateFontInfo Font = StatusText->GetFont();
-        Font.Size = 18;
-        StatusText->SetFont(Font);
-        StatusText->SetColorAndOpacity(FSlateColor(FLinearColor(1.f, 1.f, 1.f, 0.92f)));
+        // Website UI identity: Chakra Petch face + the site's text colour.
+        StatusText->SetFont(born2flap::ui::theme::FontPx(18.f, false));
+        StatusText->SetColorAndOpacity(FSlateColor(born2flap::ui::theme::FG()));
         StatusText->SetJustification(ETextJustify::Center);
         StatusText->SetText(FText::FromString(TEXT("LOADING")));
     }
@@ -68,9 +68,9 @@ TSharedRef<SWidget> UBorn2FlapSplash::RebuildWidget()
     Root->AddChild(LoadingBar);
     {
         FProgressBarStyle Style = LoadingBar->GetWidgetStyle();
-        Style.BackgroundImage = FSlateColorBrush(FLinearColor(0.02f, 0.03f, 0.05f, 0.85f));
-        Style.FillImage = FSlateColorBrush(FLinearColor(0.10f, 0.56f, 0.95f, 1.0f));
-        Style.MarqueeImage = FSlateColorBrush(FLinearColor(0.10f, 0.56f, 0.95f, 1.0f));
+        Style.BackgroundImage = FSlateColorBrush(born2flap::ui::theme::BG_SOLID());
+        Style.FillImage = FSlateColorBrush(born2flap::ui::theme::ACCENT());
+        Style.MarqueeImage = FSlateColorBrush(born2flap::ui::theme::ACCENT());
         LoadingBar->SetWidgetStyle(Style);
         LoadingBar->SetPercent(0.f);
     }

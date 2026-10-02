@@ -198,6 +198,38 @@ def pbr_material(name, color=None, diffuse=None, normal=None, rough=0.8,
     return m
 
 
+def make_water_mpc():
+    """Create/load the global ocean Material Parameter Collection.
+
+    Scalar parameter names here MUST match Born2FlapWater.cpp (namespace
+    Born2FlapWater) and the CollectionParameter nodes below, otherwise the
+    director's runtime values will never reach the water material.
+    """
+    path = '/Game/Shiomori/Materials/MPC_WaterGlobal'
+    ela.make_directory('/Game/Shiomori/Materials')
+    if ela.does_asset_exist(path):
+        mpc = u.load_asset(path)
+    else:
+        mpc = assets.create_asset('MPC_WaterGlobal', '/Game/Shiomori/Materials',
+                                  u.MaterialParameterCollection, u.MaterialParameterCollectionFactoryNew())
+    scalars = [
+        ('OceanLevel', -50.0), ('PrimaryWaveDirection', 270.0), ('WindDirection', 270.0),
+        ('WindSpeed', 6.0), ('SwellAmplitude', 44.0), ('SwellLength', 4000.0),
+        ('SwellSpeed', 530.0), ('SeaState', 3.0), ('FoamAmount', 1.0),
+        ('StormAmount', 0.0), ('ShoreBreakIntensity', 1.0), ('WaveTime', 0.0),
+        ('QualityLevel', 2.0), ('WaterLOD', 0.0),
+    ]
+    params = []
+    for n, v in scalars:
+        sp = u.CollectionScalarParameter()
+        sp.set_editor_property('parameter_name', n)
+        sp.set_editor_property('default_value', v)
+        params.append(sp)
+    mpc.set_editor_property('scalar_parameters', params)
+    assert ela.save_asset(path), 'Failed to save ' + path
+    return mpc
+
+
 def water_material(name, color, rough=0.08, specular=0.6, shore_color=(0.03, 0.22, 0.25), waves=None):
     """Translucent ocean with depth-graded colour/opacity, Fresnel sky reflection,
     index-of-refraction bending, vertex-displaced parallel swells, and animated
@@ -209,6 +241,7 @@ def water_material(name, color, rough=0.08, specular=0.6, shore_color=(0.03, 0.2
     shows through) and deep water is opaque. Single Layer Water cannot take WPO, so
     this is a standard translucent material — robust and clearly visible.
     """
+    mpc = make_water_mpc()
     path = '/Game/Shiomori/Materials/M_' + name
     m = u.load_asset(path) if ela.does_asset_exist(path) else assets.create_asset(
         'M_' + name, '/Game/Shiomori/Materials', u.Material, u.MaterialFactoryNew())
@@ -241,31 +274,39 @@ def water_material(name, color, rough=0.08, specular=0.6, shore_color=(0.03, 0.2
     t3 = node(m, 'AppendVector'); wire(t2, t3, 'A'); wire(z0, t3, 'B')
     add = node(m, 'Add'); wire(sc, add, 'A'); wire(t3, add, 'B')
     nz = node(m, 'Noise', levels=3, output_min=0.0, output_max=1.0); wire(add, nz, '')
-    # Base colour: depth gradient + Fresnel sky + animated foam (surf + crest).
-    bc = custom(m, '''float d=SceneDepth-PixelDepth;
-float3 w=lerp(float3(%.6g,%.6g,%.6g), float3(%.6g,%.6g,%.6g), saturate(d/400.0));
-float3 sky=float3(0.30,0.52,0.74);
-float3 col=lerp(w, sky, saturate(Fresnel*0.6));
-float ramp=smoothstep(10000.0,24000.0,P.y);
-float h=(sin(P.y*.0016+T*.85)*44.0+sin(P.y*.0028+T*1.35)*22.0+sin(P.y*.0041-T*1.9)*10.0)*ramp;
-float surf=smoothstep(35.0,8.0,d)*Foam;
-float crest=smoothstep(35.0,90.0,h)*Foam*Foam;
-return lerp(col, float3(0.94,0.96,0.96), saturate(surf+crest));''' % (
+    # Base colour: Beer-Lambert depth absorption + Fresnel sky + surf/crest foam.
+    # Tuned for the shallow lagoon (floor -300 cm): near shore the turquoise is
+    # bright and sand shows through; at 3 m it settles into a rich teal rather
+    # than a navy abyss. Fresnel reflection is stronger so the sky dominates at
+    # grazing angles like real water.
+    bc = custom(m, '''float d=max(SceneDepth-PixelDepth,0.0);
+ float3 shallow=float3(%.6g,%.6g,%.6g);
+ float3 deep=float3(%.6g,%.6g,%.6g);
+ float3 water=deep+(shallow-deep)*exp(-d/250.0);
+ float3 sky=float3(0.30,0.52,0.74);
+ float3 col=lerp(water, sky, saturate(Fresnel*0.85));
+ float ramp=smoothstep(10000.0,24000.0,P.y);
+ float h=(sin(P.y*.0016+T*.85)*44.0+sin(P.y*.0028+T*1.35)*22.0+sin(P.y*.0041-T*1.9)*10.0)*ramp;
+ float surf=smoothstep(26.0,6.0,d)*Foam;
+ float crest=smoothstep(26.0,80.0,h)*Foam*Foam;
+ return lerp(col, float3(0.96,0.97,0.96), saturate(surf+crest));''' % (
         shore_color[0], shore_color[1], shore_color[2], color[0], color[1], color[2]),
         {'SceneDepth': sd, 'PixelDepth': pd, 'Fresnel': fn, 'P': p, 'T': t, 'Foam': nz})
     output(bc, 'BASE_COLOR')
     output(node(m, 'Constant', r=rough), 'ROUGHNESS')
     output(node(m, 'Constant', r=specular), 'SPECULAR')
     op = custom(m, '''float d=max(SceneDepth-PixelDepth,0.0);
-return 1.0-exp(-d/120.0);''', {'SceneDepth': sd, 'PixelDepth': pd}, 1)
+return 1.0-exp(-d/90.0);''', {'SceneDepth': sd, 'PixelDepth': pd}, 1)
     output(op, 'OPACITY')
     # Travelling normal: long swell, chop, and fine glitter ripple.
-    n = custom(m, '''float2 q=P.xy*0.003;
-float2 n=float2(cos(q.x*0.8+q.y*0.42+T*0.9),sin(q.y*1.1-q.x*0.3-T*0.7))*0.6;
-n+=float2(sin(q.x*2.7+q.y*1.3-T*1.6),cos(q.y*2.4-q.x*0.9+T*1.4))*0.22;
-float2 r=P.xy*0.022;
-n+=float2(sin(r.x*1.3+r.y*0.9+T*3.2),cos(r.y*1.7-r.x*0.5-T*2.8))*0.06;
-return normalize(float3(n,1));''', {'P': p, 'T': t})
+    n = custom(m, '''float2 q=P.xy*0.004;
+ float2 n=float2(sin(q.x*0.7+q.y*1.1+T*0.9),cos(q.y*1.3-q.x*0.4-T*0.7))*0.55;
+ n+=float2(sin(q.x*2.6+q.y*3.1-T*1.6),cos(q.y*2.9-q.x*2.3+T*1.4))*0.26;
+ float2 r=P.xy*0.03;
+ n+=float2(sin(r.x*1.7+r.y*1.1+T*3.4),cos(r.y*2.1-r.x*0.8-T*3.0))*0.10;
+ float2 s=P.xy*0.12;
+ n+=float2(sin(s.x*2.3+s.y*1.7-T*6.0),cos(s.y*2.9-s.x*1.3+T*5.0))*0.05;
+ return normalize(float3(n,1.0));''', {'P': p, 'T': t})
     if waves is not None:
         uv = node(m, 'TextureCoordinate')
         rep = node(m, 'Multiply'); rep.set_editor_property('const_b', 300.0); wire(uv, rep, 'A')
@@ -276,15 +317,35 @@ return normalize(float3(n,1));''', {'P': p, 'T': t})
         bw = node(m, 'LinearInterpolate', const_alpha=0.45); wire(n, bw, 'A'); wire(sw, bw, 'B', 'RGB')
         n = bw
     output(n, 'NORMAL')
-    # Vertex-displaced parallel swells rolling shoreward; amplitude ramps from
-    # flat at the waterline to full offshore.
-    wpo = custom(m, '''float shore=smoothstep(10000.0,24000.0,P.y);
-float h=sin(P.y*0.0016+T*0.85)*44.0;
-h+=sin(P.y*0.0028+T*1.35+sin(P.x*0.00035)*1.8)*22.0;
-h+=sin(P.y*0.0041-T*1.9)*10.0;
-h+=sin(P.x*0.0009+T*0.6)*12.0;
-return float3(0.0,0.0,h*shore);''', {'P': p, 'T': t}, 3)
-    output(wpo, 'WORLD_POSITION_OFFSET')
+    # Deterministic Gerstner spectrum (8 components: 1 swell + 3 wind + 4 detail)
+    # driven entirely by the global ocean MPC, so the rendered surface stays in
+    # lock-step with AShiomoriWaterDirector / Born2FlapWater.cpp SampleWaveHeight.
+    def _mpc(name):
+        return node(m, 'CollectionParameter', collection=mpc, parameter_name=name)
+    gerst = custom(m, '''float Wl=max(1.0,WL);
+ float Cs=max(0.0,CS);
+ float ampScale=lerp(0.35,1.6,Sea/6.0);
+ float d2r=0.01745329251;
+ float H=0.0;
+ float lenF[8]={1.0,0.32,0.19,0.13,0.088,0.059,0.043,0.030};
+ float ampF[8]={1.00,0.45,0.28,0.16,0.090,0.055,0.035,0.022};
+ float dirOff[8]={0.0,-8.0,7.0,-12.0,18.0,-22.0,28.0,-35.0};
+ float phase[8]={0.0,1.3,2.7,4.1,5.2,0.9,3.3,4.7};
+ for(int i=0;i<8;i++)
+ {
+  float L=Wl*lenF[i];
+  float A=Amp*ampF[i]*ampScale;
+  float ang=(Dir+dirOff[i])*d2r;
+  float K=6.28318530718/L;
+  float Om=6.28318530718*Cs/(Wl*sqrt(lenF[i]));
+  H+=A*cos(K*(P.x*cos(ang)+P.y*sin(ang))-Om*WT+phase[i]);
+ }
+ float shore=smoothstep(10000.0,24000.0,P.y);
+ return float3(0.0,0.0,H*shore);''',
+        {'P': p, 'Amp': _mpc('SwellAmplitude'), 'WL': _mpc('SwellLength'),
+         'CS': _mpc('SwellSpeed'), 'Sea': _mpc('SeaState'),
+         'Dir': _mpc('PrimaryWaveDirection'), 'WT': _mpc('WaveTime')}, 3)
+    output(gerst, 'WORLD_POSITION_OFFSET')
     material_usage_flags(m)
     lib.recompile_material(m)
     assert ela.save_asset(path), 'Failed to save ' + path
@@ -293,7 +354,7 @@ return float3(0.0,0.0,h*shore);''', {'P': p, 'T': t}, 3)
 
 def sand_material(name, diffuse, normal, rough=0.8, rough_tex=None, tiling_cm=300.0,
                   relief_scale=0.02, relief_strength=0.6, normal_strength=0.6,
-                  tint=None):
+                  tint=None, caustic=False):
     """Beach sand: tiled grain normal plus a large-scale wind/sea/footprint
     relief so the surface reads as naturally uneven, not a flat smooth plane."""
     path = '/Game/Shiomori/Materials/M_' + name
@@ -307,6 +368,24 @@ def sand_material(name, diffuse, normal, rough=0.8, rough_tex=None, tiling_cm=30
         wire(bc, mul, 'A')
         wire(t, mul, 'B')
         bc = mul
+    if caustic:
+        # Underwater light caustics: crossed sine layers refract into the
+        # bright, slowly drifting cell patterns seen on a sunlit sea floor.
+        # They only modulate base colour, so the sandy albedo still shades
+        # naturally while the light seems to dance across the bay floor.
+        cp = node(m, 'WorldPosition')
+        ct = node(m, 'Time')
+        caus = custom(m, '''float2 q=P.xy*0.015;
+ float t=T*0.8;
+ float c=sin(q.x*3.7+t)*sin(q.y*2.9-t*1.2)
+       +sin(q.x*5.3-t*0.7)*sin(q.y*4.1+t*0.5)
+       +sin((q.x+q.y)*2.6+t*0.4)*sin((q.x-q.y)*3.1-t*0.6);
+ return smoothstep(0.12,1.0,c/3.0);''', {'P': cp, 'T': ct}, 1)
+        sc = node(m, 'Multiply'); sc.set_editor_property('const_b', 0.65); wire(caus, sc, 'A')
+        one = node(m, 'Constant', r=1.0)
+        add = node(m, 'Add'); wire(one, add, 'A'); wire(sc, add, 'B')
+        mul2 = node(m, 'Multiply'); wire(bc, mul2, 'A'); wire(add, mul2, 'B')
+        bc = mul2
     output(bc, 'BASE_COLOR')
     if rough_tex is not None:
         output(sample_tex(m, rough_tex, ('world', tiling_cm)), 'ROUGHNESS', 'R')
@@ -350,6 +429,295 @@ return normalize(float3(lerp(0.0, r.x, %.6g), lerp(0.0, r.y, %.6g), 1.0));
 
 
 # --------------------------------------------------------------------------- #
+# Parhelion weather staging: a realistic sky does NOT show every halo at once. #
+# The apparition is strongly rarity-staged — a normal event is just the sun +  #
+# a thin cirrostratus veil + 1-2 sun dogs + a weak 22-degree halo. Tangent    #
+# arcs, the sun pillar and the circumzenithal arc are rare add-ons, and the   #
+# full simultaneous display is a ~1% sliver, not a debug-menu checkbox.       #
+# --------------------------------------------------------------------------- #
+PARHELION_WEATHER = [
+    # weight, name,                 halo, dogL, dogR, pillar, columns, cza, cloud
+    (50, 'CLEAR',              dict(halo=0.0,  dog_l=0.0, dog_r=0.0, pillar=0.0, columns=0.0, cza=0.0, cloud=0.0)),
+    (20, 'CIRROSTRATUS',       dict(halo=0.6,  dog_l=1.0, dog_r=1.0, pillar=0.0, columns=0.0, cza=0.0, cloud=0.5)),
+    (12, 'CIRROSTRATUS_1DOG',  dict(halo=0.45, dog_l=1.0, dog_r=0.0, pillar=0.0, columns=0.0, cza=0.0, cloud=0.45)),
+    (8,  'CIRROSTRATUS_FAINT', dict(halo=0.35, dog_l=0.8, dog_r=0.8, pillar=0.0, columns=0.0, cza=0.0, cloud=0.3)),
+    (5,  'BRIGHT_DOGS',        dict(halo=0.8,  dog_l=1.0, dog_r=1.0, pillar=0.6, columns=0.0, cza=0.0, cloud=0.25)),
+    (3,  'TANGENT_ARCS',       dict(halo=0.7,  dog_l=1.0, dog_r=1.0, pillar=0.0, columns=1.0, cza=0.0, cloud=0.35)),
+    (1,  'FULL_DISPLAY',       dict(halo=1.0,  dog_l=1.0, dog_r=1.0, pillar=1.0, columns=1.0, cza=0.9, cloud=0.6)),
+]
+PARHELION_BY_NAME = {name: gates for _, name, gates in PARHELION_WEATHER}
+PARHELION_DEFAULT = dict(PARHELION_BY_NAME['CIRROSTRATUS'])
+# Force a state name for a deterministic sky, or None to roll the weighted table.
+PARHELION_FORCE_WEATHER = 'CIRROSTRATUS'
+WEATHER_SEED = 42
+
+def pick_parhelion_weather(seed):
+    """Deterministic weighted pick so a regeneration reproduces the same sky."""
+    rng = random.Random(seed)
+    roll = rng.uniform(0.0, sum(w for w, _, _ in PARHELION_WEATHER))
+    acc = 0.0
+    for weight, name, gates in PARHELION_WEATHER:
+        acc += weight
+        if roll <= acc:
+            return name, dict(gates)
+    return PARHELION_WEATHER[-1][1], dict(PARHELION_WEATHER[-1][2])
+
+
+def sun_parhelion_material(sun_dir, weather=None):
+    """Screen-space parhelion: a bright sun disc, its ~22-degree halo, and two
+    parhelia (sun dogs) sat on the same horizontal line either side of the sun,
+    plus the faint parhelic circle through it. The static sun direction is
+    baked in and projected through ResolvedView each frame, so the three-sun
+    apparition tracks the real atmosphere sun at any camera orientation and is
+    composited additively after tonemapping (eye adaptation stays stable)."""
+    w = dict(weather) if weather else dict(PARHELION_DEFAULT)
+    path = '/Game/Shiomori/Materials/M_SunParhelion'
+    m = u.load_asset(path) if ela.does_asset_exist(path) else assets.create_asset(
+        'M_SunParhelion', '/Game/Shiomori/Materials', u.Material, u.MaterialFactoryNew())
+    lib.delete_all_material_expressions(m)
+    m.set_editor_property('material_domain', u.MaterialDomain.MD_SURFACE)
+    m.set_editor_property('blend_mode', u.BlendMode.BLEND_ADDITIVE)
+    m.set_editor_property('shading_model', u.MaterialShadingModel.MSM_UNLIT)
+    m.set_editor_property('two_sided', True)
+    sd = node(m, 'Constant3Vector', constant=u.LinearColor(sun_dir[0], sun_dir[1], sun_dir[2], 0.0))
+    wpos = node(m, 'WorldPosition')
+    code = f'''float3 R = normalize(WorldPos - ResolvedView.TranslatedWorldCameraOrigin);
+    float3 S = normalize(SunDir);
+  
+    // True angular separation between the view ray and the sun (FOV-independent).
+    float ang = acos(clamp(dot(R, S), -1.0, 1.0));
+    float elS = asin(clamp(S.z, -1.0, 1.0));
+    float elR = asin(clamp(R.z, -1.0, 1.0));
+    float dEl = elR - elS;
+    float dAz = atan2(R.y, R.x) - atan2(S.y, S.x);
+    dAz = atan2(sin(dAz), cos(dAz));
+  
+    // Above-horizon mask so the halo's lower arc is occluded by the sea instead
+    // of being painted over it.
+    float skyMask = step(0.0, elR);
+  
+    float R22 = 0.38397; // 22 degrees: the halo minimum-deviation angle (fixed ring)
+    // Physical parhelion geometry — the sun dogs are NOT pinned to the halo. For a
+    // horizontal ice plate the in-plane effective index is n/cos(h), so the dog's
+    // minimum deviation grows with solar altitude and the pair drifts OUTSIDE the
+    // 22 deg halo, turning taller and more diffuse as the sun climbs. At h=0 they
+    // coincide at 22 deg and vanish beyond ~49 deg.
+    float nIce = 1.31;
+    float dev = 2.0 * asin(clamp(nIce / (2.0 * max(cos(elS), 1e-3)), -1.0, 1.0)) - 1.0471976;
+    float phi = acos(clamp((cos(dev) - sin(elS) * sin(elS)) / (cos(elS) * cos(elS) + 1e-5), -1.0, 1.0));
+
+    // Sun-altitude driver: parhelia are characteristically compact and intense
+    // at a low sun (0-10 deg above the horizon) and diffuse/weak higher up.
+    float sunDeg = elS * 57.2958;
+    float lowSun = 1.0 - smoothstep(8.0, 20.0, sunDeg);
+    float compact = lerp(1.0, 1.5, lowSun);
+  
+    // (1) Sun: very bright HDR core + tight overexposed aureole that never
+    // reaches the halo ring; the >1 HDR value drives bloom into a real glare.
+    float core = exp(-pow(ang * 320.0, 2.0)) * 12.0;
+    float aureole = exp(-ang * 40.0) * 1.5;
+  
+    // (2) 22-degree halo: weak and azimuthally broken into bright/dim arcs, not
+    // a perfect bright ring. Sharp reddish inner edge, soft bluish outer falloff.
+    float haloEdge = ang - R22;
+    float frag = 0.55 + 0.45 * (0.5 + 0.5 * sin(dAz * 2.0 + 1.3))
+                          * (0.5 + 0.5 * sin(dAz * 5.0 + 0.4));
+    float halo = smoothstep(-0.010, 0.0015, haloEdge) * exp(-haloEdge * 20.0) * frag;
+    float3 haloCol = lerp(float3(1.0, 0.56, 0.36), float3(0.80, 0.90, 1.0), saturate(haloEdge * 18.0));
+  
+    // Sun dogs: altitude-dependent position (see phi above). Vertically-stretched
+    // diffuse rectangular-oval (superellipse), red on the sun-facing inner edge.
+    // t = 0 -> sun side, t = 1 -> outward side. As the sun climbs they drift
+    // outside the halo, stretch taller and soften.
+    float tallness = lerp(1.0, 2.2, 1.0 - lowSun);
+    float softness = lerp(1.4, 2.0, 1.0 - lowSun);
+    float tL = saturate((dAz + phi) * 30.0 + 0.55);
+    float tR = saturate(-(dAz - phi) * 30.0 + 0.55);
+
+    float sxL = abs(dAz + phi) * (5.0 * compact);
+    float syL = abs(dEl) * (3.5 * compact / tallness);
+    float dogL = exp(-pow(pow(pow(sxL, softness) + pow(syL, softness), 1.0 / softness), 2.0));
+    float sxR = abs(dAz - phi) * (5.0 * compact);
+    float syR = abs(dEl) * (3.5 * compact / tallness);
+    float dogR = exp(-pow(pow(pow(sxR, softness) + pow(syR, softness), 1.0 / softness), 2.0));
+  
+    // (4,5,6,7) Spectral ramp: red -> orange -> yellow -> pale green/cyan ->
+    // warm-white. Blue is suppressed and the whole ramp is strongly desaturated
+    // so it reads as atmospheric, not a clean RGB rainbow.
+    float3 dogColL = float3(1.00, 0.30, 0.18);
+    dogColL = lerp(dogColL, float3(1.00, 0.64, 0.30), smoothstep(0.00, 0.30, tL));
+    dogColL = lerp(dogColL, float3(1.00, 0.90, 0.55), smoothstep(0.30, 0.55, tL));
+    dogColL = lerp(dogColL, float3(0.82, 0.90, 0.80), smoothstep(0.55, 0.82, tL));
+    dogColL = lerp(dogColL, float3(0.95, 0.94, 0.90), smoothstep(0.82, 1.00, tL));
+    float lumL = dot(dogColL, float3(0.299, 0.587, 0.114));
+    dogColL = lerp(float3(lumL, lumL, lumL), dogColL, 0.35);
+  
+    float3 dogColR = float3(1.00, 0.30, 0.18);
+    dogColR = lerp(dogColR, float3(1.00, 0.64, 0.30), smoothstep(0.00, 0.30, tR));
+    dogColR = lerp(dogColR, float3(1.00, 0.90, 0.55), smoothstep(0.30, 0.55, tR));
+    dogColR = lerp(dogColR, float3(0.82, 0.90, 0.80), smoothstep(0.55, 0.82, tR));
+    dogColR = lerp(dogColR, float3(0.95, 0.94, 0.90), smoothstep(0.82, 1.00, tR));
+    float lumR = dot(dogColR, float3(0.299, 0.587, 0.114));
+    dogColR = lerp(float3(lumR, lumR, lumR), dogColR, 0.35);
+  
+    // (7) Ice-crystal quality gate: near-spectral (ghostly) by default, and
+    // prominent only under excellent plate conditions. This is the master gain
+    // for the whole apparition; the sun itself is the real sun and stays bright
+    // regardless. Raise iceQuality toward 1.0 to make the apparition distinct.
+    // Independent crystal populations let a field light only one mechanism
+    // (plates = sun dogs/CZA/pillar, columns = tangent arcs, random = halo).
+    float iceQuality = 0.16;
+    float iceGain = lerp(0.08, 1.0, iceQuality);
+    // Staggered rarity: each crystal population is gated independently so a
+    // normal event is just sun + thin cirrostratus + 1-2 sun dogs + a weak
+    // halo. Tangent arcs, the pillar and the CZA are strongly staged rarities.
+    float gHalo   = iceGain * {w['halo']};
+    float gDogL   = iceGain * {w['dog_l']};
+    float gDogR   = iceGain * {w['dog_r']};
+    float gPillar = iceGain * {w['pillar']};
+    float gColumn = iceGain * {w['columns']};
+    float gCza    = iceGain * {w['cza']};
+  
+    // (9) Long whitish tail running outward along the parhelic circle.
+    float tailL = exp(-pow(dEl * 5.0, 2.0))
+                * smoothstep(phi - 0.12, phi + 0.08, -dAz)
+                * exp(-max(0.0, -dAz - phi) * 0.55);
+    float tailR = exp(-pow(dEl * 5.0, 2.0))
+                * smoothstep(phi - 0.12, phi + 0.08, dAz)
+                * exp(-max(0.0, dAz - phi) * 0.55);
+    float3 tailCol = float3(0.93, 0.91, 0.87);
+  
+    // Parhelic circle: a very weak horizontal whitish light band at sun
+    // altitude, running through the sun and both sun dogs. Not a complete
+    // circle — it fades with azimuth and is faintly reinforced at the dogs.
+    float pcBand = exp(-pow(dEl * 14.0, 2.0));
+    float pcFade = exp(-abs(dAz) * 0.22);
+    float pcDog  = 1.0 + 0.8 * (exp(-pow((dAz + phi) * 7.0, 2.0))
+                              + exp(-pow((dAz - phi) * 7.0, 2.0)));
+    float circle = pcBand * pcFade * pcDog * 0.07;
+  
+    float4 SunClip = mul(float4(S, 0.0), ResolvedView.TranslatedWorldToClip);
+    float vis = step(0.0, SunClip.w);
+  
+    // (10) Sun pillar: a vertical golden/white streak above (and reflected
+    // below) the sun from reflection off falling plates. No refraction, hence
+    // no spectral colour — just a warm column, golder at a low sun.
+    float pillar = exp(-pow(dAz * 18.0, 2.0)) * exp(-pow(dEl * 2.2, 2.0));
+    float3 pillarCol = lerp(float3(1.0, 0.98, 0.92), float3(1.0, 0.82, 0.55), lowSun);
+
+    // (11) Tangent arcs (horizontal columns): an upper V-bow touching the halo
+    // top and a lower inverted V-bow touching the halo bottom at a low sun. As
+    // the sun climbs the bows broaden and merge into a circumscribed halo (an
+    // oval tangent to the ring at top and bottom). Red on the sun-facing edge.
+    float merge = smoothstep(20.0, 55.0, sunDeg);
+    float arcAz = abs(dAz);
+    float arcExtent = lerp(0.20, 1.5708, merge);
+    float arcEnd = 1.0 - smoothstep(arcExtent * 0.55, arcExtent, arcAz);
+    float vEl = R22 - R22 * 0.32 * pow(arcAz, 1.8);
+    float oEl = R22 * cos(clamp(arcAz, 0.0, 1.5708));
+    float arcElUp = lerp(vEl, oEl, merge);
+    float arcElLo = -arcElUp;
+    float arcUp = exp(-pow((dEl - arcElUp) * 150.0, 2.0)) * arcEnd;
+    float arcLo = exp(-pow((dEl - arcElLo) * 150.0, 2.0)) * arcEnd;
+    float arcT = saturate((ang - R22) * 20.0 + 0.5);
+    float3 arcCol = float3(1.00, 0.45, 0.30);
+    arcCol = lerp(arcCol, float3(1.00, 0.75, 0.45), smoothstep(0.0, 0.35, arcT));
+    arcCol = lerp(arcCol, float3(0.85, 0.90, 0.92), smoothstep(0.35, 0.75, arcT));
+    arcCol = lerp(arcCol, float3(0.92, 0.94, 0.97), smoothstep(0.75, 1.0, arcT));
+    float arcLum = dot(arcCol, float3(0.299, 0.587, 0.114));
+    arcCol = lerp(float3(arcLum, arcLum, arcLum), arcCol, 0.45);
+
+    // (12) Circumzenithal arc (CZA): the most colourful halo, an inverted
+    // rainbow high above the sun on a circle around the ZENITH (not the sun),
+    // at zenith distance 46deg - h. Red on the lower (sun-facing) side, blue up.
+    // Fully saturated and gated as a rare event.
+    float zenAng = acos(clamp(R.z, -1.0, 1.0));
+    float czaZen = 0.80285 - elS;
+    float czaVisible = step(0.0, czaZen) * step(sunDeg, 32.0);
+    float czaArc = exp(-pow((zenAng - czaZen) * 100.0, 2.0));
+    float czaAz = exp(-pow(abs(dAz) * 9.0, 2.0));
+    float cza = czaArc * czaAz * czaVisible;
+    float czaT = saturate(-(zenAng - czaZen) * 60.0 + 0.5);
+    float3 czaCol = float3(1.0, 0.15, 0.10);
+    czaCol = lerp(czaCol, float3(1.0, 0.55, 0.15), smoothstep(0.0, 0.3, czaT));
+    czaCol = lerp(czaCol, float3(1.0, 0.9, 0.2), smoothstep(0.3, 0.5, czaT));
+    czaCol = lerp(czaCol, float3(0.3, 0.9, 0.4), smoothstep(0.5, 0.7, czaT));
+    czaCol = lerp(czaCol, float3(0.2, 0.5, 1.0), smoothstep(0.7, 1.0, czaT));
+    // (14) Cirrus atlas: a thin high ice veil, coverage-gated by the weather
+    // state. The field is a cheap inline "fractal" of phase-shifted sine
+    // dot-products over the world view direction (anchored to the sky, not the
+    // camera), thresholded into sparse wisps and warmed toward the sun.
+    // Additive (unlit) - it brightens the sky rather than shadowing it.
+    float cirrusCover = {w['cloud']};
+    float cn = sin(dot(R, float3(12.9898, 78.233, 45.164)) * 1.9) * 0.50
+             + sin(dot(R, float3(39.346, 11.135, 27.532)) * 3.7 + 1.3) * 0.30
+             + sin(dot(R, float3(7.425, 9.911, 53.112)) * 6.9 + 2.7) * 0.20;
+    float cirrus = smoothstep(0.52, 0.86, cn * 0.5 + 0.5);
+    cirrus *= smoothstep(0.10, 0.30, elR) * (1.0 - smoothstep(1.30, 1.5708, elR));
+    float3 cirrusCol = lerp(float3(0.72, 0.82, 1.0), float3(1.0, 0.90, 0.78), exp(-ang * 7.0));
+
+    float3 warm = float3(1.0, 0.90, 0.78);
+    float3 contrib = warm * (core + aureole) * vis;
+    contrib += haloCol * halo * (0.22 * gHalo * lerp(0.7, 1.0, lowSun)) * skyMask;
+    contrib += dogColL * dogL * (1.30 * gDogL * lerp(0.6, 3.0, lowSun)) * skyMask;
+    contrib += dogColR * dogR * (1.30 * gDogR * lerp(0.6, 3.0, lowSun)) * skyMask;
+    contrib += tailCol * tailL * (0.20 * gDogL * lerp(0.7, 1.0, lowSun)) * skyMask;
+    contrib += tailCol * tailR * (0.20 * gDogR * lerp(0.7, 1.0, lowSun)) * skyMask;
+    contrib += float3(0.96, 0.95, 0.92) * circle * gHalo * skyMask;
+    contrib += pillarCol * pillar * (0.45 * gPillar * lerp(0.5, 1.2, lowSun)) * skyMask;
+    contrib += arcCol * (arcUp + arcLo) * (0.16 * gColumn * lerp(0.8, 1.0, lowSun)) * skyMask;
+    contrib += czaCol * cza * (0.6 * gCza) * skyMask;
+    contrib += cirrusCol * cirrus * (0.5 * cirrusCover) * skyMask;
+
+    return contrib;'''
+    h = node(m, 'Custom', code=code, output_type=u.CustomMaterialOutputType.CMOT_FLOAT3)
+    pins = []
+    for nm in ('SunDir', 'WorldPos'):
+        pin = u.CustomInput()
+        pin.set_editor_property('input_name', nm)
+        pins.append(pin)
+    h.set_editor_property('inputs', pins)
+    wire(sd, h, 'SunDir')
+    wire(wpos, h, 'WorldPos')
+    output(h, 'EMISSIVE_COLOR')
+    material_usage_flags(m)
+    lib.recompile_material(m)
+    assert ela.save_asset(path), 'Failed to save ' + path
+    return m
+
+
+def apply_post_process():
+    """Unbound post-process volume: camera-side optics only — gentle bloom for
+    specular glitter and screen-space reflections for wet sand/water. The
+    parhelion itself is atmospheric (a sky-dome material spawned by the pawn),
+    NOT a post-process blendable, so it is genuinely occluded by terrain/clouds
+    and stays geometrically coupled to the sun. Property names are UE5.8."""
+    vol = u.EditorLevelLibrary.spawn_actor_from_class(u.PostProcessVolume, u.Vector(0, 0, 0))
+    vol.set_actor_label('Shiomori PostProcess')
+    vol.set_editor_property('unbound', True)
+    s = vol.settings
+    for k, v in (('bloom_intensity', 1.15),
+                 ('bloom_threshold', 0.85),
+                 ('screen_space_reflection_intensity', 90.0),
+                 ('screen_space_reflection_quality', 80.0),
+                 ('screen_space_reflection_max_roughness', 0.6),
+                 ('auto_exposure_min_brightness', 0.5),
+                 ('auto_exposure_max_brightness', 0.5)):
+        try:
+            s.set_editor_property(k, v)
+        except Exception:
+            pass
+    try:
+        s.set_editor_property('reflection_method', u.ReflectionMethod.RM_LUMEN)
+    except Exception:
+        pass
+    try:
+        vol.set_editor_property('settings', s)
+    except Exception as e:
+        u.log_warning('Shiomori post-process settings failed: ' + str(e))
+
+
+# --------------------------------------------------------------------------- #
 # Import the CC0 surface set (downloaded by fetch_shiomori_assets.py).        #
 # --------------------------------------------------------------------------- #
 sand_d = load_texture('sand_02', 'Diffuse', 'T_Sand_Diffuse')
@@ -389,7 +757,7 @@ mats = {}
 mats['Sand'] = sand_material('Sand', sand_d, sand_n, rough_tex=sand_r, tiling_cm=300.0,
                              normal_strength=0.65)
 mats['WetSand'] = sand_material('WetSand', sand_d, sand_n, rough=0.35, tiling_cm=300.0,
-                                normal_strength=0.5, tint=(0.52, 0.47, 0.4))
+                                normal_strength=0.5, tint=(0.52, 0.47, 0.4), caustic=True)
 mats['Concrete'] = pbr_material('Concrete', diffuse=concrete_d, normal=concrete_n,
                                 rough_tex=concrete_r, tiling=('world', 120.0),
                                 normal_strength=0.6, noise_var=0.0015)
@@ -420,7 +788,8 @@ mats['Bush'] = pbr_material('Bush', color=(0.09, 0.24, 0.13), rough=0.85, specul
 mats['Earth'] = pbr_material('Earth', diffuse=sand_d, normal=sand_n, rough_tex=sand_r,
                              tiling=('world', 260.0), normal_strength=0.6,
                              tint=(0.44, 0.46, 0.37))
-mats['Water'] = water_material('Water', (0.02, 0.10, 0.22), rough=0.08, specular=0.6, waves=wave_n)
+mats['Water'] = water_material('Water', (0.008, 0.09, 0.16), rough=0.05, specular=0.8,
+                             shore_color=(0.05, 0.36, 0.32), waves=wave_n)
 mats['Foam'] = pbr_material('Foam', color=(0.9, 0.94, 0.93), rough=0.35, specular=0.3)
 
 # Translucent foam with soft, noisy edges.
@@ -487,12 +856,23 @@ mats['Cloud'] = cloud
 # --------------------------------------------------------------------------- #
 world = u.EditorLoadingAndSavingUtils.new_blank_map(False)
 world.get_world_settings().set_editor_property('force_no_precomputed_lighting', True)
-meshes = {n: u.load_asset('/Engine/BasicShapes/' + n) for n in ('Cube', 'Sphere', 'Cylinder', 'Cone', 'Plane')}
-meshes.update({'Rock' + str(i): u.load_asset('/Game/Nature/SM_Rock' + str(i)) for i in range(4)})
+# A fresh -nullrhi commandlet can start with a cold asset registry: the CC0
+# /Game/Nature meshes exist on disk but are not yet indexed, so load_asset
+# returns None ("could not be found in the Asset Registry") and foliage()
+# crashes. Scan the project asset paths synchronously before the first load.
+u.AssetRegistryHelpers.get_asset_registry().scan_paths_synchronous(['/Game/Nature'])
+def _load_mesh(path):
+    return ela.load_asset(path) or u.load_asset(path)
+
+def _pick_mesh(pool, rng):
+    return rng.choice(pool) if pool else None
+
+meshes = {n: _load_mesh('/Engine/BasicShapes/' + n) for n in ('Cube', 'Sphere', 'Cylinder', 'Cone', 'Plane')}
+meshes.update({'Rock' + str(i): _load_mesh('/Game/Nature/SM_Rock' + str(i)) for i in range(4)})
 foliage_meshes = {
-    'Grass': [u.load_asset('/Game/Nature/SM_Grass%d' % i) for i in range(3)],
-    'Fir': [u.load_asset('/Game/Nature/SM_Fir%d' % i) for i in range(3)],
-    'Rock': [u.load_asset('/Game/Nature/SM_Rock%d' % i) for i in range(4)],
+    'Grass': [m for m in (_load_mesh('/Game/Nature/SM_Grass%d' % i) for i in range(3)) if m],
+    'Fir': [m for m in (_load_mesh('/Game/Nature/SM_Fir%d' % i) for i in range(3)) if m],
+    'Rock': [m for m in (_load_mesh('/Game/Nature/SM_Rock%d' % i) for i in range(4)) if m],
 }
 count = 0
 
@@ -508,6 +888,11 @@ def build_mesh(name, verts, tris, uvs=None):
     triples wound counter-clockwise (+Z normal, faces up); uvs is an optional
     parallel list of (u, v) pairs for UV0. World-space materials ignore UVs, so
     the channel is optional, but it keeps the mesh build well-formed.
+
+    UE5's front-face convention is clockwise (left-handed Z-up); the grid
+    generators emit counter-clockwise windings, so we reverse each triangle
+    here to make the normals face +Z (up). Without this, one-sided opaque
+    materials (sand, seabed) are back-face culled and render as invisible.
     """
     path = '/Game/Shiomori/Meshes/SM_' + name
     if ela.does_asset_exist(path):
@@ -534,7 +919,7 @@ def build_mesh(name, verts, tris, uvs=None):
         for k, inst in enumerate(insts):
             md.set_vertex_instance_uv(inst, u.Vector2D(uvs[k][0], uvs[k][1]), 0)
     for (a, b, c) in tris:
-        md.create_triangle(pg, [insts[a], insts[b], insts[c]])
+        md.create_triangle(pg, [insts[a], insts[c], insts[b]])
     # Keep the CPU copy of the render mesh (bAllowCPUAccess), otherwise the
     # commandlet build drops the triMesh and the mesh has no complex collision.
     try:
@@ -618,7 +1003,7 @@ def beach_height(x, y):
         return dune
     if d < 0:
         return dune * (-d / 2500.0) - 50.0 * ((d + 2500.0) / 2500.0) ** 2
-    return max(-1750.0, -50.0 - 0.04 * d)
+    return max(-300.0, -50.0 - 0.04 * d)
 
 
 def make_beach():
@@ -644,8 +1029,39 @@ def make_beach():
     return verts,tris,uvs
 
 
+def seabed_z(x, y):
+    # Shallow bay floor matching GroundHeight's offshore branch in Born2FlapGameMode.cpp:
+    # within the 900 m beach (|x|<=45000) it is the -50 - 0.04*D foreshore slope
+    # clamped at -300 (a ~2.5 m lagoon); beyond it the open sea sits at the same floor.
+    if abs(x) > 45000:
+        return -300.0
+    return max(-300.0, -50.0 - 0.04 * (y - waterline(x)))
+
+
+def make_seabed():
+    # The bay floor slopes down from the wet sand's seaward edge (d=2500, Z=-150)
+    # to the shallow analytic GroundHeight floor (Z=-300) at d=6250, then runs flat
+    # to the far sea. The first row hugs the sand's capped edge so sand and seabed
+    # share one seamless boundary (no gap, no z-fight).
+    xs = [-200000, -100000, -60000] + list(range(-45000, 45001, 250)) + [60000, 100000, 200000]
+    near = [min(waterline(x) + 2500.0, 12500.0) for x in xs]
+    off = list(range(13000, 53001, 500)) + [55000, 75000, 120000, 255000]
+    rows = [[(x, near[i], seabed_z(x, near[i])) for i, x in enumerate(xs)]]
+    rows += [[(x, y, seabed_z(x, y)) for x in xs] for y in off]
+    verts = [v for row in rows for v in row]
+    uvs = [(x / 150.0, y / 150.0) for (x, y, _) in verts]
+    tris = []
+    stride = len(xs)
+    for j in range(len(rows) - 1):
+        for i in range(stride - 1):
+            a = j * stride + i
+            tris.extend([(a, a + 1, a + stride + 1), (a, a + stride + 1, a + stride)])
+    return verts, tris, uvs
+
+
 ocean_mesh = build_mesh('OceanGrid', *make_ocean_grid())
 beach_mesh = build_mesh('ContinuousBeach', *make_beach())
+seabed_mesh = build_mesh('Seabed', *make_seabed())
 beach_mesh.get_editor_property('body_setup').set_editor_property('collision_trace_flag', u.CollisionTraceFlag.CTF_USE_COMPLEX_AS_SIMPLE)
 ela.save_loaded_asset(beach_mesh)
 
@@ -675,6 +1091,8 @@ def part(label, p, size, mat='Concrete', shape='Cube', rot=(0, 0, 0), collision=
 
 def foliage(label, p, mesh, height, rot=(0, 0, 0), ground_z=None):
     global count
+    if mesh is None:
+        return None
     a = u.EditorLevelLibrary.spawn_actor_from_class(u.StaticMeshActor, u.Vector(*p), u.Rotator(*rot))
     a.set_actor_label(label)
     a.set_editor_property('tags', [label])
@@ -702,7 +1120,7 @@ place_mesh('Long beach / clear flight sand', (0, 0, 0), beach_mesh, mats['Sand']
 for cx in range(-42500, 42501, 500):
     for cy in range(-200, 15801, 2000):
         collision_box('Beach collision', cx, cy, beach_height(cx, cy), 500, 2000)
-part('Deep seabed', (0, 45000, -2000), (400000, 420000, 500), 'WetSand')
+place_mesh('Seabed', (0, 0, 0), seabed_mesh, mats['WetSand'])
 place_mesh('Open bay', (0, 0, 0), ocean_mesh, mats['Water'])
 part('Raised promenade', (0, -2400, 50), (90000, 1200, 200), 'Sterile')
 part('Industrial hinterland', (0, -27000, -100), (150000, 48000, 500), 'Industry')
@@ -777,7 +1195,7 @@ for i in range(180):
     x = rng.uniform(-44500, 44500)
     y = rng.uniform(-6500, -5400)
     kind = rng.choice(('Grass', 'Grass', 'Grass', 'Fir', 'Rock'))
-    mesh = rng.choice(foliage_meshes[kind])
+    mesh = _pick_mesh(foliage_meshes[kind], rng)
     h = rng.uniform(60, 260) if kind == 'Grass' else rng.uniform(120, 320) if kind == 'Fir' else rng.uniform(50, 160)
     foliage('Backshore scrub', (x, y, 150), mesh, h, rot=(0, rng.uniform(0, 360), 0), ground_z=150)
 # Layered coastal thickets: taller trees behind dense dune-grass edges.
@@ -791,14 +1209,31 @@ for side in (-1, 1):
         if abs(x) < 40900+500*math.sin(y*.0014) and vrng.random()<.65:
             continue
         foliage('Coastal grass west' if side<0 else 'Coastal grass east',
-                (x,y,0), vrng.choice(foliage_meshes['Grass']), vrng.uniform(55,125),
+                (x,y,0), _pick_mesh(foliage_meshes['Grass'], vrng), vrng.uniform(55,125),
                 rot=(0,vrng.uniform(0,360),0), ground_z=beach_height(x,y))
     for i in range(110):
         x = side*vrng.uniform(41600,44800)
         y = vrng.uniform(-650,6900)
         foliage('Coastal trees west' if side<0 else 'Coastal trees east',
-                (x,y,0), vrng.choice(foliage_meshes['Fir']), vrng.uniform(220,650),
+                (x,y,0), _pick_mesh(foliage_meshes['Fir'], vrng), vrng.uniform(220,650),
                 rot=(0,vrng.uniform(0,360),0), ground_z=beach_height(x,y))
+# Beach dune grasses: marram-like clumps that cluster on the slight elevations
+# (dune crests) the onshore wind has built. They keep off the wet foreshore and
+# the tidewalk, growing sparse on the flats and denser toward the higher berms
+# — the wind-shaped "grass has manifested it" patches along the whole beach.
+grng = random.Random(612345)
+for i in range(2600):
+    x = grng.uniform(-44500, 44500)
+    y = grng.uniform(-900, 7800)
+    h = beach_height(x, y)
+    # Only the raised, dry dune berms carry grass; the wet foreshore stays bare.
+    if h < 24.0:
+        continue
+    # Density rises with elevation — crests are thicker, flanks stay sparse.
+    if grng.random() > 0.30 + 0.65 * min(1.0, (h - 24.0) / 95.0):
+        continue
+    foliage('Beach dune grass', (x, y, 0), _pick_mesh(foliage_meshes['Grass'], grng),
+            grng.uniform(45, 115), rot=(0, grng.uniform(0, 360), 0), ground_z=h)
 # Volcanic island, to the left, curves around the bay.
 part('Basalt island foundation', (-37000, 26000, -600), (17000, 27000, 4400), 'Basalt', 'Sphere')
 for i in range(60):
@@ -825,12 +1260,26 @@ for x in range(11550, 12451, 15):
 part('Lifebuoy station', (-17000, -1000, 95), (18, 18, 190), 'Orange', 'Cylinder')
 part('Driftwood', (23500, 7200, 16), (220, 23, 25), 'Wood', rot=(0, 28, 0))
 part('Small beach ball', (10000, 5700, 14), (28, 28, 28), 'Orange', 'Sphere')
-# Bright maritime light with a soft blue distance haze.
-sun = u.EditorLevelLibrary.spawn_actor_from_class(u.DirectionalLight, u.Vector(0, 0, 10000), u.Rotator(-38, -48, 0))
-sun.light_component.set_editor_property('intensity', 70000.)
+# Bright maritime light with a soft blue distance haze. The sun sits low over
+# the open bay so its halo and the two parhelia (sun dogs) read clearly as a
+# "three suns" apparition straddling the horizon.
+def _rot_forward(pitch, yaw):
+    cp, sp = math.cos(math.radians(pitch)), math.sin(math.radians(pitch))
+    cy, sy = math.cos(math.radians(yaw)), math.sin(math.radians(yaw))
+    return (cp * cy, cp * sy, sp)
+
+# Low golden sun over the open bay (the sea is +Y). UE5 Python's Rotator takes
+# positional args as (roll, pitch, yaw) — a known API quirk — so use named args
+# to stay unambiguous: pitch=-16 puts the disc ~16 degrees above the horizon,
+# yaw=-90 aims the light shoreward so the sun hangs over the water.
+sun_pitch, sun_yaw, sun_roll = -16.0, -90.0, 0.0
+sun = u.EditorLevelLibrary.spawn_actor_from_class(
+    u.DirectionalLight, u.Vector(0, 0, 10000),
+    u.Rotator(pitch=sun_pitch, yaw=sun_yaw, roll=sun_roll))
+sun.light_component.set_editor_property('intensity', 90000.)
 sun.light_component.set_editor_property('atmosphere_sun_light', True)
 try:
-    sun.light_component.set_editor_property('light_color', u.Color(255, 240, 222))
+    sun.light_component.set_editor_property('light_color', u.Color(255, 238, 216))
 except Exception:
     pass
 sky = u.EditorLevelLibrary.spawn_actor_from_class(u.SkyLight, u.Vector(0, 0, 0))
@@ -838,13 +1287,27 @@ sky.light_component.set_editor_property('real_time_capture', True)
 sky.light_component.set_editor_property('intensity', 1.2)
 u.EditorLevelLibrary.spawn_actor_from_class(u.SkyAtmosphere, u.Vector(0, 0, 0))
 fog = u.EditorLevelLibrary.spawn_actor_from_class(u.ExponentialHeightFog, u.Vector(0, 0, 0))
-fog.component.set_editor_property('fog_density', .0015)
+fog.component.set_editor_property('fog_density', .0008)
 try:
     fog.component.set_editor_property('fog_inscattering_color', u.LinearColor(.55, .68, .82))
 except Exception:
     pass
+# Photorealistic light pass: the parhelion is an ATMOSPHERIC sky-dome material
+# (world-space, depth-tested, spawned by the flight pawn so it follows the
+# camera); bloom/SSR below are camera-side optics only.
+fw = _rot_forward(sun_pitch, sun_yaw)
+sun_dir = (-fw[0], -fw[1], -fw[2])
+if PARHELION_FORCE_WEATHER:
+    weather_name = PARHELION_FORCE_WEATHER
+    weather = dict(PARHELION_BY_NAME[weather_name])
+else:
+    weather_name, weather = pick_parhelion_weather(WEATHER_SEED)
+u.log('PARHELION_WEATHER=' + weather_name)
+sun_parhelion_material(sun_dir, weather)
+apply_post_process()
 # Saved viewpoints also make the generated map easy to inspect in the editor.
-for name, p, target in [('Bay overlook', (12000, -14000, 15000), (-12000, 10000, 0)),
+for name, p, target in [('Sun horizon', (0, -6000, 400), (0, 13226, 5912)),
+                        ('Bay overlook', (12000, -14000, 15000), (-12000, 10000, 0)),
                         ('Tidewalk', (-1500, -500, 650), (1000, -2700, 250)),
                         ('Basalt cove', (-22000, 12000, 5000), (-37000, 26000, 500)),
                         ('Shoreline', (0, 7900, 220), (3500, 12500, -50)),

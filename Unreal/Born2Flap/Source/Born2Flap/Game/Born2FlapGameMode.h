@@ -6,6 +6,8 @@
 class UBorn2FlapRadioStation;
 class ABorn2FlapRadioHUD;
 class UBorn2FlapSplash;
+class AStaticMeshActor;
+class UMaterialInstanceDynamic;
 
 UCLASS()
 class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
@@ -28,7 +30,11 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     bool HasRadioTrack() const;
 
   private:
+    void UpdateGateColors();
+
     TArray<FVector> Gates;
+    TArray<TObjectPtr<AStaticMeshActor>> GateActors;
+    TArray<TObjectPtr<UMaterialInstanceDynamic>> GateMaterials;
     int32 GatesPassed = 0;
     bool bNatureLevel = true;
     bool bCoastLevel = false;
