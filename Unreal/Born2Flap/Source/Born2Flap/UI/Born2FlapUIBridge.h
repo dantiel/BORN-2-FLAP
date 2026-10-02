@@ -44,6 +44,15 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "UI Bridge")
     FString BrainCommand;
 
+    // The reverse channel: every tick we write one JSON telemetry line here
+    // (overwrite-per-tick) so the Ruby Brain can author the live cockpit.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "UI Bridge")
+    FString TelemetryPath;
+
+    // True once the Ruby Brain process has been launched (i.e. the UMGHAML
+    // authoring path is live; the native C++ cockpit should stay dormant).
+    bool IsBrainActive() const { return BrainProcess.IsValid(); }
+
     virtual void BeginPlay() override;
     virtual void Tick(float DeltaSeconds) override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
@@ -52,6 +61,7 @@ private:
     void OpenSource();
     void SpawnBrain();
     void DrainSource();
+    void WriteTelemetry();
     void ApplyFrame(const TArray<uint8>& Bytes);
 
     UPROPERTY() TObjectPtr<UBorn2FlapUIRenderer> Renderer;

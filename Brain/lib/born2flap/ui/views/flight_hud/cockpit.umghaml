@@ -1,0 +1,11 @@
+%Overlay{ align: "left", valign: "top" }
+  %VBox{ spacing: 6 }
+    %Banner#brand{ text: "BORN 2 FLAP", tone: "accent" }
+    %Panel{ title: "INSTRUMENTE" }
+      %Stat{ label: "HÖHE",    value: #{altitude}, unit: " m",   tone: "good" }
+      %Stat{ label: "STEIGEN", value: #{climb},    unit: " m/s" }
+      %Stat{ label: "GESCHW.", value: #{speed},    unit: " m/s", tone: "info" }
+    %Panel{ title: "ENERGIE" }
+      %Gauge{ label: "BATTERIE", value: #{battery}, min: 0, max: 100, unit: "%", tone: "good" }
+      %Gauge{ label: "SCHUB",   value: #{throttle}, min: 0, max: 1,             tone: "accent" }
+    %Banner{ text: "#{status}", tone: "normal" }

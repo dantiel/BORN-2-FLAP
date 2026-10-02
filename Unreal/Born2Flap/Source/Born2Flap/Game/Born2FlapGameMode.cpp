@@ -105,17 +105,20 @@ void ABorn2FlapGameMode::BeginPlay()
     Super::BeginPlay();
     UWorld *World = GetWorld();
     World->GetWorldSettings()->bForceNoPrecomputedLighting = true;
-    // Wire the Ruby Brain ↔ UMG transport (react-native-umg). The bridge tails
-    // the NDJSON frame source and applies frames to the UMG renderer each tick;
-    // it is a no-op unless -B2FUIFile=/-B2FUIBrain= is supplied.
+    // Wire the Ruby Brain ↔ UMG transport. The bridge launches the Ruby Brain
+    // (default: <repo>/Brain/bin/umghaml_brain) which authors the glass cockpit
+    // in UMGHAML; the bridge tails the resulting NDJSON frames and feeds live
+    // telemetry back each tick.
+    ABorn2FlapUIBridge* UIBridge = nullptr;
     {
         FActorSpawnParameters UIParams;
         UIParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-        World->SpawnActor<ABorn2FlapUIBridge>(FVector::ZeroVector, FRotator::ZeroRotator, UIParams);
+        UIBridge = World->SpawnActor<ABorn2FlapUIBridge>(FVector::ZeroVector, FRotator::ZeroRotator, UIParams);
     }
-    // The semantic glass cockpit — the native flight HUD. Builds its own
-    // component tree from real telemetry each tick (the in-game face of the
-    // Ruby-authored UMGHAML grammar).
+    // The glass cockpit is UMGHAML-authored by the Ruby Brain. Only fall back to
+    // the native C++ cockpit when the Brain is not running (packaged build
+    // without Ruby, or an explicit -NoRubyUI override).
+    if (!UIBridge || !UIBridge->IsBrainActive())
     {
         FActorSpawnParameters CockpitParams;
         CockpitParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;

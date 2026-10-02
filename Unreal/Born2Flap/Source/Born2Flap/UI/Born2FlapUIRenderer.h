@@ -9,9 +9,10 @@
 //
 // On top of the raw primitives it adds a *semantic component layer* (see
 // Born2FlapUiTheme.h / Born2FlapUiComposite.h): `Panel`, `Value`, `Stat`,
-// `Gauge`, `Banner`, `Button`, `Slider`, `Divider` are pre-styled composite
-// widgets, so the Brain says `gauge label:"Höhe" value: h tone: :accent`
-// and the host resolves the look — the Brain never styles.
+// `Gauge`, `Banner`, `Button`, `Slider`, `Toggle`, `Select`, `NumberBox`,
+// `Field`, `Section`, `Divider` are composite widgets, so the Brain says
+// `slider label:"Höhe" value: h min:0 max:100 unit:" m"` and the host
+// resolves the look — the Brain never styles.
 
 #include "CoreMinimal.h"
 #include "UObject/Object.h"
@@ -30,6 +31,19 @@ class UPanelWidget;
 class UUserWidget;
 class UCanvasPanel;
 class UMaterialInstanceDynamic;
+class UBorn2FlapComposite;
+class UBorn2FlapUIRenderer;
+class USlider;
+class UButton;
+class UEditableTextBox;
+
+// Semantic component action: an interactive component (Slider/Toggle/Select/
+// NumberBox/Button) reports `{Action, Value, Text}` when the user manipulates
+// it. `Action` is the semantic key ("tuning.mount_angle"), `Value` is the
+// numeric result (slider value, select index, toggle 1/0), `Text` is a
+// rendered label for string-typed actions.
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(
+    FBorn2FlapComponentAction, const FString&, Action, float, Value, const FString&, Text);
 
 // Minimal concrete UUserWidget subclass so the runtime HUD can build a widget
 // tree without a Blueprint asset. UUserWidget itself is UCLASS(Abstract), so
@@ -39,6 +53,31 @@ UCLASS()
 class BORN2FLAP_API UBorn2FlapRootWidget : public UUserWidget
 {
     GENERATED_BODY()
+};
+
+// UMG dynamic delegates (USlider::OnValueChanged, UButton::OnClicked,
+// UEditableTextBox::OnTextCommitted) only accept UFUNCTION handlers, so a
+// tiny relay object forwards each event to the owning renderer along with the
+// composite (and, for Select options, the option index) that fired it. Kept
+// alive by UBorn2FlapUIRenderer::Relays.
+UCLASS()
+class BORN2FLAP_API UBorn2FlapActionRelay : public UObject
+{
+    GENERATED_BODY()
+
+public:
+    TWeakObjectPtr<UBorn2FlapUIRenderer> Renderer;
+    UBorn2FlapComposite* Composite = nullptr;
+    int32 OptionIndex = INDEX_NONE;
+
+    UFUNCTION()
+    void OnSlider(float Value);
+
+    UFUNCTION()
+    void OnClick();
+
+    UFUNCTION()
+    void OnNumber(const FText& Text, ETextCommit::Type CommitMethod);
 };
 
 // Per-panel layout intent. The reconciler mounts children *after* the parent's
@@ -81,9 +120,29 @@ public:
     void UpdateProps(UWidget* W, const born2flap::ui::FProps& Props);
     void SetMaterialParams(UWidget* W, const born2flap::ui::FProps& Params);
 
+    // --- semantic component actions (the interactivity "prowess") ----------
+    // Broadcast when an interactive component is manipulated. The native
+    // editor / gameplay code subscribes and routes the value into the bird's
+    // firmware. Nothing here touches pixels — it is pure semantics.
+    UPROPERTY() FBorn2FlapComponentAction OnComponentAction;
+
+    // Relay entry points (called by UBorn2FlapActionRelay).
+    void HandleSliderChanged(UBorn2FlapComposite* C, float Value);
+    void HandleClicked(UBorn2FlapComposite* C, int32 OptionIndex);
+    void HandleNumberCommitted(UBorn2FlapComposite* C, const FText& Text, ETextCommit::Type Commit);
+    void EmitAction(const FString& Action, double Value, const FString& Text);
+
     virtual void BeginDestroy() override;
 
 private:
+    void BindSlider(USlider* S, UBorn2FlapComposite* C);
+    void BindButton(UButton* B, UBorn2FlapComposite* C, int32 OptionIndex = INDEX_NONE);
+    void BindNumber(UEditableTextBox* E, UBorn2FlapComposite* C);
+    void RebuildSelectOptions(UBorn2FlapComposite* C, const born2flap::ui::FValue& Options);
+    void ApplySelectSelection(UBorn2FlapComposite* C, int32 Index);
+    void ApplyToggleState(UBorn2FlapComposite* C);
+    void ApplySectionFold(UBorn2FlapComposite* C, bool bOpen);
+
     // Route an already-parsed op stream: tree ops → FRenderer, audio ops →
     // FAudioEngine. Kept in one place so ApplyOpsJson and ApplyOps share it.
     void ApplyParsedOps(const std::vector<born2flap::ui::FOp>& Ops);
@@ -106,4 +165,8 @@ private:
     UPROPERTY() UCanvasPanel* ViewportCanvas = nullptr;
     TMap<UWidget*, UMaterialInstanceDynamic*> MaterialCache;
     TMap<UPanelWidget*, FLayoutState> LayoutState;
+
+    // Keeps UBorn2FlapActionRelay instances alive (they are plain UObjects
+    // created with this renderer as Outer, otherwise GC would collect them).
+    UPROPERTY() TArray<TObjectPtr<UBorn2FlapActionRelay>> Relays;
 };

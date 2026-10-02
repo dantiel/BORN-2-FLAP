@@ -1,0 +1,97 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+# umghaml_brain — the permanent Ruby Brain process that drives the UMG host.
+#
+#   ruby bin/umghaml_brain <telemetry.ndjson|-> <frames.ndjson|-> [--ticks N] [--interval S]
+#
+# Reads telemetry (one JSON object per line, overwritten each game tick by the
+# C++ bridge), authors the glass cockpit in UMGHAML, reconciles against the
+# previous tree, and writes the minimal NDJSON op stream to the frames sink.
+# The C++ host (Born2FlapUIBridge) tails the frames sink and applies each frame;
+# it is the writer of the telemetry source. This file is the "always-on" loop
+# that makes UMGHAML the live authoring path instead of a build-time grammar.
+
+$LOAD_PATH.unshift File.expand_path("../lib", __dir__)
+require "born2flap"
+require "born2flap/ui/flight_hud"
+require "json"
+
+telemetry_path = ARGV[0]
+frames_path    = ARGV[1]
+
+ticks    = nil
+interval = 0.016
+idx = 2
+while idx < ARGV.length
+  case ARGV[idx]
+  when "--ticks"    then ticks = ARGV[idx + 1].to_i; idx += 2
+  when "--interval" then interval = ARGV[idx + 1].to_f; idx += 2
+  else idx += 1
+  end
+end
+
+TRUNCATE_AT = 8 * 1024 * 1024  # rotate the frames file; remount resyncs the host
+
+def read_telemetry(path)
+  return nil if path.nil? || path == "-"
+  text = File.read(path)
+  line = text.lines.map(&:strip).reject(&:empty?).last
+  return nil unless line
+  JSON.parse(line, symbolize_names: true)
+rescue StandardError
+  nil
+end
+
+def sanitize(telemetry)
+  telemetry.each_with_object({}) do |(key, value), out|
+    out[key] = value.is_a?(String) ? value.gsub(/["\\]/, "").strip : value
+  end
+end
+
+def open_sink(path)
+  return $stdout if path.nil? || path == "-"
+  io = File.open(path, "ab")
+  io.sync = true
+  io
+end
+
+sink = open_sink(frames_path)
+bus = Born2Flap::EventBus.new
+root = Born2Flap::UI::Root.new(bus: bus)
+transport = Born2Flap::UI::Transport.new(bus: bus, io: sink)
+
+current_tree = nil
+telemetry = nil
+frames_bytes = 0
+iteration = 0
+
+loop do
+  raw = read_telemetry(telemetry_path)
+  telemetry = sanitize(raw) if raw
+
+  current_tree = telemetry ? Born2Flap::UI::FlightHud.build(telemetry)
+                           : (current_tree || Born2Flap::UI::FlightHud.tree)
+
+  root.render(current_tree)
+  frames_bytes += transport.flush
+
+  # Bounded growth: after truncation the host's tail offset is stale, so remount
+  # the full tree (a create_instance at []) to re-sync its widget index.
+  if frames_path && frames_path != "-" && frames_bytes > TRUNCATE_AT
+    sink.close
+    File.open(frames_path, "wb") {} # truncate
+    sink = File.open(frames_path, "ab")
+    sink.sync = true
+    transport = Born2Flap::UI::Transport.new(bus: bus, io: sink)
+    root = Born2Flap::UI::Root.new(bus: bus)
+    frames_bytes = 0
+    root.render(current_tree)
+    frames_bytes += transport.flush
+  end
+
+  iteration += 1
+  break if ticks && iteration >= ticks
+  sleep interval
+end
+
+sink.close unless sink == $stdout
