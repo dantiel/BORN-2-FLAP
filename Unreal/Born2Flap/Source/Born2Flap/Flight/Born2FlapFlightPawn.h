@@ -7,6 +7,7 @@
 #include "born2flap_desktop_input.h"
 #include "Born2FlapFlightPawn.generated.h"
 class UBoxComponent;
+class UStaticMeshComponent;
 class USceneComponent;
 class USpringArmComponent;
 class UCameraComponent;
@@ -63,6 +64,9 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     float GetEffort() const { return Throttle; }
     float GetBattery() const { return BatterySoc; }
     float GetClimbRate() const;
+    // The atmospheric wind (m/s, Unreal world axes) the bird currently feels —
+    // the unsheltered field, so the cockpit reads the true wind even at rest.
+    FVector GetWind() const { return CurrentWind; }
     FVector GetRcSticks() const { return FVector(RollInput, PitchInput, YawInput); }
     FVector2D GetWingAngles() const { return FVector2D(LeftFlap, RightFlap); }
     float GetWheelThrottle() const { return Desktop.wheelThrottle; }
@@ -84,6 +88,7 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     UPROPERTY() TObjectPtr<USceneComponent> RavenRightShoulder;
     UPROPERTY(VisibleAnywhere) TObjectPtr<USpringArmComponent> CameraBoom;
     UPROPERTY(VisibleAnywhere) TObjectPtr<UCameraComponent> Camera;
+    UPROPERTY() TObjectPtr<UStaticMeshComponent> SkyDome;
     UPROPERTY(VisibleAnywhere) TObjectPtr<UBorn2FlapAudioSynth> AudioSynth;
     UPROPERTY() TObjectPtr<UCameraComponent> GroundCamera;
     UPROPERTY() TObjectPtr<UCameraComponent> FpvCamera;
@@ -113,6 +118,7 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     bool bFlying = false, bHealthy = false, bVectors = false, bReturning = false, bBlind = false;
     bool bRollWingTwist = false;
     FVector AeroForce = FVector::ZeroVector, AeroMoment = FVector::ZeroVector;
+    FVector CurrentWind = FVector::ZeroVector;
     int32 SafetyResets = 0, MathFailures = 0, BoundaryReturns = 0;
     // The integration test uses the actual pawn/controller/Chaos path.
     bool bFlightTest = false, bSoakTest = false, bRavenFlightTest = false, bTestResetSent = false, bTestFinished = false;

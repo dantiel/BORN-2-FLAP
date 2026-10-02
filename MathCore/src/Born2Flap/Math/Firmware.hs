@@ -311,10 +311,14 @@ computeServoMixer rc params state dt
     elevator = crsfToNorm (rcElevator rc)
     rudder = crsfToNorm (rcRudder rc)
     -- These are shared actuators, not independent yaw/roll surfaces. The
-    -- differential requests add before the physical travel limits; opposite
-    -- aileron can cancel rudder's glide-wing request.
+    -- differential requests add before the physical travel limits.
+    -- Raising a wing (positive flap deviation = more dihedral) tilts its lift
+    -- inward AND lowers its sink-induced angle of attack, so the raised wing
+    -- produces LESS vertical lift and DROPS. To roll right (right wing down)
+    -- the right wing must therefore be RAISED and the left LOWERED, i.e. a
+    -- positive aileron must increase the RIGHT flap deviation.
     common = negate (profGlideAngleDeg prof + elevator * profElevatorScale prof * 0.01 * steerMaxDeg)
-    differential = (-aileron + rudder * fwRudderYawWeight params * 0.01)
+    differential = (aileron + rudder * fwRudderYawWeight params * 0.01)
                    * profAileronScale prof * 0.01 * steerMaxDeg
     left = clamp (-80) 80 (common - differential)
     right = clamp (-80) 80 (common + differential)

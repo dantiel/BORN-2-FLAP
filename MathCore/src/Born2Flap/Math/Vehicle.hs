@@ -238,11 +238,12 @@ stepStrip side stroke strokeRate input index old =
       -- toward the handwing), instead of driving a rigid plate deep into stall.
       -- No flap motion means no feathering; body sink still changes incidence.
       feather = (0.55 + 0.20 * fraction) * atan2 (radius * strokeRate) (max 1.5 (abs chordVelocity))
-      -- Differential feathering supplies roll authority during both glide and
-      -- powered strokes; common incidence supplies the acrobatic pitch range.
-      alpha = twist + radians (24 * clamp (-1) 1 (pitchCommand input)
-                                - side * 18 * clamp (-1) 1 (rollCommand input))
-                + aeroTwist + feather + atan2 (-normalVelocity) chordVelocity
+      -- A 2-servo ornithopter has one actuator per wing: the flap hinge. Pitch
+      -- and roll reach the wing through the flap angle (stroke-centre shift and
+      -- differential), never through a separate incidence twist. Angle of attack
+      -- is the passive sum of geometric washout, aeroelastic twist, flap-induced
+      -- feathering and the local flow direction.
+      alpha = twist + aeroTwist + feather + atan2 (-normalVelocity) chordVelocity
       alphaEff = alpha - zeroLiftAngle camberPrev
       alphaRate = (alpha - stripPreviousAlpha old) / dt
       reynolds = planarSpeed * chord / 1.48e-5

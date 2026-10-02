@@ -13,6 +13,7 @@
 #include "GameFramework/WorldSettings.h"
 #include "Kismet/GameplayStatics.h"
 #include "Materials/MaterialInterface.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "Components/AudioComponent.h"
 #include "Sound/SoundWave.h"
 #include "World/Born2FlapValley.h"
@@ -23,6 +24,7 @@
 #include "UI/Born2FlapRadio.h"
 #include "UI/Born2FlapSplash.h"
 #include "Racing/Born2FlapRacing.h"
+#include "Water/Born2FlapWaterDirector.h"
 #include "GameFramework/PlayerController.h"
 #include "Blueprint/UserWidget.h"
 #include "Misc/CommandLine.h"
@@ -159,7 +161,10 @@ void ABorn2FlapGameMode::BeginPlay()
     Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
     if(bCoastLevel)
     {
-        // Saved coastal map supplies geometry and atmosphere.
+        // Saved coastal map supplies geometry and atmosphere. The water
+        // director owns the global ocean parameters + MPC binding for the
+        // coast (spawned at runtime like the other managers).
+        World->SpawnActor<AShiomoriWaterDirector>(FVector::ZeroVector, FRotator::ZeroRotator, Params);
         return;
     }
     if (bNatureLevel)
@@ -217,13 +222,35 @@ void ABorn2FlapGameMode::BeginPlay()
         Part(Cube, FVector(500 + I * 220, 0, 1), FVector(.9, .15, .015), FRotator::ZeroRotator, TEXT("Ivory"));
     Gates = {FVector(3000, 0, 400),      FVector(6000, 0, 650),      FVector(9000, 0, 900),
              FVector(12000, 1500, 1100), FVector(13500, 4500, 1000), FVector(12000, 7500, 800)};
+    // Painted sky gates: the user's circle artwork floats in the sky as a
+    // non-colliding, two-sided billboard. Each gate gets its own dynamic tint
+    // so flying through it can recolour it (amber -> green).
+    auto *Plane = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Plane.Plane"));
+    auto *GateMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/UI/M_Gate"));
+    GateActors.Reset(Gates.Num());
+    GateMaterials.Reset(Gates.Num());
     for (const FVector &Centre : Gates)
-        for (int I = 0; I < 32; ++I)
+    {
+        auto *Actor = World->SpawnActor<AStaticMeshActor>(Centre, FRotator(90, 0, 0), Params);
+        auto *Component = Actor->GetStaticMeshComponent();
+        Component->SetMobility(EComponentMobility::Movable);
+        if (Plane)
+            Component->SetStaticMesh(Plane);
+        Component->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+        Component->SetCastShadow(false);
+        Actor->SetActorScale3D(FVector(5.6f, 5.6f, 1.f)); // plane 100 -> 560 ring
+        if (GateMat)
         {
-            const double A = I * 2 * PI / 32;
-            Part(Cube, Centre + FVector(0, 280 * FMath::Cos(A), 280 * FMath::Sin(A)), FVector(.16, .58, .16),
-                 FRotator(0, 0, -FMath::RadiansToDegrees(A) - 90), TEXT("Gold"));
+            UMaterialInstanceDynamic *DMI = Component->CreateAndSetMaterialInstanceDynamicFromMaterial(0, GateMat);
+            GateMaterials.Add(DMI);
         }
+        else
+        {
+            GateMaterials.Add(nullptr);
+        }
+        GateActors.Add(Actor);
+    }
+    UpdateGateColors();
     FRandomStream Random(240924);
     for (int I = 0; I < 90; ++I)
     {
@@ -239,6 +266,26 @@ void ABorn2FlapGameMode::BeginPlay()
         const double A = I * 2 * PI / 16;
         Part(Cone, FVector(33000 * FMath::Cos(A), 33000 * FMath::Sin(A), 1800), FVector(90, 90, 70),
              FRotator::ZeroRotator, TEXT("Stone"));
+    }
+}
+void ABorn2FlapGameMode::UpdateGateColors()
+{
+    // The next gate reads bright warm-white ("fly here"), passed gates turn
+    // emerald green, and gates still ahead stay amber. Missing materials are
+    // tolerated so the course still works before the import step has run.
+    for (int32 I = 0; I < GateMaterials.Num(); ++I)
+    {
+        UMaterialInstanceDynamic *DMI = GateMaterials[I];
+        if (!DMI)
+            continue;
+        FLinearColor Tint;
+        if (I < GatesPassed)
+            Tint = FLinearColor(0.35f, 0.95f, 0.50f);   // passed: emerald
+        else if (I == GatesPassed)
+            Tint = FLinearColor(1.00f, 0.95f, 0.75f);   // active: warm white
+        else
+            Tint = FLinearColor(0.95f, 0.62f, 0.22f);   // ahead: amber
+        DMI->SetVectorParameterValue(TEXT("Tint"), Tint);
     }
 }
 bool ABorn2FlapGameMode::HasRadioTrack() const { return RadioStation && RadioStation->HasTrack(); }
@@ -362,10 +409,17 @@ void ABorn2FlapGameMode::Tick(float DeltaSeconds)
     if (!Bird)
         return;
     if (!Bird->IsFlying() && Bird->GetActorLocation().Size2D() < 100)
-        GatesPassed = 0;
+    {
+        if (GatesPassed != 0)
+        {
+            GatesPassed = 0;
+            UpdateGateColors();
+        }
+    }
     if (Gates.IsValidIndex(GatesPassed) && FVector::Dist(Bird->GetActorLocation(), Gates[GatesPassed]) < 260)
     {
         ++GatesPassed;
+        UpdateGateColors();
         UE_LOG(LogTemp, Display, TEXT("FlightGate passed=%d total=%d"), GatesPassed, Gates.Num());
     }
 }
