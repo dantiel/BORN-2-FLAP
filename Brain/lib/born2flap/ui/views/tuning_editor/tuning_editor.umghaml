@@ -1,0 +1,23 @@
+%Overlay{ align: "left", valign: "top" }
+  %VBox{ spacing: 8 }
+    %Banner{ text: "R A V E N   /   H A N G A R", tone: "accent" }
+
+    %Section{ title: "SILHOUETTE", open: true }
+      %Field{ label: "BIRD" }
+        %Select{ value: #{bird_model}, options: #{bird_options}, action: "bird.select" }
+      %Field{ label: "FLIGHT PROFILE" }
+        %Select{ value: #{profile_index}, options: #{profile_options}, action: "profile.select" }
+
+    %Section{ title: "SERVO & POWER", open: true }
+#{servo_rows}
+
+    %Section{ title: "BATTERY", open: false }
+#{battery_rows}
+
+    %Section{ title: "FLIGHT GEOMETRY", open: false }
+#{geometry_rows}
+
+    %Section{ title: "CONTROL AUTHORITY", open: false }
+#{authority_rows}
+
+    %Button{ label: "SAVE & RETURN", action: "editor.close", tone: "good" }
