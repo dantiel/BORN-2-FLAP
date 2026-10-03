@@ -14,6 +14,7 @@
 #include "Materials/MaterialInterface.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
+#include "UI/Born2FlapI18n.h"
 #include "PhysicalMaterials/PhysicalMaterial.h"
 #include "UObject/ConstructorHelpers.h"
 #include "Input/Born2FlapRcController.h"
@@ -421,16 +422,16 @@ FString ABorn2FlapFlightPawn::GetFlightStatus() const
 {
     if (!bHealthy)
         return MathBridge && !MathBridge->IsReady() ? MathBridge->GetStatus()
-                                                  : TEXT("Flight core stopped - press R to reset");
+                                                  : Born2Flap::I18n::T("status.core_stopped");
     if (bReturning)
-        return TEXT("FIELD EDGE - turn back with the sticks");
+        return Born2Flap::I18n::T("status.field_edge");
     if (!bFlying)
-        return TEXT("SPACE hand-launch / W throttle on ground");
+        return Born2Flap::I18n::T("status.hand_launch");
     if (GetSpeed() < 4.5f)
-        return TEXT("LOW AIRSPEED - lower the nose");
+        return Born2Flap::I18n::T("status.low_airspeed");
     if (Throttle < .08f)
-        return TEXT("GLIDING - airspeed and height are being spent");
-    return Throttle > .85f ? TEXT("POWER STROKES") : TEXT("FLAPPING");
+        return Born2Flap::I18n::T("status.gliding");
+    return Throttle > .85f ? Born2Flap::I18n::T("status.power_strokes") : Born2Flap::I18n::T("status.flapping");
 }
 void ABorn2FlapFlightPawn::SetBlindFlight(bool bOn)
 {

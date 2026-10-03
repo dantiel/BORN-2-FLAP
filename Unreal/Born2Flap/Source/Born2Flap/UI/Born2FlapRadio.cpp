@@ -3,6 +3,7 @@
 #include "UI/Born2FlapRadio.h"
 
 #include "UI/Born2FlapUIRenderer.h"
+#include "UI/Born2FlapI18n.h"
 #include "Kismet/GameplayStatics.h"
 #include "Engine/World.h"
 
@@ -13,6 +14,7 @@ namespace {
 
 FValue S(const char* v) { FValue x; x.kind = FValue::Kind::String; x.str = v; return x; }
 FValue N(double v) { FValue x; x.kind = FValue::Kind::Number; x.num = v; return x; }
+FValue L(const char* Key) { return S(TCHAR_TO_UTF8(*Born2Flap::I18n::T(Key))); }
 
 FProps P(std::initializer_list<std::pair<const char*, FValue>> Items)
 {
@@ -66,7 +68,7 @@ void UBorn2FlapRadioStation::Initialize(UWorld* World, const FString& LevelName)
         return;
     }
 
-    StationName = Found->StationName.IsEmpty() ? TEXT("FIELD RADIO") : Found->StationName;
+    StationName = Found->StationName.IsEmpty() ? Born2Flap::I18n::T("radio.default") : Found->StationName;
     Volume = Found->Volume;
     Crossfade = Found->CrossfadeSeconds;
 
@@ -220,7 +222,7 @@ void ABorn2FlapRadioHUD::BuildPanel()
         Nd("Panel", P({ {"title", S(TCHAR_TO_UTF8(*Station->GetStationName()))}, {"tone", S("accent")}, {"spacing", N(4)} }),
         {
             Nd("Banner", P({ {"text", S("—")}, {"tone", S("normal")} })),
-            Nd("Stat",  P({ {"label", S("VOL")}, {"value", N(50)}, {"unit", S(" %")}, {"tone", S("info")} })),
+            Nd("Stat",  P({ {"label", L("radio.vol")}, {"value", N(50)}, {"unit", S(" %")}, {"tone", S("info")} })),
         }),
     });
 

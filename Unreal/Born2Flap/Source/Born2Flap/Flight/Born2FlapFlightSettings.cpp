@@ -1,4 +1,5 @@
 #include "Flight/Born2FlapFlightPawn.h"
+#include "UI/Born2FlapI18n.h"
 #include "Engine/Engine.h"
 #include "Engine/GameViewportClient.h"
 #include "GameFramework/PlayerController.h"
@@ -52,25 +53,25 @@ const TCHAR* TuningKey(ETuningField Field)
 struct FTuningRow
 {
     ETuningField Field;
-    const TCHAR* Label;
+    const char* LabelKey;   // i18n semantic key (e.g. "tuning.servo_speed")
     const TCHAR* Unit;
     float Min, Max;
     int32 Decimals;
 };
 const FTuningRow TuningRows[] =
 {
-    { ETuningField::ServoSpeed, TEXT("SERVO SPEED"), TEXT("°/s"), 100, 2400, 0 },
-    { ETuningField::StallTorque, TEXT("STALL TORQUE"), TEXT("N·m"), 0.5f, 20, 1 },
-    { ETuningField::Backdrive, TEXT("BACKDRIVE"), TEXT("°/s per N·m"), 0, 100, 0 },
-    { ETuningField::BatteryVoltage, TEXT("BATTERY VOLTAGE"), TEXT("V"), 3.7f, 22.2f, 1 },
-    { ETuningField::BatteryResistance, TEXT("BATTERY RESISTANCE"), TEXT("Ω"), 0.01f, 0.5f, 2 },
-    { ETuningField::BatteryCapacity, TEXT("BATTERY CAPACITY"), TEXT("Ah"), 0.1f, 5, 2 },
-    { ETuningField::FlapBaseFreq, TEXT("FLAP FREQ CEILING"), TEXT("dHz"), 10, 200, 0 },
-    { ETuningField::MountAngle, TEXT("MOUNT ANGLE"), TEXT("°"), -15, 15, 0 },
-    { ETuningField::GlideAngle, TEXT("GLIDE ANGLE"), TEXT("°"), -15, 15, 0 },
-    { ETuningField::StrokeFerocity, TEXT("STROKE FEROCITY"), TEXT("%"), 0, 100, 0 },
-    { ETuningField::AileronScale, TEXT("AILERON SCALE"), TEXT("%"), 0, 100, 0 },
-    { ETuningField::ElevatorScale, TEXT("ELEVATOR SCALE"), TEXT("%"), 0, 100, 0 },
+    { ETuningField::ServoSpeed, "tuning.servo_speed", TEXT("°/s"), 100, 2400, 0 },
+    { ETuningField::StallTorque, "tuning.stall_torque", TEXT("N·m"), 0.5f, 20, 1 },
+    { ETuningField::Backdrive, "tuning.backdrive", TEXT("°/s per N·m"), 0, 100, 0 },
+    { ETuningField::BatteryVoltage, "tuning.battery_voltage", TEXT("V"), 3.7f, 22.2f, 1 },
+    { ETuningField::BatteryResistance, "tuning.battery_resistance", TEXT("Ω"), 0.01f, 0.5f, 2 },
+    { ETuningField::BatteryCapacity, "tuning.battery_capacity", TEXT("Ah"), 0.1f, 5, 2 },
+    { ETuningField::FlapBaseFreq, "tuning.flap_base_freq", TEXT("dHz"), 10, 200, 0 },
+    { ETuningField::MountAngle, "tuning.mount_angle", TEXT("°"), -15, 15, 0 },
+    { ETuningField::GlideAngle, "tuning.glide_angle", TEXT("°"), -15, 15, 0 },
+    { ETuningField::StrokeFerocity, "tuning.stroke_ferocity", TEXT("%"), 0, 100, 0 },
+    { ETuningField::AileronScale, "tuning.aileron_scale", TEXT("%"), 0, 100, 0 },
+    { ETuningField::ElevatorScale, "tuning.elevator_scale", TEXT("%"), 0, 100, 0 },
 };
 class SFlightSettings : public SCompoundWidget
 {
@@ -138,21 +139,21 @@ public:
             Rows->AddSlot().AutoHeight().Padding(0,0,0,14)
             [SNew(STextBlock).Text(FText::FromString(Text)).Font(FCoreStyle::GetDefaultFontStyle("Regular",Size)).ColorAndOpacity(Colour)];
         };
-        Label(TEXT("R A V E N   /   FLIGHT DESK"),24);
-        Label(TEXT("Flight paused  •  choose your silhouette"),12);
+        Label(Born2Flap::I18n::T("desk.title"),24);
+        Label(Born2Flap::I18n::T("desk.paused"),12);
         for (int32 Model=0; Model<3; ++Model)
             Rows->AddSlot().AutoHeight().Padding(0,0,0,8)
             [SNew(SButton).ContentPadding(FMargin(14,10))
               .Text_Lambda([this,Model] { return FText::FromString(FString(Bird.IsValid() && Bird->GetBirdModel()==Model ? TEXT("●  ") : TEXT("○  "))+
-                  (Model==0 ? TEXT("RAVENCROW  /  folded obsidian & comb pinions") : Model==1 ? TEXT("PROTOTYPE  /  elliptical feathers") : TEXT("PEREGRINE  /  falcon"))); })
+                  (Model==0 ? Born2Flap::I18n::T("bird.ravencrow") : Model==1 ? Born2Flap::I18n::T("bird.prototype") : Born2Flap::I18n::T("bird.peregrine"))); })
               .OnClicked_Lambda([this,Model] { if(Bird.IsValid()) Bird->SelectBirdModel(Model); return FReply::Handled(); })];
         Rows->AddSlot().AutoHeight().Padding(0,5,0,14)
         [SNew(SButton).ContentPadding(10)
-          .Text_Lambda([this] { return FText::FromString(Bird.IsValid() && Bird->IsFpvAirView() ? TEXT("AIRBORNE CAMERA: FPV  /  click for chase") : TEXT("AIRBORNE CAMERA: CHASE  /  click for FPV")); })
+          .Text_Lambda([this] { return FText::FromString(Bird.IsValid() && Bird->IsFpvAirView() ? Born2Flap::I18n::T("desk.camera_fpv") : Born2Flap::I18n::T("desk.camera_chase")); })
           .OnClicked_Lambda([this] { if(Bird.IsValid()) Bird->ToggleFpvView(); return FReply::Handled(); })];
-        Label(TEXT("MOUSE RESPONSE"),16);
-        Label(TEXT("Negative reverses direction. Zero disables that mouse axis.\nMagnitude sets sensitivity; keyboard controls keep their direction."),12);
-        const TCHAR* Names[]={TEXT("ROLL  /  mouse X"),TEXT("PITCH  /  mouse Y"),TEXT("YAW  /  mouse X")};
+        Label(Born2Flap::I18n::T("desk.mouse_response"),16);
+        Label(Born2Flap::I18n::T("desk.mouse_hint"),12);
+        const FString Names[]={Born2Flap::I18n::T("desk.roll"),Born2Flap::I18n::T("desk.pitch"),Born2Flap::I18n::T("desk.yaw")};
         for (int32 Axis=0; Axis<3; ++Axis)
         {
             Rows->AddSlot().AutoHeight().Padding(0,7,0,5)
@@ -165,9 +166,9 @@ public:
         }
         Label(TEXT("−2 reverse / faster          0 off          +2 forward / faster"),11,FLinearColor(.53,.61,.65));
         Rows->AddSlot().AutoHeight().Padding(0,12,0,8)
-        [SNew(SButton).Text(FText::FromString(TEXT("Reset mouse response"))).ContentPadding(10)
+        [SNew(SButton).Text(FText::FromString(Born2Flap::I18n::T("desk.reset_mouse"))).ContentPadding(10)
           .OnClicked_Lambda([this] { if(Bird.IsValid()) { Bird->SetMouseGain(0,1); Bird->SetMouseGain(1,-1); Bird->SetMouseGain(2,1); } return FReply::Handled(); })];
-        Label(TEXT("CONTROL EXPO / MOUSE + KEYBOARD"),16);
+        Label(Born2Flap::I18n::T("desk.expo"),16);
         Rows->AddSlot().AutoHeight().Padding(0,0,0,6)
         [SNew(STextBlock).Text_Lambda([this] {
             return FText::FromString(FString::Printf(TEXT("%.0f%%   /   0 = linear, 100 = very fine centre; full throw stays full"),
@@ -176,14 +177,14 @@ public:
         [SNew(SSlider).MinValue(0).MaxValue(1).StepSize(.05f).MouseUsesStep(true)
           .Value_Lambda([this] { return Bird.IsValid() ? Bird->GetControlExpo() : .65f; })
           .OnValueChanged_Lambda([this](float Value) { if(Bird.IsValid()) Bird->SetControlExpo(Value); })];
-        Label(TEXT("H A N G A R   /   TUNING"),16);
-        Label(TEXT("Live edits reach the firmware on the next physics step — the bird re-tunes itself."),12);
+        Label(Born2Flap::I18n::T("desk.hangar"),16);
+        Label(Born2Flap::I18n::T("desk.hangar_hint"),12);
         for (const FTuningRow& Row : TuningRows)
         {
             Rows->AddSlot().AutoHeight().Padding(0,5,0,2)
             [SNew(STextBlock).Text_Lambda([this,Row] {
                 const float Value = Bird.IsValid() ? Bird->GetTuning(Row.Field) : 0.f;
-                return FText::FromString(FString::Printf(TEXT("%s   %s %s"), Row.Label,
+                return FText::FromString(FString::Printf(TEXT("%s   %s %s"), *Born2Flap::I18n::T(Row.LabelKey),
                     *FString::SanitizeFloat(Value, Row.Decimals), Row.Unit));
             })];
             Rows->AddSlot().AutoHeight().Padding(0,2,0,9)
@@ -192,7 +193,7 @@ public:
               .OnValueChanged_Lambda([this,Row](float Value) { if(Bird.IsValid()) Bird->SetTuning(Row.Field, Value); })];
         }
         Rows->AddSlot().AutoHeight()
-        [SNew(SButton).Text(FText::FromString(TEXT("SAVE & RETURN TO FLIGHT   /   Esc or F8"))).ContentPadding(14)
+        [SNew(SButton).Text(FText::FromString(Born2Flap::I18n::T("desk.save"))).ContentPadding(14)
           .OnClicked_Lambda([this] { if(Bird.IsValid()) Bird->CloseFlightSettings(); return FReply::Handled(); })];
     }
 };

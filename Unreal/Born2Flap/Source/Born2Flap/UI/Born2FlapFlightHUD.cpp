@@ -7,6 +7,7 @@
 #include "UI/Born2FlapFlightHUD.h"
 
 #include "UI/Born2FlapUIRenderer.h"
+#include "UI/Born2FlapI18n.h"
 #include "Flight/Born2FlapFlightPawn.h"
 #include "GameFramework/PlayerController.h"
 #include "Engine/World.h"
@@ -18,6 +19,9 @@ namespace {
 
 FValue S(const char* v) { FValue x; x.kind = FValue::Kind::String; x.str = v; return x; }
 FValue N(double v) { FValue x; x.kind = FValue::Kind::Number; x.num = v; return x; }
+
+// A localized string value: look up a semantic key and emit it as UTF-8.
+FValue L(const char* Key) { return S(TCHAR_TO_UTF8(*Born2Flap::I18n::T(Key))); }
 
 FProps P(std::initializer_list<std::pair<const char*, FValue>> Items)
 {
@@ -49,11 +53,11 @@ FPath Pth(std::initializer_list<int> I) { return FPath(I); }
 // Wind classification for the cockpit: simple, intuitive Beaufort-like words.
 FString WindWord(float SpeedMs)
 {
-    if (SpeedMs < 0.5f)  return FString(TEXT("RUHIG"));
-    if (SpeedMs < 4.0f)  return FString(TEXT("BRISE"));
-    if (SpeedMs < 8.0f)  return FString(TEXT("WINDIG"));
-    if (SpeedMs < 11.0f) return FString(TEXT("STARKER WIND"));
-    return FString(TEXT("STURM"));
+    if (SpeedMs < 0.5f)  return Born2Flap::I18n::T("wind.calm");
+    if (SpeedMs < 4.0f)  return Born2Flap::I18n::T("wind.breeze");
+    if (SpeedMs < 8.0f)  return Born2Flap::I18n::T("wind.windy");
+    if (SpeedMs < 11.0f) return Born2Flap::I18n::T("wind.strong");
+    return Born2Flap::I18n::T("wind.storm");
 }
 
 const char* WindTone(float SpeedMs)
@@ -65,11 +69,11 @@ const char* WindTone(float SpeedMs)
     return "danger";
 }
 
-const TCHAR* Cardinal(float BearingDeg)
+FString Cardinal(float BearingDeg)
 {
-    static const TCHAR* Dirs[] = { TEXT("N"), TEXT("NO"), TEXT("O"), TEXT("SO"), TEXT("S"), TEXT("SW"), TEXT("W"), TEXT("NW") };
+    static const char* Keys[] = { "dir.n", "dir.ne", "dir.e", "dir.se", "dir.s", "dir.sw", "dir.w", "dir.nw" };
     int32 I = FMath::FloorToInt(FMath::Fmod(BearingDeg + 22.5f, 360.0f) / 45.0f) % 8;
-    return Dirs[I];
+    return Born2Flap::I18n::T(Keys[I]);
 }
 
 }  // namespace
@@ -102,29 +106,29 @@ void ABorn2FlapFlightHUD::BuildCockpit()
     {
         Nd("VerticalBox", P({ {"spacing", N(6)} }),
         {
-            Nd("Banner", P({ {"text", S("BORN 2 FLAP")}, {"tone", S("accent")} })),
+            Nd("Banner", P({ {"text", L("brand")}, {"tone", S("accent")} })),
 
-            Nd("Panel", P({ {"title", S("INSTRUMENTE")}, {"spacing", N(2)} }),
+            Nd("Panel", P({ {"title", L("hud.instruments")}, {"spacing", N(2)} }),
             {
-                Nd("Stat", P({ {"label", S("HÖHE")},    {"value", N(0)}, {"unit", S(" m")},   {"tone", S("good")} })),
-                Nd("Stat", P({ {"label", S("STEIGEN")}, {"value", N(0)}, {"unit", S(" m/s")} })),
-                Nd("Stat", P({ {"label", S("GESCHW.")}, {"value", N(0)}, {"unit", S(" m/s")}, {"tone", S("info")} })),
+                Nd("Stat", P({ {"label", L("hud.altitude")}, {"value", N(0)}, {"unit", S(" m")},   {"tone", S("good")} })),
+                Nd("Stat", P({ {"label", L("hud.climb")},    {"value", N(0)}, {"unit", S(" m/s")} })),
+                Nd("Stat", P({ {"label", L("hud.speed")},    {"value", N(0)}, {"unit", S(" m/s")}, {"tone", S("info")} })),
             }),
 
-            Nd("Panel", P({ {"title", S("ENERGIE")}, {"spacing", N(2)} }),
+            Nd("Panel", P({ {"title", L("hud.energy")}, {"spacing", N(2)} }),
             {
-                Nd("Gauge", P({ {"label", S("BATTERIE")}, {"value", N(100)}, {"min", N(0)}, {"max", N(100)}, {"unit", S("%")}, {"tone", S("good")} })),
-                Nd("Gauge", P({ {"label", S("SCHUB")},   {"value", N(0)},   {"min", N(0)}, {"max", N(1)},                     {"tone", S("accent")} })),
+                Nd("Gauge", P({ {"label", L("hud.battery")}, {"value", N(100)}, {"min", N(0)}, {"max", N(100)}, {"unit", S("%")}, {"tone", S("good")} })),
+                Nd("Gauge", P({ {"label", L("hud.throttle")}, {"value", N(0)},   {"min", N(0)}, {"max", N(1)},                     {"tone", S("accent")} })),
             }),
 
-            Nd("Panel", P({ {"title", S("WIND")}, {"spacing", N(2)} }),
+            Nd("Panel", P({ {"title", L("hud.wind")}, {"spacing", N(2)} }),
             {
-                Nd("Stat", P({ {"label", S("GESCHW.")}, {"value", N(0)}, {"unit", S(" m/s")}, {"tone", S("info")} })),
-                Nd("Stat", P({ {"label", S("RICHTUNG")}, {"value", N(0)}, {"unit", S("°")} })),
-                Nd("Banner", P({ {"text", S("RUHIG")}, {"tone", S("good")} })),
+                Nd("Stat", P({ {"label", L("hud.speed")},    {"value", N(0)}, {"unit", S(" m/s")}, {"tone", S("info")} })),
+                Nd("Stat", P({ {"label", L("hud.direction")}, {"value", N(0)}, {"unit", S("°")} })),
+                Nd("Banner", P({ {"text", L("wind.calm")}, {"tone", S("good")} })),
             }),
 
-            Nd("Banner", P({ {"text", S("BEREIT")}, {"tone", S("normal")} })),
+            Nd("Banner", P({ {"text", L("hud.ready")}, {"tone", S("normal")} })),
         }),
     });
 
@@ -222,7 +226,7 @@ void ABorn2FlapFlightHUD::Refresh()
         LastWindDir = WindBearing;
     }
 
-    const FString WindDesc = WindWord(WindSpeed) + FString(TEXT(" · ")) + FString(Cardinal(WindBearing));
+    const FString WindDesc = WindWord(WindSpeed) + FString(TEXT(" · ")) + Cardinal(WindBearing);
     if (WindDesc != LastWindDesc)
     {
         Ops.Add(UpdateProps(Pth({0, 3, 2}), P({ {"text", S(TCHAR_TO_UTF8(*WindDesc))}, {"tone", S(WindTone(WindSpeed))} })));
