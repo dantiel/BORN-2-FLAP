@@ -63,7 +63,7 @@ b2f_math_get_wing_shape contextPointer capacity leftPointer rightPointer
     failure :: SomeException -> IO Int32
     failure _ = pure 0
 b2f_math_abi_version :: IO Word32
-b2f_math_abi_version = pure 5
+b2f_math_abi_version = pure 6
 
 b2f_math_runtime_init :: IO Int32
 b2f_math_runtime_init = pure 1
@@ -287,9 +287,9 @@ b2f_math_step_firmware_vehicle contextPointer pilotPointer bodyPointer outputPoi
            [piThrottle pilot, piRoll pilot, piPitch pilot, piYaw pilot]
         then pure () else ioError (userError "nonfinite pilot input")
       let rc = pilotToRc pilot
-          (output, nextState) = stepFirmwareVehicle rc (fwcParams context) (fwcServo context)
-                                  (fwcBattery context) (bodyDelta body) (bodyVel body)
-                                  (bodyRates body) (fwcState context)
+          (output, nextState) = stepFirmwareVehicle (piCoupled pilot) rc (fwcParams context)
+                                  (fwcServo context) (fwcBattery context) (bodyDelta body)
+                                  (bodyVel body) (bodyRates body) (fwcState context)
       if outputFlags output /= 0
         then pure 0
         else do
@@ -310,9 +310,10 @@ peekConfig pointer = do
 
 peekPilot :: Ptr () -> IO PilotInput
 peekPilot pointer = do
-  values <- mapM (peekElemOff (castPtr pointer :: Ptr CDouble)) [0 .. 3]
+  values <- mapM (peekElemOff (castPtr pointer :: Ptr CDouble)) [0 .. 5]
   case map (\(CDouble value) -> value) values of
-    [throttle, roll, pitch, yaw] -> pure (PilotInput throttle roll pitch yaw)
+    [throttle, roll, pitch, yaw, speedMod, coupled] ->
+      pure (PilotInput throttle roll pitch yaw (clampRange 0 1 speedMod) (coupled >= 0.5))
     _ -> pure defaultPilotInput
 
 data BodyState = BodyState

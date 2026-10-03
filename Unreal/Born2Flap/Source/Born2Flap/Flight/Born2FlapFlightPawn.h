@@ -12,7 +12,8 @@ class USceneComponent;
 class USpringArmComponent;
 class UCameraComponent;
 class UBorn2FlapAudioSynth;
-class SWidget;
+class ABorn2FlapFlightSettings;
+class IInputProcessor;
 // Live-tuning surface the hangar edits: servo, battery and the exposed
 // controller knobs. Mirrors B2F_TuningConfig field order.
 enum class ETuningField : uint8
@@ -50,7 +51,7 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     void SetControlExpo(float Value) { if(FMath::IsFinite(Value)) ControlExpo=FMath::Clamp(Value,0.f,1.f); }
     void OpenFlightSettings();
     void CloseFlightSettings();
-    bool IsFlightSettingsOpen() const { return SettingsWidget.IsValid(); }
+    bool IsFlightSettingsOpen() const { return SettingsPanel.IsValid(); }
     bool IsFlying() const { return bFlying; }
     bool IsHealthy() const { return bHealthy; }
     bool IsBlindFlight() const { return bBlind; }
@@ -69,8 +70,9 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     FVector GetWind() const { return CurrentWind; }
     FVector GetRcSticks() const { return FVector(RollInput, PitchInput, YawInput); }
     FVector2D GetWingAngles() const { return FVector2D(LeftFlap, RightFlap); }
-    float GetWheelThrottle() const { return Desktop.wheelThrottle; }
-    bool IsWheelThrottleActive() const { return Desktop.wheelOwnsThrottle; }
+    float GetSpeedModifier() const { return float(Desktop.speedModifier); }
+    bool IsThrottleCoupled() const { return bCoupledThrottle; }
+    void ToggleThrottleMode() { bCoupledThrottle = !bCoupledThrottle; }
     FString GetFlightStatus() const;
     const FBorn2FlapRcController *GetRcController() const { return RcController.Get(); }
 
@@ -96,6 +98,9 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     FRotator GroundGaze = FRotator::ZeroRotator;
     bool bGroundView = false, bFpvAirView = false, bCameraGrounded = false, bGroundGazeReady = false;
     double CameraTime = 0, GroundSettleTime = 0;
+    // Fixed FPV camera angle (degrees, pitch offset from the body). Adjustable
+    // in flight (Q/E) and persisted; the FPV lens stays at this fixed tilt.
+    float FpvCameraAngleDeg = 0.f;
     void RememberLanding(FVector Position);
     void UpdateLandingCamera(float Dt);
     bool CheckFlightCameras();
@@ -106,17 +111,22 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     float PrevLeftFlap = 0;
     born2flap::DesktopInput Desktop;
     float ControlExpo=.65f;
+    bool bCoupledThrottle = true;
     FVector MouseGains = FVector(1, -1, 1);
     int32 BirdModel = 0;
     B2F_TuningConfig Tuning{};
     void ApplyTuning();
-    TSharedPtr<SWidget> SettingsWidget;
+    TWeakObjectPtr<ABorn2FlapFlightSettings> SettingsPanel;
     void BuildRavenCrow();
     void LoadFlightPreferences();
     void SaveFlightPreferences();
     float Throttle = 0, RollInput = 0, YawInput = 0, PitchInput = 0, LeftFlap = 0, RightFlap = 0, BatterySoc = 1;
     bool bFlying = false, bHealthy = false, bVectors = false, bReturning = false, bBlind = false;
     bool bRollWingTwist = false;
+    // Raw F8/Esc capture. An input pre-processor (registered in BeginPlay) sees
+    // every key-down before FInputModeGameAndUI routes keyboard away from
+    // PlayerInput while the flight-desk panel is open; Tick consumes its flags.
+    TSharedPtr<IInputProcessor> PanelKeyProcessor;
     FVector AeroForce = FVector::ZeroVector, AeroMoment = FVector::ZeroVector;
     FVector CurrentWind = FVector::ZeroVector;
     int32 SafetyResets = 0, MathFailures = 0, BoundaryReturns = 0;

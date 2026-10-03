@@ -119,9 +119,17 @@ void ABorn2FlapGameMode::BeginPlay()
     Super::BeginPlay();
     // Startup splash screen: show the artwork + loading bar on real launches.
     // Automated runs (tests) pass -nosplash/-unattended and skip it entirely.
+    // Spawned here (not on the first Tick) so it is already in the viewport for
+    // the very first rendered frame — otherwise the freshly loaded world shows
+    // for a beat before the splash covers it. The renderer only needs GetWorld(),
+    // no player controller, so BeginPlay is safe.
     if (!FParse::Param(FCommandLine::Get(), TEXT("nosplash")) && !FApp::IsUnattended())
     {
-        bSplashPending = true;
+        FActorSpawnParameters SplashParams;
+        SplashParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+        SplashWidget = GetWorld()->SpawnActor<ABorn2FlapSplash>(FVector::ZeroVector, FRotator::ZeroRotator, SplashParams);
+        if (SplashWidget)
+            SplashElapsed = 0.f;
     }
     UWorld *World = GetWorld();
     World->GetWorldSettings()->bForceNoPrecomputedLighting = true;
@@ -302,21 +310,8 @@ bool ABorn2FlapGameMode::HasRadioTrack() const { return RadioStation && RadioSta
 void ABorn2FlapGameMode::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
-    // Startup splash: create on the first tick (the player controller exists by
-    // now), ease the loading bar to full, fade out, then remove.
-    if (bSplashPending)
-    {
-        bSplashPending = false;
-        if (APlayerController* PC = UGameplayStatics::GetPlayerController(this, 0))
-        {
-            SplashWidget = CreateWidget<UBorn2FlapSplash>(PC);
-            if (SplashWidget)
-            {
-                SplashWidget->AddToViewport(100);
-                SplashElapsed = 0.f;
-            }
-        }
-    }
+    // Startup splash: ease the loading bar to full, fade out, then remove.
+    // (The actor is spawned in BeginPlay so it already covers the first frame.)
     if (SplashWidget)
     {
         static constexpr float LoadDuration = 2.4f;
@@ -327,11 +322,11 @@ void ABorn2FlapGameMode::Tick(float DeltaSeconds)
         if (SplashElapsed >= LoadDuration)
         {
             const float FadeT = FMath::Clamp((SplashElapsed - LoadDuration) / FadeDuration, 0.f, 1.f);
-            SplashWidget->SetRenderOpacity(1.f - FadeT);
+            SplashWidget->SetOpacity(1.f - FadeT);
         }
         if (SplashElapsed >= LoadDuration + FadeDuration)
         {
-            SplashWidget->RemoveFromParent();
+            SplashWidget->Destroy();
             SplashWidget = nullptr;
             SplashElapsed = -1.f;
         }

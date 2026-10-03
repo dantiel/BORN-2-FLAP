@@ -13,7 +13,7 @@
 extern "C" {
 #endif
 
-#define B2F_MATH_ABI_VERSION 5u
+#define B2F_MATH_ABI_VERSION 6u
 
 typedef struct B2F_MathContext B2F_MathContext;
 
@@ -56,10 +56,12 @@ B2F_API int32_t b2f_math_step_vehicle(
  */
 
 typedef struct B2F_PilotInput {
-    double throttle;  /* 0..1 flap throttle (glide below firmware threshold) */
-    double roll;      /* -1..1 aileron */
-    double pitch;     /* -1..1 elevator */
-    double yaw;       /* -1..1 rudder */
+    double throttle;      /* 0..1 flap throttle (glide below firmware threshold) */
+    double roll;          /* -1..1 aileron */
+    double pitch;         /* -1..1 elevator */
+    double yaw;           /* -1..1 rudder */
+    double speed_mod;     /* 0..1 flapping speed modifier (base frequency) */
+    double throttle_mode; /* 0 = independent, 1 = coupled */
 } B2F_PilotInput;
 
 typedef struct B2F_BodyState {

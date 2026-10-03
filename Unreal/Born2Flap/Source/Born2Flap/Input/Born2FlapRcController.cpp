@@ -25,7 +25,7 @@ struct FBorn2FlapRcPlatform
 };
 namespace
 {
-const TCHAR *ChannelNames[] = {TEXT("GAS"), TEXT("ROLL"), TEXT("PITCH"), TEXT("YAW")};
+const TCHAR *ChannelNames[] = {TEXT("GAS"), TEXT("ROLL"), TEXT("PITCH"), TEXT("YAW"), TEXT("SPEED")};
 }
 FBorn2FlapRcController::FBorn2FlapRcController()
 {
@@ -41,7 +41,7 @@ void FBorn2FlapRcController::LoadCalibration()
 {
     Calibration = {};
     LaunchButton = ResetButton = -1;
-    for (int32 I = 0; I < 4; ++I)
+    for (int32 I = 0; I < 5; ++I)
     {
         auto &C = Calibration.channels[I];
         const FString Prefix = FString::Printf(TEXT("Channel%d"), I);
@@ -65,7 +65,7 @@ void FBorn2FlapRcController::SaveCalibration()
         return;
     GConfig->SetString(TEXT("Selection"), TEXT("Device"), *DeviceId, ConfigPath);
     GConfig->SetBool(TEXT("Selection"), TEXT("Enabled"), bEnabled, ConfigPath);
-    for (int32 I = 0; I < 4; ++I)
+    for (int32 I = 0; I < 5; ++I)
     {
         const auto &C = Calibration.channels[I];
         const FString Prefix = FString::Printf(TEXT("Channel%d"), I);
@@ -98,6 +98,12 @@ void FBorn2FlapRcController::SelectDevice(int32 Index)
     Stage = -1;
     LearnButton = 0;
     LoadCalibration();
+    // Persist the device selection immediately so a reconnect (or a device whose
+    // HID id changes across ports/boots) re-selects this transmitter even before
+    // a (re)calibration has been stored. This is what made the RC require a
+    // fresh calibration every launch.
+    GConfig->SetString(TEXT("Selection"), TEXT("Device"), *DeviceId, ConfigPath);
+    GConfig->Flush(false, ConfigPath);
     UE_LOG(LogTemp, Display, TEXT("RcDevice selected=%s connected=%d id=%s"), *DeviceName, bConnected, *DeviceId);
 #endif
 }
@@ -116,12 +122,12 @@ void FBorn2FlapRcController::AdvanceCalibration()
         int32 Count = 0;
         for (int32 I = 0; I < 8; ++I)
             Count += Available[I] && High[I] - Low[I] >= .2;
-        if (Count < 4)
-            Notice = TEXT("Mindestens vier Achsen voll bewegen; dann ENTER.");
+        if (Count < 5)
+            Notice = TEXT("Mindestens fuenf Achsen voll bewegen; dann ENTER.");
         else
             Stage = 2;
     }
-    else if (Stage >= 2 && Stage <= 5)
+    else if (Stage >= 2 && Stage <= 6)
     {
         int32 Best = -1;
         double Peak = .3, Second = 0;
@@ -155,7 +161,7 @@ void FBorn2FlapRcController::AdvanceCalibration()
             return;
         }
         ++Stage;
-        if (Stage == 6 && Calibration.Valid())
+        if (Stage == 7 && Calibration.Valid())
         {
             Stage = -1;
             bEnabled = true;
@@ -305,14 +311,15 @@ FString FBorn2FlapRcController::GetInstruction() const
         return LearnButton == 1 ? TEXT("Jetzt den Sender-Taster fuer HANDSTART druecken.")
                                 : TEXT("Jetzt den Sender-Taster fuer RESET druecken.");
     if (Stage == 0)
-        return TEXT("1/6  Gas ganz unten, alle anderen Knueppel neutral. ENTER.");
+        return TEXT("1/7  Gas ganz unten, alle anderen Knueppel neutral. ENTER.");
     if (Stage == 1)
-        return TEXT("2/6  Alle vier Knueppel bis an beide Anschlaege bewegen. Danach ENTER.");
+        return TEXT("2/7  Alle Knoepfe bis an beide Anschlaege bewegen. Danach ENTER.");
     if (Stage >= 2)
     {
         const TCHAR *Actions[] = {TEXT("Gas auf VOLL"), TEXT("Roll nach RECHTS"),
-                                  TEXT("Hoehenruder ZIEHEN (Nase hoch)"), TEXT("Seitenruder nach RECHTS")};
-        return FString::Printf(TEXT("%d/6  Nur %s halten. ENTER."), Stage + 1, Actions[Stage - 2]);
+                                  TEXT("Hoehenruder ZIEHEN (Nase hoch)"), TEXT("Seitenruder nach RECHTS"),
+                                  TEXT("Schlag-Geschwindigkeit auf VOLL")};
+        return FString::Printf(TEXT("%d/7  Nur %s halten. ENTER."), Stage + 1, Actions[Stage - 2]);
     }
     return TEXT("USB-Sender im Joystick-Modus verbinden; TAB waehlt das Geraet, C kalibriert.");
 }

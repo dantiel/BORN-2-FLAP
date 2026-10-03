@@ -51,8 +51,9 @@ import Born2Flap.Math.Structure
 -- | One wing's outline: its spanwise extent plus an ordered list of shape
 -- stations from root (fraction 0) to tip (fraction 1).
 data WingShape = WingShape
-  { wsSpanM    :: !Double          -- ^ half-span (spanwise extent) [m]
-  , wsStations :: ![ShapeStation]  -- ^ ordered root → tip
+  { wsSpanM     :: !Double          -- ^ half-span (spanwise extent) [m]
+  , wsShoulderM :: !Double          -- ^ shoulder distance: wing-root hinge offset from body centreline [m]
+  , wsStations  :: ![ShapeStation]  -- ^ ordered root → tip
   } deriving stock (Eq, Show)
 
 -- | A control point of the outline at a given span fraction.
@@ -86,6 +87,7 @@ data SpanStation = SpanStation
 defaultBirdWing :: WingShape
 defaultBirdWing = WingShape
   { wsSpanM = 0.72
+  , wsShoulderM = 0.01  -- 1 cm shoulder: parallel-flapping ornithopter flies best with almost no shoulder width
   , wsStations =
       [ ShapeStation 0.00 0.000 0.220  5.00 16.0 defaultBirdArmSection defaultBirdArmStructure  -- shoulder
       , ShapeStation 0.45 0.087 0.185  2.00 16.0 defaultBirdArmSection defaultBirdArmStructure  -- elbow

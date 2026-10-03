@@ -9,6 +9,9 @@
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/PlayerInput.h"
 #include "GameFramework/SpringArmComponent.h"
+#include "Framework/Application/SlateApplication.h"
+#include "Framework/Application/IInputProcessor.h"
+#include "Input/Events.h"
 #include "InputCoreTypes.h"
 #include "HAL/IConsoleManager.h"
 #include "Materials/MaterialInterface.h"
@@ -30,6 +33,28 @@ bool Finite(const FVector &V)
 {
     return FMath::IsFinite(V.X) && FMath::IsFinite(V.Y) && FMath::IsFinite(V.Z);
 }
+// Raw F8/Esc key capture for the flight-desk panel. While the panel is open the
+// game runs in FInputModeGameAndUI, which routes keyboard input away from
+// PlayerInput (so WasInputKeyJustPressed reports false for F8/Esc). A Slate
+// input pre-processor sees every key-down before that routing, so the panel can
+// still be toggled. The toggle is deferred to Tick, because changing the input
+// mode during input processing would be unsafe.
+class FPanelKeyInputProcessor : public IInputProcessor
+{
+public:
+    virtual void Tick(const float DeltaTime, FSlateApplication& SlateApp, TSharedRef<ICursor> Cursor) override {}
+    virtual bool HandleKeyDownEvent(FSlateApplication& SlateApp, const FKeyEvent& InKeyEvent) override
+    {
+        if (InKeyEvent.IsRepeat()) return false;
+        if (InKeyEvent.GetKey() == EKeys::F8) bF8Pressed = true;
+        else if (InKeyEvent.GetKey() == EKeys::Escape) bEscPressed = true;
+        return false;
+    }
+    bool ConsumeF8()  { const bool v = bF8Pressed;  bF8Pressed  = false; return v; }
+    bool ConsumeEsc() { const bool v = bEscPressed; bEscPressed = false; return v; }
+private:
+    bool bF8Pressed = false, bEscPressed = false;
+};
 } // namespace
 ABorn2FlapFlightPawn::ABorn2FlapFlightPawn()
 {
@@ -82,7 +107,7 @@ ABorn2FlapFlightPawn::ABorn2FlapFlightPawn()
     FpvCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FpvCamera"));
     FpvCamera->SetupAttachment(Body);
     FpvCamera->SetRelativeLocation(FVector(76,0,14));
-    FpvCamera->SetFieldOfView(95);
+    FpvCamera->SetFieldOfView(120); // wide FOV + barrel PP = fisheye FPV lens
     FpvCamera->SetAutoActivate(false);
     // Atmospheric parhelion: a huge unlit additive sphere that follows the
     // camera and renders halo/sun-dogs in WORLD space (depth-tested), so
@@ -91,7 +116,11 @@ ABorn2FlapFlightPawn::ABorn2FlapFlightPawn()
     SkyDome->SetupAttachment(Camera);
     SkyDome->SetCollisionEnabled(ECollisionEnabled::NoCollision);
     SkyDome->SetCastShadow(false);
-    SkyDome->SetRelativeScale3D(FVector(160, 160, 160)); // sphere r=50 -> 8000
+    // Negative X scale flips the sphere's winding so the camera (which sits at
+    // the sphere's centre, i.e. INSIDE it) sees FRONT faces even if the
+    // additive material's two-sided flag is not honoured in the translucency
+    // pass. Unlit additive output is winding-agnostic, so this is safe.
+    SkyDome->SetRelativeScale3D(FVector(-160, 160, 160)); // sphere r=50 -> 8000
     static ConstructorHelpers::FObjectFinder<UStaticMesh> SphereMesh(
         TEXT("/Engine/BasicShapes/Sphere.Sphere"));
     if (SphereMesh.Succeeded())
@@ -234,12 +263,12 @@ void ABorn2FlapFlightPawn::BuildGeometry()
 }
 int32 ABorn2FlapFlightPawn::DefaultBirdModel() const
 {
-    // Every field owns a silhouette: the Peregrine hunts the Shiomori coast,
+    // Every field owns a silhouette: the common kestrel hunts the Shiomori coast,
     // the RavenCrow rules the nature valley, and the Prototype trains in the
     // indoor arena. Loading a map therefore swaps the bird automatically.
     const auto* GameMode = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode());
     if (GameMode && GameMode->IsCoastLevel())
-        return 2;                       // Shiomori Bay -> Peregrine (falcon)
+        return 2;                       // Shiomori Bay -> common kestrel (falcon)
     if (GameMode && !GameMode->IsNatureLevel())
         return 1;                       // Training -> Prototype
     return 0;                           // Ravenstonefield / nature -> RavenCrow
@@ -249,6 +278,9 @@ void ABorn2FlapFlightPawn::BeginPlay()
     Super::BeginPlay();
     if (AudioSynth)
         AudioSynth->Start();
+    PanelKeyProcessor = MakeShared<FPanelKeyInputProcessor>();
+    if (FSlateApplication::IsInitialized())
+        FSlateApplication::Get().RegisterInputPreProcessor(PanelKeyProcessor);
     Body->SetMassOverrideInKg(NAME_None, .45f, true);
     UE_LOG(LogTemp, Display, TEXT("FlightBody massKg=%.4f inertiaKgM2=%s"), Body->GetMass(),
            *(Body->GetInertiaTensor() / 10000.0).ToString());
@@ -269,10 +301,19 @@ void ABorn2FlapFlightPawn::BeginPlay()
     // time). If absent, hide the dome rather than drawing garbage.
     if (SkyDome)
     {
-        if (UMaterialInterface* ParhelionMat = LoadObject<UMaterialInterface>(
-                nullptr, TEXT("/Game/Shiomori/Materials/M_SunParhelion")))
+        UMaterialInterface* ParhelionMat = LoadObject<UMaterialInterface>(
+                nullptr, TEXT("/Game/Shiomori/Materials/M_SunParhelion"));
+        UE_LOG(LogTemp, Display, TEXT("SkyParhelionDome mesh=%s material=%s registered=%s visible=%s scale=%s boundsR=%.0f"),
+               SkyDome->GetStaticMesh() ? TEXT("set") : TEXT("MISSING"),
+               ParhelionMat ? TEXT("loaded") : TEXT("MISSING"),
+               SkyDome->IsRegistered() ? TEXT("yes") : TEXT("no"),
+               SkyDome->IsVisible() ? TEXT("yes") : TEXT("no"),
+               *SkyDome->GetComponentScale().ToString(),
+               SkyDome->Bounds.SphereRadius);
+        if (ParhelionMat)
         {
             SkyDome->SetMaterial(0, ParhelionMat);
+            SkyDome->SetVisibility(true);
         }
         else
         {
@@ -290,6 +331,11 @@ void ABorn2FlapFlightPawn::BeginPlay()
     GroundCamera->PostProcessSettings.MotionBlurTargetFPS = 60;
     FpvCamera->PostProcessSettings = GroundCamera->PostProcessSettings;
     FpvCamera->PostProcessSettings.MotionBlurAmount = .2f;
+    // Fisheye barrel-distortion lens for the onboard camera (created by the map
+    // generator as /Game/UI/M_FpvFisheye). Absent asset -> fall back to a plain
+    // perspective lens without breaking the FPV view.
+    if (UMaterialInterface* Fisheye = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/UI/M_FpvFisheye")))
+        FpvCamera->PostProcessSettings.AddBlendable(Fisheye, 1.0f);
     auto *Contact = NewObject<UPhysicalMaterial>(this);
     Contact->Friction = .8f;
     Contact->Restitution = 0;
@@ -328,6 +374,16 @@ void ABorn2FlapFlightPawn::BeginPlay()
         Wing->InitializeWing(Side,1);
     }
     SetWingPaint(WingPaint);
+    // Kestrel wing graphics: the authored membrane from the Inkscape SVG, applied
+    // to the membrane-wing model (Design 2). The greyed underside is done in the
+    // material via TwoSidedSign, so only the top texture is needed here.
+    if (auto* Membrane = LoadObject<UTexture2D>(nullptr, TEXT("/Game/Birds/T_KestrelWingTop")))
+    {
+        TInlineComponentArray<UBorn2FlapWingMesh*> MembraneWings(this);
+        for (auto* Wing : MembraneWings)
+            if (Wing->GetWingDesign() == 2)
+                Wing->SetPaintTexture(Membrane);
+    }
     LoadFlightPreferences();
     BirdModel = DefaultBirdModel();
     SelectBirdModel(BirdModel);
@@ -463,6 +519,8 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
     Pilot.roll = RollInput;
     Pilot.pitch = PitchInput;
     Pilot.yaw = YawInput;
+    Pilot.speed_mod = Desktop.speedModifier;
+    Pilot.throttle_mode = bCoupledThrottle ? 1.0 : 0.0;
     B2F_BodyState State{};
     State.delta_time_s = MathDt;
     Accumulator = FMath::Min(Accumulator + DeltaSeconds, .1);
@@ -575,8 +633,39 @@ void ABorn2FlapFlightPawn::UpdateAeroAudio(float Dt)
 void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
-    if (auto* PC = Cast<APlayerController>(GetController()); PC && PC->WasInputKeyJustPressed(EKeys::F8))
-    { OpenFlightSettings(); return; }
+    // F8/Esc are owned here, in one place. The panel is NOT a paused menu any
+    // more (no SetPause), so this tick runs while it is open and simply freezes
+    // the simulation below. The keys are captured by a Slate input pre-processor
+    // (registered in BeginPlay): while the panel is open FInputModeGameAndUI
+    // keeps the mouse on the UMG tree but diverts keyboard away from PlayerInput,
+    // so PlayerInput-level queries silently return false for F8/Esc. The
+    // pre-processor sees every key-down before that routing and defers the
+    // toggle to this tick.
+    bool bF8Pressed = false, bEscPressed = false;
+    if (const auto Proc = StaticCastSharedPtr<FPanelKeyInputProcessor>(PanelKeyProcessor))
+    {
+        bF8Pressed = Proc->ConsumeF8();
+        bEscPressed = Proc->ConsumeEsc();
+    }
+    // Belt-and-braces fallback: in some input-mode sessions FInputModeGameAndUI
+    // leaves keyboard on PlayerInput while the pre-processor never sees F8/Esc.
+    // Query PlayerInput directly too, so the panel can never become un-closable.
+    if (APlayerController* PanelPC = Cast<APlayerController>(GetController()))
+    {
+        bF8Pressed = bF8Pressed || PanelPC->WasInputKeyJustPressed(EKeys::F8);
+        bEscPressed = bEscPressed || PanelPC->WasInputKeyJustPressed(EKeys::Escape);
+    }
+    if (bF8Pressed)
+    {
+        if (IsFlightSettingsOpen()) CloseFlightSettings();
+        else OpenFlightSettings();
+        return;
+    }
+    if (IsFlightSettingsOpen() && bEscPressed)
+    {
+        CloseFlightSettings();
+        return;
+    }
     if (IsFlightSettingsOpen()) return;
     const float Dt = FMath::Clamp(DeltaSeconds, 0.f, .1f);
     WorldTime += Dt;
@@ -597,6 +686,11 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     {
         if (PC->WasInputKeyJustPressed(EKeys::F6)) ToggleGroundView();
         if (PC->WasInputKeyJustPressed(EKeys::V)) ToggleFpvView();
+        if (bFpvAirView)
+        {
+            if (PC->WasInputKeyJustPressed(EKeys::Q)) FpvCameraAngleDeg = FMath::Clamp(FpvCameraAngleDeg - 5.f, -45.f, 45.f);
+            if (PC->WasInputKeyJustPressed(EKeys::E)) FpvCameraAngleDeg = FMath::Clamp(FpvCameraAngleDeg + 5.f, -45.f, 45.f);
+        }
         if (RcController)
             RcController->Tick(PC, Dt);
         WDown = PC->IsInputKeyDown(EKeys::W);
@@ -635,6 +729,8 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
             bVectors = !bVectors;
         if (PC->WasInputKeyJustPressed(EKeys::F5))
             SetBlindFlight(!bBlind);
+        if (PC->WasInputKeyJustPressed(EKeys::T))
+            ToggleThrottleMode();
     }
     if (bFlightTest)
     {
@@ -721,13 +817,19 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     RollInput = Desktop.roll;
     PitchInput = Desktop.pitch;
     YawInput = Desktop.yaw;
-    if (RcController && (RcController->IsEnabled() || RcController->IsPanelOpen()))
+    // Only the RC owns the sticks while a transmitter is actually connected.
+    // When RC mode is enabled but the radio is off/disconnected, the gate emits
+    // all-zero channels and this override would silently pin throttle to 0 —
+    // which is why the keyboard throttle looked dead after RC selection was
+    // persisted. Falling back to the keyboard in that state fixes it.
+    if (RcController && RcController->IsEnabled() && RcController->IsConnected())
     {
         const auto &Channels = RcController->GetChannels();
         Throttle = Channels[0];
         RollInput = Channels[1];
         PitchInput = Channels[2];
         YawInput = Channels[3];
+        Desktop.speedModifier = FMath::Clamp(double(Channels[4]) * 0.5 + 0.5, 0.0, 1.0);
         Desktop.keyboard = {};
         Desktop.mouseRoll = Desktop.mousePitch = Desktop.mouseYaw = 0;
     }
@@ -759,7 +861,7 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
             if(Shoulder)
                 for(USceneComponent* Child : Shoulder->GetAttachChildren())
                     if(auto* Wing=Cast<UBorn2FlapWingMesh>(Child))
-                        Wing->ApplyShape((Shoulder==LeftShoulder || Shoulder==RavenLeftShoulder || Shoulder==MembraneLeftShoulder) ? LeftShape : RightShape,Body->GetComponentTransform());
+                        Wing->ApplyShape((Shoulder==LeftShoulder || Shoulder==RavenLeftShoulder || Shoulder==MembraneLeftShoulder) ? LeftShape : RightShape);
     }
     UpdateAeroAudio(Dt);
     if (bVectors)
@@ -775,12 +877,12 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         UE_LOG(LogTemp, Display,
                TEXT("FlightTelemetry mode=aerodynamic flying=%d healthy=%d altitude=%.3fm speed=%.3fm/s climb=%.3fm/s "
                     "pitch=%.2f roll=%.2f yaw=%.1f throttle=%.3f soc=%.3f aeroN=%s torqueNm=%s rc=(%.3f,%.3f,%.3f) "
-                    "flap=(%.1f,%.1f) throttleSource=%s wheelMemory=%.3f"),
+                    "flap=(%.1f,%.1f) throttleSource=%s speedMod=%.3f coupled=%d"),
                bFlying, bHealthy, GetAltitude(), GetSpeed(), GetClimbRate(), Body->GetComponentRotation().Pitch,
                Body->GetComponentRotation().Roll, Body->GetComponentRotation().Yaw, Throttle, BatterySoc,
                *AeroForce.ToString(), *AeroMoment.ToString(), RollInput, PitchInput, YawInput, LeftFlap, RightFlap,
-               RcController && RcController->IsEnabled() ? TEXT("RC") :
-               Desktop.wheelOwnsThrottle ? TEXT("wheel") : TEXT("keyboard"), Desktop.wheelThrottle);
+               RcController && RcController->IsEnabled() ? TEXT("RC") : TEXT("keys"), Desktop.speedModifier,
+               bCoupledThrottle ? 1 : 0);
     }
     if (bFlightTest)
         CheckFlightTest();

@@ -1,32 +1,34 @@
 #pragma once
+// Born2FlapSplash.h — the startup splash, rebuilt on the view framework.
+//
+// Replaces the old hand-built UUserWidget with an actor that drives
+// UBorn2FlapUIRenderer (full-bleed Image + a bottom-anchored loading readout),
+// so every on-screen surface now uses the same react-native-umg grammar.
+
 #include "CoreMinimal.h"
-#include "Blueprint/UserWidget.h"
+#include "GameFramework/Actor.h"
 #include "Born2FlapSplash.generated.h"
 
-class UImage;
-class UProgressBar;
-class UTextBlock;
-class UTexture2D;
+class UBorn2FlapUIRenderer;
 
-// Full-screen startup splash: the born2flap-splash artwork plus a loading bar
-// and a live percentage label. Built entirely in code (no Blueprint), so it
-// survives a fresh checkout with zero extra assets beyond the imported texture.
 UCLASS()
-class BORN2FLAP_API UBorn2FlapSplash : public UUserWidget
+class BORN2FLAP_API ABorn2FlapSplash : public AActor
 {
     GENERATED_BODY()
+
 public:
-    UBorn2FlapSplash(const FObjectInitializer& ObjectInitializer);
+    ABorn2FlapSplash();
+
+    virtual void BeginPlay() override;
 
     // Drive the loading bar 0..1 and refresh the percentage label.
     void SetProgress(float Fraction);
 
-protected:
-    virtual TSharedRef<SWidget> RebuildWidget() override;
+    // Fade the whole splash (root opacity).
+    void SetOpacity(float Opacity);
 
 private:
-    UPROPERTY(Transient) TObjectPtr<UImage> BackgroundImage;
-    UPROPERTY(Transient) TObjectPtr<UProgressBar> LoadingBar;
-    UPROPERTY(Transient) TObjectPtr<UTextBlock> StatusText;
-    UPROPERTY() TObjectPtr<UTexture2D> SplashTexture;
+    void Build();
+
+    UPROPERTY() TObjectPtr<UBorn2FlapUIRenderer> Renderer;
 };
