@@ -22,6 +22,7 @@
 #include "UI/Born2FlapUIBridge.h"
 #include "UI/Born2FlapFlightHUD.h"
 #include "UI/Born2FlapRadio.h"
+#include "UI/Born2FlapI18n.h"
 #include "UI/Born2FlapSplash.h"
 #include "Racing/Born2FlapRacing.h"
 #include "Water/Born2FlapWaterDirector.h"
@@ -42,6 +43,14 @@ ABorn2FlapGameMode::ABorn2FlapGameMode()
 void ABorn2FlapGameMode::InitGame(const FString &MapName, const FString &Options, FString &ErrorMessage)
 {
     Super::InitGame(MapName, Options, ErrorMessage);
+    // Locale: -B2FLang=de or ?Lang=de (English is the default, and the fallback).
+    FString Lang;
+    FParse::Value(FCommandLine::Get(), TEXT("B2FLang="), Lang);
+    if (Lang.IsEmpty())
+        Lang = UGameplayStatics::ParseOption(Options, TEXT("Lang"));
+    if (!Lang.IsEmpty())
+        Born2Flap::I18n::SetLocale(Lang);
+
     FString Level = UGameplayStatics::ParseOption(Options, TEXT("Level"));
     if (Level.IsEmpty())
         FParse::Value(FCommandLine::Get(), TEXT("B2FLevel="), Level);

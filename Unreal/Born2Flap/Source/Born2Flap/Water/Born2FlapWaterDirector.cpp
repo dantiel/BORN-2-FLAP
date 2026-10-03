@@ -23,9 +23,8 @@ AShiomoriWaterDirector* AShiomoriWaterDirector::Get(const UWorld* World)
 {
     if (!World)
         return nullptr;
-    for (TActorIterator<AShiomoriWaterDirector> It(World); It; ++It)
-        return *It;
-    return nullptr;
+    TActorIterator<AShiomoriWaterDirector> It(World);
+    return It ? *It : nullptr;
 }
 
 void AShiomoriWaterDirector::BeginPlay()

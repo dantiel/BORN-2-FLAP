@@ -35,9 +35,19 @@ module Born2Flap
       class Context
         def initialize(locals)
           @locals = locals
+          @lang = locals[:lang] || I18n::DEFAULT
           locals.each_key do |key|
             define_singleton_method(key) { @locals[key] }
           end
+        end
+
+        # Translation sugar for templates: `#{t('hud.altitude')}`.
+        def t(key)
+          I18n.t(key, lang: @lang)
+        end
+
+        def lang
+          @lang
         end
 
         def [](key)

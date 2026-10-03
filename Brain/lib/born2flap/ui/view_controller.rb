@@ -65,7 +65,10 @@ module Born2Flap
       # Resolve the locals for `name` (calls `#{name}_locals` when defined),
       # then produce the neutral tree: interpolate → parse → apply theme.
       def render(name, locals = {})
+        lang = (locals[:lang] || I18n::DEFAULT).to_s
+        locals = locals.merge(lang: lang)
         locals = send(:"#{name}_locals", locals) if respond_to?(:"#{name}_locals")
+        locals = locals.merge(lang: lang) # re-assert: a locals hook may rebuild the hash
 
         source = load_template(name)
         source = Template.interpolate(source, locals) if source.is_a?(String)

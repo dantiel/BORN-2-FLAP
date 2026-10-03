@@ -11,8 +11,8 @@ module Born2Flap
       # `cockpit.umgss` the presentation tokens (resolved by Born2FlapUiTheme.h).
       # One controller, many faces + several endpoints:
       #
-      #   render(:cockpit)  → the full glass cockpit
-      #   render(:minimal)  → a bare altitude strip (no theme)
+      #   render(:cockpit)  — the full glass cockpit
+      #   render(:minimal)  — a bare altitude strip (no theme)
       class FlightHud < ViewController
         view :cockpit, template: "cockpit.umghaml", theme: "cockpit.umgss"
         view :minimal, template: "minimal.umghaml"
@@ -36,7 +36,7 @@ module Born2Flap
             speed: locals[:speed] || 0,
             battery: locals[:battery] || 100,
             throttle: locals[:throttle] || 0,
-            status: locals[:status] || "BEREIT"
+            status: locals[:status] || I18n.t("hud.ready", lang: locals[:lang])
           }
         end
       end

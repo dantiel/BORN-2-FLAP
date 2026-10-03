@@ -1,23 +1,23 @@
 %Overlay{ align: "left", valign: "top" }
   %VBox{ spacing: 8 }
-    %Banner{ text: "R A V E N   /   H A N G A R", tone: "accent" }
+    %Banner{ text: "#{t('hangar.title')}", tone: "accent" }
 
-    %Section{ title: "SILHOUETTE", open: true }
-      %Field{ label: "BIRD" }
+    %Section{ title: "#{t('hangar.silhouette')}", open: true }
+      %Field{ label: "#{t('hangar.bird')}" }
         %Select{ value: #{bird_model}, options: #{bird_options}, action: "bird.select" }
-      %Field{ label: "FLIGHT PROFILE" }
+      %Field{ label: "#{t('hangar.flight_profile')}" }
         %Select{ value: #{profile_index}, options: #{profile_options}, action: "profile.select" }
 
-    %Section{ title: "SERVO & POWER", open: true }
+    %Section{ title: "#{t('hangar.servo')}", open: true }
 #{servo_rows}
 
-    %Section{ title: "BATTERY", open: false }
+    %Section{ title: "#{t('hangar.battery')}", open: false }
 #{battery_rows}
 
-    %Section{ title: "FLIGHT GEOMETRY", open: false }
+    %Section{ title: "#{t('hangar.geometry')}", open: false }
 #{geometry_rows}
 
-    %Section{ title: "CONTROL AUTHORITY", open: false }
+    %Section{ title: "#{t('hangar.authority')}", open: false }
 #{authority_rows}
 
-    %Button{ label: "SAVE & RETURN", action: "editor.close", tone: "good" }
+    %Button{ label: "#{t('hangar.save')}", action: "editor.close", tone: "good" }
