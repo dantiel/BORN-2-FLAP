@@ -512,10 +512,12 @@ def sun_parhelion_material(sun_dir, weather=None):
     float lowSun = 1.0 - smoothstep(8.0, 20.0, sunDeg);
     float compact = lerp(1.0, 1.5, lowSun);
   
-    // (1) Sun: very bright HDR core + tight overexposed aureole that never
+    // (1) Sun: very bright HDR core + wide overexposed aureole that never
     // reaches the halo ring; the >1 HDR value drives bloom into a real glare.
-    float core = exp(-pow(ang * 320.0, 2.0)) * 12.0;
-    float aureole = exp(-ang * 40.0) * 1.5;
+    // Widened from a sub-solar ~0.18 deg core to a larger, hotter disc and a
+    // broad glare aureole so the sun reads as a bold, luminous body.
+    float core = exp(-pow(ang * 130.0, 2.0)) * 40.0;
+    float aureole = exp(-ang * 20.0) * 8.0;
   
     // (2) 22-degree halo: weak and azimuthally broken into bright/dim arcs, not
     // a perfect bright ring. Sharp reddish inner edge, soft bluish outer falloff.
@@ -566,7 +568,7 @@ def sun_parhelion_material(sun_dir, weather=None):
     // regardless. Raise iceQuality toward 1.0 to make the apparition distinct.
     // Independent crystal populations let a field light only one mechanism
     // (plates = sun dogs/CZA/pillar, columns = tangent arcs, random = halo).
-    float iceQuality = 0.16;
+    float iceQuality = 1.0;
     float iceGain = lerp(0.08, 1.0, iceQuality);
     // Staggered rarity: each crystal population is gated independently so a
     // normal event is just sun + thin cirrostratus + 1-2 sun dogs + a weak
@@ -596,8 +598,9 @@ def sun_parhelion_material(sun_dir, weather=None):
                               + exp(-pow((dAz - phi) * 7.0, 2.0)));
     float circle = pcBand * pcFade * pcDog * 0.07;
   
-    float4 SunClip = mul(float4(S, 0.0), ResolvedView.TranslatedWorldToClip);
-    float vis = step(0.0, SunClip.w);
+    // Sun-visibility gate removed: `ang` (view-vs-sun angle) already suppresses
+    // the sun disc when the sun is behind the camera (R never aligns with S),
+    // and the clip-space projection of a DIRECTION was fragile under LWC.
   
     // (10) Sun pillar: a vertical golden/white streak above (and reflected
     // below) the sun from reflection off falling plates. No refraction, hence
@@ -657,10 +660,10 @@ def sun_parhelion_material(sun_dir, weather=None):
     float3 cirrusCol = lerp(float3(0.72, 0.82, 1.0), float3(1.0, 0.90, 0.78), exp(-ang * 7.0));
 
     float3 warm = float3(1.0, 0.90, 0.78);
-    float3 contrib = warm * (core + aureole) * vis;
-    contrib += haloCol * halo * (0.22 * gHalo * lerp(0.7, 1.0, lowSun)) * skyMask;
-    contrib += dogColL * dogL * (1.30 * gDogL * lerp(0.6, 3.0, lowSun)) * skyMask;
-    contrib += dogColR * dogR * (1.30 * gDogR * lerp(0.6, 3.0, lowSun)) * skyMask;
+    float3 contrib = warm * (core + aureole);
+    contrib += haloCol * halo * (1.50 * gHalo * lerp(0.7, 1.0, lowSun)) * skyMask;
+    contrib += dogColL * dogL * (4.00 * gDogL * lerp(1.2, 3.0, lowSun)) * skyMask;
+    contrib += dogColR * dogR * (4.00 * gDogR * lerp(1.2, 3.0, lowSun)) * skyMask;
     contrib += tailCol * tailL * (0.20 * gDogL * lerp(0.7, 1.0, lowSun)) * skyMask;
     contrib += tailCol * tailR * (0.20 * gDogR * lerp(0.7, 1.0, lowSun)) * skyMask;
     contrib += float3(0.96, 0.95, 0.92) * circle * gHalo * skyMask;
@@ -715,6 +718,37 @@ def apply_post_process():
         vol.set_editor_property('settings', s)
     except Exception as e:
         u.log_warning('Shiomori post-process settings failed: ' + str(e))
+
+
+def fpv_fisheye_material():
+    """Fullscreen barrel-distortion (fisheye) post-process material for the FPV
+    onboard camera. Samples the scene colour (PostProcessInput0) through a
+    radial barrel remap so the FPV lens reads as a wide fisheye rather than a
+    flat perspective. Applied by the flight pawn to FpvCamera only."""
+    path = '/Game/UI/M_FpvFisheye'
+    u.EditorAssetLibrary.make_directory('/Game/UI')
+    m = u.load_asset(path) if ela.does_asset_exist(path) else assets.create_asset(
+        'M_FpvFisheye', '/Game/UI', u.Material, u.MaterialFactoryNew())
+    lib.delete_all_material_expressions(m)
+    m.set_editor_property('material_domain', u.MaterialDomain.MD_POST_PROCESS)
+    m.set_editor_property('blend_mode', u.BlendMode.BLEND_OPAQUE)
+    m.set_editor_property('shading_model', u.MaterialShadingModel.MSM_UNLIT)
+    sp = node(m, 'ScreenPosition')
+    barrel = node(m, 'Constant', r=0.30)
+    aspect = node(m, 'Constant', r=1.7778)
+    code = '''float4 SceneTextureLookup(float2 UV, int SceneTextureIndex, bool bFiltered);
+    float2 uv = ScreenUV - 0.5;
+    uv.x *= Aspect;
+    float r2 = dot(uv, uv);
+    uv *= (1.0 + Barrel * r2);
+    uv.x /= Aspect;
+    float2 suv = uv + 0.5;
+    return SceneTextureLookup(suv, 14, false).rgb;'''
+    h = custom(m, code, {'ScreenUV': sp, 'Barrel': barrel, 'Aspect': aspect}, 3)
+    output(h, 'EMISSIVE_COLOR')
+    lib.recompile_material(m)
+    assert ela.save_asset(path), 'Failed to save ' + path
+    return m
 
 
 # --------------------------------------------------------------------------- #
@@ -934,7 +968,10 @@ def build_mesh(name, verts, tris, uvs=None):
 def place_mesh(label, p, mesh, mat, rot=(0, 0, 0), collision=False):
     """Spawn a pre-built (world-sized) mesh actor; no scaling applied."""
     global count
-    a = u.EditorLevelLibrary.spawn_actor_from_class(u.StaticMeshActor, u.Vector(*p), u.Rotator(*rot))
+    # UE5 Python's Rotator positional args are (roll, pitch, yaw); our rot tuples
+    # are (pitch, yaw, roll). Named args keep the mapping unambiguous.
+    a = u.EditorLevelLibrary.spawn_actor_from_class(u.StaticMeshActor, u.Vector(*p),
+                                                    u.Rotator(pitch=rot[0], yaw=rot[1], roll=rot[2]))
     a.set_actor_label(label)
     a.set_editor_property('tags', [label])
     c = a.static_mesh_component
@@ -1068,7 +1105,8 @@ ela.save_loaded_asset(beach_mesh)
 
 def part(label, p, size, mat='Concrete', shape='Cube', rot=(0, 0, 0), collision=True):
     global count
-    a = u.EditorLevelLibrary.spawn_actor_from_class(u.StaticMeshActor, u.Vector(*p), u.Rotator(*rot))
+    a = u.EditorLevelLibrary.spawn_actor_from_class(u.StaticMeshActor, u.Vector(*p),
+                                                    u.Rotator(pitch=rot[0], yaw=rot[1], roll=rot[2]))
     a.set_actor_label(label)
     a.set_editor_property('tags', [label])
     c = a.static_mesh_component
@@ -1093,19 +1131,28 @@ def foliage(label, p, mesh, height, rot=(0, 0, 0), ground_z=None):
     global count
     if mesh is None:
         return None
-    a = u.EditorLevelLibrary.spawn_actor_from_class(u.StaticMeshActor, u.Vector(*p), u.Rotator(*rot))
+    a = u.EditorLevelLibrary.spawn_actor_from_class(u.StaticMeshActor, u.Vector(*p),
+                                                    u.Rotator(pitch=rot[0], yaw=rot[1], roll=rot[2]))
     a.set_actor_label(label)
     a.set_editor_property('tags', [label])
     c = a.static_mesh_component
     c.set_static_mesh(mesh)
     c.set_collision_profile_name('NoCollision')
-    b = mesh.get_bounds().box_extent
-    s = height / max(2 * b.z, 0.001)
+    b = mesh.get_bounds()
+    s = height / max(2.0 * b.box_extent.z, 0.001)
     a.set_actor_scale3d(u.Vector(s, s, s))
-    if ground_z is not None:
-        origin, extent = a.get_actor_bounds(False)
-        loc = a.get_actor_location()
-        a.set_actor_location(u.Vector(loc.x, loc.y, ground_z + (loc.z - origin.z) + extent.z), False, False)
+    # Deterministic planting from the LOCAL bounds (pivot-relative) instead of
+    # get_actor_bounds (stale/unscaled under -nullrhi). The imported glTF meshes
+    # carry a large XY pivot offset (up to ~80 cm on grass tufts), so recentre the
+    # foliage onto the planted point; on sloped dunes that offset otherwise leaves
+    # grass floating ~90 cm above the terrain it was sampled for.
+    z = p[2] if ground_z is None else ground_z
+    yaw = math.radians(rot[1])
+    ox, oy = s * b.origin.x, s * b.origin.y
+    wx = ox * math.cos(yaw) - oy * math.sin(yaw)
+    wy = ox * math.sin(yaw) + oy * math.cos(yaw)
+    bottom = s * (b.origin.z - b.box_extent.z)
+    a.set_actor_location(u.Vector(p[0] - wx, p[1] - wy, z - bottom), False, False)
     count += 1
     return a
 
@@ -1153,12 +1200,12 @@ for j, x in enumerate(range(-40000, 41000, 10000)):
     puffs = [(0, 0, 62), (-290, -130, 44), (290, -130, 44), (-170, 130, 36),
              (170, 130, 36), (0, -210, 30), (0, 210, 28)]
     for i, (dx, dy, r) in enumerate(puffs):
-        # The big central puff is a soft landing perch; the smaller puffs stay
-        # open (fly-through). One collidable puff per shelter keeps the
-        # "Shelter floating roof" count for the world test intact.
+        # Every puff is a solid landing panel — the whole cloud roof is a perch
+        # with no fly-through gaps. The central puff keeps the counted
+        # "Shelter floating roof" tag for the world test intact.
         part('Shelter floating roof' if i == 0 else 'Shelter cloud puff',
              (x + dx, -2750 + dy, 540), (r * 6, r * 4.4, r * 1.2), 'Cloud', 'Sphere',
-             collision=(i == 0))
+             collision=True)
     part('Picnic table', (x, -2740, 235), (320, 100, 12), 'Wood')
     for dx in (-115, 115):
         part('Table trestle', (x + dx, -2740, 196), (18, 85, 80), 'Sterile')
@@ -1198,24 +1245,44 @@ for i in range(180):
     mesh = _pick_mesh(foliage_meshes[kind], rng)
     h = rng.uniform(60, 260) if kind == 'Grass' else rng.uniform(120, 320) if kind == 'Fir' else rng.uniform(50, 160)
     foliage('Backshore scrub', (x, y, 150), mesh, h, rot=(0, rng.uniform(0, 360), 0), ground_z=150)
-# Layered coastal thickets: taller trees behind dense dune-grass edges.
+# Layered coastal thickets: a soft gradient from marram grass through low bushes
+# and saplings into a full treeline, so each far end of the beach closes into a
+# lush wood instead of a sparse scatter. Mossy boulders break up the understory.
 # Separate seeded RNG keeps other landmark placements stable as density changes.
 vrng = random.Random(301026)
 for side in (-1, 1):
-    for i in range(700):
+    for i in range(900):
         x = side*vrng.uniform(40000, 44850)
         y = vrng.uniform(-850, 7600)
         # Irregular edge and openings, rather than a rectangular plantation.
-        if abs(x) < 40900+500*math.sin(y*.0014) and vrng.random()<.65:
+        if abs(x) < 40900+500*math.sin(y*.0014) and vrng.random()<.5:
             continue
         foliage('Coastal grass west' if side<0 else 'Coastal grass east',
-                (x,y,0), _pick_mesh(foliage_meshes['Grass'], vrng), vrng.uniform(55,125),
+                (x,y,0), _pick_mesh(foliage_meshes['Grass'], vrng), vrng.uniform(55,140),
                 rot=(0,vrng.uniform(0,360),0), ground_z=beach_height(x,y))
-    for i in range(110):
-        x = side*vrng.uniform(41600,44800)
+    for i in range(140):
+        x = side*vrng.uniform(40900,44750)
+        y = vrng.uniform(-700,7300)
+        foliage('Coastal bush west' if side<0 else 'Coastal bush east',
+                (x,y,0), _pick_mesh(foliage_meshes['Fir'], vrng), vrng.uniform(90,210),
+                rot=(0,vrng.uniform(0,360),0), ground_z=beach_height(x,y))
+    for i in range(120):
+        x = side*vrng.uniform(40400,44900)
+        y = vrng.uniform(-700,7200)
+        foliage('Coastal boulder west' if side<0 else 'Coastal boulder east',
+                (x,y,0), _pick_mesh(foliage_meshes['Rock'], vrng), vrng.uniform(40,150),
+                rot=(0,vrng.uniform(0,360),0), ground_z=beach_height(x,y))
+    for i in range(90):
+        x = side*vrng.uniform(41600,44850)
         y = vrng.uniform(-650,6900)
-        foliage('Coastal trees west' if side<0 else 'Coastal trees east',
-                (x,y,0), _pick_mesh(foliage_meshes['Fir'], vrng), vrng.uniform(220,650),
+        foliage('Coastal sapling west' if side<0 else 'Coastal sapling east',
+                (x,y,0), _pick_mesh(foliage_meshes['Fir'], vrng), vrng.uniform(240,480),
+                rot=(0,vrng.uniform(0,360),0), ground_z=beach_height(x,y))
+    for i in range(70):
+        x = side*vrng.uniform(42600,44900)
+        y = vrng.uniform(-700,6800)
+        foliage('Coastal forest west' if side<0 else 'Coastal forest east',
+                (x,y,0), _pick_mesh(foliage_meshes['Fir'], vrng), vrng.uniform(500,820),
                 rot=(0,vrng.uniform(0,360),0), ground_z=beach_height(x,y))
 # Beach dune grasses: marram-like clumps that cluster on the slight elevations
 # (dune crests) the onshore wind has built. They keep off the wet foreshore and
@@ -1268,11 +1335,13 @@ def _rot_forward(pitch, yaw):
     cy, sy = math.cos(math.radians(yaw)), math.sin(math.radians(yaw))
     return (cp * cy, cp * sy, sp)
 
-# Low golden sun over the open bay (the sea is +Y). UE5 Python's Rotator takes
+# Golden sun over the open bay (the sea is +Y). UE5 Python's Rotator takes
 # positional args as (roll, pitch, yaw) — a known API quirk — so use named args
-# to stay unambiguous: pitch=-16 puts the disc ~16 degrees above the horizon,
-# yaw=-90 aims the light shoreward so the sun hangs over the water.
-sun_pitch, sun_yaw, sun_roll = -16.0, -90.0, 0.0
+# to stay unambiguous: pitch=-10 puts the disc ~10 degrees above the horizon —
+# a LOW sun where the 22-degree halo and the two sun dogs stay bright and
+# compact near the ring and read as a clear "three suns" apparition. yaw=-90
+# aims the light shoreward so the sun hangs over the water.
+sun_pitch, sun_yaw, sun_roll = -10.0, -90.0, 0.0
 sun = u.EditorLevelLibrary.spawn_actor_from_class(
     u.DirectionalLight, u.Vector(0, 0, 10000),
     u.Rotator(pitch=sun_pitch, yaw=sun_yaw, roll=sun_roll))
@@ -1305,6 +1374,7 @@ else:
 u.log('PARHELION_WEATHER=' + weather_name)
 sun_parhelion_material(sun_dir, weather)
 apply_post_process()
+fpv_fisheye_material()
 # Saved viewpoints also make the generated map easy to inspect in the editor.
 for name, p, target in [('Sun horizon', (0, -6000, 400), (0, 13226, 5912)),
                         ('Bay overlook', (12000, -14000, 15000), (-12000, 10000, 0)),

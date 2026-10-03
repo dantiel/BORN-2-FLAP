@@ -26,14 +26,14 @@ main = do
       rightTorque = hingeTorque 1 [strip (Vec3 2 90 0)]
   if leftTorque == 2 && rightTorque == 2 then pure ()
     else fail "mirrored flap hinges must project signed X torque, ignoring pitch torque"
-  let fwStep dt vel s = stepFirmwareVehicle defaultRcChannels defaultFirmwareParams
+  let fwStep dt vel s = stepFirmwareVehicle True defaultRcChannels defaultFirmwareParams
                         defaultServoSpec defaultBatterySpec dt vel (Vec3 0 0 0) s
       badCases = [(0, Vec3 5 0 0), (0/0, Vec3 5 0 0), (0.01, Vec3 (1/0) 0 0)]
   mapM_ (\(dt, vel) -> let (o,s) = fwStep dt vel defaultFirmwareVehicleState
                        in if outputFlags o /= 0 && s == defaultFirmwareVehicleState
                           then pure () else fail "firmware failure must preserve all state") badCases
   let flap = defaultRcChannels {rcThrottle = 1811}
-      batteryStep battery s = stepFirmwareVehicle flap defaultFirmwareParams defaultServoSpec
+      batteryStep battery s = stepFirmwareVehicle True flap defaultFirmwareParams defaultServoSpec
                                battery (1/240) (Vec3 5 0 0) (Vec3 0 0 0) s
       (_, full) = batteryStep defaultBatterySpec defaultFirmwareVehicleState
       (_, empty) = batteryStep defaultBatterySpec (defaultFirmwareVehicleState {fvBatterySoc = 0})
@@ -167,36 +167,39 @@ main = do
     then pure ()
     else fail "beat-locked oscillator must stay on-grid at nominal demand"
   -- Firmware mixer: glide at rest, flapping at full throttle with correct freq.
-  let (glide, _) = computeServoMixer defaultRcChannels defaultFirmwareParams defaultFirmwareState (1 / 240)
+  let (glide, _) = computeServoMixer True defaultRcChannels defaultFirmwareParams defaultFirmwareState (1 / 240)
   if not (mixIsFlapping glide) && mixFlapHz glide == 0
      && mixLeftFlapDevDeg glide == 4 && mixRightFlapDevDeg glide == 4
     then pure ()
     else fail "neutral glide must use the configured wing position"
-  let mixer pilot = fst (computeServoMixer (pilotToRc pilot) defaultFirmwareParams defaultFirmwareState (1/240))
-      glideYaw = mixer (PilotInput 0 0 0 0.5)
-      glideRoll = mixer (PilotInput 0 0.5 0 0)
-      glidePitch = mixer (PilotInput 0 0 0.5 0)
-      cancelled = mixer (PilotInput 0 0.325 0 0.5)
+  let mixer pilot = fst (computeServoMixer True (pilotToRc pilot) defaultFirmwareParams defaultFirmwareState (1/240))
+      glideYaw = mixer (pilot4 0 0 0 0.5)
+      glideRoll = mixer (pilot4 0 0.5 0 0)
+      glidePitch = mixer (pilot4 0 0 0.5 0)
+      -- Positive aileron raises the RIGHT wing (positive right flap deviation);
+      -- a left roll (negative aileron) therefore cancels a right-rudder yaw,
+      -- since both act on the same differential dihedral.
+      cancelled = mixer (pilot4 0 (-0.325) 0 0.5)
       yawDiff = mixRightFlapDevDeg glideYaw - mixLeftFlapDevDeg glideYaw
       rollDiff = mixRightFlapDevDeg glideRoll - mixLeftFlapDevDeg glideRoll
-  if yawDiff > 1 && rollDiff < -1 && mixLeftFlapDevDeg glidePitch < 4
+  if yawDiff > 1 && rollDiff > 1 && mixLeftFlapDevDeg glidePitch < 4
      && abs (mixRightFlapDevDeg cancelled - mixLeftFlapDevDeg cancelled) < 1e-10
     then pure () else fail "glide RC channels must move the shared wings and allow opposing commands to cancel"
   let coherent output = abs (mixLeftFlapDevDeg output + (mixLeftWingDeg output-100)/2) < 1e-10
                      && abs (mixRightFlapDevDeg output - (mixRightWingDeg output-100)/2) < 1e-10
-  if all coherent [glideYaw,glideRoll,glidePitch,mixer (PilotInput 0.72 0.4 (-0.3) 0.5)]
+  if all coherent [glideYaw,glideRoll,glidePitch,mixer (pilot4 0.72 0.4 (-0.3) 0.5)]
     then pure () else fail "physical flap angles must include the complete mixed servo command"
   if all (\a -> abs (crsfToNorm (normToRaw a) - a) < 1e-12) [-1,-0.5,0,0.5,1]
     then pure () else fail "RC normalization must preserve exact neutral and endpoint values"
   let flapRc = defaultRcChannels { rcThrottle = 1811 }
-      (flap, flapState) = computeServoMixer flapRc defaultFirmwareParams defaultFirmwareState (1 / 240)
+      (flap, flapState) = computeServoMixer True flapRc defaultFirmwareParams defaultFirmwareState (1 / 240)
   if mixIsFlapping flap && mixFlapHz flap > 0 && mixThrottlePct flap == 1
      && mixLeftFlapDevDeg flap /= 0 && mixRightFlapDevDeg flap /= 0
     then pure ()
     else fail "full throttle must flap with positive frequency and deflection"
   -- Flapping hysteresis: dropping to just below the on-threshold stays flapping.
   let lowThrottle = defaultRcChannels { rcThrottle = 300 }
-      (hystOut, _) = computeServoMixer lowThrottle defaultFirmwareParams flapState (1 / 240)
+      (hystOut, _) = computeServoMixer True lowThrottle defaultFirmwareParams flapState (1 / 240)
   if mixIsFlapping hystOut
     then pure ()
     else fail "flapping must persist within the hysteresis band"
@@ -220,10 +223,10 @@ main = do
   let flapRcClosed = defaultRcChannels { rcThrottle = 1811 }
       dtClosed = 1 / 240
       bodyVel = Vec3 5 0 0
-      (out1, st1) = stepFirmwareVehicle flapRcClosed defaultFirmwareParams
+      (out1, st1) = stepFirmwareVehicle True flapRcClosed defaultFirmwareParams
                      defaultServoSpec defaultBatterySpec dtClosed bodyVel (Vec3 0 0 0)
                      defaultFirmwareVehicleState
-      (out2, _) = stepFirmwareVehicle flapRcClosed defaultFirmwareParams
+      (out2, _) = stepFirmwareVehicle True flapRcClosed defaultFirmwareParams
                      defaultServoSpec defaultBatterySpec dtClosed bodyVel (Vec3 0 0 0) st1
       finite value = not (isNaN value || isInfinite value)
   if finite (z (totalForceN out2)) && finite (x (totalMomentNm out2))
@@ -231,25 +234,25 @@ main = do
     then pure ()
     else fail "firmware-vehicle closed loop must produce finite loads"
   -- Logical pilot input: maps faithfully onto the firmware's CRSF channel space.
-  let rcFull = pilotToRc (PilotInput 1 0 0 0)
+  let rcFull = pilotToRc (pilot4 1 0 0 0)
   if rcThrottle rcFull == 1811 && rcAileron rcFull == 992 && rcRudder rcFull == 992
      && rcArm rcFull == 1811
     then pure ()
     else fail "full-throttle pilot input must map to full CRSF throttle with neutral sticks"
   let rcGlide = pilotToRc defaultPilotInput
-      (glidePilot, _) = computeServoMixer rcGlide defaultFirmwareParams defaultFirmwareState (1 / 240)
+      (glidePilot, _) = computeServoMixer True rcGlide defaultFirmwareParams defaultFirmwareState (1 / 240)
   if not (mixIsFlapping glidePilot)
     then pure ()
     else fail "zero-throttle pilot input must hold glide"
-  let rcRoll = pilotToRc (PilotInput 1 1 0 0)
+  let rcRoll = pilotToRc (pilot4 1 1 0 0)
   if rcAileron rcRoll > 992 && rcRudder rcRoll == 992 && rcElevator rcRoll == 992
     then pure ()
     else fail "roll stick must deflect the aileron channel only"
   -- Closed loop via logical pilot input: full throttle flaps and tracks battery.
-  let pilotFlap = PilotInput 1 0 0 0
+  let pilotFlap = pilot4 1 0 0 0
       dtFw = 1 / 240
       bodyVelFw = Vec3 5 0 0
-      stepFw s = stepFirmwareVehicle (pilotToRc pilotFlap) defaultFirmwareParams
+      stepFw s = stepFirmwareVehicle True (pilotToRc pilotFlap) defaultFirmwareParams
                    defaultServoSpec defaultBatterySpec dtFw bodyVelFw (Vec3 0 0 0) s
       goFw 0 s peak = (s, peak)
       goFw n s peak =
@@ -272,8 +275,8 @@ main = do
       skewBattery = defaultBatterySpec
         { batteryNominalVoltage = 11.1, batteryCapacityAh = 1.3, batteryInternalResistanceOhm = 0.08 }
       skewMoment roll =
-        let rc = pilotToRc (PilotInput 0.72 roll 0 0)
-            tick (_,s) = stepFirmwareVehicle rc skewParams skewServo skewBattery
+        let rc = pilotToRc (pilot4 0.72 roll 0 0)
+            tick (_,s) = stepFirmwareVehicle True rc skewParams skewServo skewBattery
                           (1/240) (Vec3 8 0 (-1)) (Vec3 0 0 0) s
             samples = drop 481 $ take 1921 $ iterate tick (zeroVehicleOutput,defaultFirmwareVehicleState)
         in sum (map (x . totalMomentNm . fst) samples) / fromIntegral (length samples)
@@ -324,7 +327,7 @@ main = do
     then pure () else fail "wind phase noise must be pinned by the dwell parking well"
   let stabOn = defaultFirmwareVehicleState { fvStabilized = True, fvWindPhaseNoise = 1.0 }
       stabOff = defaultFirmwareVehicleState { fvStabilized = False, fvWindPhaseNoise = 1.0 }
-      flyFrom s = snd (stepFirmwareVehicle flapRcClosed defaultFirmwareParams
+      flyFrom s = snd (stepFirmwareVehicle True flapRcClosed defaultFirmwareParams
                        defaultServoSpec defaultBatterySpec (1 / 240)
                        (Vec3 5 0 0) (Vec3 0 0 0) s)
       steadyOn = iterate flyFrom stabOn !! 2400

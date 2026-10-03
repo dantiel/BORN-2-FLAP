@@ -8,8 +8,7 @@ struct DesktopInput
 {
     static constexpr double MouseTravel = 1800.0; // pixels from centre to full stick
     RcKeyboard keyboard;
-    double wheelThrottle = 0;
-    bool wheelOwnsThrottle = false;
+    double speedModifier = 0.5; // 0..1 flapping speed modifier (mouse wheel / RC CH6)
     double mouseRoll = 0, mousePitch = 0, mouseYaw = 0;
     bool previousMuteYaw = false, previousMuteRoll = false;
     double throttle = 0, roll = 0, pitch = 0, yaw = 0;
@@ -30,14 +29,12 @@ struct DesktopInput
               double rollGain = 1, double pitchGain = 1, double yawGain = 1, double expo = .65)
     {
         if (dt <= 0) return;
-        // Retain fractional wheel events. Keyboard never changes the remembered wheel value.
+        // The wheel drives the flapping speed modifier, not throttle. Keyboard
+        // owns throttle; the RC CH6 knob overrides this value while connected.
+        (void)wDown;
         if (wheel != 0)
-        {
-            wheelThrottle = std::clamp(wheelThrottle + wheel * .02, 0.0, 1.0);
-            wheelOwnsThrottle = true;
-        }
-        if (wDown) wheelOwnsThrottle = false;
-        keyboard.Step(dt, wheelOwnsThrottle ? wheelThrottle : keyThrottle, keyRoll, keyPitch, keyYaw);
+            speedModifier = std::clamp(speedModifier + wheel * .02, 0.0, 1.0);
+        keyboard.Step(dt, keyThrottle, keyRoll, keyPitch, keyYaw);
 
         // Relative displacement moves a persistent virtual stick; stopping never centres it.
         // Per-frame mouse deltas already integrate motion, so do not scale them by dt.

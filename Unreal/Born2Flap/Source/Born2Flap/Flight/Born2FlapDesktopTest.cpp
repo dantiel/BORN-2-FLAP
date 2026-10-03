@@ -56,10 +56,10 @@ void ABorn2FlapFlightPawn::CheckDesktopInputTest(float DeltaSeconds)
         case 2: Pass &= Near(Throttle,.72); break;
         case 3: Pass &= Near(Throttle,1); break;
         case 4: Pass &= Near(Throttle,0); break;
-        case 5: Pass &= Near(Throttle,.5) && Near(Desktop.wheelThrottle,.5) && Desktop.wheelOwnsThrottle; break;
-        case 6: Pass &= Near(Throttle,.72) && Near(Desktop.wheelThrottle,.5) && !Desktop.wheelOwnsThrottle; break;
-        case 7: Pass &= Near(Throttle,0) && Near(Desktop.wheelThrottle,.5) && !Desktop.wheelOwnsThrottle; break;
-        case 8: Pass &= Near(Throttle,.52) && Near(Desktop.wheelThrottle,.52) && Desktop.wheelOwnsThrottle; break;
+        case 5: Pass &= Near(Throttle,0) && Near(Desktop.speedModifier,1.0); break;
+        case 6: Pass &= Near(Throttle,.72) && Near(Desktop.speedModifier,1.0); break;
+        case 7: Pass &= Near(Throttle,0) && Near(Desktop.speedModifier,1.0); break;
+        case 8: Pass &= Near(Throttle,0) && Near(Desktop.speedModifier,.5); break;
         case 9: Pass &= Near(Throttle,0); break;
         case 10: Pass &= RollInput > .9 && YawInput > .9 && PitchInput > .1; break;
         case 11: Pass &= RollInput > .9 && Near(YawInput,0) && PitchInput > .1; break;
@@ -81,8 +81,8 @@ void ABorn2FlapFlightPawn::CheckDesktopInputTest(float DeltaSeconds)
         {
             bDesktopTestPass &= Pass;
             UE_LOG(LogTemp, Display, TEXT("DesktopInputStage %d %s throttle=%.3f memory=%.3f wheel=%d roll=%.3f pitch=%.3f yaw=%.3f"),
-                   DesktopTestStage, Pass ? TEXT("PASS") : TEXT("FAIL"), Throttle, Desktop.wheelThrottle,
-                   Desktop.wheelOwnsThrottle, RollInput, PitchInput, YawInput);
+                   DesktopTestStage, Pass ? TEXT("PASS") : TEXT("FAIL"), Throttle, Desktop.speedModifier,
+                   bCoupledThrottle, RollInput, PitchInput, YawInput);
             if (DesktopTestStage == 8 && FParse::Param(FCommandLine::Get(),TEXT("B2FChannelCapture")))
                 FScreenshotRequest::RequestScreenshot(TEXT("RAVENSTONEFIELD_CHANNELS.png"),true,false);
             if (DesktopTestStage == 0 && FParse::Param(FCommandLine::Get(),TEXT("B2FBirdPreview")))
@@ -101,7 +101,7 @@ void ABorn2FlapFlightPawn::CheckDesktopInputTest(float DeltaSeconds)
         case 2: case 6: Key(EKeys::W,true); break;
         case 3: Key(EKeys::W,true); Key(EKeys::LeftShift,true); break;
         case 5: Axis(EKeys::MouseWheelAxis,25); break;
-        case 8: Axis(EKeys::MouseWheelAxis,1); break;
+        case 8: Axis(EKeys::MouseWheelAxis,-25); break;
         case 9: Key(EKeys::R,true); break;
         case 11: Key(EKeys::LeftMouseButton,true); break;
         case 12: Key(EKeys::RightMouseButton,true); break;
@@ -114,7 +114,7 @@ void ABorn2FlapFlightPawn::CheckDesktopInputTest(float DeltaSeconds)
         case 27: SelectBirdModel(0); break;
         case 28:
             if(FParse::Param(FCommandLine::Get(),TEXT("B2FBirdPreview")))
-                FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateWeakLambda(this,[](float){FScreenshotRequest::RequestScreenshot(TEXT("PEREGRINE_FALCON.png"),true,false);return false;}),.3f);
+                FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateWeakLambda(this,[](float){FScreenshotRequest::RequestScreenshot(TEXT("COMMON_KESTREL.png"),true,false);return false;}),.3f);
             SelectBirdModel(2); SetMouseGain(0,1); SetMouseGain(1,-1); SetMouseGain(2,-1); break;
         }
         if (Stage >= 29)
@@ -137,10 +137,10 @@ void ABorn2FlapFlightPawn::CheckDesktopInputTest(float DeltaSeconds)
                     return false;
                 }),1.f);
                 FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateWeakLambda(this,[this](float) {
-                    // Offscreen windows have no OS keyboard focus; exercise the
-                    // same Slate key handler directly and keep it alive through close.
-                    const auto Panel=SettingsWidget;
-                    Panel->OnKeyDown(Panel->GetCachedGeometry(),FKeyEvent(EKeys::Escape,FModifierKeysState(),0,false,0,0));
+                    // Offscreen windows have no OS keyboard focus; the Escape/F8
+                    // binding routes into CloseFlightSettings(), so exercise that
+                    // exact path (save + unpause + cursor off) directly.
+                    CloseFlightSettings();
                     auto* Player=Cast<APlayerController>(GetController());
                     double SavedRoll=99, SavedExpo=99;
                     FConfigFile Saved; Saved.Read(FPaths::ProjectSavedDir()/TEXT("Automation/FlightPreferences.ini"));
