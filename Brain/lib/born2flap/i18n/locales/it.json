@@ -83,5 +83,22 @@
   "poi.east_vegetation": "VEGETAZIONE EST",
   "poi.west_vegetation": "VEGETAZIONE OVEST",
   "poi.start_line": "LINEA DI PARTENZA",
-  "poi.gate": "PORTA"
+  "poi.gate": "PORTA",
+  "menu.title": "BORN 2 FLAP",
+  "menu.subtitle": "SIMULATORE DI VOLO ORNITOTTERO",
+  "menu.select": "SELEZIONA LIVELLO",
+  "menu.level_ravenstonefield": "RAVENSTONEFIELD",
+  "menu.level_ravenstonefield_desc": "Valle boscosa d'autunno",
+  "menu.level_shiomori": "SHIOMORI",
+  "menu.level_shiomori_desc": "Costa di brezza marina",
+  "menu.level_training": "ALLENAMENTO",
+  "menu.level_training_desc": "Percorso di portali celesti",
+  "menu.hint": "Clicca un livello per volare",
+  "race.complete": "GARA COMPLETATA",
+  "poi.raven_watch": "THE RAVEN WATCH",
+  "poi.crows_acre": "CROW'S ACRE",
+  "poi.last_scrap": "LAST SCRAP",
+  "poi.underpass": "THE UNDERPASS",
+  "poi.tidewalk": "TIDEWALK",
+  "race.best": "MIGLIORE"
 }

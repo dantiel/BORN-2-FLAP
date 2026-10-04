@@ -24,6 +24,7 @@
 #include "UI/Born2FlapRadio.h"
 #include "UI/Born2FlapI18n.h"
 #include "UI/Born2FlapSplash.h"
+#include "UI/Born2FlapMenu.h"
 #include "Game/Born2FlapPoiBeacon.h"
 #include "Racing/Born2FlapRacing.h"
 #include "Water/Born2FlapWaterDirector.h"
@@ -60,6 +61,10 @@ void ABorn2FlapGameMode::InitGame(const FString &MapName, const FString &Options
                    !FParse::Param(FCommandLine::Get(), TEXT("B2FFlightTest")) &&
                    !FParse::Param(FCommandLine::Get(), TEXT("B2FSoakTest")) &&
                    !FParse::Param(FCommandLine::Get(), TEXT("B2FHandlingTest"));
+    // The main menu only appears on a plain boot (no explicit level, no test
+    // mode). ?SkipMenu=1 (set by the menu itself) suppresses it on reload.
+    bSkipMenu = FParse::Param(FCommandLine::Get(), TEXT("B2FNoMenu")) ||
+                UGameplayStatics::ParseOption(Options, TEXT("SkipMenu")).Equals(TEXT("1"), ESearchCase::IgnoreCase);
 }
 void ABorn2FlapGameMode::RestartPlayerAtPlayerStart(AController* NewPlayer, AActor* StartSpot)
 {
@@ -441,6 +446,14 @@ void ABorn2FlapGameMode::Tick(float DeltaSeconds)
             SplashWidget->Destroy();
             SplashWidget = nullptr;
             SplashElapsed = -1.f;
+            // Splash done — on a plain boot (no explicit level) open the main
+            // menu / level selector over the world that has loaded behind it.
+            if (!bSkipMenu)
+            {
+                FActorSpawnParameters MenuParams;
+                MenuParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+                MenuWidget = GetWorld()->SpawnActor<ABorn2FlapMenu>(FVector::ZeroVector, FRotator::ZeroRotator, MenuParams);
+            }
         }
     }
     if(bCoastLevel && FParse::Param(FCommandLine::Get(),TEXT("B2FCoastTest")))
@@ -524,6 +537,20 @@ void ABorn2FlapGameMode::Tick(float DeltaSeconds)
     auto *Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0));
     if (!Bird)
         return;
+
+    // Gate-race clock: start on launch, stop when the course is cleared or the
+    // bird is grounded back at the start (which also resets the gate sequence).
+    if (Gates.Num() > 0)
+    {
+        if (Bird->IsFlying() && !bRaceRunning && GatesPassed < Gates.Num())
+        {
+            bRaceRunning = true;
+            RaceTime = 0;
+        }
+        if (bRaceRunning)
+            RaceTime += DeltaSeconds;
+    }
+
     if (!Bird->IsFlying() && Bird->GetActorLocation().Size2D() < 100)
     {
         if (GatesPassed != 0)
@@ -531,11 +558,20 @@ void ABorn2FlapGameMode::Tick(float DeltaSeconds)
             GatesPassed = 0;
             UpdateGateColors();
         }
+        bRaceRunning = false;
+        RaceTime = 0;
     }
     if (Gates.IsValidIndex(GatesPassed) && FVector::Dist(Bird->GetActorLocation(), Gates[GatesPassed]) < 260)
     {
         ++GatesPassed;
         UpdateGateColors();
         UE_LOG(LogTemp, Display, TEXT("FlightGate passed=%d total=%d"), GatesPassed, Gates.Num());
+        if (GatesPassed >= Gates.Num())
+        {
+            bRaceRunning = false;
+            if (BestLapTime <= 0 || RaceTime < BestLapTime)
+                BestLapTime = RaceTime;
+            UE_LOG(LogTemp, Display, TEXT("FlightRace complete lap=%.2fs best=%.2fs"), RaceTime, BestLapTime);
+        }
     }
 }

@@ -83,5 +83,22 @@
   "poi.east_vegetation": "東の植生",
   "poi.west_vegetation": "西の植生",
   "poi.start_line": "スタートライン",
-  "poi.gate": "ゲート"
+  "poi.gate": "ゲート",
+  "menu.title": "BORN 2 FLAP",
+  "menu.subtitle": "羽ばたき飛行シミュレーター",
+  "menu.select": "レベルを選択",
+  "menu.level_ravenstonefield": "RAVENSTONEFIELD",
+  "menu.level_ravenstonefield_desc": "秋の森の谷",
+  "menu.level_shiomori": "SHIOMORI",
+  "menu.level_shiomori_desc": "潮風の海岸",
+  "menu.level_training": "トレーニング",
+  "menu.level_training_desc": "スカイゲート・レースコース",
+  "menu.hint": "レベルをクリックして飛ぶ",
+  "race.complete": "レース完了",
+  "poi.raven_watch": "THE RAVEN WATCH",
+  "poi.crows_acre": "CROW'S ACRE",
+  "poi.last_scrap": "LAST SCRAP",
+  "poi.underpass": "THE UNDERPASS",
+  "poi.tidewalk": "TIDEWALK",
+  "race.best": "ベスト"
 }

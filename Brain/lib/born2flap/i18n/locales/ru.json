@@ -83,5 +83,22 @@
   "poi.east_vegetation": "ВОСТОЧНАЯ РАСТИТЕЛЬНОСТЬ",
   "poi.west_vegetation": "ЗАПАДНАЯ РАСТИТЕЛЬНОСТЬ",
   "poi.start_line": "СТАРТОВАЯ ЛИНИЯ",
-  "poi.gate": "ВОРОТА"
+  "poi.gate": "ВОРОТА",
+  "menu.title": "BORN 2 FLAP",
+  "menu.subtitle": "СИМУЛЯТОР МАШУЩЕГО ПОЛЁТА",
+  "menu.select": "ВЫБЕРИТЕ УРОВЕНЬ",
+  "menu.level_ravenstonefield": "RAVENSTONEFIELD",
+  "menu.level_ravenstonefield_desc": "Осенняя лесная долина",
+  "menu.level_shiomori": "SHIOMORI",
+  "menu.level_shiomori_desc": "Побережье морского бриза",
+  "menu.level_training": "ТРЕНИРОВКА",
+  "menu.level_training_desc": "Трасса небесных врат",
+  "menu.hint": "Нажмите на уровень, чтобы лететь",
+  "race.complete": "ГОНКА ЗАВЕРШЕНА",
+  "poi.raven_watch": "THE RAVEN WATCH",
+  "poi.crows_acre": "CROW'S ACRE",
+  "poi.last_scrap": "LAST SCRAP",
+  "poi.underpass": "THE UNDERPASS",
+  "poi.tidewalk": "TIDEWALK",
+  "race.best": "ЛУЧШИЙ"
 }

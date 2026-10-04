@@ -83,5 +83,22 @@
   "poi.east_vegetation": "النباتات الشرقية",
   "poi.west_vegetation": "النباتات الغربية",
   "poi.start_line": "خط البداية",
-  "poi.gate": "بوابة"
+  "poi.gate": "بوابة",
+  "menu.title": "BORN 2 FLAP",
+  "menu.subtitle": "محاكاة طيران بأجنحة خفّاقة",
+  "menu.select": "اختر المستوى",
+  "menu.level_ravenstonefield": "RAVENSTONEFIELD",
+  "menu.level_ravenstonefield_desc": "وادي غابة الخريف",
+  "menu.level_shiomori": "SHIOMORI",
+  "menu.level_shiomori_desc": "ساحل نسيم البحر",
+  "menu.level_training": "التدريب",
+  "menu.level_training_desc": "مسار سباق البوابات السماوية",
+  "menu.hint": "انقر على مستوى لتطير",
+  "race.complete": "اكتمل السباق",
+  "poi.raven_watch": "THE RAVEN WATCH",
+  "poi.crows_acre": "CROW'S ACRE",
+  "poi.last_scrap": "LAST SCRAP",
+  "poi.underpass": "THE UNDERPASS",
+  "poi.tidewalk": "TIDEWALK",
+  "race.best": "الأفضل"
 }

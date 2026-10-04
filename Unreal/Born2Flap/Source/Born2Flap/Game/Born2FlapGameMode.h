@@ -7,6 +7,7 @@
 class UBorn2FlapRadioStation;
 class ABorn2FlapRadioHUD;
 class ABorn2FlapSplash;
+class ABorn2FlapMenu;
 class AStaticMeshActor;
 class UMaterialInstanceDynamic;
 class ABorn2FlapPoiBeacon;
@@ -24,6 +25,11 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     int32 GetGatesPassed() const { return GatesPassed; }
     int32 GetGateCount() const { return Gates.Num(); }
     bool IsNatureLevel() const { return bNatureLevel; }
+    // Gate-race telemetry (Training course). RaceTime runs while the bird is
+    // airborne; a completed lap stops it and records the best time.
+    double GetRaceTime() const { return RaceTime; }
+    double GetBestLapTime() const { return BestLapTime; }
+    bool IsRaceComplete() const { return Gates.Num() > 0 && GatesPassed >= Gates.Num(); }
     bool IsCoastLevel() const { return bCoastLevel; }
     bool IsWater(double X,double Y) const;
     double WaterHeight() const;
@@ -62,4 +68,15 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     UPROPERTY(Transient)
     TObjectPtr<ABorn2FlapSplash> SplashWidget;
     float SplashElapsed = -1.f;
+
+    // Main menu / level selector, opened once the splash fades on a plain boot
+    // (no ?Level=, no ?SkipMenu=1). Selecting a level re-opens with SkipMenu.
+    UPROPERTY(Transient)
+    TObjectPtr<ABorn2FlapMenu> MenuWidget;
+    bool bSkipMenu = false;
+
+    // Gate-race state (Training course).
+    bool bRaceRunning = false;
+    double RaceTime = 0;
+    double BestLapTime = 0;
 };
