@@ -35,6 +35,7 @@
 #include "Misc/App.h"
 #include "EngineUtils.h"
 #include "Camera/CameraActor.h"
+#include "Camera/CameraComponent.h"
 #include "UnrealClient.h"
 ABorn2FlapGameMode::ABorn2FlapGameMode()
 {
@@ -460,13 +461,31 @@ void ABorn2FlapGameMode::Tick(float DeltaSeconds)
     {
         CoastTestTime+=DeltaSeconds;
         auto* PC=UGameplayStatics::GetPlayerController(this,0);
-        const TCHAR* Views[]={TEXT("Bay overlook"),TEXT("Tidewalk"),TEXT("Basalt cove"),TEXT("Shoreline"),TEXT("East vegetation"),TEXT("West vegetation")};
+        const bool bSkyTest=FParse::Param(FCommandLine::Get(),TEXT("B2FSkyTest"));
+        const TCHAR* Views[]={bSkyTest ? TEXT("Sun horizon") : TEXT("Bay overlook"),bSkyTest ? TEXT("Sun horizon") : TEXT("Tidewalk"),bSkyTest ? TEXT("Sun horizon") : TEXT("Basalt cove"),TEXT("Shoreline"),TEXT("East vegetation"),TEXT("West vegetation")};
         if(CoastCaptureStage<12 && CoastTestTime>2+CoastCaptureStage*2)
         {
             if(CoastCaptureStage%2==0)
             {
                 for(TActorIterator<ACameraActor> It(GetWorld());It;++It)
-                    if(It->ActorHasTag(Views[CoastCaptureStage/2]) && PC) PC->SetViewTarget(*It);
+                    if(It->ActorHasTag(Views[CoastCaptureStage/2]) && PC)
+                    {
+                        // Exercise the actual flight-camera optics. Previously these
+                        // screenshots bypassed the sky effect, hiding black-frame bugs.
+                        if (APawn* Pawn=PC->GetPawn())
+                            if (auto* Camera=Pawn->FindComponentByClass<UCameraComponent>())
+                                It->GetCameraComponent()->PostProcessSettings=Camera->PostProcessSettings;
+                        if (bSkyTest && (CoastCaptureStage==2 || CoastCaptureStage==4))
+                        {
+                            FRotator Rotation=It->GetActorRotation();
+                            Rotation.Yaw+=180.f;
+                            It->SetActorRotation(Rotation);
+                            if (CoastCaptureStage==4)
+                                if (auto* Fisheye=LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/UI/M_FpvFisheye")))
+                                    It->GetCameraComponent()->PostProcessSettings.AddBlendable(Fisheye,1.f);
+                        }
+                        PC->SetViewTarget(*It);
+                    }
             }
             else FScreenshotRequest::RequestScreenshot(FString::Printf(TEXT("SHIOMORI_%d.png"),CoastCaptureStage/2),false,false);
             ++CoastCaptureStage;

@@ -53,7 +53,7 @@ module Born2Flap
             batteryResist:   Field.new(action: "tuning.battery_resistance", unit: "Ω",        min: 0.01, max: 0.5,  step: 0.01, value: values[:batteryResist]   || 0.08),
             batteryCapacity: Field.new(action: "tuning.battery_capacity", unit: "Ah",         min: 0.1,  max: 5,    step: 0.1, value: values[:batteryCapacity] || 2.2),
             flapBaseFreq:    Field.new(action: "tuning.flap_base_freq",   unit: "dHz",        min: 10,   max: 200,  step: 1,   value: values[:flapBaseFreq]    || 60),
-            mountAngle:      Field.new(action: "tuning.mount_angle",      unit: "°",          min: -15,  max: 15,   step: 1,   value: values[:mountAngle]      || 0),
+            tailElevatorAngle:  Field.new(action: "tuning.tail_elevator_angle", unit: "°",          min: -15,  max: 15,   step: 1,   value: values[:tailElevatorAngle]  || 0),
             glideAngle:      Field.new(action: "tuning.glide_angle",      unit: "°",          min: -15,  max: 15,   step: 1,   value: values[:glideAngle]      || 0),
             strokeFerocity:  Field.new(action: "tuning.stroke_ferocity",  unit: "%",          min: 0,    max: 100,  step: 1,   value: values[:strokeFerocity]  || 50),
             aileronScale:    Field.new(action: "tuning.aileron_scale",    unit: "%",          min: 0,    max: 100,  step: 1,   value: values[:aileronScale]    || 100),
@@ -76,7 +76,7 @@ module Born2Flap
             profile_options: FLIGHT_PROFILES.map { |p| I18n.t(PROFILE_KEYS[p], lang: lang) },
             servo_rows: slider_number_rows(f, %w[servo_speed stall_torque backdrive], lang),
             battery_rows: slider_rows(f, %w[battery_voltage battery_resistance battery_capacity], lang),
-            geometry_rows: slider_rows(f, %w[mount_angle glide_angle flap_base_freq], lang),
+            geometry_rows: slider_rows(f, %w[tail_elevator_angle glide_angle flap_base_freq], lang),
             authority_rows: slider_rows(f, %w[stroke_ferocity aileron_scale elevator_scale], lang)
           }
         end

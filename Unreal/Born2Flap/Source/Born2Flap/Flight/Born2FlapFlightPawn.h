@@ -20,7 +20,7 @@ class IInputProcessor;
 enum class ETuningField : uint8
 {
     ServoSpeed, StallTorque, Backdrive, BatteryVoltage, BatteryResistance, BatteryCapacity,
-    FlapBaseFreq, MountAngle, GlideAngle, StrokeFerocity, AileronScale, ElevatorScale, Count
+    FlapBaseFreq, TailElevatorAngle, GlideAngle, StrokeFerocity, AileronScale, ElevatorScale, Count
 };
 // RC channels drive the native actuators. All forces and moments are aerodynamic.
 UCLASS()

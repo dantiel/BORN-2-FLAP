@@ -53,7 +53,7 @@
   "tuning.battery_resistance": "बैटरी प्रतिरोध",
   "tuning.battery_capacity": "बैटरी क्षमता",
   "tuning.flap_base_freq": "फड़फड़ाहट आवृत्ति सीमा",
-  "tuning.mount_angle": "माउंट कोण",
+  "tuning.tail_elevator_angle": "एलिवेटर कोण",
   "tuning.glide_angle": "ग्लाइड कोण",
   "tuning.stroke_ferocity": "प्रहार तीव्रता",
   "tuning.aileron_scale": "एलेरॉन पैमाना",

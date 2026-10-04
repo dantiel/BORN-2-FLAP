@@ -53,7 +53,7 @@
   "tuning.battery_resistance": "电池内阻",
   "tuning.battery_capacity": "电池容量",
   "tuning.flap_base_freq": "扑翼频率上限",
-  "tuning.mount_angle": "安装角",
+  "tuning.tail_elevator_angle": "升降舵角",
   "tuning.glide_angle": "滑翔角",
   "tuning.stroke_ferocity": "扑翼力度",
   "tuning.aileron_scale": "副翼比例",

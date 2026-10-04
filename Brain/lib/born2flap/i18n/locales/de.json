@@ -53,7 +53,7 @@
   "tuning.battery_resistance": "BATTERIEWIDERSTAND",
   "tuning.battery_capacity": "BATTERIEKAPAZITÄT",
   "tuning.flap_base_freq": "FLÜGELFREQUENZ-DECKE",
-  "tuning.mount_angle": "ANSTELLWINKEL",
+  "tuning.tail_elevator_angle": "HÖHENRUDERWINKEL",
   "tuning.glide_angle": "GLEITWINKEL",
   "tuning.stroke_ferocity": "SCHLAG-HEFTIGKEIT",
   "tuning.aileron_scale": "QUERRUDER-SKALA",

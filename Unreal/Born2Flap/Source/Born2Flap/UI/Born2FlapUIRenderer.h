@@ -39,7 +39,7 @@ class UEditableTextBox;
 
 // Semantic component action: an interactive component (Slider/Toggle/Select/
 // NumberBox/Button) reports `{Action, Value, Text}` when the user manipulates
-// it. `Action` is the semantic key ("tuning.mount_angle"), `Value` is the
+// it. `Action` is the semantic key ("tuning.tail_elevator_angle"), `Value` is the
 // numeric result (slider value, select index, toggle 1/0), `Text` is a
 // rendered label for string-typed actions.
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(

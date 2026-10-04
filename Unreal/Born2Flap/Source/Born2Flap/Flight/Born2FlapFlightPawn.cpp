@@ -138,7 +138,7 @@ ABorn2FlapFlightPawn::ABorn2FlapFlightPawn()
     Tuning.battery_resistance_ohm = 0.08;
     Tuning.battery_capacity_ah = 1.3;
     Tuning.flap_base_freq_dhz = 32;
-    Tuning.mount_angle_deg = 0;
+    Tuning.tail_elevator_angle_deg = 0;
     Tuning.glide_angle_deg = -4;
     Tuning.stroke_ferocity = 50;
     Tuning.aileron_scale = 60;
@@ -158,7 +158,7 @@ float TuningClamp(ETuningField Field, float Value)
     case ETuningField::BatteryResistance: return FMath::Clamp(Value, 0.01f, 0.5f);
     case ETuningField::BatteryCapacity:   return FMath::Clamp(Value, 0.1f, 5.f);
     case ETuningField::FlapBaseFreq:      return FMath::Clamp(Value, 10.f, 200.f);
-    case ETuningField::MountAngle:        return FMath::Clamp(Value, -15.f, 15.f);
+    case ETuningField::TailElevatorAngle:    return FMath::Clamp(Value, -15.f, 15.f);
     case ETuningField::GlideAngle:        return FMath::Clamp(Value, -15.f, 15.f);
     case ETuningField::StrokeFerocity:    return FMath::Clamp(Value, 0.f, 100.f);
     case ETuningField::AileronScale:      return FMath::Clamp(Value, 0.f, 100.f);
@@ -178,7 +178,7 @@ float ABorn2FlapFlightPawn::GetTuning(ETuningField Field) const
     case ETuningField::BatteryResistance: return float(Tuning.battery_resistance_ohm);
     case ETuningField::BatteryCapacity:   return float(Tuning.battery_capacity_ah);
     case ETuningField::FlapBaseFreq:      return float(Tuning.flap_base_freq_dhz);
-    case ETuningField::MountAngle:        return float(Tuning.mount_angle_deg);
+    case ETuningField::TailElevatorAngle:    return float(Tuning.tail_elevator_angle_deg);
     case ETuningField::GlideAngle:        return float(Tuning.glide_angle_deg);
     case ETuningField::StrokeFerocity:    return float(Tuning.stroke_ferocity);
     case ETuningField::AileronScale:      return float(Tuning.aileron_scale);
@@ -198,7 +198,7 @@ void ABorn2FlapFlightPawn::SetTuning(ETuningField Field, float Value)
     case ETuningField::BatteryResistance: Tuning.battery_resistance_ohm = Value; break;
     case ETuningField::BatteryCapacity:   Tuning.battery_capacity_ah = Value; break;
     case ETuningField::FlapBaseFreq:      Tuning.flap_base_freq_dhz = Value; break;
-    case ETuningField::MountAngle:        Tuning.mount_angle_deg = Value; break;
+    case ETuningField::TailElevatorAngle:    Tuning.tail_elevator_angle_deg = Value; break;
     case ETuningField::GlideAngle:        Tuning.glide_angle_deg = Value; break;
     case ETuningField::StrokeFerocity:    Tuning.stroke_ferocity = Value; break;
     case ETuningField::AileronScale:      Tuning.aileron_scale = Value; break;
@@ -296,29 +296,23 @@ void ABorn2FlapFlightPawn::BeginPlay()
     Camera->PostProcessSettings.bOverride_AutoExposureBias = true;
     Camera->PostProcessSettings.AutoExposureMinBrightness = DaylightExposure;
     Camera->PostProcessSettings.AutoExposureMaxBrightness = DaylightExposure;
-    // Load the generated parhelion material onto the sky dome. It is created by
-    // the map generator, so it only exists at runtime (not at CDO construction
-    // time). If absent, hide the dome rather than drawing garbage.
+    // The parhelion is a full-screen POST-PROCESS material (the sky-dome mesh
+    // approach proved unreliable: a camera-enclosing additive sphere never
+    // rendered its halo despite a correct mesh, material, bounds and render
+    // state). It is created by the map generator, so it only exists at runtime.
     if (SkyDome)
     {
-        UMaterialInterface* ParhelionMat = LoadObject<UMaterialInterface>(
-                nullptr, TEXT("/Game/Shiomori/Materials/M_SunParhelion"));
-        UE_LOG(LogTemp, Display, TEXT("SkyParhelionDome mesh=%s material=%s registered=%s visible=%s scale=%s boundsR=%.0f"),
-               SkyDome->GetStaticMesh() ? TEXT("set") : TEXT("MISSING"),
-               ParhelionMat ? TEXT("loaded") : TEXT("MISSING"),
-               SkyDome->IsRegistered() ? TEXT("yes") : TEXT("no"),
-               SkyDome->IsVisible() ? TEXT("yes") : TEXT("no"),
-               *SkyDome->GetComponentScale().ToString(),
-               SkyDome->Bounds.SphereRadius);
-        if (ParhelionMat)
-        {
-            SkyDome->SetMaterial(0, ParhelionMat);
-            SkyDome->SetVisibility(true);
-        }
-        else
-        {
-            SkyDome->SetVisibility(false);
-        }
+        SkyDome->SetVisibility(false); // dome mesh retired; keep the component
+    }
+    if (UMaterialInterface* ParhelionMat = LoadObject<UMaterialInterface>(
+            nullptr, TEXT("/Game/Shiomori/Materials/M_SunParhelion")))
+    {
+        Camera->PostProcessSettings.AddBlendable(ParhelionMat, 1.0f);
+        UE_LOG(LogTemp, Display, TEXT("SkyParhelionDome postprocess=attached"));
+    }
+    else
+    {
+        UE_LOG(LogTemp, Display, TEXT("SkyParhelionDome postprocess=MISSING"));
     }
     Camera->PostProcessSettings.AutoExposureBias = 0;
     Camera->PostProcessSettings.bOverride_MotionBlurAmount = true;
@@ -409,7 +403,10 @@ void ABorn2FlapFlightPawn::BeginPlay()
         CameraBoom->TargetArmLength = 360;
         CameraBoom->SetRelativeLocation(FVector(0,0,24));
         CameraBoom->bInheritYaw = false;
-        CameraBoom->SetRelativeRotation(FRotator(-52,135,0));
+        float PreviewPitch=-52.f, PreviewYaw=135.f;
+        FParse::Value(FCommandLine::Get(), TEXT("B2FBirdPreviewPitch="), PreviewPitch);
+        FParse::Value(FCommandLine::Get(), TEXT("B2FBirdPreviewYaw="), PreviewYaw);
+        CameraBoom->SetRelativeRotation(FRotator(PreviewPitch,PreviewYaw,0));
         Camera->SetFieldOfView(65);
     }
     if (auto *PC = Cast<APlayerController>(GetController()))

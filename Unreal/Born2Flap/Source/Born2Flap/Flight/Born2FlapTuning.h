@@ -25,7 +25,7 @@ FORCEINLINE const TCHAR* Key(ETuningField Field)
     case ETuningField::BatteryResistance:  return TEXT("BatteryResistance");
     case ETuningField::BatteryCapacity:    return TEXT("BatteryCapacity");
     case ETuningField::FlapBaseFreq:       return TEXT("FlapBaseFreq");
-    case ETuningField::MountAngle:         return TEXT("MountAngle");
+    case ETuningField::TailElevatorAngle:       return TEXT("TailElevatorAngle");
     case ETuningField::GlideAngle:         return TEXT("GlideAngle");
     case ETuningField::StrokeFerocity:     return TEXT("StrokeFerocity");
     case ETuningField::AileronScale:       return TEXT("AileronScale");
@@ -63,7 +63,7 @@ static const FRow Rows[] =
     { ETuningField::BatteryResistance,  TEXT("BATTERY RESISTANCE"),    TEXT("Ω"),             0.01f,  0.5f, 2 },
     { ETuningField::BatteryCapacity,    TEXT("BATTERY CAPACITY"),      TEXT("Ah"),            0.1f,   5.f, 2 },
     { ETuningField::FlapBaseFreq,       TEXT("FLAP FREQ CEILING"),     TEXT("dHz"),          10.f,  200.f, 0 },
-    { ETuningField::MountAngle,         TEXT("MOUNT ANGLE"),           TEXT("°"),           -15.f,   15.f, 0 },
+    { ETuningField::TailElevatorAngle,     TEXT("TAIL ELEVATOR ANGLE"),      TEXT("°"),           -15.f,   15.f, 0 },
     { ETuningField::GlideAngle,         TEXT("GLIDE ANGLE"),           TEXT("°"),           -15.f,   15.f, 0 },
     { ETuningField::StrokeFerocity,     TEXT("STROKE FEROCITY"),       TEXT("%"),             0.f,  100.f, 0 },
     { ETuningField::AileronScale,       TEXT("AILERON SCALE"),         TEXT("%"),             0.f,  100.f, 0 },

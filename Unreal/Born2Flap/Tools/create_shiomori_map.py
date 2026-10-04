@@ -446,9 +446,11 @@ PARHELION_WEATHER = [
     (1,  'FULL_DISPLAY',       dict(halo=1.0,  dog_l=1.0, dog_r=1.0, pillar=1.0, columns=1.0, cza=0.9, cloud=0.6)),
 ]
 PARHELION_BY_NAME = {name: gates for _, name, gates in PARHELION_WEATHER}
-PARHELION_DEFAULT = dict(PARHELION_BY_NAME['CIRROSTRATUS'])
+# Art direction uses a persistent full display; the weighted presets above
+# remain available only when PARHELION_FORCE_WEATHER is explicitly set to None.
+PARHELION_DEFAULT = dict(PARHELION_BY_NAME['FULL_DISPLAY'])
 # Force a state name for a deterministic sky, or None to roll the weighted table.
-PARHELION_FORCE_WEATHER = 'CIRROSTRATUS'
+PARHELION_FORCE_WEATHER = 'FULL_DISPLAY'
 WEATHER_SEED = 42
 
 def pick_parhelion_weather(seed):
@@ -464,24 +466,31 @@ def pick_parhelion_weather(seed):
 
 
 def sun_parhelion_material(sun_dir, weather=None):
-    """Screen-space parhelion: a bright sun disc, its ~22-degree halo, and two
-    parhelia (sun dogs) sat on the same horizontal line either side of the sun,
-    plus the faint parhelic circle through it. The static sun direction is
-    baked in and projected through ResolvedView each frame, so the three-sun
-    apparition tracks the real atmosphere sun at any camera orientation and is
-    composited additively after tonemapping (eye adaptation stays stable)."""
+    """Screen-space parhelion post-process: the ~22-degree halo, two parhelia
+    (sun dogs) with spectral dispersion, and the faint parhelic circle around
+    the existing atmosphere sun. The sun disc itself is NOT re-drawn here (the
+    DirectionalLight + SkyAtmosphere already render it); this material only adds
+    the halo/dogs additively. The static sun direction is baked in and projected
+    against CameraVectorWS each frame, so the apparition tracks the real sun at
+    any camera orientation. Preserve the input scene and add bounded light
+    after tonemapping, with scene-depth occlusion."""
     w = dict(weather) if weather else dict(PARHELION_DEFAULT)
     path = '/Game/Shiomori/Materials/M_SunParhelion'
     m = u.load_asset(path) if ela.does_asset_exist(path) else assets.create_asset(
         'M_SunParhelion', '/Game/Shiomori/Materials', u.Material, u.MaterialFactoryNew())
     lib.delete_all_material_expressions(m)
-    m.set_editor_property('material_domain', u.MaterialDomain.MD_SURFACE)
-    m.set_editor_property('blend_mode', u.BlendMode.BLEND_ADDITIVE)
+    m.set_editor_property('material_domain', u.MaterialDomain.MD_POST_PROCESS)
+    # Post-process emissive replaces scene color; surface additive blending
+    # does not preserve the input frame. Composite PostProcessInput0 explicitly.
+    m.set_editor_property('blend_mode', u.BlendMode.BLEND_OPAQUE)
+    m.set_editor_property('blendable_location', u.BlendableLocation.BL_SCENE_COLOR_AFTER_TONEMAPPING)
     m.set_editor_property('shading_model', u.MaterialShadingModel.MSM_UNLIT)
     m.set_editor_property('two_sided', True)
     sd = node(m, 'Constant3Vector', constant=u.LinearColor(sun_dir[0], sun_dir[1], sun_dir[2], 0.0))
-    wpos = node(m, 'WorldPosition')
-    code = f'''float3 R = normalize(WorldPos - ResolvedView.TranslatedWorldCameraOrigin);
+    view = node(m, 'CameraVectorWS')
+    scene = node(m, 'SceneTexture', scene_texture_id=u.SceneTextureId.PPI_POST_PROCESS_INPUT0)
+    depth = node(m, 'SceneTexture', scene_texture_id=u.SceneTextureId.PPI_SCENE_DEPTH)
+    code = f'''float3 R = normalize(-ViewToCamera);
     float3 S = normalize(SunDir);
   
     // True angular separation between the view ray and the sun (FOV-independent).
@@ -494,7 +503,7 @@ def sun_parhelion_material(sun_dir, weather=None):
   
     // Above-horizon mask so the halo's lower arc is occluded by the sea instead
     // of being painted over it.
-    float skyMask = step(0.0, elR);
+    float skyMask = smoothstep(0.0, 0.025, R.z) * step(10000000.0, SceneDepth.r);
   
     float R22 = 0.38397; // 22 degrees: the halo minimum-deviation angle (fixed ring)
     // Physical parhelion geometry — the sun dogs are NOT pinned to the halo. For a
@@ -512,12 +521,10 @@ def sun_parhelion_material(sun_dir, weather=None):
     float lowSun = 1.0 - smoothstep(8.0, 20.0, sunDeg);
     float compact = lerp(1.0, 1.5, lowSun);
   
-    // (1) Sun: very bright HDR core + wide overexposed aureole that never
-    // reaches the halo ring; the >1 HDR value drives bloom into a real glare.
-    // Widened from a sub-solar ~0.18 deg core to a larger, hotter disc and a
-    // broad glare aureole so the sun reads as a bold, luminous body.
-    float core = exp(-pow(ang * 130.0, 2.0)) * 40.0;
-    float aureole = exp(-ang * 20.0) * 8.0;
+    // The sun disc itself is rendered by the DirectionalLight + SkyAtmosphere
+    // (atmosphere_sun_light=True); this material only adds the halo, the two
+    // parhelia and the parhelic circle around it. Re-drawing the disc here
+    // produced a blown-out double sun.
   
     // (2) 22-degree halo: weak and azimuthally broken into bright/dim arcs, not
     // a perfect bright ring. Sharp reddish inner edge, soft bluish outer falloff.
@@ -529,38 +536,39 @@ def sun_parhelion_material(sun_dir, weather=None):
   
     // Sun dogs: altitude-dependent position (see phi above). Vertically-stretched
     // diffuse rectangular-oval (superellipse), red on the sun-facing inner edge.
-    // t = 0 -> sun side, t = 1 -> outward side. As the sun climbs they drift
+    // t = 1 -> sun side (red inner edge), t = 0 -> outward tail. As the sun climbs they drift
     // outside the halo, stretch taller and soften.
     float tallness = lerp(1.0, 2.2, 1.0 - lowSun);
     float softness = lerp(1.4, 2.0, 1.0 - lowSun);
-    float tL = saturate((dAz + phi) * 30.0 + 0.55);
-    float tR = saturate(-(dAz - phi) * 30.0 + 0.55);
+    float dogW = 60.0 * compact;
+    float tL = saturate((dAz + phi) * dogW + 0.5);
+    float tR = saturate(-(dAz - phi) * dogW + 0.5);
 
-    float sxL = abs(dAz + phi) * (5.0 * compact);
-    float syL = abs(dEl) * (3.5 * compact / tallness);
+    float sxL = abs(dAz + phi) * (60.0 * compact);
+    float syL = abs(dEl) * (40.0 * compact / tallness);
     float dogL = exp(-pow(pow(pow(sxL, softness) + pow(syL, softness), 1.0 / softness), 2.0));
-    float sxR = abs(dAz - phi) * (5.0 * compact);
-    float syR = abs(dEl) * (3.5 * compact / tallness);
+    float sxR = abs(dAz - phi) * (60.0 * compact);
+    float syR = abs(dEl) * (40.0 * compact / tallness);
     float dogR = exp(-pow(pow(pow(sxR, softness) + pow(syR, softness), 1.0 / softness), 2.0));
   
-    // (4,5,6,7) Spectral ramp: red -> orange -> yellow -> pale green/cyan ->
-    // warm-white. Blue is suppressed and the whole ramp is strongly desaturated
-    // so it reads as atmospheric, not a clean RGB rainbow.
-    float3 dogColL = float3(1.00, 0.30, 0.18);
-    dogColL = lerp(dogColL, float3(1.00, 0.64, 0.30), smoothstep(0.00, 0.30, tL));
-    dogColL = lerp(dogColL, float3(1.00, 0.90, 0.55), smoothstep(0.30, 0.55, tL));
-    dogColL = lerp(dogColL, float3(0.82, 0.90, 0.80), smoothstep(0.55, 0.82, tL));
-    dogColL = lerp(dogColL, float3(0.95, 0.94, 0.90), smoothstep(0.82, 1.00, tL));
+    // Spectral dispersion across each parhelion: red on the sun-facing inner
+    // edge (t=1) running through orange/yellow to a pale blue-white tail on the
+    // outer edge (t=0). Mostly saturated so the rainbow reads clearly.
+    float3 dogColL = float3(0.92, 0.93, 0.97);
+    dogColL = lerp(dogColL, float3(0.45, 0.62, 0.95), smoothstep(0.00, 0.28, tL));
+    dogColL = lerp(dogColL, float3(0.95, 0.90, 0.55), smoothstep(0.28, 0.55, tL));
+    dogColL = lerp(dogColL, float3(1.00, 0.55, 0.20), smoothstep(0.55, 0.80, tL));
+    dogColL = lerp(dogColL, float3(1.00, 0.12, 0.08), smoothstep(0.80, 1.00, tL));
     float lumL = dot(dogColL, float3(0.299, 0.587, 0.114));
-    dogColL = lerp(float3(lumL, lumL, lumL), dogColL, 0.35);
+    dogColL = lerp(float3(lumL, lumL, lumL), dogColL, 0.65);
   
-    float3 dogColR = float3(1.00, 0.30, 0.18);
-    dogColR = lerp(dogColR, float3(1.00, 0.64, 0.30), smoothstep(0.00, 0.30, tR));
-    dogColR = lerp(dogColR, float3(1.00, 0.90, 0.55), smoothstep(0.30, 0.55, tR));
-    dogColR = lerp(dogColR, float3(0.82, 0.90, 0.80), smoothstep(0.55, 0.82, tR));
-    dogColR = lerp(dogColR, float3(0.95, 0.94, 0.90), smoothstep(0.82, 1.00, tR));
+    float3 dogColR = float3(0.92, 0.93, 0.97);
+    dogColR = lerp(dogColR, float3(0.45, 0.62, 0.95), smoothstep(0.00, 0.28, tR));
+    dogColR = lerp(dogColR, float3(0.95, 0.90, 0.55), smoothstep(0.28, 0.55, tR));
+    dogColR = lerp(dogColR, float3(1.00, 0.55, 0.20), smoothstep(0.55, 0.80, tR));
+    dogColR = lerp(dogColR, float3(1.00, 0.12, 0.08), smoothstep(0.80, 1.00, tR));
     float lumR = dot(dogColR, float3(0.299, 0.587, 0.114));
-    dogColR = lerp(float3(lumR, lumR, lumR), dogColR, 0.35);
+    dogColR = lerp(float3(lumR, lumR, lumR), dogColR, 0.65);
   
     // (7) Ice-crystal quality gate: near-spectral (ghostly) by default, and
     // prominent only under excellent plate conditions. This is the master gain
@@ -581,10 +589,10 @@ def sun_parhelion_material(sun_dir, weather=None):
     float gCza    = iceGain * {w['cza']};
   
     // (9) Long whitish tail running outward along the parhelic circle.
-    float tailL = exp(-pow(dEl * 5.0, 2.0))
+    float tailL = exp(-pow(dEl * 90.0, 2.0))
                 * smoothstep(phi - 0.12, phi + 0.08, -dAz)
                 * exp(-max(0.0, -dAz - phi) * 0.55);
-    float tailR = exp(-pow(dEl * 5.0, 2.0))
+    float tailR = exp(-pow(dEl * 90.0, 2.0))
                 * smoothstep(phi - 0.12, phi + 0.08, dAz)
                 * exp(-max(0.0, dAz - phi) * 0.55);
     float3 tailCol = float3(0.93, 0.91, 0.87);
@@ -605,7 +613,7 @@ def sun_parhelion_material(sun_dir, weather=None):
     // (10) Sun pillar: a vertical golden/white streak above (and reflected
     // below) the sun from reflection off falling plates. No refraction, hence
     // no spectral colour — just a warm column, golder at a low sun.
-    float pillar = exp(-pow(dAz * 18.0, 2.0)) * exp(-pow(dEl * 2.2, 2.0));
+    float pillar = exp(-pow(dAz * 160.0, 2.0)) * exp(-pow(dEl * 9.0, 2.0));
     float3 pillarCol = lerp(float3(1.0, 0.98, 0.92), float3(1.0, 0.82, 0.55), lowSun);
 
     // (11) Tangent arcs (horizontal columns): an upper V-bow touching the halo
@@ -646,42 +654,42 @@ def sun_parhelion_material(sun_dir, weather=None):
     czaCol = lerp(czaCol, float3(1.0, 0.9, 0.2), smoothstep(0.3, 0.5, czaT));
     czaCol = lerp(czaCol, float3(0.3, 0.9, 0.4), smoothstep(0.5, 0.7, czaT));
     czaCol = lerp(czaCol, float3(0.2, 0.5, 1.0), smoothstep(0.7, 1.0, czaT));
-    // (14) Cirrus atlas: a thin high ice veil, coverage-gated by the weather
-    // state. The field is a cheap inline "fractal" of phase-shifted sine
-    // dot-products over the world view direction (anchored to the sky, not the
-    // camera), thresholded into sparse wisps and warmed toward the sun.
-    // Additive (unlit) - it brightens the sky rather than shadowing it.
-    float cirrusCover = {w['cloud']};
-    float cn = sin(dot(R, float3(12.9898, 78.233, 45.164)) * 1.9) * 0.50
-             + sin(dot(R, float3(39.346, 11.135, 27.532)) * 3.7 + 1.3) * 0.30
-             + sin(dot(R, float3(7.425, 9.911, 53.112)) * 6.9 + 2.7) * 0.20;
-    float cirrus = smoothstep(0.52, 0.86, cn * 0.5 + 0.5);
-    cirrus *= smoothstep(0.10, 0.30, elR) * (1.0 - smoothstep(1.30, 1.5708, elR));
-    float3 cirrusCol = lerp(float3(0.72, 0.82, 1.0), float3(1.0, 0.90, 0.78), exp(-ang * 7.0));
+    // (cirrus veil removed: its full-sky sine field read as screen artifacts)
 
-    float3 warm = float3(1.0, 0.90, 0.78);
-    float3 contrib = warm * (core + aureole);
-    contrib += haloCol * halo * (1.50 * gHalo * lerp(0.7, 1.0, lowSun)) * skyMask;
-    contrib += dogColL * dogL * (4.00 * gDogL * lerp(1.2, 3.0, lowSun)) * skyMask;
-    contrib += dogColR * dogR * (4.00 * gDogR * lerp(1.2, 3.0, lowSun)) * skyMask;
+    float3 contrib = float3(0.0, 0.0, 0.0);
+    contrib += haloCol * halo * (1.20 * gHalo * lerp(0.7, 1.0, lowSun)) * skyMask;
+    contrib += dogColL * dogL * (2.00 * gDogL * lerp(1.2, 2.5, lowSun)) * skyMask;
+    contrib += dogColR * dogR * (2.00 * gDogR * lerp(1.2, 2.5, lowSun)) * skyMask;
     contrib += tailCol * tailL * (0.20 * gDogL * lerp(0.7, 1.0, lowSun)) * skyMask;
     contrib += tailCol * tailR * (0.20 * gDogR * lerp(0.7, 1.0, lowSun)) * skyMask;
     contrib += float3(0.96, 0.95, 0.92) * circle * gHalo * skyMask;
     contrib += pillarCol * pillar * (0.45 * gPillar * lerp(0.5, 1.2, lowSun)) * skyMask;
     contrib += arcCol * (arcUp + arcLo) * (0.16 * gColumn * lerp(0.8, 1.0, lowSun)) * skyMask;
     contrib += czaCol * cza * (0.6 * gCza) * skyMask;
-    contrib += cirrusCol * cirrus * (0.5 * cirrusCover) * skyMask;
 
-    return contrib;'''
+    // A double rainbow opposite the sun, with reversed secondary spectrum.
+    float antiAngle = acos(clamp(dot(R, -S), -1.0, 1.0));
+    float bowT = saturate((antiAngle - 0.69813) / 0.03491);
+    float3 bowColor = saturate(1.5 - abs(4.0 * bowT - float3(3.0, 2.0, 1.0)));
+    float bow = smoothstep(0.695, 0.700, antiAngle) * (1.0 - smoothstep(0.730, 0.736, antiAngle));
+    float secondT = 1.0 - saturate((antiAngle - 0.87266) / 0.05236);
+    float3 secondColor = saturate(1.5 - abs(4.0 * secondT - float3(3.0, 2.0, 1.0)));
+    float secondBow = smoothstep(0.869, 0.875, antiAngle) * (1.0 - smoothstep(0.922, 0.929, antiAngle));
+    contrib += (0.45 * bowColor * bow + 0.18 * secondColor * secondBow) * gHalo * skyMask;
+    // Bounded display-space light preserves color instead of clipping broad
+    // HDR-era lobes to white after tonemapping.
+    return SceneColor.rgb + (1.0 - saturate(SceneColor.rgb)) * (1.0 - exp(-0.7 * contrib));'''
     h = node(m, 'Custom', code=code, output_type=u.CustomMaterialOutputType.CMOT_FLOAT3)
     pins = []
-    for nm in ('SunDir', 'WorldPos'):
+    for nm in ('SunDir', 'ViewToCamera', 'SceneColor', 'SceneDepth'):
         pin = u.CustomInput()
         pin.set_editor_property('input_name', nm)
         pins.append(pin)
     h.set_editor_property('inputs', pins)
     wire(sd, h, 'SunDir')
-    wire(wpos, h, 'WorldPos')
+    wire(view, h, 'ViewToCamera')
+    wire(scene, h, 'SceneColor', 'Color')
+    wire(depth, h, 'SceneDepth', 'Color')
     output(h, 'EMISSIVE_COLOR')
     material_usage_flags(m)
     lib.recompile_material(m)
@@ -692,9 +700,8 @@ def sun_parhelion_material(sun_dir, weather=None):
 def apply_post_process():
     """Unbound post-process volume: camera-side optics only — gentle bloom for
     specular glitter and screen-space reflections for wet sand/water. The
-    parhelion itself is atmospheric (a sky-dome material spawned by the pawn),
-    NOT a post-process blendable, so it is genuinely occluded by terrain/clouds
-    and stays geometrically coupled to the sun. Property names are UE5.8."""
+    parhelion is a separate post-process blendable (M_SunParhelion) attached by
+    the pawn to the camera. Property names are UE5.8."""
     vol = u.EditorLevelLibrary.spawn_actor_from_class(u.PostProcessVolume, u.Vector(0, 0, 0))
     vol.set_actor_label('Shiomori PostProcess')
     vol.set_editor_property('unbound', True)
@@ -736,16 +743,19 @@ def fpv_fisheye_material():
     sp = node(m, 'ScreenPosition')
     barrel = node(m, 'Constant', r=0.30)
     aspect = node(m, 'Constant', r=1.7778)
-    code = '''float4 SceneTextureLookup(float2 UV, int SceneTextureIndex, bool bFiltered);
-    float2 uv = ScreenUV - 0.5;
+    # Let the SceneTexture expression declare and sample the scene input.
+    # A function prototype inside a Custom expression does not implement it.
+    code = '''float2 uv = ScreenUV - 0.5;
     uv.x *= Aspect;
     float r2 = dot(uv, uv);
     uv *= (1.0 + Barrel * r2);
     uv.x /= Aspect;
     float2 suv = uv + 0.5;
-    return SceneTextureLookup(suv, 14, false).rgb;'''
-    h = custom(m, code, {'ScreenUV': sp, 'Barrel': barrel, 'Aspect': aspect}, 3)
-    output(h, 'EMISSIVE_COLOR')
+    return saturate(suv);'''
+    h = custom(m, code, {'ScreenUV': sp, 'Barrel': barrel, 'Aspect': aspect}, 2)
+    scene = node(m, 'SceneTexture', scene_texture_id=u.SceneTextureId.PPI_POST_PROCESS_INPUT0)
+    wire(h, scene, 'UVs')
+    output(scene, 'EMISSIVE_COLOR', 'Color')
     lib.recompile_material(m)
     assert ela.save_asset(path), 'Failed to save ' + path
     return m

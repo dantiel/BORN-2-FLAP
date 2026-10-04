@@ -147,7 +147,7 @@ data FlightProfile = FlightProfile
   { profStrokeFerocity  :: !Double  -- 0..100
   , profReturnFerocity  :: !Double  -- 0..100
   , profGlideAngleDeg   :: !Double  -- -15..+15
-  , profFlappingAngleDeg:: !Double  -- -15..+15, flap stroke centre offset
+  , profTailElevatorAngleDeg :: !Double  -- -15..+15, tail elevator angle (flap stroke centre trim)
   , profAileronScale    :: !Double  -- 0..100
   , profElevatorScale   :: !Double  -- 0..100
   , profRudderFerocityRange :: !Double  -- 0..100
@@ -377,7 +377,7 @@ flappingBranch coupled prof aileronNorm elevatorNorm rc params state dt =
       -- The glide branch retains its differential held-wing positions.
       aileronCmd = 0
       elevatorCmd = elevatorNorm * profElevatorScale prof * 0.01 * steerMaxDeg
-      flapCenterCmd = profFlappingAngleDeg prof
+      flapCentreTrim = profTailElevatorAngleDeg prof
 
       -- Elevator → ferocity asymmetry.
       elevFerScale = profElevatorFerocityMix prof * 0.01 * (ferocityMax - ferocityMin)
@@ -445,8 +445,8 @@ flappingBranch coupled prof aileronNorm elevatorNorm rc params state dt =
 
       -- Convert the COMPLETE mixed shaft command into mirrored physical flap
       -- coordinates. The old ABI path discarded every centre/position term.
-      left = clamp (-80) 80 (degL - aileronCmd - elevatorCmd - flapCenterCmd)
-      right = clamp (-80) 80 (degR + aileronCmd - elevatorCmd - flapCenterCmd)
+      left = clamp (-80) 80 (degL - aileronCmd - elevatorCmd - flapCentreTrim)
+      right = clamp (-80) 80 (degR + aileronCmd - elevatorCmd - flapCentreTrim)
       angleLeft = neutralAngleDeg - left * angularMultiplier
       angleRight = neutralAngleDeg + right * angularMultiplier
 
