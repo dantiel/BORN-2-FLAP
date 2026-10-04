@@ -127,8 +127,7 @@ void ABorn2FlapHUD::DrawChannels(const ABorn2FlapFlightPawn& Bird)
     DrawRect(FLinearColor(.015f, .028f, .025f, .42f), X, Y, 212, 126);
     const auto* Rc = Bird.GetRcController();
     const bool Hardware = Rc && Rc->IsEnabled();
-    DrawText(FString::Printf(TEXT("CHANNELS / %s   F2"), Hardware ? TEXT("RC") :
-             Bird.IsWheelThrottleActive() ? TEXT("WHEEL") : TEXT("KEYS")),
+    DrawText(FString::Printf(TEXT("CHANNELS / %s   F2"), Hardware ? TEXT("RC") : TEXT("KEYS")),
              Text, X + 12, Y + 7, GEngine->GetSmallFont(), .8f);
     const FVector Sticks = Bird.GetRcSticks();
     const float Values[] = {Bird.GetEffort(), float(Sticks.Y), float(Sticks.Z), float(Sticks.X)};
@@ -145,7 +144,9 @@ void ABorn2FlapHUD::DrawChannels(const ABorn2FlapFlightPawn& Bird)
         DrawText(I == 0 ? FString::Printf(TEXT("%3.0f%%"), Value * 100) : FString::Printf(TEXT("%+4.0f"), Value * 100),
                  Text, X + 159, Row - 4, GEngine->GetSmallFont(), .8f);
     }
-    DrawText(FString::Printf(TEXT("wheel memory %.0f%%"), Bird.GetWheelThrottle() * 100),
+    DrawText(FString::Printf(TEXT("THR %s  SPEED %3.0f%%"),
+             Bird.IsThrottleCoupled() ? TEXT("COUPLED") : TEXT("INDEP"),
+             Bird.GetSpeedModifier() * 100),
              Text, X + 12, Y + 105, GEngine->GetSmallFont(), .75f);
 }
 void ABorn2FlapHUD::DrawRcPanel(const FBorn2FlapRcController &Rc)
@@ -177,7 +178,7 @@ void ABorn2FlapHUD::DrawRcPanel(const FBorn2FlapRcController &Rc)
         DrawText(Available ? FString::Printf(TEXT("%3.0f%%"), Value * 100) : TEXT("--"), Cream, X + 344, Row,
                  GEngine->GetSmallFont(), 1.f);
     }
-    for (int32 I = 0; I < 4; ++I)
+    for (int32 I = 0; I < 5; ++I)
         DrawText(Rc.GetMapping(I), Cream, X + Width * .52, Y + 223 + I * 37, GEngine->GetSmallFont(), 1.1f);
     Text(Rc.GetButtons(), 420, Muted);
     Text(Rc.Notice, 450, Accent);

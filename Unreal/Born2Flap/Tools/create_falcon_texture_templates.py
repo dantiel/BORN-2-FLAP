@@ -90,7 +90,7 @@ def write_wing_svg() -> str:
         _anchor("ROOT", (13.0/95.0 + 60.0/95.0)/2, 0.0, 0, 60),
         _anchor("TIP", (37.0/95.0 + 48.0/95.0)/2, 100.0/105.0, 0, -60),
     ])
-    return _doc("FALCON / PEREGRINE — membrane wing (Design 2)",
+    return _doc("COMMON KESTREL — membrane wing (Design 2)",
                 f"UV bounds: U [{min(us):.3f}..{max(us):.3f}]  V [{min(vs):.3f}..{max(vs):.3f}]  (both wings share this UV)",
                 inner)
 
@@ -139,7 +139,7 @@ def write_body_svg() -> str:
         _anchor("BACK", 0.5, 1.0, 0, -60),
         _anchor("BELLY", 0.5, 0.0, 0, 60),
     ])
-    return _doc("FALCON / PEREGRINE — body (side view, X->U / Z->V)",
+    return _doc("COMMON KESTREL — body (side view, X->U / Z->V)",
                 f"UV bounds: U [{min(us):.3f}..{max(us):.3f}]  V [{min(vs):.3f}..{max(vs):.3f}]  (left/right sides overlap)",
                 inner)
 
@@ -174,7 +174,7 @@ def write_tail_svg() -> str:
         _anchor("RIGHT FAN", 0.25, 1.0, 0, -50),
         _anchor("LEFT FAN", 0.25, 0.0, 0, 50),
     ])
-    return _doc("FALCON / PEREGRINE — tail (top view, X->U / Y->V)",
+    return _doc("COMMON KESTREL — tail (top view, X->U / Y->V)",
                 f"UV bounds: U [{min(us):.3f}..{max(us):.3f}]  V [{min(vs):.3f}..{max(vs):.3f}]  (left fan bottom half, right fan top half)",
                 inner)
 

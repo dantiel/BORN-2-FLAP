@@ -18,7 +18,7 @@ class FBorn2FlapRcController
     bool IsArmed() const { return Gate.armed; }
     bool LaunchPressed() const { return bLaunch; }
     bool ResetPressed() const { return bReset; }
-    const std::array<double, 4> &GetChannels() const { return Channels; }
+    const std::array<double, 5> &GetChannels() const { return Channels; }
     const std::array<double, 8> &GetRawAxes() const { return RawAxes; }
     const std::array<bool, 8> &GetAvailableAxes() const { return Available; }
     FString GetDeviceName() const { return DeviceName; }
@@ -32,7 +32,7 @@ class FBorn2FlapRcController
     TUniquePtr<FBorn2FlapRcPlatform> Platform;
     born2flap::RcCalibration Calibration;
     born2flap::RcSignalGate Gate;
-    std::array<double, 4> Channels{};
+    std::array<double, 5> Channels{};
     std::array<double, 8> RawAxes{}, Rest{}, Low{}, High{};
     std::array<bool, 8> Available{};
     std::array<bool, 128> PreviousButtons{};

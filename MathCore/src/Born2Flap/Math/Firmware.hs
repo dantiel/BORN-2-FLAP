@@ -22,6 +22,7 @@ module Born2Flap.Math.Firmware
   , MixerOutput(..)
   , PilotInput(..)
   , defaultPilotInput
+  , pilot4
   , pilotToRc
   , crsfToNorm
   , crsfToFloat
@@ -81,10 +82,16 @@ data PilotInput = PilotInput
   , piRoll     :: !Double   -- ^ -1..1 aileron (roll)
   , piPitch    :: !Double   -- ^ -1..1 elevator (pitch)
   , piYaw      :: !Double   -- ^ -1..1 rudder (yaw)
+  , piSpeedMod :: !Double   -- ^ 0..1 flapping speed modifier (base frequency)
+  , piCoupled  :: !Bool     -- ^ throttle-coupled (True) vs independent (False)
   } deriving stock (Eq, Show)
 
 defaultPilotInput :: PilotInput
-defaultPilotInput = PilotInput 0 0 0 0
+defaultPilotInput = PilotInput 0 0 0 0 0.5 True
+
+-- | Legacy four-channel constructor: neutral speed modifier + coupled throttle.
+pilot4 :: Double -> Double -> Double -> Double -> PilotInput
+pilot4 t r p y = PilotInput t r p y 0.5 True
 
 pilotToRc :: PilotInput -> RcChannels
 pilotToRc pilot = RcChannels
@@ -93,7 +100,7 @@ pilotToRc pilot = RcChannels
   , rcThrottle = crsfRawMin + clamp 0 1 (piThrottle pilot) * (crsfRawMax - crsfRawMin)
   , rcRudder   = normToRaw (clamp (-1) 1 (piYaw pilot))
   , rcArm      = 1811
-  , rcFreq     = 1500
+  , rcFreq     = normToRaw (clamp (-1) 1 (piSpeedMod pilot * 2 - 1))
   , rcProfile  = 992
   }
 
@@ -288,9 +295,9 @@ orniAileronRollRateShift aileronRatePerSec rateMixPercent =
 
 -- ── The mixer kernel ───────────────────────────────────────────────
 
-computeServoMixer :: RcChannels -> FirmwareParams -> FirmwareState -> Double
+computeServoMixer :: Bool -> RcChannels -> FirmwareParams -> FirmwareState -> Double
                   -> (MixerOutput, FirmwareState)
-computeServoMixer rc params state dt
+computeServoMixer coupled rc params state dt
   | dt <= 0 = (glideOutput, state)
   | otherwise =
       let aileronNorm = crsfToNorm (rcAileron rc)
@@ -302,7 +309,7 @@ computeServoMixer rc params state dt
                                      else flapThresholdUs
           isFlapping = armed && throttleUsF > threshold
       in if isFlapping
-           then flappingBranch prof aileronNorm elevatorNorm rc params state dt
+           then flappingBranch coupled prof aileronNorm elevatorNorm rc params state dt
            else (glideOutput, glideTransition state)
 
   where
@@ -343,17 +350,19 @@ glideTransition state = state
   , fwAileronRateLPF = 0
   }
 
-flappingBranch :: FlightProfile -> Double -> Double -> RcChannels
+flappingBranch :: Bool -> FlightProfile -> Double -> Double -> RcChannels
                -> FirmwareParams -> FirmwareState -> Double
                -> (MixerOutput, FirmwareState)
-flappingBranch prof aileronNorm elevatorNorm rc params state dt =
+flappingBranch coupled prof aileronNorm elevatorNorm rc params state dt =
   let throttleUsF = rcThrottle rc
-      -- Frequency command: CH6 (independent) blended toward throttle.
-      independentFreq01 = crsfToNorm (rcFreq rc) * 0.5 + 0.5
+      -- Speed modifier (0..1): scales the base frequency AND, in independent
+      -- mode, is the frequency command. Mouse wheel / RC CH6 drive it.
+      speedMod01 = clamp 0 1 (crsfToNorm (rcFreq rc) * 0.5 + 0.5)
       throttlePct = clamp 0 1 ((throttleUsF - flapThresholdUs) / (crsfRawMax - flapThresholdUs))
-      freq01 = orniThrottleFrequencyCommand independentFreq01 throttlePct
-                (profThrottleFrequencyMix prof)
-      freqMax = fwFlapBaseFreqDh params * 0.1
+      coupling = if coupled then 100 else 0
+      freq01 = orniThrottleFrequencyCommand speedMod01 throttlePct coupling
+      speedFactor = 0.5 + speedMod01  -- 0.5x..1.5x base frequency
+      freqMax = fwFlapBaseFreqDh params * 0.1 * speedFactor
       freqHz = freqMinHz + freq01 * (freqMax - freqMinHz)
       cadenceTarget = freqHz * 6.283185307
 

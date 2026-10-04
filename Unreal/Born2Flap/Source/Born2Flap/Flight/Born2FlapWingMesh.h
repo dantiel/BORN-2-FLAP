@@ -11,9 +11,10 @@ class BORN2FLAP_API UBorn2FlapWingMesh : public UProceduralMeshComponent
     GENERATED_BODY()
 public:
     void InitializeWing(int32 Side, int32 Design);
-    void ApplyShape(const B2F_WingSection* Shape, const FTransform& BodyTransform);
+    void ApplyShape(const B2F_WingSection* Shape);
     UFUNCTION(BlueprintCallable, Category="Wing")
     void SetPaintTexture(UTexture2D* Texture);
+    int32 GetWingDesign() const { return WingDesign; }
     bool HasValidDeformation();
 private:
     int32 WingSide = 1;
