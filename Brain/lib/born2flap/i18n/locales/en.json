@@ -73,5 +73,20 @@
   "hangar.battery": "BATTERY",
   "hangar.geometry": "FLIGHT GEOMETRY",
   "hangar.authority": "CONTROL AUTHORITY",
-  "hangar.save": "SAVE & RETURN"
+  "hangar.save": "SAVE & RETURN",
+  "poi.launch_meadow": "LAUNCH MEADOW",
+  "poi.raven_watch": "THE RAVEN WATCH",
+  "poi.crows_acre": "CROW'S ACRE",
+  "poi.last_scrap": "LAST SCRAP",
+  "poi.underpass": "THE UNDERPASS",
+  "poi.old_barns": "THE OLD BARNS",
+  "poi.shiomori_beach": "SHIOMORI BEACH",
+  "poi.bay_overlook": "BAY OVERLOOK",
+  "poi.tidewalk": "TIDEWALK",
+  "poi.basalt_cove": "BASALT COVE",
+  "poi.shoreline": "SHORELINE",
+  "poi.east_vegetation": "EAST VEGETATION",
+  "poi.west_vegetation": "WEST VEGETATION",
+  "poi.start_line": "START LINE",
+  "poi.gate": "GATE"
 }

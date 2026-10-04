@@ -73,5 +73,15 @@
   "hangar.battery": "बैटरी",
   "hangar.geometry": "उड़ान ज्यामिति",
   "hangar.authority": "नियंत्रण अधिकार",
-  "hangar.save": "सहेजें और लौटें"
+  "hangar.save": "सहेजें और लौटें",
+  "poi.launch_meadow": "लॉन्च मैदान",
+  "poi.old_barns": "पुराने खलिहान",
+  "poi.shiomori_beach": "शिओमोरी समुद्र तट",
+  "poi.bay_overlook": "खाड़ी दृश्य",
+  "poi.basalt_cove": "बेसाल्ट खाड़ी",
+  "poi.shoreline": "तटरेखा",
+  "poi.east_vegetation": "पूर्वी वनस्पति",
+  "poi.west_vegetation": "पश्चिमी वनस्पति",
+  "poi.start_line": "प्रारंभ रेखा",
+  "poi.gate": "द्वार"
 }

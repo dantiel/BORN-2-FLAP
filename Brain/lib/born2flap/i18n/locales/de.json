@@ -73,5 +73,15 @@
   "hangar.battery": "BATTERIE",
   "hangar.geometry": "FLUGGEOMETRIE",
   "hangar.authority": "STEUER-AUTORITÄT",
-  "hangar.save": "SPEICHERN & ZURÜCK"
+  "hangar.save": "SPEICHERN & ZURÜCK",
+  "poi.launch_meadow": "STARTWIESE",
+  "poi.old_barns": "DIE ALTEN SCHEUNEN",
+  "poi.shiomori_beach": "SHIOMORI-STRAND",
+  "poi.bay_overlook": "BUCHT-AUSSICHT",
+  "poi.basalt_cove": "BASALT-BUCHT",
+  "poi.shoreline": "KÜSTENLINIE",
+  "poi.east_vegetation": "OST-VEGETATION",
+  "poi.west_vegetation": "WEST-VEGETATION",
+  "poi.start_line": "STARTLINIE",
+  "poi.gate": "TOR"
 }

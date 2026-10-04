@@ -73,5 +73,15 @@
   "hangar.battery": "البطارية",
   "hangar.geometry": "هندسة الطيران",
   "hangar.authority": "سلطة التحكم",
-  "hangar.save": "حفظ والعودة"
+  "hangar.save": "حفظ والعودة",
+  "poi.launch_meadow": "مرج الإقلاع",
+  "poi.old_barns": "الحظائر القديمة",
+  "poi.shiomori_beach": "شاطئ شيوموري",
+  "poi.bay_overlook": "إطلالة الخليج",
+  "poi.basalt_cove": "خليج البازلت",
+  "poi.shoreline": "الخط الساحلي",
+  "poi.east_vegetation": "النباتات الشرقية",
+  "poi.west_vegetation": "النباتات الغربية",
+  "poi.start_line": "خط البداية",
+  "poi.gate": "بوابة"
 }

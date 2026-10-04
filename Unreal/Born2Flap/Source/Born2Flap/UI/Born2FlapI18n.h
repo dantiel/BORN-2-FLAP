@@ -121,6 +121,21 @@ static const Entry En[] =
         { "hangar.geometry", "FLIGHT GEOMETRY" },
         { "hangar.authority", "CONTROL AUTHORITY" },
         { "hangar.save", "SAVE & RETURN" },
+        { "poi.launch_meadow", "LAUNCH MEADOW" },
+        { "poi.raven_watch", "THE RAVEN WATCH" },
+        { "poi.crows_acre", "CROW'S ACRE" },
+        { "poi.last_scrap", "LAST SCRAP" },
+        { "poi.underpass", "THE UNDERPASS" },
+        { "poi.old_barns", "THE OLD BARNS" },
+        { "poi.shiomori_beach", "SHIOMORI BEACH" },
+        { "poi.bay_overlook", "BAY OVERLOOK" },
+        { "poi.tidewalk", "TIDEWALK" },
+        { "poi.basalt_cove", "BASALT COVE" },
+        { "poi.shoreline", "SHORELINE" },
+        { "poi.east_vegetation", "EAST VEGETATION" },
+        { "poi.west_vegetation", "WEST VEGETATION" },
+        { "poi.start_line", "START LINE" },
+        { "poi.gate", "GATE" },
 };
 
 static const Entry Ar[] =
@@ -200,6 +215,16 @@ static const Entry Ar[] =
         { "hangar.geometry", "هندسة الطيران" },
         { "hangar.authority", "سلطة التحكم" },
         { "hangar.save", "حفظ والعودة" },
+        { "poi.launch_meadow", "مرج الإقلاع" },
+        { "poi.old_barns", "الحظائر القديمة" },
+        { "poi.shiomori_beach", "شاطئ شيوموري" },
+        { "poi.bay_overlook", "إطلالة الخليج" },
+        { "poi.basalt_cove", "خليج البازلت" },
+        { "poi.shoreline", "الخط الساحلي" },
+        { "poi.east_vegetation", "النباتات الشرقية" },
+        { "poi.west_vegetation", "النباتات الغربية" },
+        { "poi.start_line", "خط البداية" },
+        { "poi.gate", "بوابة" },
 };
 
 static const Entry De[] =
@@ -279,6 +304,16 @@ static const Entry De[] =
         { "hangar.geometry", "FLUGGEOMETRIE" },
         { "hangar.authority", "STEUER-AUTORITÄT" },
         { "hangar.save", "SPEICHERN & ZURÜCK" },
+        { "poi.launch_meadow", "STARTWIESE" },
+        { "poi.old_barns", "DIE ALTEN SCHEUNEN" },
+        { "poi.shiomori_beach", "SHIOMORI-STRAND" },
+        { "poi.bay_overlook", "BUCHT-AUSSICHT" },
+        { "poi.basalt_cove", "BASALT-BUCHT" },
+        { "poi.shoreline", "KÜSTENLINIE" },
+        { "poi.east_vegetation", "OST-VEGETATION" },
+        { "poi.west_vegetation", "WEST-VEGETATION" },
+        { "poi.start_line", "STARTLINIE" },
+        { "poi.gate", "TOR" },
 };
 
 static const Entry Es[] =
@@ -358,6 +393,16 @@ static const Entry Es[] =
         { "hangar.geometry", "GEOMETRÍA DE VUELO" },
         { "hangar.authority", "AUTORIDAD DE CONTROL" },
         { "hangar.save", "GUARDAR Y VOLVER" },
+        { "poi.launch_meadow", "PRADO DE LANZAMIENTO" },
+        { "poi.old_barns", "LOS VIEJOS GRANEROS" },
+        { "poi.shiomori_beach", "PLAYA DE SHIOMORI" },
+        { "poi.bay_overlook", "MIRADOR DE LA BAHÍA" },
+        { "poi.basalt_cove", "CALA DE BASALTO" },
+        { "poi.shoreline", "LITORAL" },
+        { "poi.east_vegetation", "VEGETACIÓN ESTE" },
+        { "poi.west_vegetation", "VEGETACIÓN OESTE" },
+        { "poi.start_line", "LÍNEA DE SALIDA" },
+        { "poi.gate", "PUERTA" },
 };
 
 static const Entry Fr[] =
@@ -437,6 +482,16 @@ static const Entry Fr[] =
         { "hangar.geometry", "GÉOMÉTRIE DE VOL" },
         { "hangar.authority", "AUTORITÉ DE CONTRÔLE" },
         { "hangar.save", "ENREGISTRER & REVENIR" },
+        { "poi.launch_meadow", "PRAIRIE DE DÉPART" },
+        { "poi.old_barns", "LES VIEILLES GRANGES" },
+        { "poi.shiomori_beach", "PLAGE DE SHIOMORI" },
+        { "poi.bay_overlook", "BELVÉDÈRE DE LA BAIE" },
+        { "poi.basalt_cove", "CRIQUE DE BASALTE" },
+        { "poi.shoreline", "LITTORAL" },
+        { "poi.east_vegetation", "VÉGÉTATION EST" },
+        { "poi.west_vegetation", "VÉGÉTATION OUEST" },
+        { "poi.start_line", "LIGNE DE DÉPART" },
+        { "poi.gate", "PORTE" },
 };
 
 static const Entry Hi[] =
@@ -516,6 +571,16 @@ static const Entry Hi[] =
         { "hangar.geometry", "उड़ान ज्यामिति" },
         { "hangar.authority", "नियंत्रण अधिकार" },
         { "hangar.save", "सहेजें और लौटें" },
+        { "poi.launch_meadow", "लॉन्च मैदान" },
+        { "poi.old_barns", "पुराने खलिहान" },
+        { "poi.shiomori_beach", "शिओमोरी समुद्र तट" },
+        { "poi.bay_overlook", "खाड़ी दृश्य" },
+        { "poi.basalt_cove", "बेसाल्ट खाड़ी" },
+        { "poi.shoreline", "तटरेखा" },
+        { "poi.east_vegetation", "पूर्वी वनस्पति" },
+        { "poi.west_vegetation", "पश्चिमी वनस्पति" },
+        { "poi.start_line", "प्रारंभ रेखा" },
+        { "poi.gate", "द्वार" },
 };
 
 static const Entry It[] =
@@ -595,6 +660,16 @@ static const Entry It[] =
         { "hangar.geometry", "GEOMETRIA DI VOLO" },
         { "hangar.authority", "AUTORITÀ DI CONTROLLO" },
         { "hangar.save", "SALVA E TORNA" },
+        { "poi.launch_meadow", "PRATO DI LANCIO" },
+        { "poi.old_barns", "I VECCHI FIENILI" },
+        { "poi.shiomori_beach", "SPIAGGIA DI SHIOMORI" },
+        { "poi.bay_overlook", "BELVEDERE DELLA BAIA" },
+        { "poi.basalt_cove", "CALA DI BASALTO" },
+        { "poi.shoreline", "LITORALE" },
+        { "poi.east_vegetation", "VEGETAZIONE EST" },
+        { "poi.west_vegetation", "VEGETAZIONE OVEST" },
+        { "poi.start_line", "LINEA DI PARTENZA" },
+        { "poi.gate", "PORTA" },
 };
 
 static const Entry Ja[] =
@@ -674,6 +749,16 @@ static const Entry Ja[] =
         { "hangar.geometry", "フライト形状" },
         { "hangar.authority", "操縦権限" },
         { "hangar.save", "保存して戻る" },
+        { "poi.launch_meadow", "発進草原" },
+        { "poi.old_barns", "古い納屋" },
+        { "poi.shiomori_beach", "汐守ビーチ" },
+        { "poi.bay_overlook", "湾の展望台" },
+        { "poi.basalt_cove", "玄武岩の入り江" },
+        { "poi.shoreline", "海岸線" },
+        { "poi.east_vegetation", "東の植生" },
+        { "poi.west_vegetation", "西の植生" },
+        { "poi.start_line", "スタートライン" },
+        { "poi.gate", "ゲート" },
 };
 
 static const Entry Ko[] =
@@ -753,6 +838,16 @@ static const Entry Ko[] =
         { "hangar.geometry", "비행 형상" },
         { "hangar.authority", "조종 권한" },
         { "hangar.save", "저장하고 돌아가기" },
+        { "poi.launch_meadow", "이륙 초원" },
+        { "poi.old_barns", "오래된 헛간" },
+        { "poi.shiomori_beach", "시오모리 해변" },
+        { "poi.bay_overlook", "만 전망대" },
+        { "poi.basalt_cove", "현무암 만" },
+        { "poi.shoreline", "해안선" },
+        { "poi.east_vegetation", "동쪽 식생" },
+        { "poi.west_vegetation", "서쪽 식생" },
+        { "poi.start_line", "출발선" },
+        { "poi.gate", "게이트" },
 };
 
 static const Entry No[] =
@@ -832,6 +927,16 @@ static const Entry No[] =
         { "hangar.geometry", "FLYVEGEOMETRI" },
         { "hangar.authority", "KONTROLLAUTORITET" },
         { "hangar.save", "LAGRE OG GÅ TILBAKE" },
+        { "poi.launch_meadow", "UTSKYTNINGSENG" },
+        { "poi.old_barns", "DE GAMLE LÅVENE" },
+        { "poi.shiomori_beach", "SHIOMORI-STRAND" },
+        { "poi.bay_overlook", "BUKT-UTSIKT" },
+        { "poi.basalt_cove", "BASALTVÅG" },
+        { "poi.shoreline", "KYSTLINJE" },
+        { "poi.east_vegetation", "ØST-VEGETASJON" },
+        { "poi.west_vegetation", "VEST-VEGETASJON" },
+        { "poi.start_line", "STARTLINJE" },
+        { "poi.gate", "PORT" },
 };
 
 static const Entry Pt[] =
@@ -911,6 +1016,16 @@ static const Entry Pt[] =
         { "hangar.geometry", "GEOMETRIA DE VOO" },
         { "hangar.authority", "AUTORIDADE DE CONTROLE" },
         { "hangar.save", "SALVAR E VOLTAR" },
+        { "poi.launch_meadow", "PRADO DE LANÇAMENTO" },
+        { "poi.old_barns", "OS VELHOS CELEIROS" },
+        { "poi.shiomori_beach", "PRAIA DE SHIOMORI" },
+        { "poi.bay_overlook", "MIRANTE DA BAÍA" },
+        { "poi.basalt_cove", "ENSEADA DE BASALTO" },
+        { "poi.shoreline", "LITORAL" },
+        { "poi.east_vegetation", "VEGETAÇÃO LESTE" },
+        { "poi.west_vegetation", "VEGETAÇÃO OESTE" },
+        { "poi.start_line", "LINHA DE PARTIDA" },
+        { "poi.gate", "PORTÃO" },
 };
 
 static const Entry Ru[] =
@@ -990,6 +1105,16 @@ static const Entry Ru[] =
         { "hangar.geometry", "ГЕОМЕТРИЯ ПОЛЁТА" },
         { "hangar.authority", "АВТОРИТЕТ УПРАВЛЕНИЯ" },
         { "hangar.save", "СОХРАНИТЬ И ВЕРНУТЬСЯ" },
+        { "poi.launch_meadow", "СТАРТОВЫЙ ЛУГ" },
+        { "poi.old_barns", "СТАРЫЕ АМБАРЫ" },
+        { "poi.shiomori_beach", "ПЛЯЖ ШИОМОРИ" },
+        { "poi.bay_overlook", "ВИД НА БУХТУ" },
+        { "poi.basalt_cove", "БАЗАЛЬТОВАЯ БУХТА" },
+        { "poi.shoreline", "БЕРЕГОВАЯ ЛИНИЯ" },
+        { "poi.east_vegetation", "ВОСТОЧНАЯ РАСТИТЕЛЬНОСТЬ" },
+        { "poi.west_vegetation", "ЗАПАДНАЯ РАСТИТЕЛЬНОСТЬ" },
+        { "poi.start_line", "СТАРТОВАЯ ЛИНИЯ" },
+        { "poi.gate", "ВОРОТА" },
 };
 
 static const Entry Zh[] =
@@ -1069,6 +1194,16 @@ static const Entry Zh[] =
         { "hangar.geometry", "飞行几何" },
         { "hangar.authority", "操控权限" },
         { "hangar.save", "保存并返回" },
+        { "poi.launch_meadow", "起飞草地" },
+        { "poi.old_barns", "旧谷仓" },
+        { "poi.shiomori_beach", "汐守海滩" },
+        { "poi.bay_overlook", "海湾观景台" },
+        { "poi.basalt_cove", "玄武岩湾" },
+        { "poi.shoreline", "海岸线" },
+        { "poi.east_vegetation", "东侧植被" },
+        { "poi.west_vegetation", "西侧植被" },
+        { "poi.start_line", "起跑线" },
+        { "poi.gate", "门" },
 };
 
     if (Code == TEXT("ar")) return Ar;

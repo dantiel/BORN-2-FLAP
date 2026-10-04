@@ -73,5 +73,15 @@
   "hangar.battery": "BATERIA",
   "hangar.geometry": "GEOMETRIA DE VOO",
   "hangar.authority": "AUTORIDADE DE CONTROLE",
-  "hangar.save": "SALVAR E VOLTAR"
+  "hangar.save": "SALVAR E VOLTAR",
+  "poi.launch_meadow": "PRADO DE LANÇAMENTO",
+  "poi.old_barns": "OS VELHOS CELEIROS",
+  "poi.shiomori_beach": "PRAIA DE SHIOMORI",
+  "poi.bay_overlook": "MIRANTE DA BAÍA",
+  "poi.basalt_cove": "ENSEADA DE BASALTO",
+  "poi.shoreline": "LITORAL",
+  "poi.east_vegetation": "VEGETAÇÃO LESTE",
+  "poi.west_vegetation": "VEGETAÇÃO OESTE",
+  "poi.start_line": "LINHA DE PARTIDA",
+  "poi.gate": "PORTÃO"
 }

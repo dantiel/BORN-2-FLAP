@@ -5,6 +5,7 @@
 #include "Input/Born2FlapRcController.h"
 #include "born2flap_rc_input.h"
 #include "born2flap_desktop_input.h"
+#include "Game/Born2FlapPoi.h"
 #include "Born2FlapFlightPawn.generated.h"
 class UBoxComponent;
 class UStaticMeshComponent;
@@ -73,6 +74,11 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     bool IsWheelThrottleActive() const { return Desktop.wheelOwnsThrottle; }
     FString GetFlightStatus() const;
     const FBorn2FlapRcController *GetRcController() const { return RcController.Get(); }
+    // Points of interest: named reset/launch points supplied by the GameMode.
+    int32 GetSelectedPoi() const { return SelectedPoi; }
+    int32 GetPoiCount() const { return POIs.Num(); }
+    FString GetSelectedPoiName() const;
+    void CyclePoi(int32 Dir); // +1 next, -1 previous (wraps)
 
   private:
     UPROPERTY(VisibleAnywhere) TObjectPtr<UBoxComponent> Body;
@@ -117,6 +123,8 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     float Throttle = 0, RollInput = 0, YawInput = 0, PitchInput = 0, LeftFlap = 0, RightFlap = 0, BatterySoc = 1;
     bool bFlying = false, bHealthy = false, bVectors = false, bReturning = false, bBlind = false;
     bool bRollWingTwist = false;
+    TArray<FBorn2FlapPoi> POIs;
+    int32 SelectedPoi = 0;
     FVector AeroForce = FVector::ZeroVector, AeroMoment = FVector::ZeroVector;
     FVector CurrentWind = FVector::ZeroVector;
     int32 SafetyResets = 0, MathFailures = 0, BoundaryReturns = 0;

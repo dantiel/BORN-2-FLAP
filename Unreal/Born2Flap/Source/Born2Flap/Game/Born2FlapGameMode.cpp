@@ -24,6 +24,7 @@
 #include "UI/Born2FlapRadio.h"
 #include "UI/Born2FlapI18n.h"
 #include "UI/Born2FlapSplash.h"
+#include "Game/Born2FlapPoiBeacon.h"
 #include "Racing/Born2FlapRacing.h"
 #include "Water/Born2FlapWaterDirector.h"
 #include "GameFramework/PlayerController.h"
@@ -117,6 +118,11 @@ FVector ABorn2FlapGameMode::WindAt(const FVector& P,double Time) const
 void ABorn2FlapGameMode::BeginPlay()
 {
     Super::BeginPlay();
+    // Points of interest are level-specific and only need the level flags
+    // (set in InitGame) plus the saved-map camera actors, so they can be built
+    // before the level geometry branches below.
+    PopulatePOIs();
+    SpawnPoiBeacons();
     // Startup splash screen: show the artwork + loading bar on real launches.
     // Automated runs (tests) pass -nosplash/-unattended and skip it entirely.
     if (!FParse::Param(FCommandLine::Get(), TEXT("nosplash")) && !FApp::IsUnattended())
@@ -298,6 +304,112 @@ void ABorn2FlapGameMode::UpdateGateColors()
     }
 }
 bool ABorn2FlapGameMode::HasRadioTrack() const { return RadioStation && RadioStation->HasTrack(); }
+
+void ABorn2FlapGameMode::AddPoi(const FString& Key, double X, double Y, float Clearance)
+{
+    FBorn2FlapPoi P;
+    P.Key = Key;
+    double Ground = GroundHeight(X, Y);
+    // A defensive floor: never leave a reset point below the waterline (e.g. a
+    // shore lookout whose camera sits at the tideline). Float it just above the
+    // surface instead of dropping the bird into the sea.
+    if (Ground < WaterHeight())
+        Ground = WaterHeight();
+    P.Position = FVector(X, Y, Ground + Clearance);
+    POIs.Add(P);
+}
+
+void ABorn2FlapGameMode::AddPoi(const FString& Key, const FVector& Position, float Yaw)
+{
+    FBorn2FlapPoi P;
+    P.Key = Key;
+    P.Position = Position;
+    P.Yaw = Yaw;
+    POIs.Add(P);
+}
+
+void ABorn2FlapGameMode::PopulatePOIs()
+{
+    POIs.Reset();
+    if (bCoastLevel)
+    {
+        // Shiomori: the launch beach + the six named scenic cameras in the
+        // saved map. Each camera sits at a good vantage, so re-using its XY
+        // gives natural, hand-launchable reset points along the shore.
+        AddPoi(TEXT("poi.shiomori_beach"), 0.0, 0.0);
+        static const TCHAR* Views[] = {
+            TEXT("Bay overlook"), TEXT("Tidewalk"), TEXT("Basalt cove"),
+            TEXT("Shoreline"), TEXT("East vegetation"), TEXT("West vegetation") };
+        static const TCHAR* Keys[] = {
+            TEXT("poi.bay_overlook"), TEXT("poi.tidewalk"), TEXT("poi.basalt_cove"),
+            TEXT("poi.shoreline"), TEXT("poi.east_vegetation"), TEXT("poi.west_vegetation") };
+        for (int32 I = 0; I < 6; ++I)
+        {
+            for (TActorIterator<ACameraActor> It(GetWorld()); It; ++It)
+            {
+                if (It->ActorHasTag(Views[I]))
+                {
+                    AddPoi(Keys[I], It->GetActorLocation().X, It->GetActorLocation().Y);
+                    break;
+                }
+            }
+        }
+        return;
+    }
+    if (bNatureLevel)
+    {
+        // Ravenstonefield: the launch meadow plus the named landmarks the
+        // world generator already builds (see Born2FlapRavenLandmarks.cpp).
+        AddPoi(TEXT("poi.launch_meadow"), 0.0, 0.0);
+        // Landmark POIs sit on open ground just clear of each structure's
+        // footprint, so the bird rests and hand-launches exactly as at the
+        // launch meadow.
+        AddPoi(TEXT("poi.raven_watch"), 29000.0, 21400.0);   // north of the gatehouse
+        AddPoi(TEXT("poi.crows_acre"), 52000.0, 20000.0);    // clear of the boathouse ruin
+        AddPoi(TEXT("poi.last_scrap"), 67000.0, 10500.0);    // clear of the timber posts
+        // The underpass is the motorway bridge deck, which stands clear of the
+        // river bed the terrain sampler would otherwise return.
+        AddPoi(TEXT("poi.underpass"), FVector(18500.0, 9522.0, 1576.0));
+        AddPoi(TEXT("poi.old_barns"), -16000.0, -16500.0);   // beside the barn cluster
+        return;
+    }
+    // Training course: the start line plus the six sky gates (reset below each
+    // gate so the hand-launch flies you through it).
+    AddPoi(TEXT("poi.start_line"), 0.0, 0.0);
+    for (int32 I = 0; I < Gates.Num(); ++I)
+    {
+        AddPoi(TEXT("poi.gate"), Gates[I].X, Gates[I].Y);
+        POIs.Last().Number = I + 1;
+    }
+}
+
+void ABorn2FlapGameMode::SpawnPoiBeacons()
+{
+    UWorld* World = GetWorld();
+    PoiBeacons.Reset(POIs.Num());
+    FActorSpawnParameters Params;
+    Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+    for (const FBorn2FlapPoi& P : POIs)
+    {
+        // Localize the name once at spawn; the beacon caches the label text.
+        FString Label = Born2Flap::I18n::T(P.Key);
+        if (P.Number > 0)
+            Label += TEXT(" ") + FString::FromInt(P.Number);
+        auto* Beacon = World->SpawnActor<ABorn2FlapPoiBeacon>(FVector::ZeroVector, FRotator::ZeroRotator, Params);
+        if (Beacon)
+        {
+            Beacon->Initialize(Label, P.Position);
+            PoiBeacons.Add(Beacon);
+        }
+    }
+}
+
+void ABorn2FlapGameMode::HighlightPoi(int32 Index)
+{
+    for (int32 I = 0; I < PoiBeacons.Num(); ++I)
+        if (PoiBeacons[I])
+            PoiBeacons[I]->SetSelected(I == Index);
+}
 
 void ABorn2FlapGameMode::Tick(float DeltaSeconds)
 {

@@ -73,5 +73,15 @@
   "hangar.battery": "БАТАРЕЯ",
   "hangar.geometry": "ГЕОМЕТРИЯ ПОЛЁТА",
   "hangar.authority": "АВТОРИТЕТ УПРАВЛЕНИЯ",
-  "hangar.save": "СОХРАНИТЬ И ВЕРНУТЬСЯ"
+  "hangar.save": "СОХРАНИТЬ И ВЕРНУТЬСЯ",
+  "poi.launch_meadow": "СТАРТОВЫЙ ЛУГ",
+  "poi.old_barns": "СТАРЫЕ АМБАРЫ",
+  "poi.shiomori_beach": "ПЛЯЖ ШИОМОРИ",
+  "poi.bay_overlook": "ВИД НА БУХТУ",
+  "poi.basalt_cove": "БАЗАЛЬТОВАЯ БУХТА",
+  "poi.shoreline": "БЕРЕГОВАЯ ЛИНИЯ",
+  "poi.east_vegetation": "ВОСТОЧНАЯ РАСТИТЕЛЬНОСТЬ",
+  "poi.west_vegetation": "ЗАПАДНАЯ РАСТИТЕЛЬНОСТЬ",
+  "poi.start_line": "СТАРТОВАЯ ЛИНИЯ",
+  "poi.gate": "ВОРОТА"
 }

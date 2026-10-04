@@ -73,5 +73,15 @@
   "hangar.battery": "BATTERIA",
   "hangar.geometry": "GEOMETRIA DI VOLO",
   "hangar.authority": "AUTORITÀ DI CONTROLLO",
-  "hangar.save": "SALVA E TORNA"
+  "hangar.save": "SALVA E TORNA",
+  "poi.launch_meadow": "PRATO DI LANCIO",
+  "poi.old_barns": "I VECCHI FIENILI",
+  "poi.shiomori_beach": "SPIAGGIA DI SHIOMORI",
+  "poi.bay_overlook": "BELVEDERE DELLA BAIA",
+  "poi.basalt_cove": "CALA DI BASALTO",
+  "poi.shoreline": "LITORALE",
+  "poi.east_vegetation": "VEGETAZIONE EST",
+  "poi.west_vegetation": "VEGETAZIONE OVEST",
+  "poi.start_line": "LINEA DI PARTENZA",
+  "poi.gate": "PORTA"
 }

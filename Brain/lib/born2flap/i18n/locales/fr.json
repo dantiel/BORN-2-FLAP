@@ -73,5 +73,15 @@
   "hangar.battery": "BATTERIE",
   "hangar.geometry": "GÉOMÉTRIE DE VOL",
   "hangar.authority": "AUTORITÉ DE CONTRÔLE",
-  "hangar.save": "ENREGISTRER & REVENIR"
+  "hangar.save": "ENREGISTRER & REVENIR",
+  "poi.launch_meadow": "PRAIRIE DE DÉPART",
+  "poi.old_barns": "LES VIEILLES GRANGES",
+  "poi.shiomori_beach": "PLAGE DE SHIOMORI",
+  "poi.bay_overlook": "BELVÉDÈRE DE LA BAIE",
+  "poi.basalt_cove": "CRIQUE DE BASALTE",
+  "poi.shoreline": "LITTORAL",
+  "poi.east_vegetation": "VÉGÉTATION EST",
+  "poi.west_vegetation": "VÉGÉTATION OUEST",
+  "poi.start_line": "LIGNE DE DÉPART",
+  "poi.gate": "PORTE"
 }
