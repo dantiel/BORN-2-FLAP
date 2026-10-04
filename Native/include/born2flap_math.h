@@ -120,7 +120,7 @@ typedef struct B2F_TuningConfig {
     double battery_resistance_ohm;
     double battery_capacity_ah;
     double flap_base_freq_dhz;   /* 10..200 */
-    double mount_angle_deg;      /* flap stroke centre offset (mount), -15..+15 */
+    double tail_elevator_angle_deg; /* tail elevator angle (flap stroke centre trim), -15..+15 */
     double glide_angle_deg;      /* -15..+15 */
     double stroke_ferocity;      /* 0..100 */
     double aileron_scale;        /* 0..100 */

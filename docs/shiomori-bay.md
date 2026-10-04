@@ -20,3 +20,21 @@ materials and camera viewpoints with `Tools/create_shiomori_map.py` in Unreal's
 Python commandlet. `Tools/test-shiomori.ps1` checks collisions, water classification,
 wall lift, key objects and captures three rendered views. All content is generated
 locally; no downloaded environment assets are required.
+
+The sky uses a persistent full display: the atmosphere sun, two bright sun dogs,
+a 22-degree halo, upper arcs, and a double rainbow opposite the sun. Effects are
+world-direction aligned and masked by scene depth, so buildings and terrain
+occlude them. The post-process material explicitly preserves PostProcessInput0;
+surface additive blending alone would replace the scene with black.
+
+To repair the sky and FPV materials without regenerating the level, run
+`Tools/repair_shiomori_sky.py` through Unreal's Python commandlet. Use forward
+slashes in the `-script=` path. Restart an already running game to reload the
+saved materials.
+
+After building the editor target, run `Tools/test-shiomori.ps1 -Sky` for rendered
+sun/halo, opposite-sun rainbow, and FPV captures, followed by the coastal views
+and world checks. This mode rejects shader compilation failures; inspect
+`Saved/Screenshots/WindowsEditor/SHIOMORI_0.png` through `SHIOMORI_2.png` for
+appearance and occlusion. The repaired display was visually checked on 2026-10-04
+with `ShiomoriTest PASS` and no material compilation failures.

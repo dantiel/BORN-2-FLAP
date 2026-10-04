@@ -25,7 +25,7 @@ public:
     // Semantic event key. When a component is interactive (Slider/Toggle/
     // Select/NumberBox/Button), user manipulation emits `{action, value}` to
     // the host's OnComponentAction delegate. Empty = read-only. This is the
-    // semantic *identity* of the control — e.g. "tuning.mount_angle" — and has
+    // semantic *identity* of the control — e.g. "tuning.tail_elevator_angle" — and has
     // nothing to do with how it is drawn.
     UPROPERTY() FString Action;
 

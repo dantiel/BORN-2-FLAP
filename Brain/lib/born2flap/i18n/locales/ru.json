@@ -53,7 +53,7 @@
   "tuning.battery_resistance": "СОПРОТИВЛЕНИЕ БАТАРЕИ",
   "tuning.battery_capacity": "ЁМКОСТЬ БАТАРЕИ",
   "tuning.flap_base_freq": "ПОТОЛОК ЧАСТОТЫ ВЗМАХА",
-  "tuning.mount_angle": "УГОЛ УСТАНОВКИ",
+  "tuning.tail_elevator_angle": "УГОЛ РУЛЯ ВЫСОТЫ",
   "tuning.glide_angle": "УГОЛ ПЛАНИРОВАНИЯ",
   "tuning.stroke_ferocity": "СИЛА ВЗМАХА",
   "tuning.aileron_scale": "МАСШТАБ ЭЛЕРОНА",

@@ -53,7 +53,7 @@
   "tuning.battery_resistance": "مقاومة البطارية",
   "tuning.battery_capacity": "سعة البطارية",
   "tuning.flap_base_freq": "سقف تردد الرفرفة",
-  "tuning.mount_angle": "زاوية التركيب",
+  "tuning.tail_elevator_angle": "زاوية المصعد",
   "tuning.glide_angle": "زاوية الانزلاق",
   "tuning.stroke_ferocity": "شراسة الضربة",
   "tuning.aileron_scale": "مقياس الجنيح",

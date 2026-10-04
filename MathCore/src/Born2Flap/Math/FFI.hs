@@ -155,7 +155,7 @@ data TuningConfig = TuningConfig
   , tgBatteryResistance :: !Double  -- ^ internal resistance [Ω]
   , tgBatteryCapacity   :: !Double  -- ^ capacity [Ah]
   , tgFlapBaseFreqDh    :: !Double  -- ^ flap frequency ceiling [deci-Hz, 10..200]
-  , tgMountAngleDeg     :: !Double  -- ^ flap stroke centre offset (mount) [deg]
+  , tgTailElevatorAngleDeg :: !Double  -- ^ tail elevator angle (flap stroke centre trim) [deg]
   , tgGlideAngleDeg     :: !Double  -- ^ glide incidence [deg]
   , tgStrokeFerocity    :: !Double  -- ^ downstroke ferocity [0..100]
   , tgAileronScale      :: !Double  -- ^ aileron mix [0..100]
@@ -239,8 +239,8 @@ peekTuning :: Ptr () -> IO TuningConfig
 peekTuning pointer = do
   values <- mapM (peekElemOff (castPtr pointer :: Ptr CDouble)) [0 .. 11]
   case map (\(CDouble value) -> value) values of
-    [speed, stall, backdrive, voltage, resistance, capacity, freq, mount, glide, ferocity, aileron, elevator] ->
-      pure (TuningConfig speed stall backdrive voltage resistance capacity freq mount glide ferocity aileron elevator)
+    [speed, stall, backdrive, voltage, resistance, capacity, freq, tailElev, glide, ferocity, aileron, elevator] ->
+      pure (TuningConfig speed stall backdrive voltage resistance capacity freq tailElev glide ferocity aileron elevator)
     _ -> error "unreachable tuning layout"
 
 applyTuning :: TuningConfig -> FwContext -> FwContext
@@ -256,7 +256,7 @@ applyTuning t ctx =
         , batteryCapacityAh = max 0 (tgBatteryCapacity t)
         }
       profile = (fwProfile (fwcParams ctx))
-        { profFlappingAngleDeg = clampRange (-15) 15 (tgMountAngleDeg t)
+        { profTailElevatorAngleDeg = clampRange (-15) 15 (tgTailElevatorAngleDeg t)
         , profGlideAngleDeg = clampRange (-15) 15 (tgGlideAngleDeg t)
         , profStrokeFerocity = clampRange 0 100 (tgStrokeFerocity t)
         , profAileronScale = clampRange 0 100 (tgAileronScale t)

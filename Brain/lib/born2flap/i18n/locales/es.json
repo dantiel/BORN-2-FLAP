@@ -53,7 +53,7 @@
   "tuning.battery_resistance": "RESISTENCIA DE BATERÍA",
   "tuning.battery_capacity": "CAPACIDAD DE BATERÍA",
   "tuning.flap_base_freq": "TECHO DE FRECUENCIA DE ALETEO",
-  "tuning.mount_angle": "ÁNGULO DE MONTAJE",
+  "tuning.tail_elevator_angle": "ÁNGULO DEL ELEVADOR",
   "tuning.glide_angle": "ÁNGULO DE PLANEO",
   "tuning.stroke_ferocity": "FEROZ DE BATIDA",
   "tuning.aileron_scale": "ESCALA DE ALERÓN",

@@ -53,7 +53,7 @@
   "tuning.battery_resistance": "BATTERIMOTSTAND",
   "tuning.battery_capacity": "BATTERIKAPASITET",
   "tuning.flap_base_freq": "TAK FOR FLAKSFREKVENS",
-  "tuning.mount_angle": "MONTERINGSVINKEL",
+  "tuning.tail_elevator_angle": "HØYDERORVINKEL",
   "tuning.glide_angle": "GLIDEVINKEL",
   "tuning.stroke_ferocity": "SLAGETS VILDSKAP",
   "tuning.aileron_scale": "BALANSEROR-SKALA",
