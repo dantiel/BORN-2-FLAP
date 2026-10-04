@@ -24,11 +24,16 @@
 #include "Components/Spacer.h"
 #include "Components/EditableTextBox.h"
 #include "Components/PanelWidget.h"
+#include "Components/ScrollBox.h"
+#include "Components/SizeBox.h"
+#include "Engine/Texture2D.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 #include "Brushes/SlateRoundedBoxBrush.h"
 #include "Styling/SlateColor.h"
 #include "Styling/SlateTypes.h"
+#include "UObject/StrongObjectPtr.h"
+#include "UObject/UObjectGlobals.h"
 
 using namespace born2flap::ui;
 
@@ -152,6 +157,25 @@ UBorn2FlapComposite* NewComposite(UObject* Outer, const FString& Type)
     C->SetBrush(FSlateRoundedBoxBrush(theme::BG(), theme::Radius()));
     C->SetPadding(FMargin(10.f));
     return C;
+}
+
+// Textures referenced by the `texture` prop on Image widgets. SetBrushFromTexture
+// stores the UObject in a plain (non-UPROPERTY) TObjectPtr — it does NOT root the
+// texture (the same GC disease as the Slate-brush crash). A program-lifetime cache
+// keeps each imported texture alive so a GC pass cannot collect it behind the brush.
+TMap<FString, TStrongObjectPtr<UTexture2D>> GTextureCache;
+
+UTexture2D* GetOrLoadTexture(const FString& Path)
+{
+    if (TStrongObjectPtr<UTexture2D>* Cached = GTextureCache.Find(Path))
+        return Cached->Get();
+    UTexture2D* Tex = LoadObject<UTexture2D>(nullptr, *Path);
+    if (IsValid(Tex))
+    {
+        GTextureCache.Add(Path, TStrongObjectPtr<UTexture2D>(Tex));
+        return Tex;
+    }
+    return nullptr;
 }
 
 }  // namespace
@@ -343,6 +367,8 @@ UWidget* UBorn2FlapUIRenderer::CreateInstance(const std::string& Type)
     if (Type == "ProgressBar")   return NewObject<UProgressBar>(this);
     if (Type == "Image")         return NewObject<UImage>(this);
     if (Type == "Spacer")        return NewObject<USpacer>(this);
+    if (Type == "ScrollBox")     return NewObject<UScrollBox>(this);
+    if (Type == "SizeBox")       return NewObject<USizeBox>(this);
 
     UE_LOG(LogTemp, Warning, TEXT("Born2FlapUIRenderer: unknown widget type '%s'"), *T);
     return NewObject<UBorder>(this);
@@ -358,19 +384,44 @@ void UBorn2FlapUIRenderer::RemoveInstance(UWidget* W)
 
 void UBorn2FlapUIRenderer::SetRoot(UWidget* W)
 {
+    RootWidget = W;
+    AttachRoot();
+}
+
+void UBorn2FlapUIRenderer::AttachRoot()
+{
     EnsureViewport();
-    if (!ViewportCanvas)
+    if (!ViewportCanvas || !RootWidget)
         return;
-    UCanvasPanelSlot* Slot = ViewportCanvas->AddChildToCanvas(W);
+    if (RootWidget->Slot)
+        return;  // already mounted in the canvas
+    UCanvasPanelSlot* Slot = ViewportCanvas->AddChildToCanvas(RootWidget);
     Slot->SetAnchors(FAnchors(0.f, 0.f, 1.f, 1.f));
     Slot->SetOffsets(FMargin(0.f));
 }
 
+void UBorn2FlapUIRenderer::EnsureAttached()
+{
+    AttachRoot();
+}
+
 void UBorn2FlapUIRenderer::AppendChild(UWidget* Parent, int32 Index, UWidget* Child)
 {
-    UPanelWidget* Panel = Cast<UPanelWidget>(Parent);
     if (UBorn2FlapComposite* C = Cast<UBorn2FlapComposite>(Parent))
-        Panel = C->ContentPanel();
+    {
+        if (UPanelWidget* Panel = C->ContentPanel())
+        {
+            Panel->InsertChildAt(Index, Child);
+            ApplyStoredLayoutToChild(Panel, Index);
+        }
+        return;
+    }
+    // Single-child content widgets (SizeBox / Border) host their child via
+    // SetContent rather than an indexed child list.
+    if (USizeBox* SB = Cast<USizeBox>(Parent)) { SB->SetContent(Child); return; }
+    if (UBorder* B = Cast<UBorder>(Parent))    { B->SetContent(Child); return; }
+
+    UPanelWidget* Panel = Cast<UPanelWidget>(Parent);
     if (!Panel)
         return;
     Panel->InsertChildAt(Index, Child);
@@ -409,16 +460,22 @@ void UBorn2FlapUIRenderer::SetMaterialParams(UWidget* W, const FProps& Params)
         MID->SetScalarParameterValue(FName(UTF8_TO_TCHAR(KV.first.c_str())), (float)KV.second.AsNumber());
 }
 
+void UBorn2FlapUIRenderer::Close()
+{
+    if (RootHost)
+        RootHost->RemoveFromParent();
+    RootHost = nullptr;
+    ViewportCanvas = nullptr;
+    RootWidget = nullptr;
+}
+
 void UBorn2FlapUIRenderer::BeginDestroy()
 {
     MaterialCache.Empty();
     LayoutState.Empty();
     Relays.Empty();
     RendererImpl.Reset();
-    if (RootHost)
-        RootHost->RemoveFromParent();
-    RootHost = nullptr;
-    ViewportCanvas = nullptr;
+    Close();
     Super::BeginDestroy();
 }
 
@@ -429,12 +486,17 @@ void UBorn2FlapUIRenderer::EnsureViewport()
     if (RootHost)
         return;
     UWorld* World = GetWorld();
-    if (!World)
+    // CreateWidget bakes the owning player in at creation time. The splash
+    // spawns from GameMode::BeginPlay, before the PlayerController exists, so
+    // creating the host too early leaves it without an owning player and it
+    // never attaches to a real viewport. Defer until a local player is live;
+    // EnsureAttached() re-drives this once per splash tick.
+    if (!World || !World->GetFirstLocalPlayerFromController())
         return;
     RootHost = CreateWidget<UBorn2FlapRootWidget>(World);
     ViewportCanvas = NewObject<UCanvasPanel>(RootHost);
     RootHost->WidgetTree->RootWidget = ViewportCanvas;
-    RootHost->AddToViewport();
+    RootHost->AddToViewport(ViewportZOrder);
 }
 
 UMaterialInstanceDynamic* UBorn2FlapUIRenderer::GetOrCreateDynamicMaterial(UWidget* W)
@@ -468,7 +530,14 @@ UBorn2FlapComposite* UBorn2FlapUIRenderer::BuildComponent(const FString& Type)
         Title->SetVisibility(ESlateVisibility::Collapsed);
         Body->AddChildToVerticalBox(Title);
         UVerticalBox* Content = NewObject<UVerticalBox>(this);
-        Body->AddChildToVerticalBox(Content);
+        // The content region must fill the panel's body (which fills the
+        // border) so a ScrollBox inside it gets a bounded height and scrolls
+        // instead of overflowing the card.
+        if (UVerticalBoxSlot* ContentSlot = Body->AddChildToVerticalBox(Content))
+        {
+            ContentSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+            ContentSlot->SetVerticalAlignment(VAlign_Fill);
+        }
         C->Parts.Add(TEXT("title"), Title);
         C->Content = Content;
         return C;
@@ -977,8 +1046,16 @@ void UBorn2FlapUIRenderer::ApplyPrimitiveProps(UWidget* W, const FProps& Props)
     }
     else if (UImage* Im = Cast<UImage>(W))
     {
+        if (Props.count("texture"))
+            if (UTexture2D* Tex = GetOrLoadTexture(Str(Props.at("texture"))))
+                Im->SetBrushFromTexture(Tex);
         if (!ToneOf(Props).IsEmpty())
             Im->SetColorAndOpacity(theme::Tone(ToneOf(Props), theme::FG()));
+    }
+    else if (USizeBox* SB = Cast<USizeBox>(W))
+    {
+        if (Props.count("width"))  SB->SetWidthOverride(Num(Props.at("width"), 0.0));
+        if (Props.count("height")) SB->SetHeightOverride(Num(Props.at("height"), 0.0));
     }
     else if (USpacer* Sp = Cast<USpacer>(W))
     {
@@ -1150,12 +1227,30 @@ void UBorn2FlapUIRenderer::ApplyStoredLayout(UPanelWidget* Panel)
 void UBorn2FlapUIRenderer::ApplyStoredLayoutToChild(UPanelWidget* Panel, int32 Index)
 {
     const FLayoutState* S = LayoutState.Find(Panel);
-    if (!S)
-        return;
     UWidget* Child = Panel->GetChildAt(Index);
     if (!Child || !Child->Slot)
         return;
     const int32 N = Panel->GetChildrenCount();
+
+    // A ScrollBox placed in a linear box slot defaults to "Automatic" sizing,
+    // so it reports its full content height and overflows its panel instead of
+    // scrolling. Pin it to the remaining space so it clips and scrolls.
+    if (Cast<UScrollBox>(Child))
+    {
+        if (UVerticalBoxSlot* VSlot = Cast<UVerticalBoxSlot>(Child->Slot))
+        {
+            VSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+            VSlot->SetVerticalAlignment(VAlign_Fill);
+        }
+        else if (UHorizontalBoxSlot* HSlot = Cast<UHorizontalBoxSlot>(Child->Slot))
+        {
+            HSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+            HSlot->SetHorizontalAlignment(HAlign_Fill);
+        }
+    }
+
+    if (!S)
+        return;
 
     if (UVerticalBoxSlot* VSlot = Cast<UVerticalBoxSlot>(Child->Slot))
     {

@@ -16,7 +16,7 @@ void ABorn2FlapFlightPawn::RememberLanding(FVector Position)
     FCollisionQueryParams Query(SCENE_QUERY_STAT(GroundCameraAnchor),false,this);
     if(GetWorld()->LineTraceSingleByChannel(Hit,GroundAnchor+FVector(0,0,150),GroundAnchor-FVector(0,0,5000),ECC_Visibility,Query))
         Ground=Hit.ImpactPoint.Z;
-    GroundAnchor.Z=Ground+35; // Frog-height observer beside the latest landing.
+    GroundAnchor.Z=Ground+180; // Eye-height observer (1.8 m) beside the latest landing.
     bGroundGazeReady=false;
     if(bGroundView)
         if(auto* PC=Cast<APlayerController>(GetController()); PC && PC->PlayerCameraManager)
@@ -82,7 +82,9 @@ void ABorn2FlapFlightPawn::CalcCamera(float Dt,FMinimalViewInfo& Out)
     {
         // Mounted to the rigid body: all real banking and pitching reaches the lens.
         FpvCamera->SetRelativeLocation(FVector(76,0,14+(LeftFlap+RightFlap)*.006));
-        FpvCamera->SetRelativeRotation(FRotator((LeftFlap+RightFlap)*.004,0,(LeftFlap-RightFlap)*.005));
+        // Fixed camera angle (FpvCameraAngleDeg) tilts the whole lens; the small
+        // flap-coupled terms are only a subtle hand-held wobble on top.
+        FpvCamera->SetRelativeRotation(FRotator(FpvCameraAngleDeg + (LeftFlap+RightFlap)*.004, 0, (LeftFlap-RightFlap)*.005));
         FpvCamera->GetCameraView(Dt,Out);
     }
     else Camera->GetCameraView(Dt,Out);

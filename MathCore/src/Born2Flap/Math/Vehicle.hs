@@ -36,7 +36,8 @@ import Born2Flap.Math.Section
   ( SectionProfile(..), zeroLiftAngle, sectionPitchMomentCoeff
   , membraneCamberTarget, relaxCamber )
 import Born2Flap.Math.Structure
-  ( StructureProfile(..), integrateFlapBeam, integrateTwist, relaxDeflection )
+  ( StructureProfile(..), integrateFlapBeam, integrateTwist, relaxDeflection, softSaturate
+  , sparBendEISpanwise, sparTwistGJSpanwise )
 import Born2Flap.Math.Waveform
   ( OscillatorState(..), defaultOscillator, advanceOscillator
   , limiarFromFerocities, shapeWaveWithDerivative )
@@ -177,16 +178,16 @@ stepWing side pulse pulseRate throttle rollMix input states =
   let amplitude = radians (12 + 38 * throttle) * clamp 0.55 1.35 (1 - side * 0.22 * rollMix)
       stroke = amplitude * pulse
       strokeRate = amplitude * pulseRate
-  in stepWingWithStroke side stroke strokeRate input states
+  in stepWingWithStroke True side stroke strokeRate input states
 
 -- | Step one wing given the *actual* flap angle [rad] and flap rate [rad/s],
 -- independent of how they were produced (firmware mixer + servo, or the
 -- legacy throttle drive). This is the primitive the firmware-emulation loop
 -- uses to close the aero→servo-load feedback.
-stepWingWithStroke :: Double -> Double -> Double -> VehicleInput -> [StripState]
+stepWingWithStroke :: Bool -> Double -> Double -> Double -> VehicleInput -> [StripState]
                    -> ([StripResult], [StripState])
-stepWingWithStroke side stroke strokeRate input states =
-  let raw = zipWith (stepStrip side stroke strokeRate input) [0 ..] states
+stepWingWithStroke flapping side stroke strokeRate input states =
+  let raw = zipWith (stepStrip flapping side stroke strokeRate input) [0 ..] states
       transported = transportSeparation side input raw
       deformed = applyStructure input transported
   in (deformed, map resultState deformed)
@@ -196,14 +197,17 @@ stepWingWithStroke side stroke strokeRate input states =
 wingRootHeight :: Double
 wingRootHeight = 0.10
 
-stepStrip :: Double -> Double -> Double -> VehicleInput -> Int -> StripState -> StripResult
-stepStrip side stroke strokeRate input index old =
+stepStrip :: Bool -> Double -> Double -> Double -> VehicleInput -> Int -> StripState -> StripResult
+stepStrip flapping side stroke strokeRate input index old =
   let dt = stepSeconds input
       wp = defaultBirdWing
       fraction = (fromIntegral index + 0.5) / fromIntegral stripCount
       spanM = wsSpanM wp
       dr = spanM / fromIntegral stripCount
-      radius = dr * (fromIntegral index + 0.5)
+      -- Spanwise lever arm from the shoulder hinge: the wing root sits at the
+      -- shoulder distance outboard of the body centreline, then the wing's own
+      -- span runs root→tip.
+      radius = wsShoulderM wp + dr * (fromIntegral index + 0.5)
       chord = shapeChord wp fraction
       twist = shapeTwistRad wp fraction
       dihedral = stroke + shapeDihedralRad wp fraction
@@ -223,6 +227,13 @@ stepStrip side stroke strokeRate input index old =
       sweep = shapeSweepRad wp fraction
       chordAxis = Vec3 (cos sweep) (side * sin sweep * cos dihedral) (sin sweep * sin dihedral)
       spanAxis = Vec3 (-sin sweep) (side * cos sweep * cos dihedral) (cos sweep * sin dihedral)
+      -- Flap velocity is the wing surface's motion through the air about the
+      -- shoulder hinge. It exists in BOTH flapping and glide: in glide a
+      -- differential-dihedral (roll) command rotates the wing, so the surface
+      -- genuinely sweeps through the air and RESISTS. That resistance, acting
+      -- at the spanwise lever arm (position), is what rolls the fuselage — the
+      -- fuselage/tail sit on the centreline and carry no roll lever arm.
+      -- Feathering (passive pitch) stays a flapping-stroke phenomenon (below).
       flapVelocity = scaleVec (radius * strokeRate) normal
       sectionVelocity = addVec velocity (addVec (crossVec rates position) flapVelocity)
       dot (Vec3 a b c) (Vec3 d e f) = a*d + b*e + c*f
@@ -237,7 +248,7 @@ stepStrip side stroke strokeRate input index old =
       -- Pitch follows a fraction of the flap-induced inflow (more compliant
       -- toward the handwing), instead of driving a rigid plate deep into stall.
       -- No flap motion means no feathering; body sink still changes incidence.
-      feather = (0.55 + 0.20 * fraction) * atan2 (radius * strokeRate) (max 1.5 (abs chordVelocity))
+      feather = if flapping then (0.55 + 0.20 * fraction) * atan2 (radius * strokeRate) (max 1.5 (abs chordVelocity)) else 0
       -- A 2-servo ornithopter has one actuator per wing: the flap hinge. Pitch
       -- and roll reach the wing through the flap angle (stroke-centre shift and
       -- differential), never through a separate incidence twist. Angle of attack
@@ -330,21 +341,27 @@ applyStructure input results =
   let dt = stepSeconds input
       wp = defaultBirdWing
       count = length results
-      dr = wsSpanM wp / fromIntegral stripCount
+      spanM = wsSpanM wp
+      dr = spanM / fromIntegral stripCount
       fracs = [ (fromIntegral i + 0.5) / fromIntegral stripCount | i <- [0 .. count - 1] ]
       structures = map (shapeStructure wp) fracs
+      -- Spanwise spar stiffness (2 mm inner → 1.2 mm outer hand; braces inboard)
+      -- replaces the interpolated station structure for EI/GJ. The station
+      -- structure still supplies the relaxation time constants below.
+      bendingEIs = map (sparBendEISpanwise spanM) fracs
+      twistGJs   = map (sparTwistGJSpanwise spanM) fracs
       forces = map (vz . resultForce) results
       sectionMoments = map resultSectionMoment results
-      (targetBend, targetSlope) = integrateFlapBeam forces (map stBendEI structures) dr
-      targetTwist = integrateTwist sectionMoments (map stTwistGJ structures) dr
-      maxBend = 0.35 * wsSpanM wp
+      (targetBend, targetSlope) = integrateFlapBeam forces bendingEIs dr
+      targetTwist = integrateTwist sectionMoments twistGJs dr
+      maxBend = 0.08 * wsSpanM wp
       maxTwist = radians 15
       update result structure bend slope twist =
         let old = resultState result
-            nextBend = clamp (-maxBend) maxBend
+            nextBend = softSaturate maxBend
                           (relaxDeflection dt (stTauBend structure) (stripBendM old) bend)
             nextSlope = relaxDeflection dt (stTauBend structure) (stripBendSlope old) slope
-            nextTwist = clamp (-maxTwist) maxTwist
+            nextTwist = softSaturate maxTwist
                           (relaxDeflection dt (stTauTwist structure) (stripTwistAero old) twist)
         in result { resultState = old { stripBendM = nextBend
                                       , stripBendSlope = nextSlope

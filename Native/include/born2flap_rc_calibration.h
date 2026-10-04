@@ -37,10 +37,12 @@ struct RcAxisCalibration
 };
 struct RcCalibration
 {
-    std::array<RcAxisCalibration, 4> channels;
+    // Channel 0 = throttle (0..1), 1..3 = roll/pitch/yaw (centred -1..1),
+    // channel 4 = flapping speed modifier (centred -1..1 → 0..1 in the pawn).
+    std::array<RcAxisCalibration, 5> channels;
     bool Valid() const
     {
-        for (int i = 0; i < 4; ++i)
+        for (int i = 0; i < 5; ++i)
         {
             if (!channels[i].Valid(i == 0))
                 return false;
@@ -50,11 +52,11 @@ struct RcCalibration
         }
         return true;
     }
-    std::array<double, 4> Map(const std::array<double, 8> &axes) const
+    std::array<double, 5> Map(const std::array<double, 8> &axes) const
     {
-        std::array<double, 4> result{};
+        std::array<double, 5> result{};
         if (Valid())
-            for (int i = 0; i < 4; ++i)
+            for (int i = 0; i < 5; ++i)
                 result[i] = channels[i].Map(axes[channels[i].axis], i == 0);
         return result;
     }
@@ -62,7 +64,7 @@ struct RcCalibration
 struct RcSignalGate
 {
     bool armed = false;
-    std::array<double, 4> Filter(bool ready, const std::array<double, 4> &channels)
+    std::array<double, 5> Filter(bool ready, const std::array<double, 5> &channels)
     {
         if (!ready || !std::all_of(channels.begin(), channels.end(), [](double v) { return std::isfinite(v); }))
         {
@@ -71,7 +73,7 @@ struct RcSignalGate
         }
         if (channels[0] <= .04)
             armed = true;
-        return armed ? channels : std::array<double, 4>{};
+        return armed ? channels : std::array<double, 5>{};
     }
 };
 } // namespace born2flap

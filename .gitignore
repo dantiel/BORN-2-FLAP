@@ -54,3 +54,11 @@ Tools/umg_host_test
 Tools/umg_transport_test
 Tools/effects_render
 *.bmp
+
+# Python tool generated outputs
+Unreal/Born2Flap/Tools/out/
+Unreal/Born2Flap/Tools/_inspect_parhelion.py
+
+# Scratch analysis scripts
+_analyze*.py
+_analyze_shot.py

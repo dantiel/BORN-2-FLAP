@@ -103,6 +103,10 @@ public:
 
     UBorn2FlapUIRenderer();
 
+    // Z-order of the viewport root (AddToViewport layering). The splash uses
+    // 100 (above the cockpit), the settings panel 10, the cockpit/radio 0.
+    UPROPERTY() int32 ViewportZOrder = 0;
+
     // Parse a Ruby `Wire.dump_ops` JSON string and apply it. The single entry
     // point the Brain bridge (pipe/file/socket/mruby) needs to call.
     void ApplyOpsJson(const FString& Json);
@@ -119,6 +123,16 @@ public:
     void RemoveChild(UWidget* Parent, int32 Index);
     void UpdateProps(UWidget* W, const born2flap::ui::FProps& Props);
     void SetMaterialParams(UWidget* W, const born2flap::ui::FProps& Params);
+
+    // Re-attempt viewport attachment if it was deferred (see EnsureViewport).
+    // The splash calls this each tick until its root is actually on screen.
+    void EnsureAttached();
+
+    // Detach the root widget from the game viewport immediately. Destroy() on
+    // the owning actor only schedules it for GC — the UMG window would otherwise
+    // linger on screen until the next garbage collection. Call this before
+    // destroying a panel so its window disappears in the same frame.
+    void Close();
 
     // --- semantic component actions (the interactivity "prowess") ----------
     // Broadcast when an interactive component is manipulated. The native
@@ -147,6 +161,7 @@ private:
     // FAudioEngine. Kept in one place so ApplyOpsJson and ApplyOps share it.
     void ApplyParsedOps(const std::vector<born2flap::ui::FOp>& Ops);
     void EnsureViewport();
+    void AttachRoot();
     UMaterialInstanceDynamic* GetOrCreateDynamicMaterial(UWidget* W);
 
     // ---- semantic component layer -----------------------------------------
@@ -163,6 +178,7 @@ private:
     TUniquePtr<born2flap::audio::FAudioEngine> AudioEngine;
     UPROPERTY() UUserWidget* RootHost = nullptr;
     UPROPERTY() UCanvasPanel* ViewportCanvas = nullptr;
+    UWidget* RootWidget = nullptr;
     TMap<UWidget*, UMaterialInstanceDynamic*> MaterialCache;
     TMap<UPanelWidget*, FLayoutState> LayoutState;
 

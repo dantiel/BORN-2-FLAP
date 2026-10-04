@@ -75,11 +75,11 @@ defaultFirmwareVehicleState = FirmwareVehicleState
 -- Returns @(VehicleOutput, next state)@. @VehicleOutput@ carries the total
 -- force/moment, total mechanical power, and the peak separation fraction.
 stepFirmwareVehicle
-  :: RcChannels -> FirmwareParams -> ServoSpec -> BatterySpec
+  :: Bool -> RcChannels -> FirmwareParams -> ServoSpec -> BatterySpec
   -> Double -> Vec3 -> Vec3
   -> FirmwareVehicleState
   -> (VehicleOutput, FirmwareVehicleState)
-stepFirmwareVehicle rc params servo battery dt bodyVel bodyRates state
+stepFirmwareVehicle coupled rc params servo battery dt bodyVel bodyRates state
   | not (finite dt) || dt <= 0 || dt > 0.05 = (zeroOutput 1, state)
   | not (all finite (components bodyVel ++ components bodyRates ++
       [rcAileron rc, rcElevator rc, rcThrottle rc, rcRudder rc, rcArm rc, rcFreq rc, rcProfile rc])) =
@@ -90,7 +90,7 @@ stepFirmwareVehicle rc params servo battery dt bodyVel bodyRates state
   where
     transaction = do
       old <- getState
-      let (output, next) = advanceFirmwareVehicle rc params servo battery dt bodyVel bodyRates old
+      let (output, next) = advanceFirmwareVehicle coupled rc params servo battery dt bodyVel bodyRates old
           values = components (totalForceN output) ++ components (totalMomentNm output) ++
             [totalMechanicalPowerW output, maxSeparation output, fvBatterySoc next,
              fvLeftHingeTorqueNm next, fvRightHingeTorqueNm next,
@@ -110,12 +110,12 @@ hingeTorque :: Double -> [StripResult] -> Double
 hingeTorque side = (* side) . sum . map (\r -> x (resultMoment r) + wingRootHeight * y (resultForce r))
 
 advanceFirmwareVehicle
-  :: RcChannels -> FirmwareParams -> ServoSpec -> BatterySpec
+  :: Bool -> RcChannels -> FirmwareParams -> ServoSpec -> BatterySpec
   -> Double -> Vec3 -> Vec3 -> FirmwareVehicleState -> (VehicleOutput, FirmwareVehicleState)
-advanceFirmwareVehicle rc params servo battery dt bodyVel bodyRates state
+advanceFirmwareVehicle coupled rc params servo battery dt bodyVel bodyRates state
   | otherwise =
       let -- 1. Firmware mixer: RC → wing servo commands (flap deviation deg).
-          (mix, nextFw) = computeServoMixer rc params (fvFirmware state) dt
+          (mix, nextFw) = computeServoMixer coupled rc params (fvFirmware state) dt
 
           -- 2. Servo struggle: track the commanded flap deviation against the
           --    hinge torque the wings produced LAST step (explicit one-step
@@ -166,8 +166,8 @@ advanceFirmwareVehicle rc params servo battery dt bodyVel bodyRates state
           strokeR = radians rightFlapDeg
           rateL = radians (servoRateDegPerSec nextServoL)
           rateR = radians (servoRateDegPerSec nextServoR)
-          (leftResults, leftNext) = stepWingWithStroke (-1) strokeL rateL input (fvLeftStrips state)
-          (rightResults, rightNext) = stepWingWithStroke 1 strokeR rateR input (fvRightStrips state)
+          (leftResults, leftNext) = stepWingWithStroke (mixIsFlapping mix) (-1) strokeL rateL input (fvLeftStrips state)
+          (rightResults, rightNext) = stepWingWithStroke (mixIsFlapping mix) 1 strokeR rateR input (fvRightStrips state)
           wingResults = leftResults ++ rightResults
 
           -- 4. Generalized torque conjugate to each wing's flap coordinate.
@@ -197,8 +197,13 @@ advanceFirmwareVehicle rc params servo battery dt bodyVel bodyRates state
                 normal = Vec3 0 (side * sin cant) (cos cant)
                 flow = addVec bodyVel (crossVec bodyRates arm)
                 normalFlow = y flow * y normal + z flow * z normal
-                incidence = radians ((tailTrim - 18 * elevatorNorm) * cos cant
-                                      - side * 30 * rudderNorm * sin cant)
+                -- Ruddervator deflection is a rotation about the spanwise hinge,
+                -- i.e. a *direct* change of panel incidence (no sin/cos here).
+                -- The projection onto body yaw/pitch axes is already done by the
+                -- panel normal below; folding sin(cant)/cos(cant) into the
+                -- incidence double-projects and throttles the rudder by sin²(cant).
+                incidence = radians (tailTrim - 18 * elevatorNorm
+                                      - side * 30 * rudderNorm)
                 (fx, fn) = tailSurface 0.0242 incidence (x flow) normalFlow
                 panelForce = addVec (Vec3 fx 0 0) (scaleVec fn normal)
             in (panelForce, crossVec arm panelForce)
