@@ -331,6 +331,21 @@ void ABorn2FlapFlightPawn::BeginPlay()
     LoadFlightPreferences();
     BirdModel = DefaultBirdModel();
     SelectBirdModel(BirdModel);
+    // Points of interest: the GameMode populated them during its own BeginPlay
+    // (before the pawn spawned). Fall back to the origin if none arrived.
+    if (auto* Mode = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode()))
+    {
+        POIs = Mode->GetPOIs();
+        SelectedPoi = FMath::Clamp(SelectedPoi, 0, FMath::Max(0, POIs.Num() - 1));
+        Mode->HighlightPoi(SelectedPoi);
+    }
+    if (POIs.IsEmpty())
+    {
+        FBorn2FlapPoi Fallback;
+        Fallback.Key = TEXT("poi.start_line");
+        Fallback.Position = FVector(0, 0, 80);
+        POIs.Add(Fallback);
+    }
     ResetFlight();
     SetBlindFlight(bBlind);
     if (bDesktopInputTest && FParse::Param(FCommandLine::Get(), TEXT("B2FBirdPreview")))
@@ -368,7 +383,16 @@ void ABorn2FlapFlightPawn::ResetFlight(bool bSafety)
     BatterySoc = 1;
     Accumulator = 0;
     AeroForce = AeroMoment = FVector::ZeroVector;
-    Body->SetWorldLocationAndRotation(FVector(0, 0, 80), FRotator::ZeroRotator, false, nullptr,
+    // Re-place at the currently selected POI (launch meadow by default) rather
+    // than the fixed world origin.
+    FVector Spawn = FVector(0, 0, 80);
+    FRotator SpawnRot = FRotator::ZeroRotator;
+    if (POIs.IsValidIndex(SelectedPoi))
+    {
+        Spawn = POIs[SelectedPoi].Position;
+        SpawnRot = FRotator(0, POIs[SelectedPoi].Yaw, 0);
+    }
+    Body->SetWorldLocationAndRotation(Spawn, SpawnRot, false, nullptr,
                                       ETeleportType::TeleportPhysics);
     Body->SetPhysicsLinearVelocity(FVector::ZeroVector);
     Body->SetPhysicsAngularVelocityInRadians(FVector::ZeroVector);
@@ -426,12 +450,41 @@ FString ABorn2FlapFlightPawn::GetFlightStatus() const
     if (bReturning)
         return Born2Flap::I18n::T("status.field_edge");
     if (!bFlying)
-        return Born2Flap::I18n::T("status.hand_launch");
+    {
+        // Grounded: lead with the selected respawn point so the player always
+        // knows where R will put them.
+        FString Hint = GetSelectedPoiName();
+        Hint += TEXT(" · ");
+        Hint += Born2Flap::I18n::T("status.hand_launch");
+        return Hint;
+    }
     if (GetSpeed() < 4.5f)
         return Born2Flap::I18n::T("status.low_airspeed");
     if (Throttle < .08f)
         return Born2Flap::I18n::T("status.gliding");
     return Throttle > .85f ? Born2Flap::I18n::T("status.power_strokes") : Born2Flap::I18n::T("status.flapping");
+}
+
+FString ABorn2FlapFlightPawn::GetSelectedPoiName() const
+{
+    if (POIs.IsValidIndex(SelectedPoi))
+    {
+        FString Name = Born2Flap::I18n::T(POIs[SelectedPoi].Key);
+        if (POIs[SelectedPoi].Number > 0)
+            Name += TEXT(" ") + FString::FromInt(POIs[SelectedPoi].Number);
+        return Name;
+    }
+    return Born2Flap::I18n::T("poi.start_line");
+}
+
+void ABorn2FlapFlightPawn::CyclePoi(int32 Dir)
+{
+    if (POIs.Num() <= 1)
+        return;
+    SelectedPoi = (SelectedPoi + Dir + POIs.Num()) % POIs.Num();
+    if (auto* Mode = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode()))
+        Mode->HighlightPoi(SelectedPoi);
+    UE_LOG(LogTemp, Display, TEXT("PoiSelect index=%d name=%s"), SelectedPoi, *GetSelectedPoiName());
 }
 void ABorn2FlapFlightPawn::SetBlindFlight(bool bOn)
 {
@@ -635,6 +688,12 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
             bVectors = !bVectors;
         if (PC->WasInputKeyJustPressed(EKeys::F5))
             SetBlindFlight(!bBlind);
+        // Cycle the selected point of interest ("[" previous, "]" next); R then
+        // resets to the chosen spot.
+        if (PC->WasInputKeyJustPressed(EKeys::LeftBracket))
+            CyclePoi(-1);
+        if (PC->WasInputKeyJustPressed(EKeys::RightBracket))
+            CyclePoi(1);
     }
     if (bFlightTest)
     {

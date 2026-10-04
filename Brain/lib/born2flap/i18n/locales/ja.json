@@ -73,5 +73,15 @@
   "hangar.battery": "バッテリー",
   "hangar.geometry": "フライト形状",
   "hangar.authority": "操縦権限",
-  "hangar.save": "保存して戻る"
+  "hangar.save": "保存して戻る",
+  "poi.launch_meadow": "発進草原",
+  "poi.old_barns": "古い納屋",
+  "poi.shiomori_beach": "汐守ビーチ",
+  "poi.bay_overlook": "湾の展望台",
+  "poi.basalt_cove": "玄武岩の入り江",
+  "poi.shoreline": "海岸線",
+  "poi.east_vegetation": "東の植生",
+  "poi.west_vegetation": "西の植生",
+  "poi.start_line": "スタートライン",
+  "poi.gate": "ゲート"
 }

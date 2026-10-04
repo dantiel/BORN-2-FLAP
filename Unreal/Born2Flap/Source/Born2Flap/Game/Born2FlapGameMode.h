@@ -1,6 +1,7 @@
 #pragma once
 #include "CoreMinimal.h"
 #include "GameFramework/GameModeBase.h"
+#include "Born2FlapPoi.h"
 #include "Born2FlapGameMode.generated.h"
 
 class UBorn2FlapRadioStation;
@@ -8,6 +9,7 @@ class ABorn2FlapRadioHUD;
 class UBorn2FlapSplash;
 class AStaticMeshActor;
 class UMaterialInstanceDynamic;
+class ABorn2FlapPoiBeacon;
 
 UCLASS()
 class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
@@ -28,6 +30,15 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     FVector WindAt(const FVector& P,double Time) const;
     double GroundHeight(double X, double Y) const;
     bool HasRadioTrack() const;
+    // Points of interest: named, selectable reset/launch points per level.
+    const TArray<FBorn2FlapPoi>& GetPOIs() const { return POIs; }
+    void HighlightPoi(int32 Index);
+
+  private:
+    void PopulatePOIs();
+    void SpawnPoiBeacons();
+    void AddPoi(const FString& Key, double X, double Y, float Clearance = 80.f);
+    void AddPoi(const FString& Key, const FVector& Position, float Yaw = 0.f);
 
   private:
     void UpdateGateColors();
@@ -36,6 +47,8 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     TArray<TObjectPtr<AStaticMeshActor>> GateActors;
     TArray<TObjectPtr<UMaterialInstanceDynamic>> GateMaterials;
     int32 GatesPassed = 0;
+    TArray<FBorn2FlapPoi> POIs;
+    TArray<TObjectPtr<ABorn2FlapPoiBeacon>> PoiBeacons;
     bool bNatureLevel = true;
     bool bCoastLevel = false;
     float CoastTestTime=0;

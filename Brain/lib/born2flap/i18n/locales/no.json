@@ -73,5 +73,15 @@
   "hangar.battery": "BATTERI",
   "hangar.geometry": "FLYVEGEOMETRI",
   "hangar.authority": "KONTROLLAUTORITET",
-  "hangar.save": "LAGRE OG GÅ TILBAKE"
+  "hangar.save": "LAGRE OG GÅ TILBAKE",
+  "poi.launch_meadow": "UTSKYTNINGSENG",
+  "poi.old_barns": "DE GAMLE LÅVENE",
+  "poi.shiomori_beach": "SHIOMORI-STRAND",
+  "poi.bay_overlook": "BUKT-UTSIKT",
+  "poi.basalt_cove": "BASALTVÅG",
+  "poi.shoreline": "KYSTLINJE",
+  "poi.east_vegetation": "ØST-VEGETASJON",
+  "poi.west_vegetation": "VEST-VEGETASJON",
+  "poi.start_line": "STARTLINJE",
+  "poi.gate": "PORT"
 }

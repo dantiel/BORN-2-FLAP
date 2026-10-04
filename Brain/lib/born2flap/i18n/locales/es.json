@@ -73,5 +73,15 @@
   "hangar.battery": "BATERÍA",
   "hangar.geometry": "GEOMETRÍA DE VUELO",
   "hangar.authority": "AUTORIDAD DE CONTROL",
-  "hangar.save": "GUARDAR Y VOLVER"
+  "hangar.save": "GUARDAR Y VOLVER",
+  "poi.launch_meadow": "PRADO DE LANZAMIENTO",
+  "poi.old_barns": "LOS VIEJOS GRANEROS",
+  "poi.shiomori_beach": "PLAYA DE SHIOMORI",
+  "poi.bay_overlook": "MIRADOR DE LA BAHÍA",
+  "poi.basalt_cove": "CALA DE BASALTO",
+  "poi.shoreline": "LITORAL",
+  "poi.east_vegetation": "VEGETACIÓN ESTE",
+  "poi.west_vegetation": "VEGETACIÓN OESTE",
+  "poi.start_line": "LÍNEA DE SALIDA",
+  "poi.gate": "PUERTA"
 }

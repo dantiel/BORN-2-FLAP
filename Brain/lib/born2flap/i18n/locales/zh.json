@@ -73,5 +73,15 @@
   "hangar.battery": "电池",
   "hangar.geometry": "飞行几何",
   "hangar.authority": "操控权限",
-  "hangar.save": "保存并返回"
+  "hangar.save": "保存并返回",
+  "poi.launch_meadow": "起飞草地",
+  "poi.old_barns": "旧谷仓",
+  "poi.shiomori_beach": "汐守海滩",
+  "poi.bay_overlook": "海湾观景台",
+  "poi.basalt_cove": "玄武岩湾",
+  "poi.shoreline": "海岸线",
+  "poi.east_vegetation": "东侧植被",
+  "poi.west_vegetation": "西侧植被",
+  "poi.start_line": "起跑线",
+  "poi.gate": "门"
 }

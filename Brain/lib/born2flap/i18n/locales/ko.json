@@ -73,5 +73,15 @@
   "hangar.battery": "배터리",
   "hangar.geometry": "비행 형상",
   "hangar.authority": "조종 권한",
-  "hangar.save": "저장하고 돌아가기"
+  "hangar.save": "저장하고 돌아가기",
+  "poi.launch_meadow": "이륙 초원",
+  "poi.old_barns": "오래된 헛간",
+  "poi.shiomori_beach": "시오모리 해변",
+  "poi.bay_overlook": "만 전망대",
+  "poi.basalt_cove": "현무암 만",
+  "poi.shoreline": "해안선",
+  "poi.east_vegetation": "동쪽 식생",
+  "poi.west_vegetation": "서쪽 식생",
+  "poi.start_line": "출발선",
+  "poi.gate": "게이트"
 }
