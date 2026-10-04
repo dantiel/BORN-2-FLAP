@@ -83,5 +83,22 @@
   "poi.east_vegetation": "OST-VEGETATION",
   "poi.west_vegetation": "WEST-VEGETATION",
   "poi.start_line": "STARTLINIE",
-  "poi.gate": "TOR"
+  "poi.gate": "TOR",
+  "menu.title": "BORN 2 FLAP",
+  "menu.subtitle": "ORNITHOPTER-FLUGSIMULATOR",
+  "menu.select": "WÄHLE EIN LEVEL",
+  "menu.level_ravenstonefield": "RAVENSTONEFIELD",
+  "menu.level_ravenstonefield_desc": "Herbstliches Waldtal",
+  "menu.level_shiomori": "SHIOMORI",
+  "menu.level_shiomori_desc": "Seebrisen-Küste",
+  "menu.level_training": "TRAINING",
+  "menu.level_training_desc": "Himmelstor-Rennstrecke",
+  "menu.hint": "Klicke ein Level, um zu fliegen",
+  "race.complete": "RENNEN GESCHAFFT",
+  "poi.raven_watch": "THE RAVEN WATCH",
+  "poi.crows_acre": "CROW'S ACRE",
+  "poi.last_scrap": "LAST SCRAP",
+  "poi.underpass": "THE UNDERPASS",
+  "poi.tidewalk": "TIDEWALK",
+  "race.best": "BEST"
 }

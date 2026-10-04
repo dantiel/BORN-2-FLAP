@@ -83,5 +83,22 @@
   "poi.east_vegetation": "동쪽 식생",
   "poi.west_vegetation": "서쪽 식생",
   "poi.start_line": "출발선",
-  "poi.gate": "게이트"
+  "poi.gate": "게이트",
+  "menu.title": "BORN 2 FLAP",
+  "menu.subtitle": "날갯짓 비행 시뮬레이터",
+  "menu.select": "레벨 선택",
+  "menu.level_ravenstonefield": "RAVENSTONEFIELD",
+  "menu.level_ravenstonefield_desc": "가을 숲 계곡",
+  "menu.level_shiomori": "SHIOMORI",
+  "menu.level_shiomori_desc": "바닷바람 해안",
+  "menu.level_training": "훈련",
+  "menu.level_training_desc": "하늘 관문 레이스 코스",
+  "menu.hint": "레벨을 클릭하여 비행",
+  "race.complete": "레이스 완료",
+  "poi.raven_watch": "THE RAVEN WATCH",
+  "poi.crows_acre": "CROW'S ACRE",
+  "poi.last_scrap": "LAST SCRAP",
+  "poi.underpass": "THE UNDERPASS",
+  "poi.tidewalk": "TIDEWALK",
+  "race.best": "최고"
 }

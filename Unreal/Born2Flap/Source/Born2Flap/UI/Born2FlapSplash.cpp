@@ -61,16 +61,26 @@ void ABorn2FlapSplash::Build()
     if (!Renderer)
         return;
 
-    // Full-bleed artwork behind a bottom-anchored loading readout.
+    // Small centered logo over a bottom-anchored loading readout. The artwork
+    // is a compact mark (not full-bleed) so the world is visible around it while
+    // it loads; the menu takes over with the full-bleed backdrop afterwards.
     //   []         Overlay (root, children fill)
-    //   [0]        Image (splash texture, full-bleed)
+    //   [0]        Overlay (align center, valign center)
+    //   [0,0]      SizeBox (fixed 420x420)
+    //   [0,0,0]    Image (splash logo)
     //   [1]        Overlay (align center, valign bottom)
     //   [1,0]      Panel (solid, bottom-center block)
     //   [1,0,0]    ProgressBar (0..1)
     //   [1,0,1]    TextBlock  "LOADING" (below the bar, clear of the logo)
     FNode Root = Nd("Overlay", P({}),
     {
-        Nd("Image", P({ {"texture", S("/Game/Splash/born2flap-splash-new.born2flap-splash-new")} })),
+        Nd("Overlay", P({ {"align", S("center")}, {"valign", S("center")} }),
+        {
+            Nd("SizeBox", P({ {"width", N(420)}, {"height", N(420)} }),
+            {
+                Nd("Image", P({ {"texture", S("/Game/Splash/born2flap-splash-new.born2flap-splash-new")} }))
+            })
+        }),
         Nd("Overlay", P({ {"align", S("center")}, {"valign", S("bottom")} }),
         {
             Nd("Panel", P({ {"bg", S("solid")}, {"padding", N(18)}, {"spacing", N(8)} }),

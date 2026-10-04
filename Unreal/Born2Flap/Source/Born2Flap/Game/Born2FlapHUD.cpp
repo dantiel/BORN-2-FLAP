@@ -12,6 +12,7 @@
 #include "Racing/Born2FlapRacing.h"
 #include "Kismet/GameplayStatics.h"
 #include "UI/Born2FlapFlightHUD.h"
+#include "UI/Born2FlapI18n.h"
 void ABorn2FlapHUD::DrawHUD()
 {
     Super::DrawHUD();
@@ -91,10 +92,19 @@ void ABorn2FlapHUD::DrawHUD()
                  GEngine->GetSmallFont(), 1.f);
     }
     if (auto *Mode = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode()))
-        DrawText(Mode->IsNatureLevel() ? TEXT("WALDTAL  /  F4: Uebungsgelaende")
-                                       : FString::Printf(TEXT("UEBUNG  %d / %d  /  F4: Waldtal"),
-                                                         Mode->GetGatesPassed(), Mode->GetGateCount()),
-                 Cream, Canvas->SizeX - 370, 36, GEngine->GetSmallFont(), 1.05f);
+    {
+        FString RaceLine;
+        if (Mode->IsNatureLevel())
+            RaceLine = TEXT("WALDTAL  /  F4: Uebungsgelaende");
+        else if (Mode->IsRaceComplete())
+            RaceLine = FString::Printf(TEXT("%s  %.2fs  /  %s %.2fs"),
+                                       *Born2Flap::I18n::T("race.complete"), Mode->GetRaceTime(),
+                                       *Born2Flap::I18n::T("race.best"), Mode->GetBestLapTime());
+        else
+            RaceLine = FString::Printf(TEXT("GATES %d / %d   %.2fs   /  F4: Waldtal"),
+                                       Mode->GetGatesPassed(), Mode->GetGateCount(), Mode->GetRaceTime());
+        DrawText(RaceLine, Cream, Canvas->SizeX - 370, 36, GEngine->GetSmallFont(), 1.05f);
+    }
     if (!CachedRacing.IsValid())
         CachedRacing = Cast<ABorn2FlapRacingManager>(
             UGameplayStatics::GetActorOfClass(GetWorld(), ABorn2FlapRacingManager::StaticClass()));

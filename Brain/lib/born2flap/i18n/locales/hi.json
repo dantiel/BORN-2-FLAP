@@ -83,5 +83,22 @@
   "poi.east_vegetation": "पूर्वी वनस्पति",
   "poi.west_vegetation": "पश्चिमी वनस्पति",
   "poi.start_line": "प्रारंभ रेखा",
-  "poi.gate": "द्वार"
+  "poi.gate": "द्वार",
+  "menu.title": "BORN 2 FLAP",
+  "menu.subtitle": "ऑर्निथॉप्टर उड़ान सिम्युलेटर",
+  "menu.select": "स्तर चुनें",
+  "menu.level_ravenstonefield": "RAVENSTONEFIELD",
+  "menu.level_ravenstonefield_desc": "शरद वन घाटी",
+  "menu.level_shiomori": "SHIOMORI",
+  "menu.level_shiomori_desc": "समुद्री हवा का तट",
+  "menu.level_training": "प्रशिक्षण",
+  "menu.level_training_desc": "आकाश-द्वार रेस कोर्स",
+  "menu.hint": "उड़ने के लिए स्तर पर क्लिक करें",
+  "race.complete": "रेस पूर्ण",
+  "poi.raven_watch": "THE RAVEN WATCH",
+  "poi.crows_acre": "CROW'S ACRE",
+  "poi.last_scrap": "LAST SCRAP",
+  "poi.underpass": "THE UNDERPASS",
+  "poi.tidewalk": "TIDEWALK",
+  "race.best": "सर्वश्रेष्ठ"
 }

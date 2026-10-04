@@ -83,5 +83,22 @@
   "poi.east_vegetation": "ØST-VEGETASJON",
   "poi.west_vegetation": "VEST-VEGETASJON",
   "poi.start_line": "STARTLINJE",
-  "poi.gate": "PORT"
+  "poi.gate": "PORT",
+  "menu.title": "BORN 2 FLAP",
+  "menu.subtitle": "ORNITOPTER-FLYSIMULATOR",
+  "menu.select": "VELG NIVÅ",
+  "menu.level_ravenstonefield": "RAVENSTONEFIELD",
+  "menu.level_ravenstonefield_desc": "Høstlig skogsdal",
+  "menu.level_shiomori": "SHIOMORI",
+  "menu.level_shiomori_desc": "Sjøbris-kyst",
+  "menu.level_training": "TRENING",
+  "menu.level_training_desc": "Himmel-port løype",
+  "menu.hint": "Klikk et nivå for å fly",
+  "race.complete": "LØP FULLFØRT",
+  "poi.raven_watch": "THE RAVEN WATCH",
+  "poi.crows_acre": "CROW'S ACRE",
+  "poi.last_scrap": "LAST SCRAP",
+  "poi.underpass": "THE UNDERPASS",
+  "poi.tidewalk": "TIDEWALK",
+  "race.best": "BESTE"
 }

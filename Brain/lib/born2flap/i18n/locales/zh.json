@@ -83,5 +83,22 @@
   "poi.east_vegetation": "东侧植被",
   "poi.west_vegetation": "西侧植被",
   "poi.start_line": "起跑线",
-  "poi.gate": "门"
+  "poi.gate": "门",
+  "menu.title": "BORN 2 FLAP",
+  "menu.subtitle": "扑翼飞行模拟器",
+  "menu.select": "选择关卡",
+  "menu.level_ravenstonefield": "RAVENSTONEFIELD",
+  "menu.level_ravenstonefield_desc": "秋日森林山谷",
+  "menu.level_shiomori": "SHIOMORI",
+  "menu.level_shiomori_desc": "海风海岸",
+  "menu.level_training": "训练",
+  "menu.level_training_desc": "天门赛道",
+  "menu.hint": "点击关卡开始飞行",
+  "race.complete": "比赛完成",
+  "poi.raven_watch": "THE RAVEN WATCH",
+  "poi.crows_acre": "CROW'S ACRE",
+  "poi.last_scrap": "LAST SCRAP",
+  "poi.underpass": "THE UNDERPASS",
+  "poi.tidewalk": "TIDEWALK",
+  "race.best": "最佳"
 }
