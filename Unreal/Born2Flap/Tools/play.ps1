@@ -8,4 +8,8 @@ $map = if ($Level -eq 'Shiomori') { '/Game/Shiomori/Maps/SHIOMORI' } elseif ($Le
 # with SW_HIDE on the process, which hides the GUI game window (the game then
 # runs in the background with audio but no window). The -Cmd.exe test scripts
 # hide the console window legitimately; this GUI launcher must stay visible.
-Start-Process -FilePath (Join-Path $EngineRoot 'Engine/Binaries/Win64/UnrealEditor.exe') -ArgumentList @(('\"'+$project+'\"'),$map,'-game','-windowed','-ResX=1600','-ResY=900',('-B2FLevel='+$Level),('-abslog=\"'+$log+'\"')) -WorkingDirectory (Join-Path $EngineRoot 'Engine/Binaries/Win64') -PassThru
+# The level selector (world browser) is the home screen now: do NOT pass -B2FLevel,
+# which the GameMode treats as an explicit level request and skips the menu for.
+# The selected map is still preloaded as the menu's backdrop; FLY then travels to
+# the chosen world with ?Level=&SkipMenu=1 (no menu loop).
+Start-Process -FilePath (Join-Path $EngineRoot 'Engine/Binaries/Win64/UnrealEditor.exe') -ArgumentList @(('\"'+$project+'\"'),$map,'-game','-windowed','-ResX=1600','-ResY=900',('-abslog=\"'+$log+'\"')) -WorkingDirectory (Join-Path $EngineRoot 'Engine/Binaries/Win64') -PassThru

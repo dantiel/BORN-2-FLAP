@@ -56,6 +56,9 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     bool IsFlying() const { return bFlying; }
     bool IsHealthy() const { return bHealthy; }
     bool IsBlindFlight() const { return bBlind; }
+    // F7 "remove all UI" toggle: collapses the cockpit/radio overlays.
+    bool IsUIHidden() const { return bHideUI; }
+    void ToggleUIHidden() { bHideUI = !bHideUI; }
     // Optional visual aileron: twist the wings oppositely with roll input. Real
     // flapping servos only flap, so this is off by default and kept for future
     // actuators that can feather.
@@ -69,6 +72,8 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     // The atmospheric wind (m/s, Unreal world axes) the bird currently feels —
     // the unsheltered field, so the cockpit reads the true wind even at rest.
     FVector GetWind() const { return CurrentWind; }
+    // The bird's world yaw (degrees) — the nose direction the wind compass reads against.
+    float GetHeadingDeg() const { return GetActorRotation().Yaw; }
     FVector GetRcSticks() const { return FVector(RollInput, PitchInput, YawInput); }
     FVector2D GetWingAngles() const { return FVector2D(LeftFlap, RightFlap); }
     float GetSpeedModifier() const { return float(Desktop.speedModifier); }
@@ -128,6 +133,7 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     void SaveFlightPreferences();
     float Throttle = 0, RollInput = 0, YawInput = 0, PitchInput = 0, LeftFlap = 0, RightFlap = 0, BatterySoc = 1;
     bool bFlying = false, bHealthy = false, bVectors = false, bReturning = false, bBlind = false;
+    bool bHideUI = false;
     bool bRollWingTwist = false;
     // Raw F8/Esc capture. An input pre-processor (registered in BeginPlay) sees
     // every key-down before FInputModeGameAndUI routes keyboard away from

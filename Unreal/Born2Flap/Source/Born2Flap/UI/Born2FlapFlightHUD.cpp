@@ -69,12 +69,10 @@ const char* WindTone(float SpeedMs)
     return "danger";
 }
 
-FString Cardinal(float BearingDeg)
-{
-    static const char* Keys[] = { "dir.n", "dir.ne", "dir.e", "dir.se", "dir.s", "dir.sw", "dir.w", "dir.nw" };
-    int32 I = FMath::FloorToInt(FMath::Fmod(BearingDeg + 22.5f, 360.0f) / 45.0f) % 8;
-    return Born2Flap::I18n::T(Keys[I]);
-}
+// The relative wind direction is conveyed by the HUD "WindArrow" custom widget:
+// a small vector arrow that rotates in screen space (0° = ahead, clockwise
+// positive), so the pilot reads the relative wind source at a glance. No ASCII
+// glyphs (the ChakraPetch font cannot render arrow codepoints), no world actor.
 
 }  // namespace
 
@@ -95,7 +93,7 @@ void ABorn2FlapFlightHUD::BeginPlay()
 //   [0,0]    brand banner
 //   [0,1]    "INSTRUMENTE" panel  → [0,1,0] alt, [0,1,1] climb, [0,1,2] speed
 //   [0,2]    "ENERGIE" panel       → [0,2,0] battery, [0,2,1] throttle
-//   [0,3]    "WIND" panel          → [0,3,0] speed, [0,3,1] direction, [0,3,2] desc
+//   [0,3]    "WIND" panel          → [0,3,0] speed, [0,3,1] wind arrow, [0,3,2] desc
 //   [0,4]    status banner
 void ABorn2FlapFlightHUD::BuildCockpit()
 {
@@ -110,25 +108,27 @@ void ABorn2FlapFlightHUD::BuildCockpit()
 
             Nd("Panel", P({ {"title", L("hud.instruments")}, {"spacing", N(2)} }),
             {
-                Nd("Stat", P({ {"label", L("hud.altitude")}, {"value", N(0)}, {"unit", S(" m")},   {"tone", S("good")} })),
-                Nd("Stat", P({ {"label", L("hud.climb")},    {"value", N(0)}, {"unit", S(" m/s")} })),
-                Nd("Stat", P({ {"label", L("hud.speed")},    {"value", N(0)}, {"unit", S(" m/s")}, {"tone", S("info")} })),
+                Nd("Stat", P({ {"label", L("hud.altitude")}, {"value", N(0)}, {"unit", S(" m")},   {"format", S("int")}, {"tone", S("good")} })),
+                Nd("Stat", P({ {"label", L("hud.climb")},    {"value", N(0)}, {"unit", S(" m/s")}, {"format", S("f1")} })),
+                Nd("Stat", P({ {"label", L("hud.speed")},    {"value", N(0)}, {"unit", S(" m/s")}, {"format", S("f1")}, {"tone", S("info")} })),
             }),
 
             Nd("Panel", P({ {"title", L("hud.energy")}, {"spacing", N(2)} }),
             {
-                Nd("Gauge", P({ {"label", L("hud.battery")}, {"value", N(100)}, {"min", N(0)}, {"max", N(100)}, {"unit", S("%")}, {"tone", S("good")} })),
-                Nd("Gauge", P({ {"label", L("hud.throttle")}, {"value", N(0)},   {"min", N(0)}, {"max", N(1)},                     {"tone", S("accent")} })),
+                Nd("Gauge", P({ {"label", L("hud.battery")}, {"value", N(100)}, {"min", N(0)}, {"max", N(100)}, {"unit", S("%")}, {"format", S("int")}, {"tone", S("good")} })),
+                Nd("Gauge", P({ {"label", L("hud.throttle")}, {"value", N(0)},   {"min", N(0)}, {"max", N(1)},                     {"format", S("f2")}, {"tone", S("accent")} })),
             }),
 
             Nd("Panel", P({ {"title", L("hud.wind")}, {"spacing", N(2)} }),
             {
-                Nd("Stat", P({ {"label", L("hud.speed")},    {"value", N(0)}, {"unit", S(" m/s")}, {"tone", S("info")} })),
-                Nd("Stat", P({ {"label", L("hud.direction")}, {"value", N(0)}, {"unit", S("°")} })),
+                Nd("Stat", P({ {"label", L("hud.speed")},    {"value", N(0)}, {"unit", S(" m/s")}, {"format", S("f1")}, {"tone", S("info")} })),
+                Nd("WindArrow", P({ {"angle", N(0)}, {"size", N(30)} })),
                 Nd("Banner", P({ {"text", L("wind.calm")}, {"tone", S("good")} })),
             }),
 
             Nd("Banner", P({ {"text", L("hud.ready")}, {"tone", S("normal")} })),
+            Nd("Banner", P({ {"text", S("")}, {"tone", S("info")}, {"size", S("s")} })),
+            Nd("Banner", P({ {"text", S("F6 ground/air · V chase/FPV · F8 bird · F2 ch · F3 RC · F4 level · F7 HUD")}, {"tone", S("normal")}, {"size", S("s")} })),
         }),
     });
 
@@ -163,7 +163,7 @@ void ABorn2FlapFlightHUD::Refresh()
 
     // Blind flight is ear-only: collapse the whole cockpit (no banner — just
     // silence and sound). Settings panel owns the screen while open.
-    const bool bCockpitHidden = CachedBird->IsBlindFlight() || CachedBird->IsFlightSettingsOpen();
+    const bool bCockpitHidden = CachedBird->IsBlindFlight() || CachedBird->IsFlightSettingsOpen() || CachedBird->IsUIHidden();
     if (bCockpitHidden != bLastHidden)
     {
         TArray<FOp> Ops;
@@ -213,20 +213,28 @@ void ABorn2FlapFlightHUD::Refresh()
 
     const FVector Wind = CachedBird->GetWind();
     const float WindSpeed = FVector2D(Wind.X, Wind.Y).Size();
-    const float WindBearing = FMath::Fmod(FMath::RadiansToDegrees(FMath::Atan2(Wind.X, Wind.Y)) + 360.0f, 360.0f);
+    // Bearing the wind blows toward; the source (where it comes FROM) is opposite.
+    const float BlowBearing = FMath::Fmod(FMath::RadiansToDegrees(FMath::Atan2(Wind.X, Wind.Y)) + 360.0f, 360.0f);
+    const float SourceBearing = FMath::Fmod(BlowBearing + 180.0f, 360.0f);
 
     if (!FMath::IsNearlyEqual(WindSpeed, LastWindSpeed))
     {
         Ops.Add(UpdateProps(Pth({0, 3, 0}), P({ {"value", N(WindSpeed)} })));
         LastWindSpeed = WindSpeed;
     }
-    if (!FMath::IsNearlyEqual(WindBearing, LastWindDir))
+
+    // Relative wind-source bearing: rotate the HUD arrow against the bird's nose
+    // (0° = ahead, clockwise positive) so the source direction reads directly.
+    const float PlayerYaw = CachedBird->GetActorRotation().Yaw;
+    const float PlayerBearing = FMath::Fmod(90.0f - PlayerYaw + 360.0f, 360.0f);
+    const float RelAngle = FMath::Fmod(SourceBearing - PlayerBearing + 360.0f, 360.0f);
+    if (!FMath::IsNearlyEqual(RelAngle, LastWindRelAngle, 0.5f))
     {
-        Ops.Add(UpdateProps(Pth({0, 3, 1}), P({ {"value", N(WindBearing)} })));
-        LastWindDir = WindBearing;
+        Ops.Add(UpdateProps(Pth({0, 3, 1}), P({ {"angle", N(RelAngle)}, {"tone", S(WindTone(WindSpeed))} })));
+        LastWindRelAngle = RelAngle;
     }
 
-    const FString WindDesc = WindWord(WindSpeed) + FString(TEXT(" · ")) + Cardinal(WindBearing);
+    const FString WindDesc = WindWord(WindSpeed);
     if (WindDesc != LastWindDesc)
     {
         Ops.Add(UpdateProps(Pth({0, 3, 2}), P({ {"text", S(TCHAR_TO_UTF8(*WindDesc))}, {"tone", S(WindTone(WindSpeed))} })));
@@ -238,6 +246,13 @@ void ABorn2FlapFlightHUD::Refresh()
     {
         Ops.Add(UpdateProps(Pth({0, 4}), P({ {"text", S(TCHAR_TO_UTF8(*Status))} })));
         LastStatus = Status;
+    }
+
+    const FString Camera = CachedBird->GetCameraLabel();
+    if (Camera != LastCamera)
+    {
+        Ops.Add(UpdateProps(Pth({0, 5}), P({ {"text", S(TCHAR_TO_UTF8(*Camera))} })));
+        LastCamera = Camera;
     }
 
     if (Ops.Num() > 0)

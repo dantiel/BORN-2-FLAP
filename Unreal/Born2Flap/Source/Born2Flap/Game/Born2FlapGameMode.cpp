@@ -29,6 +29,11 @@
 #include "Racing/Born2FlapRacing.h"
 #include "Water/Born2FlapWaterDirector.h"
 #include "GameFramework/PlayerController.h"
+#include "Engine/GameViewportClient.h"
+#include "Framework/Application/SlateApplication.h"
+#include "Framework/Application/IInputProcessor.h"
+#include "Input/Events.h"
+#include "InputCoreTypes.h"
 #include "Blueprint/UserWidget.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
@@ -37,6 +42,40 @@
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
 #include "UnrealClient.h"
+
+namespace
+{
+// Captures Escape while the main menu is open. The menu runs in FInputModeUIOnly,
+// which routes keyboard input away from PlayerInput, so the GameMode's
+// WasInputKeyJustPressed cannot see it. This pre-processor sees every key-down
+// before that routing and defers the close to the GameMode Tick (the same
+// pattern as the flight-desk panel's FPanelKeyInputProcessor).
+class FMenuKeyInputProcessor : public IInputProcessor
+{
+public:
+    bool* bMenuOpen = nullptr;
+
+    virtual void Tick(const float DeltaTime, FSlateApplication& SlateApp, TSharedRef<ICursor> Cursor) override {}
+    virtual bool HandleKeyDownEvent(FSlateApplication& SlateApp, const FKeyEvent& InKeyEvent) override
+    {
+        if (!bMenuOpen || !*bMenuOpen)
+            return false;
+        if (InKeyEvent.IsRepeat())
+            return false;
+        if (InKeyEvent.GetKey() == EKeys::Escape)
+        {
+            bEscPressed = true;
+            return true;  // consume: the menu closes on this Esc, nothing else sees it
+        }
+        return false;
+    }
+
+    bool ConsumeEsc() { const bool v = bEscPressed; bEscPressed = false; return v; }
+
+private:
+    bool bEscPressed = false;
+};
+}  // namespace
 ABorn2FlapGameMode::ABorn2FlapGameMode()
 {
     DefaultPawnClass = ABorn2FlapFlightPawn::StaticClass();
@@ -63,9 +102,28 @@ void ABorn2FlapGameMode::InitGame(const FString &MapName, const FString &Options
                    !FParse::Param(FCommandLine::Get(), TEXT("B2FSoakTest")) &&
                    !FParse::Param(FCommandLine::Get(), TEXT("B2FHandlingTest"));
     // The main menu only appears on a plain boot (no explicit level, no test
-    // mode). ?SkipMenu=1 (set by the menu itself) suppresses it on reload.
+    // mode). An explicit level request — ?Level= / -B2FLevel= (play.ps1 always
+    // passes one), ?SkipMenu=1 (set by the menu itself) or -B2FNoMenu — keeps
+    // it hidden so the player lands directly in a playable map. Inside a level
+    // the Escape shortcut re-opens it on demand.
     bSkipMenu = FParse::Param(FCommandLine::Get(), TEXT("B2FNoMenu")) ||
-                UGameplayStatics::ParseOption(Options, TEXT("SkipMenu")).Equals(TEXT("1"), ESearchCase::IgnoreCase);
+                UGameplayStatics::ParseOption(Options, TEXT("SkipMenu")).Equals(TEXT("1"), ESearchCase::IgnoreCase) ||
+                !Level.IsEmpty();
+    Conditions=FApp::IsUnattended() ? Born2FlapWeather::Defaults(GetLevelId()) : Born2FlapWeather::Load(GetLevelId());
+    FString Weather=UGameplayStatics::ParseOption(Options,TEXT("Weather"));
+    FString DayTime=UGameplayStatics::ParseOption(Options,TEXT("DayTime"));
+    if(Weather.IsEmpty()) FParse::Value(FCommandLine::Get(),TEXT("B2FWeather="),Weather);
+    if(DayTime.IsEmpty()) FParse::Value(FCommandLine::Get(),TEXT("B2FDayTime="),DayTime);
+    if(!Weather.IsEmpty()) Conditions.Weather=Weather.ToLower();
+    if(!DayTime.IsEmpty()) Conditions.Time=DayTime.ToLower();
+    Conditions=Born2FlapWeather::Validate(GetLevelId(),Conditions);
+    if(FParse::Param(FCommandLine::Get(),TEXT("B2FWeatherMenuTest")) &&
+       !UGameplayStatics::ParseOption(Options,TEXT("Weather")).IsEmpty())
+    {
+        const bool Pass=GetLevelId()==TEXT("Shiomori") && Conditions.Weather==TEXT("rain") && Conditions.Time==TEXT("sunset") && bSkipMenu;
+        UE_LOG(LogTemp,Display,TEXT("WeatherMenuTravel %s: level=%s weather=%s time=%s"),
+            Pass ? TEXT("PASS") : TEXT("FAIL"),*GetLevelId(),*Conditions.Weather,*Conditions.Time);
+    }
 }
 void ABorn2FlapGameMode::RestartPlayerAtPlayerStart(AController* NewPlayer, AActor* StartSpot)
 {
@@ -106,24 +164,28 @@ double ABorn2FlapGameMode::GroundHeight(double X, double Y) const
     }
     return bNatureLevel ? ABorn2FlapValley::GroundHeight(X, Y) : 0;
 }
-bool ABorn2FlapGameMode::IsWater(double X,double Y) const
+bool ABorn2FlapGameMode::IsWater(double X, double Y) const
 {
-    return bCoastLevel ? GroundHeight(X,Y)<-50 : bNatureLevel && ABorn2FlapValley::IsWater(X,Y);
+    return bCoastLevel ? GroundHeight(X, Y) < -50 : bNatureLevel && ABorn2FlapValley::IsWater(X, Y);
 }
 double ABorn2FlapGameMode::WaterHeight() const { return bCoastLevel ? -50 : ABorn2FlapValley::WaterHeight; }
 FVector ABorn2FlapGameMode::WindAt(const FVector& P,double Time) const
 {
-    if(!bCoastLevel) return Born2FlapWind::Sample(P,Time);
-    const double Gust=.3*FMath::Sin(Time*.7+P.X*.0003);
-    // Onshore sea breeze meets the 1.5 m stepped seawall. A small, localized
-    // aerodynamic updraft decays inland, above the wall, and beyond its ends.
-    const double Lift=.85*FMath::Exp(-FMath::Square((P.Y+1400)/650.))*FMath::Exp(-FMath::Max(0.,P.Z-150)/650.)*
-        (1-FMath::SmoothStep(43000.,46000.,FMath::Abs(P.X)));
-    return FVector(.3+Gust,-3.2-Gust,Lift);
+    return Born2FlapWeather::Wind(GetLevelId(),Conditions,P,Time);
 }
 void ABorn2FlapGameMode::BeginPlay()
 {
     Super::BeginPlay();
+    // Escape-while-menu-open capture (see FMenuKeyInputProcessor). The pointer
+    // is wired to bMenuOpen so the processor only consumes Esc when the menu is
+    // actually on screen — otherwise Escape stays free for the F8 flight desk.
+    {
+        auto* Proc = new FMenuKeyInputProcessor();
+        Proc->bMenuOpen = &bMenuOpen;
+        MenuKeyProcessor = MakeShareable(Proc);
+        if (FSlateApplication::IsInitialized())
+            FSlateApplication::Get().RegisterInputPreProcessor(MenuKeyProcessor);
+    }
     // Points of interest are level-specific and only need the level flags
     // (set in InitGame) plus the saved-map camera actors, so they can be built
     // before the level geometry branches below.
@@ -145,20 +207,9 @@ void ABorn2FlapGameMode::BeginPlay()
     }
     UWorld *World = GetWorld();
     World->GetWorldSettings()->bForceNoPrecomputedLighting = true;
-    // Wire the Ruby Brain ↔ UMG transport. The bridge launches the Ruby Brain
-    // (default: <repo>/Brain/bin/umghaml_brain) which authors the glass cockpit
-    // in UMGHAML; the bridge tails the resulting NDJSON frames and feeds live
-    // telemetry back each tick.
-    ABorn2FlapUIBridge* UIBridge = nullptr;
-    {
-        FActorSpawnParameters UIParams;
-        UIParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-        UIBridge = World->SpawnActor<ABorn2FlapUIBridge>(FVector::ZeroVector, FRotator::ZeroRotator, UIParams);
-    }
-    // The glass cockpit is UMGHAML-authored by the Ruby Brain. Only fall back to
-    // the native C++ cockpit when the Brain is not running (packaged build
-    // without Ruby, or an explicit -NoRubyUI override).
-    if (!UIBridge || !UIBridge->IsBrainActive())
+    // The glass cockpit is authored natively in C++ (ABorn2FlapFlightHUD drives
+    // the same semantic view system as every other panel). The legacy Ruby Brain
+    // (UMGHAML) bridge is gone — no more dual-path UI or failed-ruby launch spam.
     {
         FActorSpawnParameters CockpitParams;
         CockpitParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
@@ -188,6 +239,8 @@ void ABorn2FlapGameMode::BeginPlay()
     }
     FActorSpawnParameters Params;
     Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+    WeatherActor=World->SpawnActor<ABorn2FlapWeather>(FVector::ZeroVector,FRotator::ZeroRotator,Params);
+    WeatherActor->Configure(GetLevelId(),Conditions);
     if(bCoastLevel)
     {
         // Saved coastal map supplies geometry and atmosphere. The water
@@ -428,6 +481,14 @@ void ABorn2FlapGameMode::HighlightPoi(int32 Index)
 void ABorn2FlapGameMode::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
+    if(FParse::Param(FCommandLine::Get(),TEXT("B2FWeatherMenuTest")))
+    {
+        if(UGameplayStatics::ParseOption(OptionsString,TEXT("Weather")).IsEmpty())
+        {
+            if(!MenuWidget) ShowMainMenu(true);
+        }
+        else if(GetWorld()->GetTimeSeconds()>3.f) FPlatformMisc::RequestExit(false);
+    }
     // Startup splash: ease the loading bar to full, fade out, then remove.
     // (The actor is spawned in BeginPlay so it already covers the first frame.)
     if (SplashWidget)
@@ -444,18 +505,34 @@ void ABorn2FlapGameMode::Tick(float DeltaSeconds)
         }
         if (SplashElapsed >= LoadDuration + FadeDuration)
         {
+            SplashWidget->Close();
             SplashWidget->Destroy();
             SplashWidget = nullptr;
             SplashElapsed = -1.f;
-            // Splash done — on a plain boot (no explicit level) open the main
-            // menu / level selector over the world that has loaded behind it.
-            if (!bSkipMenu)
-            {
-                FActorSpawnParameters MenuParams;
-                MenuParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-                MenuWidget = GetWorld()->SpawnActor<ABorn2FlapMenu>(FVector::ZeroVector, FRotator::ZeroRotator, MenuParams);
-            }
         }
+    }
+
+    // Main menu / level selector — the real home screen. Shown once the splash
+    // has faded (or straight away on a splash-less boot) on a plain boot with no
+    // explicit level. Decoupled from the splash so -nosplash/-unattended never
+    // also skip the menu and drop the player straight into a map.
+    if (!bSkipMenu && !SplashWidget && !MenuWidget)
+        ShowMainMenu(false);
+
+    // Escape re-opens the menu from inside a level. In GameOnly input mode the
+    // key is reported reliably by the PlayerController (the menu, once open,
+    // switches to UIOnly and its pre-processor takes over for the close).
+    if (!bMenuOpen && bSkipMenu && !MenuWidget)
+    {
+        if (APlayerController* PC = UGameplayStatics::GetPlayerController(this, 0))
+            if (PC->WasInputKeyJustPressed(EKeys::Escape))
+                ShowMainMenu(true);
+    }
+    else if (bMenuOpen)
+    {
+        if (const auto Proc = StaticCastSharedPtr<FMenuKeyInputProcessor>(MenuKeyProcessor))
+            if (Proc->ConsumeEsc())
+                CloseMainMenu();
     }
     if(bCoastLevel && FParse::Param(FCommandLine::Get(),TEXT("B2FCoastTest")))
     {
@@ -550,7 +627,7 @@ void ABorn2FlapGameMode::Tick(float DeltaSeconds)
             const TCHAR* Next=bCoastLevel?TEXT("Training"):bNatureLevel?TEXT("Shiomori"):TEXT("Ravenstonefield");
             const TCHAR* Map=bCoastLevel?TEXT("/Engine/Maps/Entry"):bNatureLevel?TEXT("/Game/Shiomori/Maps/SHIOMORI"):TEXT("/Game/Ravenstonefield/Maps/RAVENSTONEFIELD");
             UE_LOG(LogTemp,Display,TEXT("FlightLevel switch=%s"),Next);
-            UGameplayStatics::OpenLevel(this,Map,true,FString(TEXT("Level="))+Next);
+            UGameplayStatics::OpenLevel(this,Map,true,Born2FlapWeather::TravelOptions(Next,Born2FlapWeather::Load(Next)));
             return;
         }
     auto *Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0));
@@ -593,4 +670,58 @@ void ABorn2FlapGameMode::Tick(float DeltaSeconds)
             UE_LOG(LogTemp, Display, TEXT("FlightRace complete lap=%.2fs best=%.2fs"), RaceTime, BestLapTime);
         }
     }
+}
+
+void ABorn2FlapGameMode::ShowMainMenu(bool bInLevel)
+{
+    if (MenuWidget)
+        return;
+    bMenuOpen = true;
+
+    // The menu is modal: the game stops receiving input (UIOnly) and the cursor
+    // is freed so its buttons are clickable. The opaque full-bleed backdrop
+    // covers the world; no SetPause, so the GameMode keeps ticking and Escape
+    // can be handled by the pre-processor.
+    if (APlayerController* PC = UGameplayStatics::GetPlayerController(this, 0))
+    {
+        PC->bShowMouseCursor = true;
+        FInputModeUIOnly Mode;
+        Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+        PC->SetInputMode(Mode);
+        PC->FlushPressedKeys();
+    }
+
+    FActorSpawnParameters Params;
+    Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+    MenuWidget = GetWorld()->SpawnActor<ABorn2FlapMenu>(FVector::ZeroVector, FRotator::ZeroRotator, Params);
+    if (MenuWidget)
+        MenuWidget->SetInLevel(bInLevel);
+}
+
+void ABorn2FlapGameMode::CloseMainMenu()
+{
+    if (!MenuWidget)
+        return;
+    bMenuOpen = false;
+
+    // Detach the UMG window now (Destroy() only schedules GC — the window would
+    // otherwise linger until the next collection).
+    MenuWidget->Close();
+    MenuWidget->Destroy();
+    MenuWidget = nullptr;
+
+    if (APlayerController* PC = UGameplayStatics::GetPlayerController(this, 0))
+    {
+        PC->bShowMouseCursor = false;
+        PC->SetInputMode(FInputModeGameOnly());
+        PC->FlushPressedKeys();
+    }
+}
+
+void ABorn2FlapGameMode::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+    if (MenuKeyProcessor && FSlateApplication::IsInitialized())
+        FSlateApplication::Get().UnregisterInputPreProcessor(MenuKeyProcessor);
+    MenuKeyProcessor.Reset();
+    Super::EndPlay(EndPlayReason);
 }

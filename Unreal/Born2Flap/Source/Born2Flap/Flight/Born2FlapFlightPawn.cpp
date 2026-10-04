@@ -284,36 +284,11 @@ void ABorn2FlapFlightPawn::BeginPlay()
     Body->SetMassOverrideInKg(NAME_None, .45f, true);
     UE_LOG(LogTemp, Display, TEXT("FlightBody massKg=%.4f inertiaKgM2=%s"), Body->GetMass(),
            *(Body->GetInertiaTensor() / 10000.0).ToString());
-    // Fixed daylight exposure, compatible with either project luminance mode.
-    // The legacy exposure range otherwise clips a physically lit sky to white.
-    const auto *ExtendedRange =
-        IConsoleManager::Get().FindConsoleVariable(TEXT("r.DefaultFeature.AutoExposure.ExtendDefaultLuminanceRange"));
-    const auto *ExposureMode = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode());
-    const bool bRaven = ExposureMode && ExposureMode->IsNatureLevel();
-    const float DaylightExposure = ExtendedRange && ExtendedRange->GetInt() ? (bRaven ? 13.2f : 14.f) : 10000.f;
-    Camera->PostProcessSettings.bOverride_AutoExposureMinBrightness = true;
-    Camera->PostProcessSettings.bOverride_AutoExposureMaxBrightness = true;
-    Camera->PostProcessSettings.bOverride_AutoExposureBias = true;
-    Camera->PostProcessSettings.AutoExposureMinBrightness = DaylightExposure;
-    Camera->PostProcessSettings.AutoExposureMaxBrightness = DaylightExposure;
-    // The parhelion is a full-screen POST-PROCESS material (the sky-dome mesh
-    // approach proved unreliable: a camera-enclosing additive sphere never
-    // rendered its halo despite a correct mesh, material, bounds and render
-    // state). It is created by the map generator, so it only exists at runtime.
-    if (SkyDome)
-    {
-        SkyDome->SetVisibility(false); // dome mesh retired; keep the component
-    }
-    if (UMaterialInterface* ParhelionMat = LoadObject<UMaterialInterface>(
-            nullptr, TEXT("/Game/Shiomori/Materials/M_SunParhelion")))
-    {
-        Camera->PostProcessSettings.AddBlendable(ParhelionMat, 1.0f);
-        UE_LOG(LogTemp, Display, TEXT("SkyParhelionDome postprocess=attached"));
-    }
-    else
-    {
-        UE_LOG(LogTemp, Display, TEXT("SkyParhelionDome postprocess=MISSING"));
-    }
+    // Weather owns sky optics and exposure for all cameras in the world.
+    Camera->PostProcessSettings.bOverride_AutoExposureMinBrightness = false;
+    Camera->PostProcessSettings.bOverride_AutoExposureMaxBrightness = false;
+    Camera->PostProcessSettings.bOverride_AutoExposureBias = false;
+    if (SkyDome) SkyDome->SetVisibility(false);
     Camera->PostProcessSettings.AutoExposureBias = 0;
     Camera->PostProcessSettings.bOverride_MotionBlurAmount = true;
     Camera->PostProcessSettings.MotionBlurAmount = 0;
@@ -563,7 +538,7 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
     const auto* WindMode=Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode());
     CurrentWind = bFlightTest ? FVector::ZeroVector : (WindMode?WindMode->WindAt(BodyPos,WorldTime):Born2FlapWind::Sample(BodyPos,WorldTime));
     const FVector Wind = CurrentWind * Shelter;
-    MathBridge->InjectWindPhaseNoise(bFlightTest ? 0.0 : (WindMode && WindMode->IsCoastLevel() ? Wind.Size()*.15 : Born2FlapWind::PhaseNoise(BodyPos, WorldTime))*Shelter);
+    MathBridge->InjectWindPhaseNoise(bFlightTest ? 0.0 : FMath::Clamp(CurrentWind.Size()*.15+FMath::Abs(CurrentWind.Z)*.25,0.,4.)*Shelter);
     B2F_PilotInput Pilot{};
     Pilot.throttle = Throttle;
     Pilot.roll = RollInput;
@@ -638,7 +613,8 @@ void ABorn2FlapFlightPawn::UpdateAeroAudio(float Dt)
 
     const FVector P = Body->GetComponentLocation();
     const FVector V = Body->GetPhysicsLinearVelocity() / 100.0;
-    const FVector Wind = Born2FlapWind::Sample(P, WorldTime)*FMath::SmoothStep(0.0,2.0,double(GetAltitude()));
+    const auto* WeatherMode=Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode());
+    const FVector Wind = (WeatherMode ? WeatherMode->WindAt(P,WorldTime) : Born2FlapWind::Sample(P,WorldTime))*FMath::SmoothStep(0.0,2.0,double(GetAltitude()));
     const FVector AirVel = V - Wind;
 
     born2flap::aeroaudio::FTelemetry Tel;
@@ -779,6 +755,8 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
             bVectors = !bVectors;
         if (PC->WasInputKeyJustPressed(EKeys::F5))
             SetBlindFlight(!bBlind);
+        if (PC->WasInputKeyJustPressed(EKeys::F7))
+            ToggleUIHidden();
         if (PC->WasInputKeyJustPressed(EKeys::T))
             ToggleThrottleMode();
         // Cycle the selected point of interest ("[" previous, "]" next); R then

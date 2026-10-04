@@ -1,6 +1,7 @@
 // Born2FlapPoiBeacon.cpp — implementation. See the header for the design note.
 
 #include "Game/Born2FlapPoiBeacon.h"
+#include "Game/Born2FlapGameMode.h"
 #include "Components/PointLightComponent.h"
 #include "Components/TextRenderComponent.h"
 
@@ -50,5 +51,10 @@ void ABorn2FlapPoiBeacon::SetSelected(bool bSelected)
     // The active reset point glows white-hot; inactive points stay cinnabar.
     Label->SetTextRenderColor(bSelected ? FColor(255, 244, 214) : FColor(212, 202, 169));
     Light->SetLightColor(bSelected ? FLinearColor(1.f, 0.92f, 0.70f) : FLinearColor(1.f, 0.62f, 0.24f));
-    Light->SetIntensity(bSelected ? 9000.f : 4000.f);
+    // These navigation markers were tuned for daylight exposure. Keep their
+    // apparent brightness stable when the player chooses dawn or night.
+    float ExposureScale=1.f;
+    if(const auto* GM=Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode()))
+        ExposureScale=FMath::Clamp(FMath::Pow(2.f,Born2FlapWeather::Exposure(GM->GetConditions())-13.2f),.001f,1.f);
+    Light->SetIntensity((bSelected ? 9000.f : 4000.f)*ExposureScale);
 }

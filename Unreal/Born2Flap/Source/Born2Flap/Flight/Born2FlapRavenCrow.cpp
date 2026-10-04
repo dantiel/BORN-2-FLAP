@@ -62,17 +62,39 @@ struct FShardMesh
 };
 const FLinearColor Ink(.018,.025,.035), Slate(.05,.067,.088), Edge(.10,.13,.16);
 
-// Set beak-to-tail-tip length in centimetres, scaling about the wing attachment.
-// The source model runs from nose X=70 to tail tip X=-112.0293.
-constexpr float KestrelWingX = 3.f;
-constexpr float KestrelTotalLengthCm = 80.f;
-constexpr float KestrelLengthScale = KestrelTotalLengthCm / (70.f + 112.0293f);
-constexpr float KestrelWidthScale = .90f;
-constexpr float KestrelHeightScale = .85f;
-FVector KestrelBodyPosition(FVector P)
+// Kestrel (Design 2) body layout, in centimetres (game space, +X forward = nose).
+//
+// The authored fuselage mesh SM_KestrelFuselage is pre-scaled to cm with its
+// pivot at the nose: X = 0 (nose) -> +100 (tail tip), Y = +/-7.67 (half width),
+// Z dorsal up. It is yawed 180 so +X points aft, then scaled to the target
+// silhouette. The wing membrane (Born2FlapWingMesh, Design 2) hangs from the
+// shoulders at RavenRoot X=+3 and its trailing-edge root reaches X=-35.3, so the
+// fuselage must extend aft of that to overlap the tail fan.
+constexpr float KestrelNoseX = 32.5f;                // nose position (+forward)
+constexpr float KestrelFuselageLengthCm = 82.f;      // nose -> aft end of the body (elongated, slim)
+constexpr float KestrelFuselageWidthCm = 15.f;       // full side-to-side width (de-bulked)
+constexpr float KestrelFuselageHeightScale = 0.62f;  // authored height (~16.7 cm, slim)
+constexpr float KestrelFuselageXScale = KestrelFuselageLengthCm / 100.f;
+constexpr float KestrelFuselageYScale = KestrelFuselageWidthCm / 15.34f;
+
+// Tail fan: the root tucks under the elongated body taper (body aft end ~-49.5)
+// so the body extends a bit further over the fan; the tip sits at the overall
+// falcon length. Authored tail points run X -61 (root) to -112.0293 (tip) with
+// Y +/-22; UVs stay pinned to the T_KestrelTail feather raster. The mapping is
+// expressed through the authored span (negative delta) so the fan always sweeps
+// AFT — root nearer the nose, tip further aft. Tuning pass: fan moved forward
+// (root -42 -> -38), 10% slimmer in width (Y 1.35 -> 1.215), 7% smaller overall
+// (span 42.5 -> 39.5 cm); then 5% narrower again (Y 1.215 -> 1.154).
+constexpr float KestrelTailAuthoredRootX = -61.f;
+constexpr float KestrelTailAuthoredTipX = -112.0293f;
+constexpr float KestrelTailRootX = -38.f;
+constexpr float KestrelTailTipX = KestrelNoseX - 110.f;  // = -77.5
+constexpr float KestrelTailYScale = 1.15425f;   // 5% narrower than 1.215
+FVector KestrelTailPosition(FVector P)
 {
-    return FVector(KestrelWingX + (P.X-KestrelWingX)*KestrelLengthScale,
-                   P.Y*KestrelWidthScale, P.Z*KestrelHeightScale);
+    const float T = (P.X - KestrelTailAuthoredRootX) / (KestrelTailAuthoredTipX - KestrelTailAuthoredRootX);
+    return FVector(FMath::Lerp(KestrelTailRootX, KestrelTailTipX, T),
+                   P.Y * KestrelTailYScale, 0.f);
 }
 
 // Kestrel fanned tail membrane (kestreltail.svg "tailmembrane"), authored top-view
@@ -100,14 +122,14 @@ void BuildKestrelTail(AActor* Owner, USceneComponent* Parent)
     TArray<FLinearColor> C;
     for (int32 I = 0; I < 8; ++I)
     {
-        V.Add(KestrelBodyPosition(KestrelTailPts[I])); UV.Add(KestrelTailUV[I]);
+        V.Add(KestrelTailPosition(KestrelTailPts[I])); UV.Add(KestrelTailUV[I]);
         N.Add(FVector(0, 0, 1)); C.Add(FLinearColor::White);
     }
     for (int32 I = 1; I < 7; ++I) T.Append({0, I, I + 1});  // front fan from root centre
     const int32 B = V.Num();
     for (int32 I = 0; I < 8; ++I)
     {
-        V.Add(KestrelBodyPosition(KestrelTailPts[I])); UV.Add(KestrelTailUV[I]);
+        V.Add(KestrelTailPosition(KestrelTailPts[I])); UV.Add(KestrelTailUV[I]);
         N.Add(FVector(0, 0, -1)); C.Add(FLinearColor::White);
     }
     for (int32 I = 1; I < 7; ++I) T.Append({B, B + I + 1, B + I});  // back fan (reversed winding)
@@ -141,14 +163,14 @@ USceneComponent* Born2FlapRaven::Build(AActor* Owner, USceneComponent* Parent,
     if (Design == 2)
     {
         // Kestrel (falcon): the authored fuselage mesh + textured tail membrane.
-        // Upright OBJ is pre-scaled to cm. Yaw points the nose forward; the
-        // the shared body/tail transform gives a total length of 800 mm.
+        // The mesh is yawed 180 (nose forward) and scaled by the layout constants
+        // above; the fuselage reaches aft past the wing TE to overlap the tail fan.
         auto* Fuselage = NewObject<UStaticMeshComponent>(Owner, TEXT("KestrelFuselage_2"));
         Owner->AddInstanceComponent(Fuselage);
         Fuselage->SetupAttachment(RavenRoot);
-        Fuselage->SetRelativeLocation(KestrelBodyPosition(FVector(70, 0, 0)));
+        Fuselage->SetRelativeLocation(FVector(KestrelNoseX, 0.f, 0.f));
         Fuselage->SetRelativeRotation(FRotator(0, 180, 0));
-        Fuselage->SetRelativeScale3D(1.33f*FVector(KestrelLengthScale, KestrelWidthScale, KestrelHeightScale));
+        Fuselage->SetRelativeScale3D(FVector(KestrelFuselageXScale, KestrelFuselageYScale, KestrelFuselageHeightScale));
         Fuselage->SetCollisionEnabled(ECollisionEnabled::NoCollision);
         Fuselage->SetCastShadow(true);
         if (auto* FusMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Game/Birds/SM_KestrelFuselage")))
@@ -164,7 +186,7 @@ USceneComponent* Born2FlapRaven::Build(AActor* Owner, USceneComponent* Parent,
         // roots are 2 cm apart instead of spreading a body-width apart.
         for (int Side : {-1, 1})
         {
-            auto* Shoulder = Node(*FString::Printf(TEXT("RavenShoulder%d"), Side), RavenRoot, FVector(3, Side * 1.0, 10));
+            auto* Shoulder = Node(*FString::Printf(TEXT("RavenShoulder%d"), Side), RavenRoot, FVector(3, Side * 1.0, 6));
             if (Side < 0) OutLeftShoulder = Shoulder; else OutRightShoulder = Shoulder;
             auto* Wing = NewObject<UBorn2FlapWingMesh>(Owner, *FString::Printf(TEXT("RavenWing%d_%d"), Side, Design));
             Owner->AddInstanceComponent(Wing);

@@ -61,27 +61,20 @@ void ABorn2FlapSplash::Build()
     if (!Renderer)
         return;
 
-    // Small centered logo over a bottom-anchored loading readout. The artwork
-    // is a compact mark (not full-bleed) so the world is visible around it while
-    // it loads; the menu takes over with the full-bleed backdrop afterwards.
+    // Full-bleed splash artwork (replaces the Windows engine splash) with a
+    // bottom-anchored loading readout overlaid on top. The 16:9 raster fills the
+    // viewport edge-to-edge so the first frame is the game's own splash, never
+    // the raw world behind it.
     //   []         Overlay (root, children fill)
-    //   [0]        Overlay (align center, valign center)
-    //   [0,0]      SizeBox (fixed 420x420)
-    //   [0,0,0]    Image (splash logo)
+    //   [0]        Image (splash artwork, full-bleed)
     //   [1]        Overlay (align center, valign bottom)
     //   [1,0]      Panel (solid, bottom-center block)
     //   [1,0,0]    ProgressBar (0..1)
-    //   [1,0,1]    TextBlock  "LOADING" (below the bar, clear of the logo)
+    //   [1,0,1]    TextBlock  "LOADING" (below the bar)
     FNode Root = Nd("Overlay", P({}),
     {
-        Nd("Overlay", P({ {"align", S("center")}, {"valign", S("center")} }),
-        {
-            Nd("SizeBox", P({ {"width", N(420)}, {"height", N(420)} }),
-            {
-                Nd("Image", P({ {"texture", S("/Game/Splash/born2flap-splash-new.born2flap-splash-new")} }))
-            })
-        }),
-        Nd("Overlay", P({ {"align", S("center")}, {"valign", S("bottom")} }),
+        Nd("Image", P({ {"texture", S("/Game/Splash/born2flap-splash-new.born2flap-splash-new")} })),
+        Nd("Overlay", P({ {"align", S("center")}, {"valign", S("bottom")}, {"margin", N(24)} }),
         {
             Nd("Panel", P({ {"bg", S("solid")}, {"padding", N(18)}, {"spacing", N(8)} }),
             {
@@ -132,4 +125,10 @@ void ABorn2FlapSplash::SetOpacity(float Opacity)
     FProps Props;
     Props["opacity"] = N(FMath::Clamp(Opacity, 0.f, 1.f));
     SendUpdate(Renderer, {}, std::move(Props));
+}
+
+void ABorn2FlapSplash::Close()
+{
+    if (Renderer)
+        Renderer->Close();
 }

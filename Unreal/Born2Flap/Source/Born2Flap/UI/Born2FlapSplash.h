@@ -27,6 +27,11 @@ public:
     // Fade the whole splash (root opacity).
     void SetOpacity(float Opacity);
 
+    // Detach the UMG window immediately (Destroy() only schedules GC — the
+    // full-screen splash would otherwise linger at ZOrder 100 and swallow every
+    // mouse click on the menu/panels beneath it until the next collection).
+    void Close();
+
 private:
     void Build();
 

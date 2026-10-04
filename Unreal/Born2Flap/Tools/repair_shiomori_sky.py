@@ -28,5 +28,6 @@ suns = [a for a in u.get_editor_subsystem(u.EditorActorSubsystem).get_all_level_
 assert len(suns) == 1, 'Expected one atmosphere sun in Shiomori'
 forward = suns[0].get_actor_forward_vector()
 scope['sun_parhelion_material']((-forward.x, -forward.y, -forward.z))
-scope['fpv_fisheye_material']()
+if not globals().get('SKY_ONLY', False):
+    scope['fpv_fisheye_material']()
 u.log('SKY_REPAIR_PASS: scene-preserving full display saved; level unchanged')

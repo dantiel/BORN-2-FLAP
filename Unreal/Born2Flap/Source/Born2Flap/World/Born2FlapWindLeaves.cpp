@@ -1,6 +1,16 @@
 #include "World/Born2FlapWindLeaves.h"
 
 #include "World/Born2FlapWind.h"
+#include "Game/Born2FlapGameMode.h"
+
+namespace {
+FVector WeatherWind(const AActor* Actor,const FVector& P,double Time)
+{
+    const auto* GM=Cast<ABorn2FlapGameMode>(Actor->GetWorld()->GetAuthGameMode());
+    return GM ? GM->WindAt(P,Time) : Born2FlapWind::Sample(P,Time);
+}
+}
+
 #include "World/Born2FlapValley.h"
 #include "Components/InstancedStaticMeshComponent.h"
 #include "Components/SceneComponent.h"
@@ -81,7 +91,7 @@ void ABorn2FlapWindLeaves::Tick(float DeltaSeconds)
         for (int32 I = 0; I < LeafPool.Num(); ++I)
         {
             FLeaf& L = LeafPool[I];
-            const FVector Wind = Born2FlapWind::Sample(L.Pos, Time) * 100.0;  // m/s → cm/s
+            const FVector Wind = WeatherWind(this,L.Pos, Time) * 100.0;  // m/s → cm/s
             L.Vel = FMath::VInterpTo(L.Vel, Wind, DeltaSeconds, 1.5f);
             L.Pos += (L.Vel + FVector(0, 0, -80.0)) * DeltaSeconds;            // gentle sink
             L.Rot += L.Spin * DeltaSeconds;
@@ -104,7 +114,7 @@ void ABorn2FlapWindLeaves::Tick(float DeltaSeconds)
         for (int32 I = 0; I < BladePool.Num(); ++I)
         {
             const FBlade& B = BladePool[I];
-            const FVector Wind = Born2FlapWind::Sample(B.Anchor, Time);        // m/s
+            const FVector Wind = WeatherWind(this,B.Anchor, Time);        // m/s
             const double Strength = Wind.Size();
             const double K = FMath::Min(1.0, Strength / 8.0);
             const double Flutter = FMath::Sin(Time * 5.0 + B.Phase) * 4.0 * K;
@@ -132,7 +142,7 @@ ABorn2FlapWindLeaves::FLeaf ABorn2FlapWindLeaves::SpawnLeaf(FRandomStream& R, co
     const double A = R.FRandRange(0.0, 2.0 * PI);
     const double Rad = R.FRandRange(900.0, 5500.0);
     L.Pos = Cam + FVector(FMath::Cos(A) * Rad, FMath::Sin(A) * Rad, R.FRandRange(100.0, 2600.0));
-    const FVector Wind = Born2FlapWind::Sample(L.Pos, GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0) * 100.0;
+    const FVector Wind = WeatherWind(this,L.Pos, GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0) * 100.0;
     L.Vel = Wind;
     L.Rot = FRotator(R.FRandRange(0.0, 360.0), R.FRandRange(0.0, 360.0), R.FRandRange(0.0, 360.0));
     L.Spin = FRotator(R.FRandRange(-120.0, 120.0), R.FRandRange(-180.0, 180.0), R.FRandRange(-120.0, 120.0));

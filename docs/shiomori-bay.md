@@ -21,7 +21,7 @@ Python commandlet. `Tools/test-shiomori.ps1` checks collisions, water classifica
 wall lift, key objects and captures three rendered views. All content is generated
 locally; no downloaded environment assets are required.
 
-The sky uses a persistent full display: the atmosphere sun, two bright sun dogs,
+The default morning parhelion profile uses a full display: the atmosphere sun, two bright sun dogs,
 a 22-degree halo, upper arcs, and a double rainbow opposite the sun. Effects are
 world-direction aligned and masked by scene depth, so buildings and terrain
 occlude them. The post-process material explicitly preserves PostProcessInput0;

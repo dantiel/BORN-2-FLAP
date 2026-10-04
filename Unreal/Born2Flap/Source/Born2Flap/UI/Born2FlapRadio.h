@@ -20,6 +20,7 @@
 #include "Born2FlapRadio.generated.h"
 
 class UBorn2FlapUIRenderer;
+class ABorn2FlapFlightPawn;
 
 // One level's radio: a named station + an ordered track list (asset paths).
 USTRUCT()
@@ -110,6 +111,8 @@ private:
 
     UPROPERTY() TObjectPtr<UBorn2FlapUIRenderer> Renderer;
     UPROPERTY() TObjectPtr<UBorn2FlapRadioStation> Station;
+    ABorn2FlapFlightPawn* CachedBird = nullptr;
     FString LastTrackLine;
     int32 LastVolumePct = -1;
+    bool bLastHidden = true;
 };
