@@ -96,12 +96,12 @@ void ABorn2FlapFlightPawn::OpenFlightSettings()
     SettingsPanel=Panel;
 
     // No SetPause here: the FlightPawn freezes the simulation while the panel
-    // is open (it early-returns in Tick), but the world keeps running so F8/Esc
-    // are never swallowed by paused-input routing. GameAndUI (not UIOnly) keeps
-    // the game viewport listening for keyboard while the UMG tree gets the mouse.
+    // is open (it early-returns in Tick). UIOnly hands the mouse fully to the
+    // UMG tree so buttons, sliders and the scroll box are clickable/scrollable;
+    // F8/Esc are captured by the Slate input pre-processor (FPanelKeyInputProcessor),
+    // so closing stays reliable even though UIOnly routes keys away from PlayerInput.
     PC->bShowMouseCursor=true;
-    FInputModeGameAndUI Mode;
-    Mode.SetHideCursorDuringCapture(false);
+    FInputModeUIOnly Mode;
     Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
     PC->SetInputMode(Mode);
     PC->FlushPressedKeys();

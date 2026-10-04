@@ -89,8 +89,9 @@
   "poi.west_vegetation": "WEST VEGETATION",
   "poi.start_line": "START LINE",
   "poi.gate": "GATE",
-  "menu.title": "BORN 2 FLAP",
+  "menu.title": "SHIOMORI BAY",
   "menu.subtitle": "ORNITHOPTER FLIGHT SIMULATOR",
+  "menu.resume": "RESUME",
   "menu.select": "SELECT LEVEL",
   "menu.level_ravenstonefield": "RAVENSTONEFIELD",
   "menu.level_ravenstonefield_desc": "Autumn forest valley",
@@ -100,5 +101,8 @@
   "menu.level_training_desc": "Sky-gate race course",
   "menu.hint": "Click a level to fly",
   "race.complete": "RACE COMPLETE",
-  "race.best": "BEST"
+  "race.best": "BEST",
+  "menu.play": "FLY",
+  "menu.quit": "QUIT",
+  "menu.back": "BACK"
 }

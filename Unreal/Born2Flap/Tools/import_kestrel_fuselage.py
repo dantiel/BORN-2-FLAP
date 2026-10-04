@@ -156,12 +156,19 @@ def tail_material(tail_tex):
         "M_KestrelTail", BIRDS, u.Material, u.MaterialFactoryNew())
     lib.delete_all_material_expressions(m)
     m.set_editor_property("two_sided", True)
+    # Slightly translucent feathers: light passes through the tail fan. TailOpacity
+    # (scalar parameter) tunes the translucency from 0 (invisible) to 1 (opaque).
+    m.set_editor_property("blend_mode", u.BlendMode.BLEND_TRANSLUCENT)
+    m.set_editor_property("shading_model", u.MaterialShadingModel.MSM_DEFAULT_LIT)
 
     paint = node(m, "TextureSampleParameter2D", parameter_name="TailPaint", texture=tail_tex)
     output(paint, "BASE_COLOR", "RGB")
 
     rough = node(m, "Constant", r=0.65)
     output(rough, "ROUGHNESS")
+
+    opacity = node(m, "ScalarParameter", parameter_name="TailOpacity", default_value=0.72)
+    output(opacity, "OPACITY")
 
     lib.recompile_material(m)
     assert ela.save_asset(path), "KESTREL_FUSELAGE: failed to save tail material"

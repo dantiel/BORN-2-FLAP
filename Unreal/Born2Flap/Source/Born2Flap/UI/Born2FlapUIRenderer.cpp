@@ -34,6 +34,7 @@
 #include "Styling/SlateTypes.h"
 #include "UObject/StrongObjectPtr.h"
 #include "UObject/UObjectGlobals.h"
+#include "UI/Born2FlapWindArrow.h"
 
 using namespace born2flap::ui;
 
@@ -43,6 +44,22 @@ namespace {
 FString Str(const FValue& V) { return FString(UTF8_TO_TCHAR(V.AsString().c_str())); }
 float Num(const FValue& V, float D) { return (float)V.AsNumber(D); }
 FString FormatNum(const FValue& V) { return FString::SanitizeFloat((float)V.AsNumber(0.0)); }
+
+// Stat/Gauge readout: an explicit `format`/`decimals` prop wins, otherwise a
+// single meaningful decimal (the cockpit never wants `%f`'s six-digit noise).
+FString FormatValue(const FValue& V, const FProps& Props)
+{
+    int32 Decimals = 1;
+    if (Props.count("decimals"))
+        Decimals = FMath::Clamp((int32)Num(Props.at("decimals"), 1), 0, 6);
+    else if (Props.count("format"))
+    {
+        const FString F = Str(Props.at("format"));
+        if (F == TEXT("int")) Decimals = 0;
+        else if (F.Len() == 2 && F[0] == 'f' && F[1] >= '0' && F[1] <= '9') Decimals = F[1] - '0';
+    }
+    return FString::SanitizeFloat((float)V.AsNumber(0.0), Decimals);
+}
 
 // size prop: a numeric px value wins, otherwise a size token (xs..xxl).
 float SizeOrNum(const FValue& V, float D)
@@ -173,8 +190,10 @@ UTexture2D* GetOrLoadTexture(const FString& Path)
     if (IsValid(Tex))
     {
         GTextureCache.Add(Path, TStrongObjectPtr<UTexture2D>(Tex));
+        UE_LOG(LogTemp, Display, TEXT("Born2FlapUIRenderer: loaded texture %s"), *Path);
         return Tex;
     }
+    UE_LOG(LogTemp, Warning, TEXT("Born2FlapUIRenderer: FAILED to load texture %s"), *Path);
     return nullptr;
 }
 
@@ -369,6 +388,7 @@ UWidget* UBorn2FlapUIRenderer::CreateInstance(const std::string& Type)
     if (Type == "Spacer")        return NewObject<USpacer>(this);
     if (Type == "ScrollBox")     return NewObject<UScrollBox>(this);
     if (Type == "SizeBox")       return NewObject<USizeBox>(this);
+    if (Type == "WindArrow")     return NewObject<UBorn2FlapWindArrow>(this);
 
     UE_LOG(LogTemp, Warning, TEXT("Born2FlapUIRenderer: unknown widget type '%s'"), *T);
     return NewObject<UBorder>(this);
@@ -486,17 +506,23 @@ void UBorn2FlapUIRenderer::EnsureViewport()
     if (RootHost)
         return;
     UWorld* World = GetWorld();
+    if (!World)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("Born2FlapUIRenderer::EnsureViewport: no world"));
+        return;
+    }
     // CreateWidget bakes the owning player in at creation time. The splash
     // spawns from GameMode::BeginPlay, before the PlayerController exists, so
     // creating the host too early leaves it without an owning player and it
     // never attaches to a real viewport. Defer until a local player is live;
     // EnsureAttached() re-drives this once per splash tick.
-    if (!World || !World->GetFirstLocalPlayerFromController())
+    if (!World->GetFirstLocalPlayerFromController())
         return;
     RootHost = CreateWidget<UBorn2FlapRootWidget>(World);
     ViewportCanvas = NewObject<UCanvasPanel>(RootHost);
     RootHost->WidgetTree->RootWidget = ViewportCanvas;
     RootHost->AddToViewport(ViewportZOrder);
+    UE_LOG(LogTemp, Display, TEXT("Born2FlapUIRenderer: viewport attached at ZOrder %d"), ViewportZOrder);
 }
 
 UMaterialInstanceDynamic* UBorn2FlapUIRenderer::GetOrCreateDynamicMaterial(UWidget* W)
@@ -824,7 +850,7 @@ void UBorn2FlapUIRenderer::ApplyCompositeProps(UBorn2FlapComposite* C, const FPr
 
         const bool bV = Props.count("value") != 0;
         const bool bU = Props.count("unit") != 0;
-        if (bV) C->State.Add(TEXT("value"), FormatNum(Props.at("value")));
+        if (bV) C->State.Add(TEXT("value"), FormatValue(Props.at("value"), Props));
         if (bU) C->State.Add(TEXT("unit"), Str(Props.at("unit")));
         if (bV || bU)
         {
@@ -848,7 +874,7 @@ void UBorn2FlapUIRenderer::ApplyCompositeProps(UBorn2FlapComposite* C, const FPr
         const bool bU = Props.count("unit") != 0;
         const bool bLo = Props.count("min") != 0;
         const bool bHi = Props.count("max") != 0;
-        if (bV) C->State.Add(TEXT("value"), FormatNum(Props.at("value")));
+        if (bV) C->State.Add(TEXT("value"), FormatValue(Props.at("value"), Props));
         if (bU) C->State.Add(TEXT("unit"), Str(Props.at("unit")));
         if (bV || bU)
         {
@@ -1052,6 +1078,14 @@ void UBorn2FlapUIRenderer::ApplyPrimitiveProps(UWidget* W, const FProps& Props)
         if (!ToneOf(Props).IsEmpty())
             Im->SetColorAndOpacity(theme::Tone(ToneOf(Props), theme::FG()));
     }
+    else if (UBorn2FlapWindArrow* A = Cast<UBorn2FlapWindArrow>(W))
+    {
+        if (Props.count("angle")) A->SetAngle(Num(Props.at("angle"), 0.0));
+        if (Props.count("size") || Props.count("arrowsize"))
+            A->SetArrowSize(SizeOrNum(Props.count("size") ? Props.at("size") : Props.at("arrowsize"), 28.0));
+        if (!ToneOf(Props).IsEmpty())
+            A->SetColor(theme::Tone(ToneOf(Props), theme::INFO()));
+    }
     else if (USizeBox* SB = Cast<USizeBox>(W))
     {
         if (Props.count("width"))  SB->SetWidthOverride(Num(Props.at("width"), 0.0));
@@ -1210,6 +1244,7 @@ void UBorn2FlapUIRenderer::StoreContainerLayout(UPanelWidget* Panel, const FProp
     }
     if (Props.count("align"))  { S.H = ParseHAlign(Props.at("align"));  S.bH = true; }
     if (Props.count("valign")) { S.V = ParseVAlign(Props.at("valign")); S.bV = true; }
+    if (Props.count("margin")) { S.Margin = ParseMargin(Props.at("margin")); S.bMargin = true; }
 
     LayoutState.Add(Panel, S);
     ApplyStoredLayout(Panel);
@@ -1249,6 +1284,16 @@ void UBorn2FlapUIRenderer::ApplyStoredLayoutToChild(UPanelWidget* Panel, int32 I
         }
     }
 
+    // Overlay children fill by default — a full-bleed stack (the splash/menu
+    // artwork depends on this). Explicit align/valign on the container wins.
+    if (UOverlaySlot* OSlot = Cast<UOverlaySlot>(Child->Slot))
+    {
+        OSlot->SetHorizontalAlignment(S && S->bH ? S->H : HAlign_Fill);
+        OSlot->SetVerticalAlignment(S && S->bV ? S->V : VAlign_Fill);
+        OSlot->SetPadding(S && S->bMargin ? S->Margin : FMargin(0.f));
+        return;
+    }
+
     if (!S)
         return;
 
@@ -1263,10 +1308,5 @@ void UBorn2FlapUIRenderer::ApplyStoredLayoutToChild(UPanelWidget* Panel, int32 I
         if (S->bH) HSlot->SetHorizontalAlignment(S->H);
         if (S->bV) HSlot->SetVerticalAlignment(S->V);
         if (S->bSpacing) HSlot->SetPadding(FMargin(0.f, 0.f, (Index == N - 1) ? 0.f : S->Spacing, 0.f));
-    }
-    else if (UOverlaySlot* OSlot = Cast<UOverlaySlot>(Child->Slot))
-    {
-        if (S->bH) OSlot->SetHorizontalAlignment(S->H);
-        if (S->bV) OSlot->SetVerticalAlignment(S->V);
     }
 }

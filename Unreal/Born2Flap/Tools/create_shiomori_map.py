@@ -486,7 +486,7 @@ def sun_parhelion_material(sun_dir, weather=None):
     m.set_editor_property('blendable_location', u.BlendableLocation.BL_SCENE_COLOR_AFTER_TONEMAPPING)
     m.set_editor_property('shading_model', u.MaterialShadingModel.MSM_UNLIT)
     m.set_editor_property('two_sided', True)
-    sd = node(m, 'Constant3Vector', constant=u.LinearColor(sun_dir[0], sun_dir[1], sun_dir[2], 0.0))
+    sd = node(m, 'VectorParameter', parameter_name='SunDirection', default_value=u.LinearColor(sun_dir[0], sun_dir[1], sun_dir[2], 0.0))
     view = node(m, 'CameraVectorWS')
     scene = node(m, 'SceneTexture', scene_texture_id=u.SceneTextureId.PPI_POST_PROCESS_INPUT0)
     depth = node(m, 'SceneTexture', scene_texture_id=u.SceneTextureId.PPI_SCENE_DEPTH)

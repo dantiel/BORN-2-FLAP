@@ -4,6 +4,8 @@
 
 #include "UI/Born2FlapUIRenderer.h"
 #include "UI/Born2FlapI18n.h"
+#include "Flight/Born2FlapFlightPawn.h"
+#include "GameFramework/PlayerController.h"
 #include "Kismet/GameplayStatics.h"
 #include "Engine/World.h"
 
@@ -247,6 +249,23 @@ void ABorn2FlapRadioHUD::Tick(float DeltaSeconds)
 void ABorn2FlapRadioHUD::Refresh()
 {
     if (!Renderer || !Station)
+        return;
+
+    // F7 "remove all UI": hide the radio panel too, matching the cockpit.
+    if (!CachedBird)
+    {
+        if (APlayerController* PC = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr)
+            CachedBird = Cast<ABorn2FlapFlightPawn>(PC->GetPawn());
+    }
+    const bool bShouldHide = CachedBird && CachedBird->IsUIHidden();
+    if (bShouldHide != bLastHidden)
+    {
+        TArray<FOp> HideOps;
+        HideOps.Add(UpdateProps(FPath(), P({ {"visible", N(bShouldHide ? 0.0 : 1.0)} })));
+        Renderer->ApplyOps(HideOps);
+        bLastHidden = bShouldHide;
+    }
+    if (bShouldHide)
         return;
 
     TArray<FOp> Ops;

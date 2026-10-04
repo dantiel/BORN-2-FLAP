@@ -25,10 +25,10 @@ void ABorn2FlapHUD::DrawHUD()
     if (Bird->IsFlightSettingsOpen()) return;
     auto* PC = GetOwningPlayerController();
     if (PC->WasInputKeyJustPressed(EKeys::F2)) bShowChannels = !bShowChannels;
-    if (PC->WasInputKeyJustPressed(EKeys::F7)) bHideRavenHUD = !bHideRavenHUD;
+    if (Bird->IsUIHidden()) return;  // F7 (owned by FlightPawn) removes ALL UI
     const auto* Controller = Bird->GetRcController();
     if (Controller && Controller->IsPanelOpen()) { DrawRcPanel(*Controller); return; }
-    if (bHideRavenHUD || FParse::Param(FCommandLine::Get(), TEXT("B2FRavenCapture"))) return;
+    if (FParse::Param(FCommandLine::Get(), TEXT("B2FRavenCapture"))) return;
     // When the semantic glass cockpit (ABorn2FlapFlightHUD) is alive, it owns
     // the brand + telemetry readouts — the imperative canvas keeps only the
     // functional bits (RC panel, channels, radio, key hints, camera label).
@@ -37,7 +37,7 @@ void ABorn2FlapHUD::DrawHUD()
     {
         const auto *Rc = Bird->GetRcController();
         if (Rc && Rc->IsPanelOpen()) { DrawRcPanel(*Rc); return; }
-        if (bHideRavenHUD || FParse::Param(FCommandLine::Get(), TEXT("B2FRavenCapture"))) return;
+        if (FParse::Param(FCommandLine::Get(), TEXT("B2FRavenCapture"))) return;
         const FLinearColor Ivory(.93,.91,.81), Muted(.68,.74,.70), Amber(.88,.63,.31), Ink(.014,.028,.025,.72);
         const float W = Canvas->SizeX, H = Canvas->SizeY;
         if (!bSemanticHUD)
@@ -54,8 +54,6 @@ void ABorn2FlapHUD::DrawHUD()
         }
         // The radio is rendered by the semantic ABorn2FlapRadioHUD (new UI
         // system), not the imperative canvas.
-        DrawText(TEXT("F6 ground / air   V chase / FPV   F8 bird + controls   F2 channels   F3 RC   F4 level   F7 HUD"),Muted,34,H-24,GEngine->GetSmallFont(),.85);
-        DrawText(Bird->GetCameraLabel(), FLinearColor(.68f,.74f,.70f), 47, 110, GEngine->GetSmallFont(), .8f);
         if (bShowChannels) DrawChannels(*Bird);
         return;
     }

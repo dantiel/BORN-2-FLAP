@@ -8,6 +8,7 @@
 #include "Engine/Engine.h"
 #include "Scalability.h"
 #include "Kismet/GameplayStatics.h"
+#include "Game/Born2FlapGameMode.h"
 
 AShiomoriWaterDirector::AShiomoriWaterDirector()
 {
@@ -78,6 +79,15 @@ void AShiomoriWaterDirector::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
     TimeSeconds = GetWorld()->GetTimeSeconds();
+    if(auto* GM=Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode()))
+    {
+        const FVector Wind=GM->WindAt(GetActorLocation(),TimeSeconds);
+        Parameters.WindSpeed=Wind.Size2D();
+        Parameters.WindDirection=FMath::RadiansToDegrees(FMath::Atan2(Wind.Y,Wind.X));
+        Parameters.SeaState=FMath::Clamp(Parameters.WindSpeed*.08f,.05f,.55f);
+        Parameters.StormAmount=0.f; // these presets intentionally exclude storms
+        ApplyParameters();
+    }
 
     if (!MPCInstance || !MPCInstance->GetCollection())
         return;

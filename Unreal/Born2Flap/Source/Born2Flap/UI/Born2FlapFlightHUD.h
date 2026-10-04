@@ -44,8 +44,9 @@ private:
     float LastBattery = -1e9f;
     float LastThrottle = -1e9f;
     float LastWindSpeed = -1e9f;
-    float LastWindDir = -1e9f;
+    float LastWindRelAngle = -1e9f;
     FString LastWindDesc;
     FString LastStatus;
+    FString LastCamera;
     bool bLastHidden = true;
 };

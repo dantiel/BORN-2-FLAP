@@ -90,6 +90,8 @@ struct FLayoutState
     EVerticalAlignment V = VAlign_Top;
     bool bH = false;
     bool bV = false;
+    FMargin Margin;
+    bool bMargin = false;
 };
 
 UCLASS()
@@ -178,7 +180,7 @@ private:
     TUniquePtr<born2flap::audio::FAudioEngine> AudioEngine;
     UPROPERTY() UUserWidget* RootHost = nullptr;
     UPROPERTY() UCanvasPanel* ViewportCanvas = nullptr;
-    UWidget* RootWidget = nullptr;
+    UPROPERTY() UWidget* RootWidget = nullptr;
     TMap<UWidget*, UMaterialInstanceDynamic*> MaterialCache;
     TMap<UPanelWidget*, FLayoutState> LayoutState;
 
