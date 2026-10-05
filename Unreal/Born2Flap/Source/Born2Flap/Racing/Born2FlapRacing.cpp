@@ -8,6 +8,7 @@
 #include "Misc/Paths.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
+#include "Misc/ConfigCacheIni.h"
 #include "Serialization/MemoryWriter.h"
 #include "Serialization/MemoryReader.h"
 
@@ -134,7 +135,11 @@ void ABorn2FlapRacingManager::BeginPlay()
     // independent of the B2FLevel alias used to launch.
     SpiritDir = FPaths::ProjectSavedDir() / TEXT("Racing/Spirits") / GetWorld()->GetMapName();
     IFileManager::Get().MakeDirectory(*SpiritDir, /*Tree=*/true);
-    if (bEnabled)
+    // Honor the persisted "show replay shadows" preference from the flight desk.
+    FConfigFile Config;
+    Config.Read(FPaths::ProjectSavedDir() / TEXT("Config/FlightPreferences.ini"));
+    Config.GetBool(TEXT("Flight"), TEXT("ReplaySpirits"), bSpiritsEnabled);
+    if (bEnabled && bSpiritsEnabled)
         LoadAllSpirits();
 }
 
@@ -270,7 +275,7 @@ void ABorn2FlapRacingManager::EndRound()
 void ABorn2FlapRacingManager::SpawnSpirits()
 {
     ClearSpiritActors();
-    if (LoadedSpirits.Num() == 0)
+    if (!bSpiritsEnabled || LoadedSpirits.Num() == 0)
         return;
     int32 Champion = 0;
     for (int32 I = 1; I < LoadedSpirits.Num(); ++I)
@@ -300,6 +305,32 @@ void ABorn2FlapRacingManager::ClearSpiritActors()
         if (auto *Spirit = Weak.Get())
             Spirit->Destroy();
     SpiritActors.Reset();
+}
+
+void ABorn2FlapRacingManager::SetSpiritsEnabled(bool bOn)
+{
+    bSpiritsEnabled = bOn;
+    if (!bSpiritsEnabled)
+    {
+        ClearSpiritActors();
+        return;
+    }
+    // Re-load recordings that were skipped while disabled, so the shadows
+    // return on the next round without a restart.
+    if (LoadedSpirits.Num() == 0)
+        LoadAllSpirits();
+}
+
+void ABorn2FlapRacingManager::DeleteAllSpirits()
+{
+    ClearSpiritActors();
+    TArray<FString> Files;
+    IFileManager::Get().FindFiles(Files, *(SpiritDir / TEXT("*.b2fs")), /*Files=*/true, /*Directories=*/false);
+    for (const FString &File : Files)
+        IFileManager::Get().Delete(*(SpiritDir / File));
+    LoadedSpirits.Reset();
+    BestDistance = BestDuration = 0;
+    UE_LOG(LogTemp, Display, TEXT("RacingSpiritsDeleted count=%d"), Files.Num());
 }
 
 FString ABorn2FlapRacingManager::GetRacingStatus() const

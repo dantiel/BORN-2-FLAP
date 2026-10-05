@@ -21,6 +21,8 @@ module Born2Flap
 
           {
             world_id: world_id,
+            page: locals.fetch(:menu_page, 0).to_i,
+            artwork: world_id.downcase == "shiomori" ? "Coast" : "Valley",
             world_title: world[:title] || world_id,
             world_story: world[:story] || "",
             weather_index: weathers.index(world[:weather]) || 0,

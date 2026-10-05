@@ -16,6 +16,11 @@ public:
     void SetPaintTexture(UTexture2D* Texture);
     int32 GetWingDesign() const { return WingDesign; }
     bool HasValidDeformation();
+    // Rest (unflapped) wingtip in mesh-local space — the outboard span extreme.
+    // Used to anchor the outboard end of the leading-edge contact capsule.
+    FVector GetWingTipLocal() const;
+    // Rest (unflapped) wing root in mesh-local space — the inboard span anchor.
+    FVector GetWingRootLocal() const;
 private:
     int32 WingSide = 1;
     int32 WingDesign = 0;

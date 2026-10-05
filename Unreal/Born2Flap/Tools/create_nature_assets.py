@@ -81,7 +81,9 @@ def save(material):
 
 def main():
     mesh_sets = {}
-    for source in ['fir_sapling_medium', 'grass_medium_01', 'rock_moss_set_01']:
+    for source in ['fir_sapling_medium', 'grass_medium_01', 'rock_moss_set_01',
+                   'jacaranda_tree', 'island_tree_01', 'calathea_orbifolia_01',
+                   'anthurium_botany_01', 'fern_02']:
         folder = '/Game/Nature/' + source
         imported = [u.load_asset(p) for p in LIB.list_assets(folder)] if LIB.does_directory_exist(folder) else []
         if not any(isinstance(a, u.StaticMesh) for a in imported):
@@ -96,7 +98,7 @@ def main():
         for mesh in meshes:
             opts = u.StaticMeshReductionOptions()
             opts.auto_compute_lod_screen_size = False
-            levels = [(1., 1.), (.65, .2), (.25, .075), (.06, .018)] if source == 'fir_sapling_medium' else [(1., 1.), (.35, .3), (.12, .12), (.035, .045)]
+            levels = [(1., 1.), (.65, .2), (.25, .075), (.06, .018)] if source in ('fir_sapling_medium', 'jacaranda_tree', 'island_tree_01') else [(1., 1.), (.35, .3), (.12, .12), (.035, .045)]
             opts.reduction_settings = [u.StaticMeshReductionSettings(percent_triangles=p, screen_size=s) for p, s in levels]
             if MESH.get_lod_count(mesh) < 4 or (source == 'fir_sapling_medium' and LIB.get_metadata_tag(mesh, 'B2F_LODVersion') != '2'):
                 MESH.set_lods(mesh, opts)
@@ -105,7 +107,10 @@ def main():
     # Stable names consumed by the runtime level; keep imported source names too.
     selections = [('Fir', mesh_sets['fir_sapling_medium'], 3),
                   ('Rock', mesh_sets['rock_moss_set_01'], 4),
-                  ('Grass', [m for m in mesh_sets['grass_medium_01'] if 'small' in m.get_name().lower() or 'tall' in m.get_name().lower()], 3)]
+                  ('Grass', [m for m in mesh_sets['grass_medium_01'] if 'small' in m.get_name().lower() or 'tall' in m.get_name().lower()], 3),
+                  ('Tree', mesh_sets['jacaranda_tree'] + mesh_sets['island_tree_01'], 2),
+                  ('Leaf', mesh_sets['calathea_orbifolia_01'] + mesh_sets['anthurium_botany_01'], 2),
+                  ('Fern', mesh_sets['fern_02'], 1)]
     for prefix, meshes, count in selections:
         for i, mesh in enumerate(meshes[:count]):
             if not LIB.does_asset_exist('/Game/Nature/SM_' + prefix + str(i)):
@@ -121,17 +126,29 @@ def main():
                     LIB.save_loaded_asset(alias)
 
     # Repair cutout foliage: the glTF's BLEND material is unsuitable for dense foliage.
-    for source, alpha_name in [('fir_sapling_medium', 'twigs_alpha.png'), ('grass_medium_01', 'Alpha.png')]:
+    for source, alpha_name in [('fir_sapling_medium', 'twigs_alpha.png'), ('grass_medium_01', 'Alpha.png'),
+                               ('jacaranda_tree', 'leaves_alpha.png'), ('island_tree_01', 'leaves_alpha.png'),
+                               ('calathea_orbifolia_01', 'Alpha.png'), ('anthurium_botany_01', 'Alpha.png'),
+                               ('fern_02', 'Alpha.png')]:
         alpha = import_file(ROOT / source / alpha_name, '/Game/Nature', 'T_' + source + '_Alpha')[0]
         alpha.set_editor_property('srgb', False)
         alpha.set_editor_property('do_scale_mips_for_alpha_coverage', True)
         alpha.set_editor_property('alpha_coverage_thresholds', u.Vector4(.25, 0, 0, 0))
         LIB.save_loaded_asset(alpha)
+        diffuse = None
         for path in LIB.list_assets('/Game/Nature/' + source):
             material = u.load_asset(path)
             if isinstance(material, u.Texture2D) and 'diff' in material.get_name().lower():
-                if source == 'grass_medium_01' or 'twigs' in material.get_name().lower():
+                nm = material.get_name().lower()
+                if 'leaves' in nm or 'twigs' in nm:
                     diffuse = material
+                    break
+        if diffuse is None:
+            for path in LIB.list_assets('/Game/Nature/' + source):
+                material = u.load_asset(path)
+                if isinstance(material, u.Texture2D) and 'diff' in material.get_name().lower():
+                    diffuse = material
+                    break
         foliage = newmat('M_' + source + '_Foliage')
         # The full-detail fir has explicitly modelled needles. The extra alpha
         # atlas belongs to card-based source variants and clips those needles.
@@ -153,7 +170,7 @@ def main():
                 continue
             for i, slot in enumerate(mesh.static_materials):
                 old = slot.material_interface
-                if old and source in old.get_path_name() and (source == 'grass_medium_01' or 'twigs' in old.get_name().lower()):
+                if old and source in old.get_path_name() and (source in ('grass_medium_01', 'calathea_orbifolia_01', 'anthurium_botany_01', 'fern_02') or 'twigs' in old.get_name().lower() or 'leaves' in old.get_name().lower()):
                     mesh.set_material(i, foliage)
             LIB.save_loaded_asset(mesh)
 

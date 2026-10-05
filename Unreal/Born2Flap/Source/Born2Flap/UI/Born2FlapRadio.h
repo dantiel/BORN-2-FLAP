@@ -63,6 +63,7 @@ public:
     void Tick(float DeltaSeconds);
 
     void TogglePlayPause();
+    void SetPaused(bool bPaused);
     void AdjustVolume(float Delta);
 
     bool HasTrack() const { return Playlist.Num() > 0; }

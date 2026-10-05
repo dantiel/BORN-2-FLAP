@@ -176,6 +176,18 @@ void UBorn2FlapRadioStation::TogglePlayPause()
         Fader->SetPaused(false);
 }
 
+void UBorn2FlapRadioStation::SetPaused(bool bPaused)
+{
+    if (!Active)
+        return;
+    // Menu silence: pause/resume both voices so the music only plays inside a
+    // level, never behind the level-select screen.
+    bPlaying = !bPaused;
+    Active->SetPaused(bPaused);
+    if (Fader)
+        Fader->SetPaused(bPaused);
+}
+
 void UBorn2FlapRadioStation::AdjustVolume(float Delta)
 {
     Volume = FMath::Clamp(Volume + Delta, 0.0f, 1.0f);

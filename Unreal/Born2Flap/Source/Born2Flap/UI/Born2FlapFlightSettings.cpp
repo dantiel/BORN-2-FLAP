@@ -11,6 +11,10 @@
 #include "Flight/Born2FlapTuning.h"
 #include "GameFramework/PlayerController.h"
 #include "Components/InputComponent.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
+#include "Containers/Ticker.h"
+#include "UnrealClient.h"
 
 using namespace born2flap::ui;
 
@@ -82,6 +86,18 @@ void ABorn2FlapFlightSettings::Open(ABorn2FlapFlightPawn* InBird)
     Renderer->ViewportZOrder = 10;
     Renderer->OnComponentAction.AddDynamic(this, &ABorn2FlapFlightSettings::HandleAction);
     BuildTree();
+    if(FParse::Param(FCommandLine::Get(),TEXT("B2FSettingsCapture")))
+    {
+        for(int Page=1;Page<=2;++Page)
+        {
+            FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateWeakLambda(this,[this,Page](float){
+                HandleAction(TEXT("settings.page"),Page,TEXT(""));return false;
+            }),Page*2.f);
+            FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateWeakLambda(this,[Page](float){
+                FScreenshotRequest::RequestScreenshot(Page==1 ? TEXT("GLASS_CONTROLS.png") : TEXT("GLASS_TUNING.png"),true,false);return false;
+            }),Page*2.f+.5f);
+        }
+    }
 }
 
 void ABorn2FlapFlightSettings::BuildTree()
@@ -90,8 +106,8 @@ void ABorn2FlapFlightSettings::BuildTree()
         return;
 
     // Paths are child indices from the Overlay root ([]):
-    //   [0] SizeBox → [0] Panel → [0] ScrollBox → [0] VBox → [row].
-    static const TArray<int32> VBox{ 0, 0, 0, 0 };
+    //   [0] SizeBox → [0] Panel → [1] ScrollBox → [0] VBox → [row].
+    static const TArray<int32> VBox{ 0, 0, 1, 0 };
     auto RowPath = [&](int32 Row) { TArray<int32> P = VBox; P.Add(Row); return P; };
 
     const int32 CurModel = Bird->GetBirdModel();
@@ -113,18 +129,22 @@ void ABorn2FlapFlightSettings::BuildTree()
 
     std::vector<FNode> Rows;
 
+    FValue Pages;Pages.kind=FValue::Kind::Array;for(const char* Page:{"CRAFT","BIRD","CONTROLS","ASSIST","TUNING"}) Pages.arr.push_back(S(Page));
+    Rows.push_back(Nd("Select",P({{"options",Pages},{"value",N(SelectedPage)},{"action",S("settings.page")},{"tooltip",S("Choose your aircraft, tune the bird, adjust controls, or manage assists.")}})));
     // Header.
-    Rows.push_back(Nd("Banner", P({ {"text", S("R A V E N   /   FLIGHT DESK")}, {"tone", S("accent")} })));
     Rows.push_back(Nd("TextBlock", P({ {"text", Sv(TEXT("Flight paused  •  choose your silhouette"))}, {"tone", S("dim")}, {"size", S("s")} })));
 
+    const int32 CraftStart=Rows.size();
     // Bird model — three full-width buttons with a ●/○ selection marker.
     for (int32 M = 0; M < 3; ++M)
     {
-        FString Label = (M == CurModel ? TEXT("●  ") : TEXT("○  "));
+        FString Label;
         Label += ModelNames[M];
         FProps Props;
         Props["label"] = Sv(Label);
         Props["action"] = Sv(FString::Printf(TEXT("bird.model.%d"), M));
+        Props["tone"] = S(M==CurModel ? "good" : "normal");
+        Props["tooltip"] = S("Select this aircraft for the current flight.");
         ModelButtons.Add(RowPath((int32)Rows.size()));
         Rows.push_back(Nd("Button", std::move(Props)));
     }
@@ -140,20 +160,40 @@ void ABorn2FlapFlightSettings::BuildTree()
         Rows.push_back(Nd("Toggle", std::move(Props)));
     }
 
-    // Flight-safety reset amount — one slider, three stops.
-    Rows.push_back(Nd("TextBlock", P({ {"text", S("FLIGHT SAFETY RESET")}, {"tone", S("accent")}, {"size", S("l")} })));
-    Rows.push_back(Nd("TextBlock", P({ {"text", S("0 = OFF (only glitch guards)   ·   1 = VERY LOW (acro)   ·   2 = NORMAL")}, {"tone", S("dim")}, {"size", S("xs")}, {"wrap", B(true)} })));
+    const int32 BirdStart=Rows.size();
+    // Further bird tuning (BIRD tab).
+    Rows.push_back(Nd("TextBlock", P({ {"text", S("BIRD TUNING")}, {"tone", S("accent")}, {"size", S("l")} })));
     {
         FProps Props;
-        Props["action"] = S("flight.safety");
-        Props["label"] = S("SAFETY");
-        Props["value"] = N(Bird->GetFlightSafety());
-        Props["min"] = N(0);
-        Props["max"] = N(2);
+        Props["action"] = S("camera.angle");
+        Props["label"] = S("FPV CAMERA ANGLE");
+        Props["value"] = N(Bird->GetFpvCameraAngle());
+        Props["min"] = N(-45);
+        Props["max"] = N(45);
         Props["step"] = N(1);
+        Props["unit"] = Sv(TEXT("°"));
         Rows.push_back(Nd("Slider", std::move(Props)));
     }
+    {
+        FProps Props;
+        Props["action"] = S("bird.rolltwist");
+        Props["label"] = S("WING TWIST AILERONS");
+        Props["on"] = S("ON  /  click to disable");
+        Props["off"] = S("OFF  /  click to enable");
+        Props["value"] = B(Bird->IsRollWingTwist());
+        Rows.push_back(Nd("Toggle", std::move(Props)));
+    }
+    {
+        FProps Props;
+        Props["action"] = S("bird.coupled");
+        Props["label"] = S("COUPLED THROTTLE");
+        Props["on"] = S("ON  /  click to decouple");
+        Props["off"] = S("OFF  /  click to couple");
+        Props["value"] = B(Bird->IsThrottleCoupled());
+        Rows.push_back(Nd("Toggle", std::move(Props)));
+    }
 
+    const int32 ControlsStart=Rows.size();
     // Mouse response.
     Rows.push_back(Nd("TextBlock", P({ {"text", S("MOUSE RESPONSE")}, {"tone", S("accent")}, {"size", S("l")} })));
     Rows.push_back(Nd("TextBlock", P({ {"text", S("Negative reverses direction. Zero disables that mouse axis. Magnitude sets sensitivity.")}, {"tone", S("dim")}, {"size", S("xs")}, {"wrap", B(true)} })));
@@ -162,6 +202,7 @@ void ABorn2FlapFlightSettings::BuildTree()
         FProps Props;
         Props["action"] = Sv(FString::Printf(TEXT("mouse.gain.%d"), Axis));
         Props["label"] = Sv(FString(MouseNames[Axis]));
+        Props["tooltip"] = S("Negative values reverse the axis. Zero disables it. Larger magnitudes increase sensitivity.");
         Props["value"] = N(Bird->GetMouseGains()[Axis]);
         Props["min"] = N(-2);
         Props["max"] = N(2);
@@ -192,6 +233,56 @@ void ABorn2FlapFlightSettings::BuildTree()
         Rows.push_back(Nd("Slider", std::move(Props)));
     }
 
+    // Mouse speed modifier (0..1).
+    {
+        FProps Props;
+        Props["action"] = S("mouse.speed");
+        Props["label"] = S("MOUSE SPEED");
+        Props["value"] = N(Bird->GetSpeedModifier());
+        Props["min"] = N(0);
+        Props["max"] = N(1);
+        Props["step"] = N(0.05);
+        Props["unit"] = S("×");
+        Rows.push_back(Nd("Slider", std::move(Props)));
+    }
+
+    const int32 AssistStart=Rows.size();
+    // Flight-safety reset amount — one slider, three stops.
+    Rows.push_back(Nd("TextBlock", P({ {"text", S("FLIGHT SAFETY RESET")}, {"tone", S("accent")}, {"size", S("l")} })));
+    Rows.push_back(Nd("TextBlock", P({ {"text", S("0 = OFF (only glitch guards)   ·   1 = VERY LOW (acro)   ·   2 = NORMAL")}, {"tone", S("dim")}, {"size", S("xs")}, {"wrap", B(true)} })));
+    {
+        FProps Props;
+        Props["action"] = S("flight.safety");
+        Props["label"] = S("SAFETY");
+        Props["tooltip"] = S("0: only numerical glitch guards. 1: light recovery assistance. 2: normal flight recovery assistance.");
+        Props["value"] = N(Bird->GetFlightSafety());
+        Props["min"] = N(0);
+        Props["max"] = N(2);
+        Props["step"] = N(1);
+        Rows.push_back(Nd("Slider", std::move(Props)));
+    }
+
+    // Replay shadow-doppelgängers: toggle visibility + purge saved recordings.
+    Rows.push_back(Nd("TextBlock", P({ {"text", S("REPLAY SHADOWS")}, {"tone", S("accent")}, {"size", S("l")} })));
+    Rows.push_back(Nd("TextBlock", P({ {"text", S("Past flights fly alongside as dark doppelgängers (gold = best round).")}, {"tone", S("dim")}, {"size", S("xs")}, {"wrap", B(true)} })));
+    {
+        FProps Props;
+        Props["action"] = S("replay.spirits");
+        Props["label"] = S("SHADOW DOPPELGÄNGERS");
+        Props["on"] = S("ON  /  click to hide");
+        Props["off"] = S("OFF  /  click to show");
+        Props["value"] = B(Bird->GetReplaySpiritsEnabled());
+        Rows.push_back(Nd("Toggle", std::move(Props)));
+    }
+    {
+        FProps Props;
+        Props["action"] = S("replay.delete");
+        Props["label"] = S("Delete all replay shadows");
+        Props["tone"] = S("danger");
+        Rows.push_back(Nd("Button", std::move(Props)));
+    }
+
+    const int32 TuningStart=Rows.size();
     // Tuning — twelve firmware knobs (metadata in Born2FlapTuning.h).
     Rows.push_back(Nd("TextBlock", P({ {"text", S("H A N G A R   /   TUNING")}, {"tone", S("accent")}, {"size", S("l")} })));
     Rows.push_back(Nd("TextBlock", P({ {"text", Sv(TEXT("Live edits reach the firmware on the next physics step — the bird re-tunes itself."))}, {"tone", S("dim")}, {"size", S("xs")}, {"wrap", B(true)} })));
@@ -208,6 +299,8 @@ void ABorn2FlapFlightSettings::BuildTree()
         Rows.push_back(Nd("Slider", std::move(Props)));
     }
 
+    for(int32 I=CraftStart;I<(int32)Rows.size();++I)
+        Rows[I].props["visible"]=B(SelectedPage==(I<BirdStart ? 0 : I<ControlsStart ? 1 : I<AssistStart ? 2 : I<TuningStart ? 3 : 4));
     // Save & return.
     {
         FProps Props;
@@ -217,14 +310,19 @@ void ABorn2FlapFlightSettings::BuildTree()
         Rows.push_back(Nd("Button", std::move(Props)));
     }
 
+    FNode Tabs=Rows.front(), Footer=Rows.back();
+    Rows.front().props["visible"]=B(false);
+    Rows.back().props["visible"]=B(false);
     // Root: centered, fixed-size card → Panel → ScrollBox → VBox of rows.
     FNode Root = Nd("Overlay", P({ {"align", S("center")}, {"valign", S("center")} }),
     {
-        Nd("SizeBox", P({ {"width", N(640)}, {"height", N(720)} }),
+        Nd("SizeBox", P({ {"width", N(900)}, {"height", N(SelectedPage==0 ? 510 : 800)} }),
         {
-            Nd("Panel", P({ {"bg", S("solid")}, {"padding", N(24)} }),
+            Nd("Panel", P({ {"title",S("FLIGHT DESK")}, {"bg", S("solid")}, {"padding", N(24)}, {"spacing",N(12)} }),
             {
-                Nd("ScrollBox", {}, { Nd("VerticalBox", P({ {"spacing", N(6)} }), std::move(Rows)) })
+                std::move(Tabs),
+                Nd("ScrollBox", {}, { Nd("VerticalBox", P({ {"spacing", N(12)} }), std::move(Rows)) }),
+                std::move(Footer)
             })
         })
     });
@@ -251,10 +349,11 @@ void ABorn2FlapFlightSettings::RefreshModelButtons()
     const int32 Cur = Bird->GetBirdModel();
     for (int32 M = 0; M < 3 && M < ModelButtons.Num(); ++M)
     {
-        FString Label = (M == Cur ? TEXT("●  ") : TEXT("○  "));
+        FString Label;
         Label += ModelNames[M];
         FProps Props;
         Props["label"] = Sv(Label);
+        Props["tone"] = S(M==Cur ? "good" : "normal");
         SendUpdate(Renderer, ModelButtons[M], std::move(Props));
     }
 }
@@ -276,6 +375,7 @@ void ABorn2FlapFlightSettings::HandleAction(const FString& Action, float Value, 
     if (!Bird.IsValid())
         return;
 
+    if(Action==TEXT("settings.page")){SelectedPage=FMath::Clamp(FMath::RoundToInt(Value),0,4);BuildTree();return;}
     if (Action == TEXT("settings.close")) { Bird->CloseFlightSettings(); return; }
 
     if (Action.StartsWith(TEXT("bird.model.")))
@@ -287,6 +387,11 @@ void ABorn2FlapFlightSettings::HandleAction(const FString& Action, float Value, 
     }
 
     if (Action == TEXT("camera.fpv")) { Bird->ToggleFpvView(); return; }
+
+    if (Action == TEXT("camera.angle")) { Bird->SetFpvCameraAngle(Value); return; }
+    if (Action == TEXT("bird.rolltwist")) { Bird->SetRollWingTwist(Value > 0.5f); return; }
+    if (Action == TEXT("bird.coupled")) { Bird->SetThrottleCoupled(Value > 0.5f); return; }
+    if (Action == TEXT("mouse.speed")) { Bird->SetSpeedModifier(Value); return; }
 
     if (Action.StartsWith(TEXT("mouse.gain.")))
     {
@@ -313,6 +418,18 @@ void ABorn2FlapFlightSettings::HandleAction(const FString& Action, float Value, 
     if (Action == TEXT("flight.safety"))
     {
         Bird->SetFlightSafety(Value);
+        return;
+    }
+
+    if (Action == TEXT("replay.spirits"))
+    {
+        Bird->SetReplaySpiritsEnabled(Value > 0.5f);
+        return;
+    }
+
+    if (Action == TEXT("replay.delete"))
+    {
+        Bird->DeleteReplaySpirits();
         return;
     }
 

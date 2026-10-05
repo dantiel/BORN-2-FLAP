@@ -36,6 +36,7 @@ public:
 
 private:
     void BuildTree();
+    int32 SelectedPage = 0;
     void RefreshModelButtons();
     void RefreshMouseGains();
 

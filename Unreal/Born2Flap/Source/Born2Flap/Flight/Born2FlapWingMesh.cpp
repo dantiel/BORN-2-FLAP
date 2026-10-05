@@ -181,3 +181,29 @@ bool UBorn2FlapWingMesh::HasValidDeformation()
         if(Vertices[I].ContainsNaN() || !Normals[I].IsNormalized() || !Section->ProcVertexBuffer[I].UV0.Equals(UV[I],1.e-6)) return false;
     return true;
 }
+FVector UBorn2FlapWingMesh::GetWingTipLocal() const
+{
+    // Average the outboard-most span band of the rest membrane: the falcon's LE/TE
+    // converge to a point while the prototype's tip is a chord edge, so a centroid
+    // gives a stable probe anchor for every design. Sign follows WingSide (left -Y).
+    const FVector Fallback(-6.f, WingSide * 100.f, 0.f);
+    if (RestVertices.IsEmpty()) return Fallback;
+    float MaxSpan = 0.f;
+    for (const FVector& V : RestVertices) MaxSpan = FMath::Max(MaxSpan, FMath::Abs(V.Y));
+    FVector Tip = FVector::ZeroVector; int32 N = 0;
+    for (const FVector& V : RestVertices)
+        if (FMath::Abs(V.Y) >= MaxSpan - 2.f) { Tip += V; ++N; }
+    return N > 0 ? Tip / float(N) : Fallback;
+}
+FVector UBorn2FlapWingMesh::GetWingRootLocal() const
+{
+    // Centroid of the inboard span band (the shoulder), so the contact capsule
+    // spans root -> tip regardless of design (falcon converges to a point, the
+    // prototype keeps a chord edge). Sign follows WingSide (left -Y).
+    const FVector Fallback(-2.f, 0.f, 0.f);
+    if (RestVertices.IsEmpty()) return Fallback;
+    FVector Root = FVector::ZeroVector; int32 N = 0;
+    for (const FVector& V : RestVertices)
+        if (FMath::Abs(V.Y) <= 3.f) { Root += V; ++N; }
+    return N > 0 ? Root / float(N) : Fallback;
+}

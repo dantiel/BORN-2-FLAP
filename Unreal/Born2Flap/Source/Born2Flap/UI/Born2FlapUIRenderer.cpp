@@ -16,6 +16,7 @@
 #include "Components/HorizontalBoxSlot.h"
 #include "Components/OverlaySlot.h"
 #include "Components/Border.h"
+#include "Components/BackgroundBlur.h"
 #include "Components/TextBlock.h"
 #include "Components/Button.h"
 #include "Components/Slider.h"
@@ -43,6 +44,7 @@ namespace {
 
 FString Str(const FValue& V) { return FString(UTF8_TO_TCHAR(V.AsString().c_str())); }
 float Num(const FValue& V, float D) { return (float)V.AsNumber(D); }
+bool VisibleValue(const FValue& V) { return V.kind == FValue::Kind::Number ? V.AsNumber() != 0 : V.AsBool(true); }
 FString FormatNum(const FValue& V) { return FString::SanitizeFloat((float)V.AsNumber(0.0)); }
 
 // Stat/Gauge readout: an explicit `format`/`decimals` prop wins, otherwise a
@@ -58,7 +60,7 @@ FString FormatValue(const FValue& V, const FProps& Props)
         if (F == TEXT("int")) Decimals = 0;
         else if (F.Len() == 2 && F[0] == 'f' && F[1] >= '0' && F[1] <= '9') Decimals = F[1] - '0';
     }
-    return FString::SanitizeFloat((float)V.AsNumber(0.0), Decimals);
+    return FString::Printf(TEXT("%.*f"), Decimals, V.AsNumber(0.0));
 }
 
 // size prop: a numeric px value wins, otherwise a size token (xs..xxl).
@@ -169,18 +171,24 @@ FString Readout(double Value, int32 Decimals, const FString& Unit)
 
 FSlateBrush ArtBrush(const TCHAR* Name, FVector2D Size, FMargin Margin = FMargin(0));
 void ArtButton(UButton* Button, bool Selected = false, bool Tab = false);
+void WeatherButton(UButton* Button, bool Selected)
+{
+    FButtonStyle Style;
+    Style.Normal=FSlateRoundedBoxBrush(FLinearColor::Transparent,0.f);
+    Style.Hovered=Style.Normal;
+    Style.Pressed=Style.Hovered;
+    Style.NormalPadding=Style.PressedPadding=FMargin(3);
+    Button->SetStyle(Style);Button->SetBackgroundColor(FLinearColor::White);
+    if(auto* Badge=Cast<UImage>(Button->GetContent()))
+        Badge->SetColorAndOpacity(Selected ? FLinearColor::White : FLinearColor(.35f,.35f,.35f,.6f));
+}
 
 UBorn2FlapComposite* NewComposite(UObject* Outer, const FString& Type)
 {
     UBorn2FlapComposite* C = NewObject<UBorn2FlapComposite>(Outer);
     C->SemanticType = Type;
     C->SetBrush(FSlateRoundedBoxBrush(theme::BG(), theme::Radius()));
-    if (Type == TEXT("Panel"))
-        C->SetBrush(ArtBrush(TEXT("Panel"), FVector2D(335,265), FMargin(.08f)));
-    else if (Type == TEXT("Stat") || Type == TEXT("Value") || Type == TEXT("Gauge"))
-        C->SetBrush(ArtBrush(TEXT("Field"), FVector2D(188,77), FMargin(.1f,.22f)));
-    else
-        C->SetBrushColor(FLinearColor::Transparent);
+    C->SetBrush(FSlateRoundedBoxBrush(FLinearColor::Transparent, 6.f));
     C->SetPadding(FMargin(10.f));
     return C;
 }
@@ -227,13 +235,14 @@ void ArtButton(UButton* Button, bool Selected, bool Tab)
     FButtonStyle Style = Button->GetStyle();
     const FVector2D Size(Tab ? 165 : 365, Tab ? 38 : 44);
     const FMargin Slice(Tab ? .15f : .08f,.35f);
-    Style.Normal = ArtBrush(Selected ? TEXT("TabSelected") : Tab ? TEXT("TabNormal") : TEXT("ButtonNormal"),Size,Slice);
-    Style.Hovered = ArtBrush(Tab ? TEXT("TabHover") : TEXT("ButtonHover"),Size,Slice);
-    Style.Pressed = ArtBrush(Tab ? TEXT("TabSelected") : TEXT("ButtonPressed"),Size,Slice);
-    Style.Disabled = ArtBrush(Tab ? TEXT("TabDisabled") : TEXT("ButtonDisabled"),Size,Slice);
+    const FLinearColor Gold(.52f,.40f,.22f,.7f);
+    Style.Normal = FSlateRoundedBoxBrush(Selected ? FLinearColor(.22f,.055f,.035f,.88f) : FLinearColor(.025f,.045f,.055f,.65f),4.f,Gold,1.f);
+    Style.Hovered = FSlateRoundedBoxBrush(FLinearColor(.13f,.17f,.18f,.94f),4.f,FLinearColor(.85f,.67f,.37f,1.f),1.f);
+    Style.Pressed = FSlateRoundedBoxBrush(FLinearColor(.3f,.065f,.04f,.96f),4.f,Gold,1.f);
+    Style.Disabled = Style.Normal;
     Style.Disabled.TintColor = FLinearColor(.5f,.5f,.5f,.65f);
     Style.NormalForeground = theme::FG();
-    Style.HoveredForeground = FLinearColor(.025f,.025f,.025f,1);
+    Style.HoveredForeground = theme::FG();
     Style.PressedForeground = theme::FG();
     Style.NormalPadding = FMargin(Tab ? 14 : 24,8);
     Style.PressedPadding = FMargin(Tab ? 14 : 24,9,Tab ? 14 : 24,7);
@@ -478,7 +487,7 @@ void UBorn2FlapUIRenderer::AppendChild(UWidget* Parent, int32 Index, UWidget* Ch
         if (UPanelWidget* Panel = C->ContentPanel())
         {
             Panel->InsertChildAt(Index, Child);
-            ApplyStoredLayoutToChild(Panel, Index);
+            ApplyStoredLayout(Panel);
         }
         return;
     }
@@ -491,7 +500,7 @@ void UBorn2FlapUIRenderer::AppendChild(UWidget* Parent, int32 Index, UWidget* Ch
     if (!Panel)
         return;
     Panel->InsertChildAt(Index, Child);
-    ApplyStoredLayoutToChild(Panel, Index);
+    ApplyStoredLayout(Panel);
 }
 
 void UBorn2FlapUIRenderer::RemoveChild(UWidget* Parent, int32 Index)
@@ -594,13 +603,37 @@ UBorn2FlapComposite* UBorn2FlapUIRenderer::BuildComponent(const FString& Type)
     if (Type == TEXT("Panel"))
     {
         UBorn2FlapComposite* C = NewComposite(this, TEXT("Panel"));
+        C->SetPadding(FMargin(0));
+        UOverlay* Glass = NewObject<UOverlay>(this);
+        C->SetContent(Glass);
+        UBackgroundBlur* Frost = NewObject<UBackgroundBlur>(this);
+        Frost->SetBlurStrength(8.f);
+        Frost->SetApplyAlphaToBlur(false);
+        Frost->SetLowQualityFallbackBrush(FSlateRoundedBoxBrush(FLinearColor(.025f,.045f,.055f,.92f),8.f));
+        auto* FrostSlot=Glass->AddChildToOverlay(Frost);FrostSlot->SetHorizontalAlignment(HAlign_Fill);FrostSlot->SetVerticalAlignment(VAlign_Fill);
+        UImage* Hammer = NewObject<UImage>(this);
+        static TStrongObjectPtr<UMaterialInterface> GlassMaterial(LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/UI/M_HammeredGlass.M_HammeredGlass")));
+        if(GlassMaterial.IsValid()) Hammer->SetBrushFromMaterial(GlassMaterial.Get());
+        Hammer->SetVisibility(ESlateVisibility::HitTestInvisible);
+        auto* HammerSlot=Glass->AddChildToOverlay(Hammer);HammerSlot->SetHorizontalAlignment(HAlign_Fill);HammerSlot->SetVerticalAlignment(VAlign_Fill);
+        UBorder* Frame = NewObject<UBorder>(this);
+        Frame->SetBrush(FSlateRoundedBoxBrush(FLinearColor(.015f,.035f,.045f,.52f),8.f,FLinearColor(.56f,.46f,.28f,.65f),1.f));
+        Frame->SetPadding(FMargin(20));
+        auto* FrameSlot=Glass->AddChildToOverlay(Frame);FrameSlot->SetHorizontalAlignment(HAlign_Fill);FrameSlot->SetVerticalAlignment(VAlign_Fill);
         UVerticalBox* Body = NewObject<UVerticalBox>(this);
-        C->SetContent(Body);
+        Frame->SetContent(Body);
         UTextBlock* Title = NewObject<UTextBlock>(this);
         Title->SetFont(theme::Font(TEXT("s"), 12, true));
         Title->SetColorAndOpacity(FSlateColor(theme::FG_DIM()));
         Title->SetVisibility(ESlateVisibility::Collapsed);
-        Body->AddChildToVerticalBox(Title);
+        UBorder* Caption = NewObject<UBorder>(this);
+        Caption->SetBrush(FSlateRoundedBoxBrush(FLinearColor(.04f,.065f,.075f,.88f),3.f,FLinearColor(.6f,.48f,.27f,.7f),1.f));
+        Caption->SetPadding(FMargin(12,6));
+        Caption->SetContent(Title);
+        auto* CaptionSlot=Body->AddChildToVerticalBox(Caption);
+        CaptionSlot->SetHorizontalAlignment(HAlign_Left);
+        CaptionSlot->SetPadding(FMargin(0,0,0,12));
+        Caption->SetVisibility(ESlateVisibility::Collapsed);
         UVerticalBox* Content = NewObject<UVerticalBox>(this);
         // The content region must fill the panel's body (which fills the
         // border) so a ScrollBox inside it gets a bounded height and scrolls
@@ -611,6 +644,10 @@ UBorn2FlapComposite* UBorn2FlapUIRenderer::BuildComponent(const FString& Type)
             ContentSlot->SetVerticalAlignment(VAlign_Fill);
         }
         C->Parts.Add(TEXT("title"), Title);
+        C->Parts.Add(TEXT("caption"), Caption);
+        C->Parts.Add(TEXT("frame"), Frame);
+        C->Parts.Add(TEXT("frost"), Frost);
+        C->Parts.Add(TEXT("hammer"), Hammer);
         C->Content = Content;
         return C;
     }
@@ -623,7 +660,7 @@ UBorn2FlapComposite* UBorn2FlapUIRenderer::BuildComponent(const FString& Type)
         UTextBlock* Label = NewObject<UTextBlock>(this);
         Label->SetFont(theme::Font(TEXT("s"), 12));
         Label->SetColorAndOpacity(FSlateColor(theme::FG_DIM()));
-        Row->AddChildToHorizontalBox(Label);
+        Row->AddChildToHorizontalBox(Label)->SetPadding(FMargin(0,0,12,0));
         UTextBlock* Value = NewObject<UTextBlock>(this);
         Value->SetFont(theme::Font(TEXT("m"), 15));
         Row->AddChildToHorizontalBox(Value);
@@ -658,7 +695,7 @@ UBorn2FlapComposite* UBorn2FlapUIRenderer::BuildComponent(const FString& Type)
         UTextBlock* Label = NewObject<UTextBlock>(this);
         Label->SetFont(theme::Font(TEXT("s"), 12));
         Label->SetColorAndOpacity(FSlateColor(theme::FG_DIM()));
-        Head->AddChildToHorizontalBox(Label);
+        Head->AddChildToHorizontalBox(Label)->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
         UTextBlock* ValueText = NewObject<UTextBlock>(this);
         ValueText->SetFont(theme::Font(TEXT("s"), 12, true));
         Head->AddChildToHorizontalBox(ValueText);
@@ -681,6 +718,7 @@ UBorn2FlapComposite* UBorn2FlapUIRenderer::BuildComponent(const FString& Type)
         C->SetContent(Row);
         UTextBlock* Text = NewObject<UTextBlock>(this);
         Text->SetFont(theme::Font(TEXT("m"), 15));
+        Text->SetAutoWrapText(true);
         Row->AddChildToHorizontalBox(Text);
         C->Parts.Add(TEXT("text"), Text);
         return C;
@@ -712,7 +750,7 @@ UBorn2FlapComposite* UBorn2FlapUIRenderer::BuildComponent(const FString& Type)
         UTextBlock* Label = NewObject<UTextBlock>(this);
         Label->SetFont(theme::Font(TEXT("s"), 12));
         Label->SetColorAndOpacity(FSlateColor(theme::FG_DIM()));
-        Head->AddChildToHorizontalBox(Label);
+        Head->AddChildToHorizontalBox(Label)->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
         UTextBlock* ValueText = NewObject<UTextBlock>(this);
         ValueText->SetFont(theme::Font(TEXT("s"), 12, true));
         Head->AddChildToHorizontalBox(ValueText);
@@ -750,7 +788,7 @@ UBorn2FlapComposite* UBorn2FlapUIRenderer::BuildComponent(const FString& Type)
         UTextBlock* Label = NewObject<UTextBlock>(this);
         Label->SetFont(theme::Font(TEXT("s"), 12));
         Label->SetColorAndOpacity(FSlateColor(theme::FG_DIM()));
-        Row->AddChildToHorizontalBox(Label);
+        Row->AddChildToHorizontalBox(Label)->SetPadding(FMargin(0,0,12,0));
         UTextBlock* Value = NewObject<UTextBlock>(this);
         Value->SetFont(theme::Font(TEXT("s"), 12, true));
         Row->AddChildToHorizontalBox(Value);
@@ -786,7 +824,7 @@ UBorn2FlapComposite* UBorn2FlapUIRenderer::BuildComponent(const FString& Type)
         UTextBlock* Label = NewObject<UTextBlock>(this);
         Label->SetFont(theme::Font(TEXT("s"), 12));
         Label->SetColorAndOpacity(FSlateColor(theme::FG_DIM()));
-        Head->AddChildToHorizontalBox(Label);
+        Head->AddChildToHorizontalBox(Label)->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
         UEditableTextBox* Edit = NewObject<UEditableTextBox>(this);
         FEditableTextBoxStyle Style = Edit->WidgetStyle;
         Style.TextStyle.Font = theme::Font(TEXT("m"), 14);
@@ -875,7 +913,7 @@ void UBorn2FlapUIRenderer::ApplyCompositeProps(UBorn2FlapComposite* C, const FPr
     // common
     if (Props.count("visible"))
     {
-        const bool v = Props.at("visible").AsBool(true);
+        const bool v = VisibleValue(Props.at("visible"));
         C->SetVisibility(v ? (bInteractive ? ESlateVisibility::Visible : ESlateVisibility::SelfHitTestInvisible)
                            : ESlateVisibility::Collapsed);
     }
@@ -885,23 +923,35 @@ void UBorn2FlapUIRenderer::ApplyCompositeProps(UBorn2FlapComposite* C, const FPr
         C->SetPadding(ParseMargin(Props.at("padding")));
     if (Props.count("action"))
         C->Action = Str(Props.at("action"));
+    if(Props.count("tooltip")) C->SetToolTipText(FText::FromString(Str(Props.at("tooltip"))));
+    else if(bInteractive && Props.count("label")) C->SetToolTipText(FText::FromString(Str(Props.at("label"))));
 
     if (Type == TEXT("Panel"))
     {
         UTextBlock* Title = Cast<UTextBlock>(C->Part(TEXT("title")));
         if (Props.count("title") && Title) SetText(Title, Props.at("title"));
+        if(Props.count("title"))
+            if(auto* Caption=C->Part(TEXT("caption"))) Caption->SetVisibility(Str(Props.at("title")).IsEmpty() ? ESlateVisibility::Collapsed : ESlateVisibility::SelfHitTestInvisible);
+        C->SetPadding(FMargin(0));
+        if(auto* Frame=Cast<UBorder>(C->Part(TEXT("frame"))))
+        {
+            Frame->SetPadding(Props.count("padding") ? ParseMargin(Props.at("padding")) : FMargin(16));
+            if(Props.count("bg") && Str(Props.at("bg"))==TEXT("solid"))
+                Frame->SetBrush(FSlateRoundedBoxBrush(FLinearColor(.015f,.03f,.04f,.78f),8.f,FLinearColor(.56f,.46f,.28f,.7f),1.f));
+        }
         if (!Tone.IsEmpty() && Title) Title->SetColorAndOpacity(FSlateColor(ToneColor));
         if (Props.count("bg"))
         {
             const FString Bg = Str(Props.at("bg"));
             if (Bg == TEXT("clear") || Bg == TEXT("none"))
                 C->SetBrush(FSlateRoundedBoxBrush(FLinearColor(0.f, 0.f, 0.f, 0.f), theme::Radius()));
-            else
-                C->SetBrush(ArtBrush(TEXT("Panel"),FVector2D(335,265),FMargin(.08f)));
+            const bool Clear=Bg == TEXT("clear") || Bg == TEXT("none");
+            for(const TCHAR* Part : {TEXT("frost"),TEXT("hammer")})
+                if(auto* W=C->Part(Part)) W->SetVisibility(Clear ? ESlateVisibility::Collapsed : ESlateVisibility::HitTestInvisible);
         }
         else if (!Tone.IsEmpty())
         {
-            C->SetBrush(ArtBrush(TEXT("Panel"),FVector2D(335,265),FMargin(.08f)));
+            C->SetBrush(FSlateRoundedBoxBrush(FLinearColor::Transparent,6.f));
         }
         if (C->ContentPanel())
             StoreContainerLayout(C->ContentPanel(), Props);
@@ -963,8 +1013,7 @@ void UBorn2FlapUIRenderer::ApplyCompositeProps(UBorn2FlapComposite* C, const FPr
         if (Props.count("text") && Text) SetText(Text, Props.at("text"));
         if (!Tone.IsEmpty())
         {
-            C->SetBrushColor(FLinearColor::White);
-            C->SetBrush(ArtBrush(TEXT("Banner"),FVector2D(380,80),FMargin(.06f,.2f)));
+            C->SetBrush(FSlateRoundedBoxBrush(FLinearColor::Transparent,3.f));
             if (Text) Text->SetColorAndOpacity(FSlateColor(ToneColor));
         }
         StyleText(Text, Props);
@@ -1106,11 +1155,12 @@ void UBorn2FlapUIRenderer::ApplyPrimitiveProps(UWidget* W, const FProps& Props)
 {
     if (Props.count("visible"))
     {
-        const bool v = Props.at("visible").AsBool(true);
+        const bool v = VisibleValue(Props.at("visible"));
         W->SetVisibility(v ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
     }
     if (Props.count("opacity"))
         W->SetRenderOpacity(Num(Props.at("opacity"), 1.0));
+    if(Props.count("tooltip")) W->SetToolTipText(FText::FromString(Str(Props.at("tooltip"))));
 
     if (UTextBlock* T = Cast<UTextBlock>(W))
     {
@@ -1170,6 +1220,8 @@ void UBorn2FlapUIRenderer::ApplyPrimitiveProps(UWidget* W, const FProps& Props)
 
     if (UPanelWidget* P = Cast<UPanelWidget>(W))
         StoreContainerLayout(P, Props);
+    // Text updates may uncollapse empty labels; explicit page visibility wins.
+    if(Props.count("visible")) W->SetVisibility(VisibleValue(Props.at("visible")) ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
 }
 
 // ---- interactivity wiring (thin, event-only — no styling) ------------------
@@ -1229,6 +1281,8 @@ void UBorn2FlapUIRenderer::RebuildSelectOptions(UBorn2FlapComposite* C, const FV
         Labels.Add(Str(Options));
 
     FString Csv;
+    const bool Weather=C->Action.StartsWith(TEXT("weather."));
+    C->State.Add(TEXT("weather"),Weather ? TEXT("1") : TEXT("0"));
     for (int32 i = 0; i < Labels.Num(); ++i)
     {
         UButton* B = NewObject<UButton>(this);
@@ -1244,16 +1298,21 @@ void UBorn2FlapUIRenderer::RebuildSelectOptions(UBorn2FlapComposite* C, const FV
         else if(Labels[i] == TEXT("Cloudy") || Labels[i] == TEXT("Mist")) Icon=TEXT("Cloud");
         else if(Labels[i] == TEXT("Gentle rain")) Icon=TEXT("Rain");
         else if(Labels[i] == TEXT("Moonlit night")) Icon=TEXT("Moon");
-        if(Icon)
+        if(Weather)
         {
-            UHorizontalBox* Row=NewObject<UHorizontalBox>(this);
+            const FString Key=Labels[i].ToLower();
+            if(!Icon) Icon=(Key==TEXT("sunny") || Key==TEXT("parhelion")) ? TEXT("Sun") : Key.Contains(TEXT("rain")) ? TEXT("Rain") : TEXT("Cloud");
+            UVerticalBox* Cell=NewObject<UVerticalBox>(this);
             UImage* Badge=NewObject<UImage>(this);
-            Badge->SetBrush(ArtBrush(Icon,FVector2D(24,24)));
-            B->SetContent(Row);
-            Row->AddChildToHorizontalBox(Badge)->SetPadding(FMargin(0,0,5,0));
-            Row->AddChildToHorizontalBox(L)->SetVerticalAlignment(VAlign_Center);
+            Badge->SetBrush(ArtBrush(Icon,FVector2D(70,70)));
+            B->SetContent(Badge);WeatherButton(B,false);
+            Cell->AddChildToVerticalBox(B)->SetHorizontalAlignment(HAlign_Center);
+            L->SetColorAndOpacity(theme::FG());L->SetJustification(ETextJustify::Center);
+            auto* LabelSlot=Cell->AddChildToVerticalBox(L);LabelSlot->SetPadding(FMargin(0,7,0,0));
+            B->SetToolTipText(FText::FromString(Labels[i]+TEXT(" — select this weather for the current world. Wind and soundscape change with the weather.")));
+            Box->AddChildToHorizontalBox(Cell)->SetPadding(FMargin(5,5));
         }
-        Box->AddChildToHorizontalBox(B);
+        else {Box->AddChildToHorizontalBox(B)->SetPadding(FMargin(3,4));B->SetToolTipText(FText::FromString(Labels[i]));}
         BindButton(B, C, i);
         Csv += (i ? TEXT(",") : TEXT("")) + Labels[i];
     }
@@ -1272,8 +1331,10 @@ void UBorn2FlapUIRenderer::ApplySelectSelection(UBorn2FlapComposite* C, int32 In
     {
         UWidget* Child = Box->GetChildAt(i);
         UButton* B = Cast<UButton>(Child);
+        if(auto* Cell=Cast<UVerticalBox>(Child)) B=Cast<UButton>(Cell->GetChildAt(0));
         UTextBlock* L = B ? Cast<UTextBlock>(B->GetContent()) : nullptr;
-        ArtButton(B,i == Index,true);
+        if(B && C->State.FindRef(TEXT("weather"))==TEXT("1")) WeatherButton(B,i==Index);
+        else ArtButton(B,i == Index,true);
         if (L) L->SetColorAndOpacity(FSlateColor::UseForeground());
     }
 }

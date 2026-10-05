@@ -54,9 +54,9 @@ FORCEINLINE FLinearColor ToneAt(const FString& ToneName, FLinearColor Default, f
 // ---- typography scale ------------------------------------------------------
 FORCEINLINE float SizePx(const FString& Size, float Default)
 {
-    if (Size == TEXT("xs"))  return 10.f;
-    if (Size == TEXT("s"))   return 12.f;
-    if (Size == TEXT("m"))   return 15.f;
+    if (Size == TEXT("xs"))  return 12.f;
+    if (Size == TEXT("s"))   return 14.f;
+    if (Size == TEXT("m"))   return 17.f;
     if (Size == TEXT("l"))   return 20.f;
     if (Size == TEXT("xl"))  return 28.f;
     if (Size == TEXT("xxl")) return 40.f;

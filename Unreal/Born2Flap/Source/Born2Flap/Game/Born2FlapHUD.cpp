@@ -1,4 +1,4 @@
-#include "Game/Born2FlapHUD.h"
+﻿#include "Game/Born2FlapHUD.h"
 #include "Flight/Born2FlapFlightPawn.h"
 #include "Game/Born2FlapGameMode.h"
 #include "Engine/Canvas.h"
@@ -22,6 +22,14 @@ void ABorn2FlapHUD::DrawHUD()
     auto *Bird = Cast<ABorn2FlapFlightPawn>(GetOwningPawn());
     if (!Bird)
         return;
+    // F9 stream overlay: a faint line from screen centre showing the mouse
+    // control-input direction (not the cursor position). Drawn before the Brain
+    // early-return so it also shows while the Ruby Brain authors the panels.
+    if (auto* PC = GetOwningPlayerController())
+        if (PC->WasInputKeyJustPressed(EKeys::F9))
+            bShowMouseIndicator = !bShowMouseIndicator;
+    if (bShowMouseIndicator && !Bird->IsUIHidden())
+        DrawMouseIndicator(*Bird);
     // Brain path: the Ruby Brain authors every panel (cockpit / RC / channels /
     // radio / menu / poi / splash) — the imperative canvas stays dormant.
     if (auto* GM = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode()))
@@ -132,6 +140,31 @@ void ABorn2FlapHUD::DrawHUD()
         DrawRcPanel(*Rc);
     DrawText(Bird->GetCameraLabel(), FLinearColor(.68f,.74f,.70f), 47, 110, GEngine->GetSmallFont(), .8f);
         if (bShowChannels) DrawChannels(*Bird);
+}
+void ABorn2FlapHUD::DrawMouseIndicator(const ABorn2FlapFlightPawn& Bird)
+{
+    const float CX = Canvas->SizeX * 0.5f;
+    const float CY = Canvas->SizeY * 0.5f;
+    const float Radius = 90.f;
+    const FVector2D Input = Bird.GetMouseControl();
+    const FLinearColor Line(0.42f, 0.85f, 0.9f, 0.55f);
+    const FLinearColor Ring(0.42f, 0.85f, 0.9f, 0.20f);
+    // Faint reference ring marking the full stick-deflection boundary.
+    const int32 Segments = 48;
+    for (int32 I = 0; I < Segments; ++I)
+    {
+        const float A0 = (2.f * PI * I) / Segments;
+        const float A1 = (2.f * PI * (I + 1)) / Segments;
+        DrawLine(CX + FMath::Cos(A0) * Radius, CY + FMath::Sin(A0) * Radius,
+                 CX + FMath::Cos(A1) * Radius, CY + FMath::Sin(A1) * Radius, Ring, 1.f);
+    }
+    // Centre dot + the mouse control-input direction line.
+    DrawRect(Line, CX - 1.f, CY - 1.f, 2.f, 2.f);
+    const float DX = Input.X * Radius;
+    const float DY = Input.Y * Radius;
+    DrawLine(CX, CY, CX + DX, CY + DY, Line, 1.6f);
+    DrawRect(Line, CX + DX - 2.f, CY + DY - 2.f, 4.f, 4.f);
+    DrawText(TEXT("MOUSE"), Line, CX + 6.f, CY - 20.f, GEngine->GetSmallFont(), .7f);
 }
 void ABorn2FlapHUD::DrawChannels(const ABorn2FlapFlightPawn& Bird)
 {

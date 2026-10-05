@@ -12,6 +12,7 @@ class ABorn2FlapMenu;
 class ABorn2FlapUIBridge;
 class AStaticMeshActor;
 class UMaterialInstanceDynamic;
+class UTexture2D;
 class IInputProcessor;
 
 UCLASS()
@@ -79,6 +80,11 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     TArray<FVector> Gates;
     TArray<TObjectPtr<AStaticMeshActor>> GateActors;
     TArray<TObjectPtr<UMaterialInstanceDynamic>> GateMaterials;
+    TArray<TObjectPtr<UTexture2D>> GateRedTextures;    // active-gate artwork (4 variants)
+    TArray<TObjectPtr<UTexture2D>> GateGreenTextures;  // passed-gate artwork (3 variants)
+    TArray<TObjectPtr<UTexture2D>> GateQuasiTextures;  // ahead/ghost artwork (4 distance tiers)
+    TArray<int32> GateRedVariant;     // per-gate random red pick
+    TArray<int32> GateGreenVariant;   // per-gate random green pick
     int32 GatesPassed = 0;
     TArray<FBorn2FlapPoi> POIs;
     FString InitialPoiKey;    // ?PoiKey= travel token from the level-select menu
@@ -101,6 +107,8 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
 
     // Menu world-select state (mirrors ABorn2FlapMenu for the Brain path).
     int32 MenuWorldIndex = 0;
+    int32 MenuPage = 0;
+    int32 SettingsPage = 0;
     TMap<FString, FBorn2FlapConditions> MenuLevelConditions;
     TMap<FString, int32> MenuSelectedPoi;
     bool bMenuInLevel = false;

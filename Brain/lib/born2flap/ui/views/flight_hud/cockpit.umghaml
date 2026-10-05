@@ -1,11 +1,12 @@
 %Overlay{ align: "left", valign: "top" }
-  %VBox{ spacing: 6 }
-    %Banner#brand{ text: "#{t('brand')}", tone: "accent" }
-    %Panel{ title: "#{t('hud.instruments')}" }
-      %Stat{ label: "#{t('hud.altitude')}", value: #{altitude}, unit: " m",   tone: "good" }
-      %Stat{ label: "#{t('hud.climb')}",    value: #{climb},    unit: " m/s" }
-      %Stat{ label: "#{t('hud.speed')}",    value: #{speed},    unit: " m/s", tone: "info" }
-    %Panel{ title: "#{t('hud.energy')}" }
-      %Gauge{ label: "#{t('hud.battery')}", value: #{battery}, min: 0, max: 100, unit: "%", tone: "good" }
-      %Gauge{ label: "#{t('hud.throttle')}", value: #{throttle}, min: 0, max: 1,             tone: "accent" }
-    %Banner{ text: "#{status}", tone: "normal" }
+  %SizeBox{ width: 350 }
+    %VBox{ spacing: 6 }
+      %Banner#brand{ text: "#{t('brand')}", tone: "accent" }
+      %Panel{ title: "#{t('hud.instruments')}" }
+        %Stat{ label: "#{t('hud.altitude')}", value: #{altitude}, unit: " m",   tone: "good", format: "int" }
+        %Stat{ label: "#{t('hud.climb')}",    value: #{climb},    unit: " m/s" }
+        %Stat{ label: "#{t('hud.speed')}",    value: #{speed},    unit: " m/s", tone: "info" }
+      %Panel{ title: "#{t('hud.energy')}" }
+        %Gauge{ label: "#{t('hud.battery')}", value: #{battery}, min: 0, max: 100, unit: "%", tone: "good", format: "int" }
+        %Gauge{ label: "#{t('hud.throttle')}", value: #{throttle}, min: 0, max: 1,             tone: "accent" }
+      %Banner{ text: "#{status}", tone: "normal" }

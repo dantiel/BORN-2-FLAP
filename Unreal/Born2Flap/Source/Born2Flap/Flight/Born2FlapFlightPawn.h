@@ -8,6 +8,9 @@
 #include "Game/Born2FlapPoi.h"
 #include "Born2FlapFlightPawn.generated.h"
 class UBoxComponent;
+class USphereComponent;
+class UCapsuleComponent;
+class UBorn2FlapWingMesh;
 class UStaticMeshComponent;
 class USceneComponent;
 class USpringArmComponent;
@@ -54,6 +57,14 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     // Flight-safety reset amount: 0 = off, 1 = very low (acro-friendly), 2 = normal.
     float GetFlightSafety() const { return FlightSafety; }
     void SetFlightSafety(float Value) { if(FMath::IsFinite(Value)) FlightSafety=FMath::Clamp(Value,0.f,2.f); }
+    // Replay shadow-doppelgängers: show past rounds flying alongside (default on).
+    bool GetReplaySpiritsEnabled() const { return bReplaySpirits; }
+    void SetReplaySpiritsEnabled(bool bOn);
+    // Delete all saved replay-spirit recordings for the current level.
+    void DeleteReplaySpirits();
+    // World time of the most recent wing contact (ground/object). The race gates
+    // use this to require a clean (no-bump) pass.
+    double GetLastWingTouchTime() const { return LastWingTouchTime; }
     void OpenFlightSettings();
     void CloseFlightSettings();
     bool IsFlightSettingsOpen() const { return SettingsPanel.IsValid() || bBrainSettingsOpen; }
@@ -79,10 +90,18 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     // The bird's world yaw (degrees) — the nose direction the wind compass reads against.
     float GetHeadingDeg() const { return GetActorRotation().Yaw; }
     FVector GetRcSticks() const { return FVector(RollInput, PitchInput, YawInput); }
+    // Mouse-only control command (virtual stick), for the F9 stream overlay.
+    FVector2D GetMouseControl() const { return FVector2D(float(Desktop.mouseRoll), float(Desktop.mousePitch)); }
     FVector2D GetWingAngles() const { return FVector2D(LeftFlap, RightFlap); }
     float GetSpeedModifier() const { return float(Desktop.speedModifier); }
     bool IsThrottleCoupled() const { return bCoupledThrottle; }
     void ToggleThrottleMode() { bCoupledThrottle = !bCoupledThrottle; }
+    // BIRD-tab knobs (further bird tuning): direct setters mirroring the
+    // existing toggle/getter, so the settings surface can bind sliders/toggles.
+    void SetThrottleCoupled(bool bOn) { bCoupledThrottle = bOn; }
+    void SetSpeedModifier(float Value) { if (FMath::IsFinite(Value)) Desktop.speedModifier = FMath::Clamp((double)Value, 0.0, 1.0); }
+    float GetFpvCameraAngle() const { return FpvCameraAngleDeg; }
+    void SetFpvCameraAngle(float Deg) { if (FMath::IsFinite(Deg)) FpvCameraAngleDeg = FMath::Clamp(Deg, -45.f, 45.f); }
     FString GetFlightStatus() const;
     const FBorn2FlapRcController *GetRcController() const { return RcController.Get(); }
     // Points of interest: named reset/launch points supplied by the GameMode.
@@ -134,6 +153,7 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     born2flap::DesktopInput Desktop;
     float ControlExpo=.65f;
     float FlightSafety=1.0f;  // 0 off · 1 very low (acro) · 2 normal
+    bool bReplaySpirits = true;   // show replay shadow-doppelgängers
     bool bCoupledThrottle = true;
     FVector MouseGains = FVector(1, -1, 1);
     int32 BirdModel = 0;
@@ -148,6 +168,10 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     bool bBrainPoiOpen = false;
     bool bBrainSettingsOpen = false;
     void BuildRavenCrow();
+    void SweepWingColliders();
+    TMap<UBorn2FlapWingMesh*, FVector> WingSweepPrev;
+    double LastWingTouchTime = -1e30;
+    bool bWingTouching = false;
     void LoadFlightPreferences();
     void SaveFlightPreferences();
     float Throttle = 0, RollInput = 0, YawInput = 0, PitchInput = 0, LeftFlap = 0, RightFlap = 0, BatterySoc = 1;

@@ -60,7 +60,7 @@ void ABorn2FlapFlightPawn::CheckDesktopInputTest(float DeltaSeconds)
         case 6: Pass &= Near(Throttle,.72) && Near(Desktop.speedModifier,1.0); break;
         case 7: Pass &= Near(Throttle,0) && Near(Desktop.speedModifier,1.0); break;
         case 8: Pass &= Near(Throttle,0) && Near(Desktop.speedModifier,.5); break;
-        case 9: Pass &= Near(Throttle,0); break;
+        case 9: Pass &= Near(Throttle,0) && !IsUIHidden(); break;
         case 10: Pass &= RollInput > .9 && YawInput > .9 && PitchInput > .1; break;
         case 11: Pass &= RollInput > .9 && Near(YawInput,0) && PitchInput > .1; break;
         case 12: Pass &= Near(RollInput,0) && YawInput > .9 && PitchInput > .1; break;
@@ -84,7 +84,9 @@ void ABorn2FlapFlightPawn::CheckDesktopInputTest(float DeltaSeconds)
                    DesktopTestStage, Pass ? TEXT("PASS") : TEXT("FAIL"), Throttle, Desktop.speedModifier,
                    bCoupledThrottle, RollInput, PitchInput, YawInput);
             if (DesktopTestStage == 8 && FParse::Param(FCommandLine::Get(),TEXT("B2FChannelCapture")))
-                FScreenshotRequest::RequestScreenshot(TEXT("RAVENSTONEFIELD_CHANNELS.png"),true,false);
+                FScreenshotRequest::RequestScreenshot(TEXT("HUD_F7_HIDDEN.png"),true,false);
+            if (DesktopTestStage == 10 && FParse::Param(FCommandLine::Get(),TEXT("B2FChannelCapture")))
+                FScreenshotRequest::RequestScreenshot(TEXT("HUD_GLASS.png"),true,false);
             if (DesktopTestStage == 0 && FParse::Param(FCommandLine::Get(),TEXT("B2FBirdPreview")))
                 FScreenshotRequest::RequestScreenshot(TEXT("RAVENCROW_MODEL.png"),true,false);
             if (DesktopTestStage == 25 && FParse::Param(FCommandLine::Get(),TEXT("B2FBirdPreview")))
@@ -92,7 +94,7 @@ void ABorn2FlapFlightPawn::CheckDesktopInputTest(float DeltaSeconds)
         }
         // Only edges are injected for buttons; the engine maintains their held state.
         for (FKey K : {EKeys::W,EKeys::LeftControl,EKeys::LeftShift,EKeys::R,EKeys::LeftMouseButton,
-                      EKeys::RightMouseButton,EKeys::Left,EKeys::Down,EKeys::A,EKeys::F2})
+                      EKeys::RightMouseButton,EKeys::Left,EKeys::Down,EKeys::A,EKeys::F2,EKeys::F7})
             if (PC->IsInputKeyDown(K)) Key(K,false);
         DesktopTestStage = Stage;
         switch (Stage)
@@ -101,8 +103,9 @@ void ABorn2FlapFlightPawn::CheckDesktopInputTest(float DeltaSeconds)
         case 2: case 6: Key(EKeys::W,true); break;
         case 3: Key(EKeys::W,true); Key(EKeys::LeftShift,true); break;
         case 5: Axis(EKeys::MouseWheelAxis,25); break;
+        case 7: Key(EKeys::F7,true); break;
         case 8: Axis(EKeys::MouseWheelAxis,-25); break;
-        case 9: Key(EKeys::R,true); break;
+        case 9: Key(EKeys::R,true); Key(EKeys::F7,true); break;
         case 11: Key(EKeys::LeftMouseButton,true); break;
         case 12: Key(EKeys::RightMouseButton,true); break;
         case 13: Key(EKeys::LeftMouseButton,true); Key(EKeys::RightMouseButton,true); break;
@@ -127,11 +130,12 @@ void ABorn2FlapFlightPawn::CheckDesktopInputTest(float DeltaSeconds)
             bDesktopTestPass &= WingsPass;
             if (FParse::Param(FCommandLine::Get(),TEXT("B2FSettingsCapture")))
             {
-                // Core ticker keeps running while gameplay is paused by the actual Slate panel.
+                // The panel freezes the pawn through its settings-open gate;
+                // the world keeps ticking so UMG/Brain updates remain live.
                 SetControlExpo(.35f);
                 SetMouseGain(0,-.6f); SetMouseGain(1,-1.2f); SetMouseGain(2,0);
                 OpenFlightSettings();
-                bDesktopTestPass &= IsFlightSettingsOpen() && PC->IsPaused() && PC->bShowMouseCursor;
+                bDesktopTestPass &= IsFlightSettingsOpen() && !PC->IsPaused() && PC->bShowMouseCursor;
                 FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateWeakLambda(this,[this](float) {
                     FScreenshotRequest::RequestScreenshot(TEXT("RAVENCROW_SETTINGS.png"),true,false);
                     return false;
@@ -148,10 +152,10 @@ void ABorn2FlapFlightPawn::CheckDesktopInputTest(float DeltaSeconds)
                     Saved.GetDouble(TEXT("Controls"),TEXT("Expo"),SavedExpo);
                     const bool Pass=bDesktopTestPass && !IsFlightSettingsOpen() && Player && !Player->IsPaused() &&
                                     !Player->bShowMouseCursor && FMath::Abs(SavedRoll+.6)<.001 && FMath::Abs(SavedExpo-.35)<.001;
-                    UE_LOG(LogTemp,Display,TEXT("DesktopInputTest %s: signed gains, model selection, Slate pause/Escape/resume and saved preferences"),Pass ? TEXT("PASS") : TEXT("FAIL"));
+                    UE_LOG(LogTemp,Display,TEXT("DesktopInputTest %s: signed gains, model selection, settings open/close/resume and saved preferences"),Pass ? TEXT("PASS") : TEXT("FAIL"));
                     FPlatformMisc::RequestExitWithStatus(false,Pass ? 0 : 1);
                     return false;
-                }),3.f);
+                }),6.f);
                 return;
             }
             UE_LOG(LogTemp, Display, TEXT("DesktopInputTest %s: Unreal input, throttle memory, sticky mouse axes, click reset, additive keyboard, button mutes"),
