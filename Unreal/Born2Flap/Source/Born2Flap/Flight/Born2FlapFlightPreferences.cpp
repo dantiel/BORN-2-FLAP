@@ -1,6 +1,8 @@
 #include "Flight/Born2FlapFlightPawn.h"
 #include "Flight/Born2FlapTuning.h"
 #include "Game/Born2FlapGameMode.h"
+#include "Racing/Born2FlapRacing.h"
+#include "Kismet/GameplayStatics.h"
 #include "Framework/Application/SlateApplication.h"
 #include "UI/Born2FlapFlightSettings.h"
 #include "UI/Born2FlapPoiOverlay.h"
@@ -36,6 +38,7 @@ void ABorn2FlapFlightPawn::LoadFlightPreferences()
     FpvCameraAngleDeg = FMath::IsFinite(FpvCameraAngleDeg) ? FMath::Clamp(FpvCameraAngleDeg,-45.f,45.f) : 0.f;
     Config.GetBool(TEXT("Flight"),TEXT("RollWingTwist"),bRollWingTwist);
     Config.GetBool(TEXT("Flight"),TEXT("CoupledThrottle"),bCoupledThrottle);
+    Config.GetBool(TEXT("Flight"),TEXT("ReplaySpirits"),bReplaySpirits);
     Config.GetFloat(TEXT("Flight"),TEXT("Safety"),FlightSafety);
     FlightSafety=FMath::IsFinite(FlightSafety) ? FMath::Clamp(FlightSafety,0.f,2.f) : 1.f;
     double SpeedMod = Desktop.speedModifier;
@@ -65,6 +68,7 @@ void ABorn2FlapFlightPawn::SaveFlightPreferences()
     Config.SetFloat(TEXT("Flight"),TEXT("FpvCameraAngle"),FpvCameraAngleDeg);
     Config.SetBool(TEXT("Flight"),TEXT("RollWingTwist"),bRollWingTwist);
     Config.SetBool(TEXT("Flight"),TEXT("CoupledThrottle"),bCoupledThrottle);
+    Config.SetBool(TEXT("Flight"),TEXT("ReplaySpirits"),bReplaySpirits);
     Config.SetFloat(TEXT("Flight"),TEXT("Safety"),FlightSafety);
     Config.SetDouble(TEXT("Controls"),TEXT("SpeedModifier"),Desktop.speedModifier);
     for(int32 Axis=0;Axis<3;++Axis)
@@ -211,6 +215,24 @@ void ABorn2FlapFlightPawn::SelectPoi(int32 Index)
     if(POIs.IsEmpty()) return;
     SelectedPoi=FMath::Clamp(Index,0,POIs.Num()-1);
     ResetFlight();
+}
+void ABorn2FlapFlightPawn::SetReplaySpiritsEnabled(bool bOn)
+{
+    bReplaySpirits = bOn;
+    SaveFlightPreferences();
+    if (auto* Racing = Cast<ABorn2FlapRacingManager>(
+            UGameplayStatics::GetActorOfClass(GetWorld(), ABorn2FlapRacingManager::StaticClass())))
+    {
+        Racing->SetSpiritsEnabled(bOn);
+    }
+}
+void ABorn2FlapFlightPawn::DeleteReplaySpirits()
+{
+    if (auto* Racing = Cast<ABorn2FlapRacingManager>(
+            UGameplayStatics::GetActorOfClass(GetWorld(), ABorn2FlapRacingManager::StaticClass())))
+    {
+        Racing->DeleteAllSpirits();
+    }
 }
 void ABorn2FlapFlightPawn::EndPlay(const EEndPlayReason::Type Reason)
 {

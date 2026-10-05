@@ -41,7 +41,10 @@ def main():
     jobs, manifest = [], {}
     for name, model in [('fir_sapling_medium', True), ('grass_medium_01', True),
                         ('rock_moss_set_01', True), ('aerial_grass_rock', False),
-                        ('forest_ground_04', False), ('rock_04', False)]:
+                        ('forest_ground_04', False), ('rock_04', False),
+                        ('jacaranda_tree', True), ('island_tree_01', True),
+                        ('calathea_orbifolia_01', True), ('anthurium_botany_01', True),
+                        ('fern_02', True)]:
         files = json.loads(read('https://api.polyhaven.com/files/' + name))
         manifest[name] = {'source': 'https://polyhaven.com/a/' + name, 'license': 'CC0', 'files': {}}
         if model:

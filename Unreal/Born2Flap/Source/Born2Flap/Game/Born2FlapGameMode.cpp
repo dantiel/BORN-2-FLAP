@@ -1,6 +1,7 @@
 #include "Game/Born2FlapGameMode.h"
 #include "Game/Born2FlapHUD.h"
 #include "Flight/Born2FlapFlightPawn.h"
+#include "Flight/Born2FlapTuning.h"
 #include "Components/DirectionalLightComponent.h"
 #include "Components/SkyLightComponent.h"
 #include "Components/SkyAtmosphereComponent.h"
@@ -14,6 +15,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "Materials/MaterialInterface.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "Engine/Texture2D.h"
 #include "Components/AudioComponent.h"
 #include "Sound/SoundWave.h"
 #include "World/Born2FlapValley.h"
@@ -92,7 +94,7 @@ const FMenuWorld MenuWorlds[] = {
     { TEXT("Ravenstonefield"), TEXT("RAVENSTONEFIELD"),
       TEXT("A highland valley of black basalt columns rising from amber bracken. Ravens ride the thermals between the spires, and the wind carries heather and cold stone. An old ornithopter field, flown by generations of wing-builders.") },
     { TEXT("Shiomori"), TEXT("SHIOMORI BAY"),
-      TEXT("A sheltered bay where the low winter sun splits into three, its parhelion false suns hanging on either side of the true one. Salt spray, dark water and a long pale beach. Only here does the ice-halo weather reveal itself.") },
+      TEXT("A broad pale beach arcing around a sheltered bay of dark, glassy water. Salt-cured rock, wind-bent grass and a low tide-walk of basalt stretch inland toward hazy, sunlit hills. Quiet enough that you notice what the sky is doing.") },
     { TEXT("Training"), TEXT("TRAINING"),
       TEXT("A flat grass course marked with floating sky-gates. The field where every pilot learns to fold the wing, hold the line and thread the gates against the clock.") },
 };
@@ -350,13 +352,29 @@ void ABorn2FlapGameMode::BeginPlay()
         Part(Cube, FVector(500 + I * 220, 0, 1), FVector(.9, .15, .015), FRotator::ZeroRotator, TEXT("Ivory"));
     Gates = {FVector(3000, 0, 400),      FVector(6000, 0, 650),      FVector(9000, 0, 900),
              FVector(12000, 1500, 1100), FVector(13500, 4500, 1000), FVector(12000, 7500, 800)};
-    // Painted sky gates: the user's circle artwork floats in the sky as a
-    // non-colliding, two-sided billboard. Each gate gets its own dynamic tint
-    // so flying through it can recolour it (amber -> green).
+    // Painted sky gates: the user's artwork floats in the sky as a non-colliding,
+    // two-sided billboard. Each state carries its own painted graphics — red for the
+    // active gate, green once passed, and quasi/ghost rings for everything still
+    // ahead — so no manual tinting is applied. The texture is swapped per gate via
+    // the dynamic material's GateTex parameter.
     auto *Plane = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Plane.Plane"));
     auto *GateMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/UI/M_Gate"));
+    auto LoadTex = [](const TCHAR *Path) { return LoadObject<UTexture2D>(nullptr, Path); };
+    GateRedTextures.Reset();
+    GateGreenTextures.Reset();
+    GateQuasiTextures.Reset();
+    for (int I = 1; I <= 4; ++I)
+        GateRedTextures.Add(LoadTex(*FString::Printf(TEXT("/Game/UI/born2flap-red-gate-%d"), I)));
+    for (int I = 1; I <= 3; ++I)
+        GateGreenTextures.Add(LoadTex(*FString::Printf(TEXT("/Game/UI/born2flap-green-gate-%d"), I)));
+    for (int I = 1; I <= 4; ++I)
+        GateQuasiTextures.Add(LoadTex(*FString::Printf(TEXT("/Game/UI/born2flap-quasi-gate-%d"), I)));
+
     GateActors.Reset(Gates.Num());
     GateMaterials.Reset(Gates.Num());
+    GateRedVariant.Reset(Gates.Num());
+    GateGreenVariant.Reset(Gates.Num());
+    FRandomStream GateRand(20261005);
     for (const FVector &Centre : Gates)
     {
         auto *Actor = World->SpawnActor<AStaticMeshActor>(Centre, FRotator(90, 0, 0), Params);
@@ -364,7 +382,10 @@ void ABorn2FlapGameMode::BeginPlay()
         Component->SetMobility(EComponentMobility::Movable);
         if (Plane)
             Component->SetStaticMesh(Plane);
+        // Imaginary gate: purely a pass-through detector, never a physical wall.
         Component->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+        Component->SetCollisionProfileName(TEXT("NoCollision"));
+        Actor->SetActorEnableCollision(false);
         Component->SetCastShadow(false);
         Actor->SetActorScale3D(FVector(5.6f, 5.6f, 1.f)); // plane 100 -> 560 ring
         if (GateMat)
@@ -377,6 +398,8 @@ void ABorn2FlapGameMode::BeginPlay()
             GateMaterials.Add(nullptr);
         }
         GateActors.Add(Actor);
+        GateRedVariant.Add(GateRand.RandRange(0, 3));
+        GateGreenVariant.Add(GateRand.RandRange(0, 2));
     }
     UpdateGateColors();
     FRandomStream Random(240924);
@@ -398,22 +421,38 @@ void ABorn2FlapGameMode::BeginPlay()
 }
 void ABorn2FlapGameMode::UpdateGateColors()
 {
-    // The next gate reads bright warm-white ("fly here"), passed gates turn
-    // emerald green, and gates still ahead stay amber. Missing materials are
-    // tolerated so the course still works before the import step has run.
-    for (int32 I = 0; I < GateMaterials.Num(); ++I)
+    // Each gate state carries its own painted artwork, swapped through the dynamic
+    // material's GateTex texture parameter: the active gate is red, passed gates turn
+    // green, and gates still ahead read as quasi/ghost rings — the nearest ghost uses
+    // quasi-gate-1, the next quasi-gate-2, and so on (capped at the last tier).
+    auto Pick = [](const TArray<TObjectPtr<UTexture2D>> &Pool, int32 Variant) -> UTexture2D *
     {
-        UMaterialInstanceDynamic *DMI = GateMaterials[I];
-        if (!DMI)
-            continue;
-        FLinearColor Tint;
+        if (Pool.Num() == 0)
+            return nullptr;
+        return Pool[FMath::Clamp(Variant, 0, Pool.Num() - 1)];
+    };
+    for (int32 I = 0; I < GateActors.Num(); ++I)
+    {
+        UTexture2D *Tex = nullptr;
         if (I < GatesPassed)
-            Tint = FLinearColor(0.35f, 0.95f, 0.50f);   // passed: emerald
+            Tex = Pick(GateGreenTextures, GateGreenVariant.IsValidIndex(I) ? GateGreenVariant[I] : 0);
         else if (I == GatesPassed)
-            Tint = FLinearColor(1.00f, 0.95f, 0.75f);   // active: warm white
+            Tex = Pick(GateRedTextures, GateRedVariant.IsValidIndex(I) ? GateRedVariant[I] : 0);
         else
-            Tint = FLinearColor(0.95f, 0.62f, 0.22f);   // ahead: amber
-        DMI->SetVectorParameterValue(TEXT("Tint"), Tint);
+            Tex = Pick(GateQuasiTextures, I - GatesPassed - 1); // distance-indexed ghost
+        if (GateMaterials.IsValidIndex(I) && GateMaterials[I])
+        {
+            if (Tex)
+                GateMaterials[I]->SetTextureParameterValue(TEXT("GateTex"), Tex);
+        }
+        // Preserve the painted artwork's aspect ratio: the ghost rings are portrait,
+        // the active/passed rings are square.
+        if (Tex && GateActors.IsValidIndex(I) && Tex->GetSizeY() > 0)
+        {
+            const float H = 5.6f;
+            const float W = H * (float(Tex->GetSizeX()) / float(Tex->GetSizeY()));
+            GateActors[I]->SetActorScale3D(FVector(W, H, 1.f));
+        }
     }
 }
 bool ABorn2FlapGameMode::HasRadioTrack() const { return RadioStation && RadioStation->HasTrack(); }
@@ -691,15 +730,26 @@ void ABorn2FlapGameMode::Tick(float DeltaSeconds)
     }
     if (Gates.IsValidIndex(GatesPassed) && FVector::Dist(Bird->GetActorLocation(), Gates[GatesPassed]) < 260)
     {
-        ++GatesPassed;
-        UpdateGateColors();
-        UE_LOG(LogTemp, Display, TEXT("FlightGate passed=%d total=%d"), GatesPassed, Gates.Num());
-        if (GatesPassed >= Gates.Num())
+        // A gate only counts on a clean pass: no wing contact within the last
+        // second. A graze/bump fouls the attempt — the gate stays active (red)
+        // until the bird threads it without touching anything.
+        const float SinceWingTouch = float(GetWorld()->GetTimeSeconds() - Bird->GetLastWingTouchTime());
+        if (SinceWingTouch > 1.0f)
         {
-            bRaceRunning = false;
-            if (BestLapTime <= 0 || RaceTime < BestLapTime)
-                BestLapTime = RaceTime;
-            UE_LOG(LogTemp, Display, TEXT("FlightRace complete lap=%.2fs best=%.2fs"), RaceTime, BestLapTime);
+            ++GatesPassed;
+            UpdateGateColors();
+            UE_LOG(LogTemp, Display, TEXT("FlightGate passed=%d total=%d"), GatesPassed, Gates.Num());
+            if (GatesPassed >= Gates.Num())
+            {
+                bRaceRunning = false;
+                if (BestLapTime <= 0 || RaceTime < BestLapTime)
+                    BestLapTime = RaceTime;
+                UE_LOG(LogTemp, Display, TEXT("FlightRace complete lap=%.2fs best=%.2fs"), RaceTime, BestLapTime);
+            }
+        }
+        else
+        {
+            UE_LOG(LogTemp, Display, TEXT("FlightGate fouled — wing contact %.1fs ago"), SinceWingTouch);
         }
     }
 }
@@ -710,6 +760,8 @@ void ABorn2FlapGameMode::ShowMainMenu(bool bInLevel)
         return;
     bMenuOpen = true;
     bMenuInLevel = bInLevel;
+    if (RadioStation)
+        RadioStation->SetPaused(true);
 
     // The menu is modal: the game stops receiving input (UIOnly) and the cursor
     // is freed so its buttons are clickable. The opaque full-bleed backdrop
@@ -742,6 +794,8 @@ void ABorn2FlapGameMode::CloseMainMenu()
         return;
     bMenuOpen = false;
     bMenuInLevel = false;
+    if (RadioStation)
+        RadioStation->SetPaused(false);
 
     // Detach the UMG window now (Destroy() only schedules GC — the window would
     // otherwise linger until the next collection). In the Brain path MenuWidget
@@ -814,6 +868,104 @@ void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, c
             Bird->OpenFlightSettings();
         return;
     }
+    if (Action == TEXT("menu.page")) { MenuPage=FMath::Clamp(FMath::RoundToInt(Value),0,1); return; }
+    if (Action == TEXT("settings.page")) { SettingsPage=FMath::Clamp(FMath::RoundToInt(Value),0,4); return; }
+    if (Action == TEXT("settings.close") || Action == TEXT("editor.close"))
+    {
+        if (ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
+            Bird->CloseFlightSettings();
+        return;
+    }
+    // CRAFT tab.
+    if (Action.StartsWith(TEXT("bird.model.")))
+    {
+        const int32 Model = FCString::Atoi(*Action.RightChop(FCString::Strlen(TEXT("bird.model."))));
+        if (ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
+            Bird->SelectBirdModel(Model);
+        return;
+    }
+    if (Action == TEXT("camera.fpv"))
+    {
+        if (ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
+            Bird->ToggleFpvView();
+        return;
+    }
+    // BIRD tab (further bird tuning).
+    if (Action == TEXT("camera.angle"))
+    {
+        if (ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
+            Bird->SetFpvCameraAngle(Value);
+        return;
+    }
+    if (Action == TEXT("bird.rolltwist"))
+    {
+        if (ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
+            Bird->SetRollWingTwist(Value > 0.5f);
+        return;
+    }
+    if (Action == TEXT("bird.coupled"))
+    {
+        if (ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
+            Bird->SetThrottleCoupled(Value > 0.5f);
+        return;
+    }
+    if (Action == TEXT("mouse.speed"))
+    {
+        if (ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
+            Bird->SetSpeedModifier(Value);
+        return;
+    }
+    // CONTROLS tab.
+    if (Action.StartsWith(TEXT("mouse.gain.")))
+    {
+        const int32 Axis = FCString::Atoi(*Action.RightChop(FCString::Strlen(TEXT("mouse.gain."))));
+        if (ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
+            Bird->SetMouseGain(Axis, Value);
+        return;
+    }
+    if (Action == TEXT("mouse.reset"))
+    {
+        if (ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
+        {
+            Bird->SetMouseGain(0, 1.f);
+            Bird->SetMouseGain(1, -1.f);
+            Bird->SetMouseGain(2, 1.f);
+        }
+        return;
+    }
+    if (Action == TEXT("control.expo"))
+    {
+        if (ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
+            Bird->SetControlExpo(Value / 100.f);
+        return;
+    }
+    // ASSIST tab.
+    if (Action == TEXT("flight.safety"))
+    {
+        if (ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
+            Bird->SetFlightSafety(Value);
+        return;
+    }
+    if (Action == TEXT("replay.spirits"))
+    {
+        if (ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
+            Bird->SetReplaySpiritsEnabled(Value > 0.5f);
+        return;
+    }
+    if (Action == TEXT("replay.delete"))
+    {
+        if (ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
+            Bird->DeleteReplaySpirits();
+        return;
+    }
+    // TUNING tab (12 firmware knobs).
+    const ETuningField Field = born2flap::tuning::FromKey(Action);
+    if (Field != ETuningField::Count)
+    {
+        if (ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
+            Bird->SetTuning(Field, Value);
+        return;
+    }
     if (Action == TEXT("menu.prevWorld")) { MenuWorldIndex = (MenuWorldIndex + MenuWorldCount - 1) % MenuWorldCount; return; }
     if (Action == TEXT("menu.nextWorld")) { MenuWorldIndex = (MenuWorldIndex + 1) % MenuWorldCount; return; }
     if (Action == TEXT("menu.quit")) { UKismetSystemLibrary::QuitGame(this, nullptr, EQuitPreference::Quit, false); return; }
@@ -861,6 +1013,32 @@ FString ABorn2FlapGameMode::BuildBrainTelemetry() const
         Root->SetStringField(TEXT("status"), Bird->GetFlightStatus());
         Root->SetBoolField(TEXT("settings"), Bird->IsFlightSettingsOpen());
         Root->SetBoolField(TEXT("poi"), Bird->IsPoiOverlayOpen());
+        // F7 hides the whole HUD layer (cockpit + radio). Mirrors the native
+        // cockpit collapse in Born2FlapFlightHUD::Refresh().
+        Root->SetBoolField(TEXT("hud"), !(Bird->IsBlindFlight() || Bird->IsFlightSettingsOpen() || Bird->IsUIHidden()));
+
+        // Flight-desk settings state (CRAFT / BIRD / CONTROLS / ASSIST / TUNING).
+        Root->SetNumberField(TEXT("bird_model"), Bird->GetBirdModel());
+        Root->SetBoolField(TEXT("camera_fpv"), Bird->IsFpvAirView());
+        Root->SetNumberField(TEXT("fpv_angle"), Bird->GetFpvCameraAngle());
+        Root->SetBoolField(TEXT("roll_twist"), Bird->IsRollWingTwist());
+        Root->SetBoolField(TEXT("coupled_throttle"), Bird->IsThrottleCoupled());
+        Root->SetNumberField(TEXT("speed_modifier"), Bird->GetSpeedModifier());
+        Root->SetNumberField(TEXT("flight_safety"), Bird->GetFlightSafety());
+        Root->SetBoolField(TEXT("replay_spirits"), Bird->GetReplaySpiritsEnabled());
+        Root->SetNumberField(TEXT("control_expo"), Bird->GetControlExpo());
+        {
+            const FVector Gains = Bird->GetMouseGains();
+            TArray<TSharedPtr<FJsonValue>> GainArr;
+            for (int32 Axis = 0; Axis < 3; ++Axis)
+                GainArr.Add(MakeShareable(new FJsonValueNumber((double)Gains[Axis])));
+            Root->SetArrayField(TEXT("mouse_gains"), GainArr);
+        }
+        for (uint8 I = 0; I < (uint8)ETuningField::Count; ++I)
+        {
+            const ETuningField Field = (ETuningField)I;
+            Root->SetNumberField(born2flap::tuning::Key(Field), Bird->GetTuning(Field));
+        }
 
         // POI list (current level).
         const TArray<FBorn2FlapPoi>& PoiList = Bird->GetPOIs();
@@ -907,6 +1085,8 @@ FString ABorn2FlapGameMode::BuildBrainTelemetry() const
     Root->SetBoolField(TEXT("menu"), bMenuOpen);
     Root->SetBoolField(TEXT("menu_inlevel"), bMenuInLevel);
     Root->SetNumberField(TEXT("world_index"), MenuWorldIndex);
+    Root->SetNumberField(TEXT("menu_page"), MenuPage);
+    Root->SetNumberField(TEXT("settings_page"), SettingsPage);
 
     TArray<TSharedPtr<FJsonValue>> WorldArr;
     for (int32 I = 0; I < MenuWorldCount; ++I)

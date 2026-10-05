@@ -53,6 +53,7 @@ private:
     bool bLevelSelect = true;
     // Which open world the browser is currently showing (0..WorldCount-1).
     int32 SelectedWorld = 0;
+    int32 SelectedPage = 0;
     TMap<FString,FBorn2FlapConditions> LevelConditions;
     // Per-world chosen travel destination (index into Born2FlapPoi::Catalog).
     TMap<FString,int32> SelectedPoi;

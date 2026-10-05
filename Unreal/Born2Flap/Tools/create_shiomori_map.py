@@ -833,6 +833,7 @@ mats['Orange'] = pbr_material('Orange', color=(0.8, 0.25, 0.075), rough=0.45,
 mats['Window'] = pbr_material('Window', color=(0.04, 0.1, 0.13), rough=0.12,
                               metallic=0.85, specular=1.0)
 mats['Bush'] = pbr_material('Bush', color=(0.09, 0.24, 0.13), rough=0.85, specular=0.4)
+mats['Crop'] = pbr_material('Crop', color=(0.16, 0.40, 0.13), rough=0.9, specular=0.3, noise_var=0.06)
 mats['Earth'] = pbr_material('Earth', diffuse=sand_d, normal=sand_n, rough_tex=sand_r,
                              tiling=('world', 260.0), normal_strength=0.6,
                              tint=(0.44, 0.46, 0.37))
@@ -899,6 +900,61 @@ lib.recompile_material(cloud)
 ela.save_asset('/Game/Shiomori/Materials/M_Cloud')
 mats['Cloud'] = cloud
 
+# Hammered-glass canopy: a translucent, screen-space-refracting roof that casts
+# a dimmed translucent shadow. The normal is a two-octave world-space hammered
+# bump (strong enough to visibly distort the sky), and a Fresnel term brightens
+# the grazing edges so the slabs read as glass rather than frosted plastic.
+glass = u.load_asset('/Game/Shiomori/Materials/M_Glass') if ela.does_asset_exist('/Game/Shiomori/Materials/M_Glass') else assets.create_asset(
+    'M_Glass', '/Game/Shiomori/Materials', u.Material, u.MaterialFactoryNew())
+glass.set_editor_property('blend_mode', u.BlendMode.BLEND_TRANSLUCENT)
+glass.set_editor_property('two_sided', True)
+try:
+    glass.set_editor_property('translucency_pass', u.MaterialTranslucencyPass.MTP_BEFORE_DOF)
+except Exception:
+    pass
+try:
+    glass.set_editor_property('refraction_method', u.RefractionMode.RM_INDEX_OF_REFRACTION)
+except Exception:
+    pass
+lib.delete_all_material_expressions(glass)
+wp = node(glass, 'WorldPosition')
+fn = node(glass, 'Fresnel')
+n = custom(glass, '''float2 p = P.xy * 0.16;
+float2 a = float2(sin(p.x*3.1 + p.y*2.7), cos(p.y*3.7 - p.x*2.3)) * 0.9;
+float2 b = float2(sin(p.x*9.7 - p.y*7.1), cos(p.y*11.3 + p.x*8.9)) * 0.35;
+return normalize(float3(a + b, 1.0));''', {'P': wp}, 3)
+output(n, 'NORMAL')
+bc = custom(glass, '''float3 tint = float3(0.72, 0.84, 0.86);
+float3 edge = float3(0.97, 0.99, 1.0);
+return lerp(tint, edge, saturate(Fresnel * 1.2));''', {'Fresnel': fn}, 3)
+output(bc, 'BASE_COLOR')
+output(node(glass, 'Constant', r=1.45), 'REFRACTION')
+output(node(glass, 'Constant', r=0.32), 'OPACITY')
+output(node(glass, 'Constant', r=0.10), 'ROUGHNESS')
+output(node(glass, 'Constant', r=0.9), 'SPECULAR')
+for prop, val in (('translucency_shadow_density_scale', 1.0), ('translucency_self_shadow_density_scale', 0.6)):
+    try:
+        glass.set_editor_property(prop, val)
+    except Exception:
+        pass
+material_usage_flags(glass)
+lib.recompile_material(glass)
+ela.save_asset('/Game/Shiomori/Materials/M_Glass')
+mats['Glass'] = glass
+
+# Distant mountains: hazy blue-grey rock, two-sided so the folded ridge mesh
+# renders its far slopes without a winding fight. Flat color + high roughness
+# reads as an atmospheric silhouette through the height fog.
+mountain = u.load_asset('/Game/Shiomori/Materials/M_Mountain') if ela.does_asset_exist('/Game/Shiomori/Materials/M_Mountain') else assets.create_asset(
+    'M_Mountain', '/Game/Shiomori/Materials', u.Material, u.MaterialFactoryNew())
+mountain.set_editor_property('two_sided', True)
+lib.delete_all_material_expressions(mountain)
+output(node(mountain, 'Constant3Vector', constant=u.LinearColor(0.30, 0.34, 0.40)), 'BASE_COLOR')
+output(node(mountain, 'Constant', r=0.9), 'ROUGHNESS')
+lib.recompile_material(mountain)
+ela.save_asset('/Game/Shiomori/Materials/M_Mountain')
+mats['Mountain'] = mountain
+
 # --------------------------------------------------------------------------- #
 # World / meshes.                                                             #
 # --------------------------------------------------------------------------- #
@@ -921,6 +977,9 @@ foliage_meshes = {
     'Grass': [m for m in (_load_mesh('/Game/Nature/SM_Grass%d' % i) for i in range(3)) if m],
     'Fir': [m for m in (_load_mesh('/Game/Nature/SM_Fir%d' % i) for i in range(3)) if m],
     'Rock': [m for m in (_load_mesh('/Game/Nature/SM_Rock%d' % i) for i in range(4)) if m],
+    'Tree': [m for m in (_load_mesh('/Game/Nature/SM_Tree%d' % i) for i in range(2)) if m],
+    'Leaf': [m for m in (_load_mesh('/Game/Nature/SM_Leaf%d' % i) for i in range(2)) if m],
+    'Fern': [m for m in (_load_mesh('/Game/Nature/SM_Fern%d' % i) for i in range(1)) if m],
 }
 count = 0
 
@@ -1057,6 +1116,20 @@ def beach_height(x, y):
     return max(-300.0, -50.0 - 0.04 * d)
 
 
+def beach_visual_height(x, y):
+    # Cosmetic only: ramp the dry sand's inland edge down to the first tidewalk
+    # tread top (Z=25) and butt it against that tread's seaward face (y=-1200) so
+    # the sand connects to the stairs with no gap and no floating cut-off edge.
+    # beach_height() remains the collision and ground source of truth.
+    z = beach_height(x, y)
+    blend = 600.0
+    d_inland = y + 1200.0
+    if d_inland < blend:
+        t = max(0.0, d_inland) / blend
+        z = 25.0 + (z - 25.0) * t
+    return z
+
+
 def make_beach():
     xs = list(range(-45000, 45001, 250))
     # Sand hugs the mainland shore and stops ~25 m offshore (d=2500). The old
@@ -1065,19 +1138,37 @@ def make_beach():
     # volcanic island ellipsoid's nearest point is Y=12500 (at X=-37000); cap the
     # sand there so headlands (where waterline(x)+2500 reaches ~13600) never push
     # bright sand under the island's submerged slope.
-    offsets = [-12000, -10000, -6000, -3500] + list(range(-2500, 2501, 100))
-    verts, uvs, tris = [], [], []
-    for d in offsets:
+    #
+    # The inland edge is a FIXED y=-1200 — the seaward face of the first tidewalk
+    # tread — morphing into the waterline-relative foreshore. Butting the sand flush
+    # against that tread face makes the two overlap with no gap (the dunes were
+    # previously cut off in mid-air just short of the stairs).
+    rows = []
+    INLAND = 20
+    for k in range(INLAND + 1):
+        t = k / INLAND
+        row = []
         for x in xs:
-            y = max(-1200, min(waterline(x)+d, 12500.0))
-            verts.append((x,y,beach_height(x,y)))
-            uvs.append((x/150,y/150))
-    stride=len(xs)
-    for j in range(len(offsets)-1):
-        for i in range(stride-1):
-            a=j*stride+i
-            tris.extend([(a,a+1,a+stride+1),(a,a+stride+1,a+stride)])
-    return verts,tris,uvs
+            y = -1200.0 + (waterline(x) - 1200.0) * t
+            row.append((x, y, beach_visual_height(x, y)))
+        rows.append(row)
+    for d in range(-2400, 2501, 100):
+        row = []
+        for x in xs:
+            y = min(waterline(x) + d, 12500.0)
+            row.append((x, y, beach_visual_height(x, y)))
+        rows.append(row)
+    verts, uvs, tris = [], [], []
+    for row in rows:
+        for (x, y, z) in row:
+            verts.append((x, y, z))
+            uvs.append((x / 150.0, y / 150.0))
+    stride = len(xs)
+    for j in range(len(rows) - 1):
+        for i in range(stride - 1):
+            a = j * stride + i
+            tris.extend([(a, a + 1, a + stride + 1), (a, a + stride + 1, a + stride)])
+    return verts, tris, uvs
 
 
 def seabed_z(x, y):
@@ -1110,9 +1201,92 @@ def make_seabed():
     return verts, tris, uvs
 
 
+def make_ridge(name, a, b, peak, base_z, width, seed):
+    # A distant mountain range: a smooth, rolling skyline (summed low-frequency
+    # sines, not jagged spikes) extruded with a rounded flank cross-section, so it
+    # reads as natural weathered peaks instead of freshly-dumped rubble. The
+    # two-sided M_Mountain material renders both faces, so winding is irrelevant.
+    rng = random.Random(seed)
+    ax, ay = a
+    bx, by = b
+    length = math.hypot(bx - ax, by - ay)
+    ux, uy = (bx - ax) / length, (by - ay) / length
+    px, py = -uy, ux
+    n = 160
+    crest = []
+    for i in range(n + 1):
+        s = i / n
+        env = 0.5 + 0.5 * math.sin(s * math.pi)          # 0 at ends, 1 mid-span
+        h = 0.55 + 0.45 * math.sin(s * 2.0 * math.pi + seed)
+        h += 0.30 * math.sin(s * 4.5 * math.pi + seed * 0.9) * env
+        h += 0.15 * math.sin(s * 9.0 * math.pi + seed * 1.7) * env
+        h *= 0.35 + 0.65 * env                            # gentle end taper
+        crest.append(peak * max(0.06, h))
+    # Rounded flank profile: concave near the summit, easing to the foot.
+    m = 8
+    prof = [(1.0 - (j / m) ** 1.45) for j in range(m + 1)]
+    rows = []
+    for j in range(m, -1, -1):      # front base -> crest
+        off = width * (j / m)
+        zf = prof[j]
+        rows.append([(ax + (bx - ax) * i / n + px * off,
+                      ay + (by - ay) * i / n + py * off,
+                      base_z + crest[i] * zf) for i in range(n + 1)])
+    for j in range(1, m + 1):       # crest -> back base
+        off = -width * (j / m)
+        zf = prof[j]
+        rows.append([(ax + (bx - ax) * i / n + px * off,
+                      ay + (by - ay) * i / n + py * off,
+                      base_z + crest[i] * zf) for i in range(n + 1)])
+    verts = [v for row in rows for v in row]
+    stride = n + 1
+    tris = []
+    for j in range(len(rows) - 1):
+        for i in range(n):
+            a0 = j * stride + i
+            tris.append((a0, a0 + 1, (j + 1) * stride + i + 1))
+            tris.append((a0, (j + 1) * stride + i + 1, (j + 1) * stride + i))
+    return build_mesh(name, verts, tris, [(v[0] / 600.0, v[1] / 600.0) for v in verts])
+
+
+def make_furrow(name, length, width, height, seed):
+    # A long low raised furrow (sweet-potato ridge) along X: a half-ellipse
+    # cross-section with rounded, tapered ends, so rows of these read as
+    # cultivated field rather than geometric blobs or ornamental houseplants.
+    rng = random.Random(seed)
+    nx = 120
+    ny = 8
+    rows = []
+    for j in range(ny + 1):
+        t = j / ny
+        yy = -width / 2.0 + width * t
+        zf = math.sqrt(max(0.0, 1.0 - (2 * t - 1) ** 2))
+        row = []
+        for i in range(nx + 1):
+            s = i / nx
+            x = -length / 2.0 + length * s
+            taper = min(1.0, 5.0 * s, 5.0 * (1.0 - s))
+            wtaper = 0.55 + 0.45 * taper
+            row.append((x, yy * wtaper, height * zf * taper))
+        rows.append(row)
+    verts = [v for row in rows for v in row]
+    stride = nx + 1
+    tris = []
+    for j in range(len(rows) - 1):
+        for i in range(nx):
+            a = j * stride + i
+            tris.append((a, a + 1, a + stride + 1))
+            tris.append((a, a + stride + 1, a + stride))
+    return build_mesh(name, verts, tris, None)
+
+
 ocean_mesh = build_mesh('OceanGrid', *make_ocean_grid())
 beach_mesh = build_mesh('ContinuousBeach', *make_beach())
 seabed_mesh = build_mesh('Seabed', *make_seabed())
+mountains_behind = make_ridge('MountainsBehind', (-85000, -62000), (85000, -62000), 11000, -300, 26000, 991011)
+mountains_east = make_ridge('MountainsEast', (62000, -50000), (74000, 30000), 8500, -300, 14000, 991012)
+mountains_west = make_ridge('MountainsWest', (-62000, -50000), (-74000, 30000), 8500, -300, 14000, 991013)
+crop_furrow = make_furrow('CropFurrow', 83000.0, 300.0, 75.0, 7)
 beach_mesh.get_editor_property('body_setup').set_editor_property('collision_trace_flag', u.CollisionTraceFlag.CTF_USE_COMPLEX_AS_SIMPLE)
 ela.save_loaded_asset(beach_mesh)
 
@@ -1183,6 +1357,11 @@ for cx in range(-42500, 42501, 500):
         collision_box('Beach collision', cx, cy, beach_height(cx, cy), 500, 2000)
 place_mesh('Seabed', (0, 0, 0), seabed_mesh, mats['WetSand'])
 place_mesh('Open bay', (0, 0, 0), ocean_mesh, mats['Water'])
+# Distant mountain ranges: a hazy blue-grey skyline far behind the hinterland
+# and closing off both ends of the beach.
+place_mesh('Distant mountains behind', (0, 0, 0), mountains_behind, mats['Mountain'], collision=False)
+place_mesh('Distant mountains east', (0, 0, 0), mountains_east, mats['Mountain'], collision=False)
+place_mesh('Distant mountains west', (0, 0, 0), mountains_west, mats['Mountain'], collision=False)
 part('Raised promenade', (0, -2400, 50), (90000, 1200, 200), 'Sterile')
 part('Industrial hinterland', (0, -27000, -100), (150000, 48000, 500), 'Industry')
 # Six continuous, shallow stair treads run the entire beach edge.
@@ -1214,12 +1393,26 @@ for j, x in enumerate(range(-40000, 41000, 10000)):
     puffs = [(0, 0, 62), (-290, -130, 44), (290, -130, 44), (-170, 130, 36),
              (170, 130, 36), (0, -210, 30), (0, 210, 28)]
     for i, (dx, dy, r) in enumerate(puffs):
-        # Every puff is a solid landing panel — the whole cloud roof is a perch
-        # with no fly-through gaps. The central puff keeps the counted
-        # "Shelter floating roof" tag for the world test intact.
-        part('Shelter floating roof' if i == 0 else 'Shelter cloud puff',
-             (x + dx, -2750 + dy, 540), (r * 6, r * 4.4, r * 1.2), 'Cloud', 'Sphere',
-             collision=True)
+        # Hammered-glass canopy: restore the ORIGINAL soft puff ellipsoid (same
+        # shape and thickness as before) carrying the glass material, plus a
+        # hidden BlockAll cube pad for landing. The basic Sphere's simple
+        # collision does not survive the non-uniform puff scale in the commandlet,
+        # so the cube (proven to collide) sits invisibly inside the puff. The
+        # central puff keeps the counted "Shelter floating roof" tag.
+        part('Shelter floating roof' if i == 0 else 'Shelter glass panel',
+             (x + dx, -2750 + dy, 540), (r * 6, r * 4.4, r * 1.2), 'Glass', 'Sphere',
+             collision=False)
+        pad = u.EditorLevelLibrary.spawn_actor_from_class(
+            u.StaticMeshActor, u.Vector(x + dx, -2750 + dy, 540), u.Rotator())
+        pad.set_actor_label('Shelter landing pad')
+        pad.set_actor_hidden_in_game(True)
+        pc = pad.static_mesh_component
+        pc.set_static_mesh(meshes['Cube'])
+        pc.set_collision_profile_name('BlockAll')
+        pb = meshes['Cube'].get_bounds().box_extent
+        pad.set_actor_scale3d(u.Vector((r * 6) / (2 * pb.x), (r * 4.4) / (2 * pb.y),
+                                       (r * 1.2) / (2 * pb.z)))
+        count += 1
     part('Picnic table', (x, -2740, 235), (320, 100, 12), 'Wood')
     for dx in (-115, 115):
         part('Table trestle', (x + dx, -2740, 196), (18, 85, 80), 'Sterile')
@@ -1243,14 +1436,17 @@ for j, x in enumerate(range(-43000, 44000, 6500)):
     if j % 3 == 0:
         for dx in (0, 600):
             part('Utility tank', (x + dx, y - 3100, 745), (460, 460, 1210), 'Industry', 'Cylinder')
-# Rolling coastal hills behind the yard break up the otherwise flat hinterland.
-hrng = random.Random(77113)
-for i in range(22):
-    hx = hrng.uniform(-44500, 44500)
-    hy = hrng.uniform(-32000, -19000)
-    part('Coastal hill', (hx, hy, 150 - hrng.uniform(20, 100)),
-         (hrng.uniform(7000, 15000), hrng.uniform(6000, 12000), hrng.uniform(420, 760)),
-         'Earth', 'Sphere', rot=(0, hrng.uniform(0, 360), 0))
+# Natural woodland hinterland between the fields and the distant mountains: a
+# soft meadow-to-forest gradient that fills the flat ground instead of the old
+# green hill "blobs". Broadleaf and fir stand in loose groves with grass between.
+wrng = random.Random(440177)
+for i in range(700):
+    x = wrng.uniform(-48000, 48000)
+    y = wrng.uniform(-34000, -19600)
+    kind = wrng.choice(('Grass', 'Grass', 'Grass', 'Fir', 'Fir', 'Tree'))
+    mesh = _pick_mesh(foliage_meshes[kind], wrng)
+    h = wrng.uniform(80, 220) if kind == 'Grass' else wrng.uniform(120, 340) if kind == 'Fir' else wrng.uniform(500, 1100)
+    foliage('Hinterland woodland', (x, y, 150), mesh, h, rot=(0, wrng.uniform(0, 360), 0), ground_z=150)
 # Backshore scrub: real coastal vegetation instead of green spheres.
 for i in range(180):
     x = rng.uniform(-44500, 44500)
@@ -1259,6 +1455,28 @@ for i in range(180):
     mesh = _pick_mesh(foliage_meshes[kind], rng)
     h = rng.uniform(60, 260) if kind == 'Grass' else rng.uniform(120, 320) if kind == 'Fir' else rng.uniform(50, 160)
     foliage('Backshore scrub', (x, y, 150), mesh, h, rot=(0, rng.uniform(0, 360), 0), ground_z=150)
+# Lush satsumaimo (sweet potato) fields behind the promenade: long raised
+# furrows of low sprawling vine in neat east-west rows, hemmed by a broadleaf
+# hedgerow and a fern understory so the plots read as cultivated land seen from
+# above. Trees ring the field, never scattered inside it. Seeded RNG keeps
+# landmark placement stable.
+srng = random.Random(909071)
+for row in range(6):
+    y = -13300 - row * 950
+    foliage('Satsumaimo furrow %02d' % row, (0, y, 150), crop_furrow, 75,
+            rot=(0, 0, 0), ground_z=150)
+for i in range(160):
+    fx = srng.uniform(-44500, 44500)
+    fy = srng.choice((-12750, -19550)) + srng.uniform(-400, 400)
+    foliage('Field fern', (fx, fy, 150),
+            _pick_mesh(foliage_meshes['Fern'], srng), srng.uniform(120, 300),
+            rot=(0, srng.uniform(0, 360), 0), ground_z=150)
+for i in range(130):
+    tx = srng.uniform(-44000, 44000)
+    ty = srng.choice((-12900, -18900)) + srng.uniform(-500, 500)
+    foliage('Field hedgerow', (tx, ty, 150),
+            _pick_mesh(foliage_meshes['Tree'], srng), srng.uniform(700, 1300),
+            rot=(0, srng.uniform(0, 360), 0), ground_z=150)
 # Layered coastal thickets: a soft gradient from marram grass through low bushes
 # and saplings into a full treeline, so each far end of the beach closes into a
 # lush wood instead of a sparse scatter. Mossy boulders break up the understory.
@@ -1361,6 +1579,10 @@ sun = u.EditorLevelLibrary.spawn_actor_from_class(
     u.Rotator(pitch=sun_pitch, yaw=sun_yaw, roll=sun_roll))
 sun.light_component.set_editor_property('intensity', 90000.)
 sun.light_component.set_editor_property('atmosphere_sun_light', True)
+try:
+    sun.light_component.set_editor_property('cast_translucent_shadows', True)
+except Exception:
+    pass
 try:
     sun.light_component.set_editor_property('light_color', u.Color(255, 238, 216))
 except Exception:

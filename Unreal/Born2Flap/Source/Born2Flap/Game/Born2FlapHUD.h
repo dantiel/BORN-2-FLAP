@@ -14,7 +14,9 @@ class BORN2FLAP_API ABorn2FlapHUD : public AHUD
 
   private:
     bool bShowChannels = true;
+    bool bShowMouseIndicator = false;
     void DrawChannels(const ABorn2FlapFlightPawn& Bird);
+    void DrawMouseIndicator(const ABorn2FlapFlightPawn& Bird);
     void DrawRcPanel(const FBorn2FlapRcController &Rc);
     TWeakObjectPtr<ABorn2FlapRacingManager> CachedRacing;
 };

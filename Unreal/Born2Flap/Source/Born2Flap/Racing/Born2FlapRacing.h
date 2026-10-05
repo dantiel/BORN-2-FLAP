@@ -60,6 +60,11 @@ class BORN2FLAP_API ABorn2FlapRacingManager : public AActor
     bool IsSurpassingBest() const { return bRecording && BestDistance > 0 && ActiveRecording.Distance > BestDistance; }
     FString GetRacingStatus() const;
     FString GetBestLine() const;
+    // Shadow-doppelgänger visibility: on by default, can be toggled off in the
+    // flight desk and all saved recordings can be purged from disk.
+    bool IsSpiritsEnabled() const { return bSpiritsEnabled; }
+    void SetSpiritsEnabled(bool bOn);
+    void DeleteAllSpirits();
 
   private:
     void LoadAllSpirits();
@@ -77,6 +82,7 @@ class BORN2FLAP_API ABorn2FlapRacingManager : public AActor
     TWeakObjectPtr<ABorn2FlapFlightPawn> Bird;
     bool bRecording = false;
     bool bEnabled = true;
+    bool bSpiritsEnabled = true;
     double RoundTime = 0;
     double BestDistance = 0, BestDuration = 0;
     FVector LastPosition = FVector::ZeroVector;

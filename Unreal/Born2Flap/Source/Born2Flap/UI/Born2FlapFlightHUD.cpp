@@ -48,7 +48,7 @@ FOp UpdateProps(FPath Path, FProps Props)
     return O;
 }
 
-FPath Pth(std::initializer_list<int> I) { return FPath(I); }
+FPath Pth(std::initializer_list<int> I) { FPath Path{0}; Path.insert(Path.end(),I.begin(),I.end()); return Path; }
 
 // Wind classification for the cockpit: simple, intuitive Beaufort-like words.
 FString WindWord(float SpeedMs)
@@ -102,7 +102,8 @@ void ABorn2FlapFlightHUD::BuildCockpit()
 
     FNode Root = Nd("Overlay", P({ {"align", S("left")}, {"valign", S("top")} }),
     {
-        Nd("VerticalBox", P({ {"spacing", N(6)} }),
+        Nd("SizeBox",P({{"width",N(350)}}),{
+        Nd("VerticalBox", P({ {"spacing", N(8)} }),
         {
             Nd("Banner", P({ {"text", L("brand")}, {"tone", S("accent")} })),
 
@@ -128,8 +129,8 @@ void ABorn2FlapFlightHUD::BuildCockpit()
 
             Nd("Banner", P({ {"text", L("hud.ready")}, {"tone", S("normal")} })),
             Nd("Banner", P({ {"text", S("")}, {"tone", S("info")}, {"size", S("s")} })),
-            Nd("Banner", P({ {"text", S("F6 ground/air · V chase/FPV · F8 bird · F2 ch · F3 RC · F4 level · F7 HUD")}, {"tone", S("normal")}, {"size", S("s")} })),
-        }),
+            Nd("Banner", P({ {"text", S("F7  HIDE HUD    /    F10  MENU")}, {"tone", S("normal")}, {"size", S("s")} })),
+        })}),
     });
 
     FOp Mount;
@@ -179,7 +180,7 @@ void ABorn2FlapFlightHUD::Refresh()
     const float Alt = CachedBird->GetAltitude();
     if (!FMath::IsNearlyEqual(Alt, LastAlt))
     {
-        Ops.Add(UpdateProps(Pth({0, 1, 0}), P({ {"value", N(Alt)} })));
+        Ops.Add(UpdateProps(Pth({0, 1, 0}), P({ {"value", N(Alt)}, {"format", S("int")} })));
         LastAlt = Alt;
     }
 
@@ -200,7 +201,7 @@ void ABorn2FlapFlightHUD::Refresh()
     const float Battery = CachedBird->GetBattery() * 100.f;  // 0..100 %
     if (!FMath::IsNearlyEqual(Battery, LastBattery))
     {
-        Ops.Add(UpdateProps(Pth({0, 2, 0}), P({ {"value", N(Battery)} })));
+        Ops.Add(UpdateProps(Pth({0, 2, 0}), P({ {"value", N(Battery)}, {"format", S("int")} })));
         LastBattery = Battery;
     }
 

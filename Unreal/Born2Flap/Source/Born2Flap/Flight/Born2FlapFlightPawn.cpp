@@ -2,8 +2,11 @@
 #include "Flight/Born2FlapWingMesh.h"
 #include "Camera/CameraComponent.h"
 #include "Components/BoxComponent.h"
+#include "Components/SphereComponent.h"
+#include "Components/CapsuleComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
+#include "Engine/OverlapResult.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/GameViewportClient.h"
 #include "GameFramework/PlayerController.h"
@@ -452,6 +455,79 @@ void ABorn2FlapFlightPawn::OnBodyHit(UPrimitiveComponent *HitComponent, AActor *
                *GetNameSafe(OtherActor), *GetNameSafe(OtherComponent), *NormalImpulse.ToString(),
                *Hit.ImpactPoint.ToString());
 }
+void ABorn2FlapFlightPawn::SweepWingColliders()
+{
+    // Compute a leading-edge contact capsule for every VISIBLE wing each frame,
+    // directly in world space from the wing component's own (already-flapped)
+    // transform — no child collision components. The procedural wings are added
+    // via AddInstanceComponent, so GetComponents does not reliably enumerate
+    // them; the shoulder-child walk below is the same path Tick already uses to
+    // apply the wing shape, and therefore always finds them. Detection uses a
+    // blocking overlap test because overlap EVENTS never fire against BlockAll
+    // world geometry (ground/rocks respond Block, not Overlap); a second sweep
+    // catches tunnelling through thin objects during a fast flap or dive. Both
+    // stamp LastWingTouchTime so the race gates can require a clean pass.
+    UWorld* World = GetWorld();
+    if (!World) return;
+    FCollisionQueryParams Params;
+    Params.AddIgnoredActor(this);
+
+    TArray<UBorn2FlapWingMesh*> Wings;
+    for (USceneComponent* Shoulder : { LeftShoulder.Get(), RightShoulder.Get(),
+            RavenLeftShoulder.Get(), RavenRightShoulder.Get(),
+            MembraneLeftShoulder.Get(), MembraneRightShoulder.Get() })
+    {
+        if (!Shoulder) continue;
+        for (USceneComponent* Child : Shoulder->GetAttachChildren())
+            if (auto* Wing = Cast<UBorn2FlapWingMesh>(Child))
+                if (Wing->IsVisible())
+                    Wings.Add(Wing);
+    }
+
+    bool bTouched = false;
+    for (UBorn2FlapWingMesh* Wing : Wings)
+    {
+        const FTransform T = Wing->GetComponentTransform();
+        const FVector Root = T.TransformPosition(Wing->GetWingRootLocal());
+        const FVector Tip  = T.TransformPosition(Wing->GetWingTipLocal());
+        const FVector Dir  = Tip - Root;
+        const float   Len  = Dir.Size();
+        if (Len < 1.f) continue;
+        const FVector Mid = (Root + Tip) * 0.5f;
+        const FQuat   Rot = FRotationMatrix::MakeFromZ(Dir / Len).ToQuat();
+        const FCollisionShape Shape = FCollisionShape::MakeCapsule(6.f, Len * 0.5f);
+
+        if (World->OverlapBlockingTestByChannel(Mid, Rot, ECC_WorldStatic, Shape, Params))
+        {
+            bTouched = true;
+            LastWingTouchTime = World->GetTimeSeconds();
+            UE_LOG(LogTemp, Display, TEXT("WingTouch ground-contact at %s"), *Mid.ToString());
+        }
+
+        const FVector* PrevMid = WingSweepPrev.Find(Wing);
+        if (PrevMid && !PrevMid->Equals(Mid, 0.01f))
+        {
+            FHitResult Hit;
+            if (World->SweepSingleByChannel(Hit, *PrevMid, Mid, Rot, ECC_WorldStatic, Shape, Params))
+            {
+                bTouched = true;
+                LastWingTouchTime = World->GetTimeSeconds();
+                UE_LOG(LogTemp, Display, TEXT("WingSweepTouch other=%s component=%s point=%s"),
+                       *GetNameSafe(Hit.GetActor()), *GetNameSafe(Hit.GetComponent()), *Hit.ImpactPoint.ToString());
+            }
+        }
+        WingSweepPrev.FindOrAdd(Wing) = Mid;
+    }
+
+    // Visible cue for streamers / verification: one brief on-screen flash per
+    // fresh contact edge (rising edge only, so it does not spam while resting).
+    if (bTouched && !bWingTouching)
+    {
+        if (GEngine)
+            GEngine->AddOnScreenDebugMessage(42, 0.6f, FColor(255, 92, 64), TEXT("WING HIT"));
+    }
+    bWingTouching = bTouched;
+}
 void ABorn2FlapFlightPawn::LaunchFlight()
 {
     if (!bHealthy || (!bCameraGrounded && GetAltitude() > .4f) || GetSpeed() > 1.f)
@@ -512,9 +588,7 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
     MathBridge->InjectWindPhaseNoise(bFlightTest ? 0.0 : FMath::Clamp(CurrentWind.Size()*.15+FMath::Abs(CurrentWind.Z)*.25,0.,4.)*Shelter);
     B2F_PilotInput Pilot{};
     Pilot.throttle = Throttle;
-    // Roll movement is inverted relative to the raw stick/mouse sign: negate
-    // here (the physics boundary), leaving the desktop/RC input mapping alone.
-    Pilot.roll = -RollInput;
+    Pilot.roll = RollInput;
     Pilot.pitch = PitchInput;
     Pilot.yaw = YawInput;
     Pilot.speed_mod = Desktop.speedModifier;
@@ -884,6 +958,7 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
                     if(auto* Wing=Cast<UBorn2FlapWingMesh>(Child))
                         Wing->ApplyShape((Shoulder==LeftShoulder || Shoulder==RavenLeftShoulder || Shoulder==MembraneLeftShoulder) ? LeftShape : RightShape);
     }
+    SweepWingColliders();
     UpdateAeroAudio(Dt);
     if (bVectors)
     {

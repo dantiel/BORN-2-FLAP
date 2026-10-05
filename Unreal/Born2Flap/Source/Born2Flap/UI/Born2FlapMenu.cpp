@@ -47,7 +47,7 @@ const FWorldDef Worlds[] = {
     { TEXT("Ravenstonefield"), TEXT("RAVENSTONEFIELD"),
       TEXT("A highland valley of black basalt columns rising from amber bracken. Ravens ride the thermals between the spires, and the wind carries heather and cold stone. An old ornithopter field, flown by generations of wing-builders.") },
     { TEXT("Shiomori"), TEXT("SHIOMORI BAY"),
-      TEXT("A sheltered bay where the low winter sun splits into three, its parhelion false suns hanging on either side of the true one. Salt spray, dark water and a long pale beach. Only here does the ice-halo weather reveal itself.") },
+      TEXT("A broad pale beach arcing around a sheltered bay of dark, glassy water. Salt-cured rock, wind-bent grass and a low tide-walk of basalt stretch inland toward hazy, sunlit hills. Quiet enough that you notice what the sky is doing.") },
     { TEXT("Training"), TEXT("TRAINING"),
       TEXT("A flat grass course marked with floating sky-gates. The field where every pilot learns to fold the wing, hold the line and thread the gates against the clock.") },
 };
@@ -72,6 +72,8 @@ void ABorn2FlapMenu::BeginPlay()
     if(FParse::Param(FCommandLine::Get(),TEXT("B2FWeatherMenuTest")))
     {
         Renderer->OnComponentAction.Broadcast(TEXT("menu.play"),1.f,TEXT(""));
+        SelectedWorld=1;
+        OnAction(TEXT("menu.page"),1,TEXT(""));
         Renderer->OnComponentAction.Broadcast(TEXT("weather.Shiomori"),2.f,TEXT(""));
         Renderer->OnComponentAction.Broadcast(TEXT("daytime.Shiomori"),3.f,TEXT(""));
         const auto C=LevelConditions.FindChecked(TEXT("Shiomori"));
@@ -81,6 +83,10 @@ void ABorn2FlapMenu::BeginPlay()
         FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateWeakLambda(this,[](float){
             FScreenshotRequest::RequestScreenshot(TEXT("WEATHER_MENU.png"),true,false);return false;
         }),2.f);
+        FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateWeakLambda(this,[this](float){OnAction(TEXT("menu.page"),0,TEXT(""));return false;}),2.3f);
+        FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateWeakLambda(this,[](float){FScreenshotRequest::RequestScreenshot(TEXT("GLASS_LOCATION.png"),true,false);return false;}),2.6f);
+        FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateWeakLambda(this,[this](float){OnAction(TEXT("menu.page"),2,TEXT(""));return false;}),3.f);
+        FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateWeakLambda(this,[](float){FScreenshotRequest::RequestScreenshot(TEXT("GLASS_ROUTE.png"),true,false);return false;}),3.4f);
         FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateWeakLambda(this,[this](float){
             OnAction(TEXT("menu.shiomori"),1.f,TEXT(""));return false;
         }),4.f);
@@ -117,21 +123,25 @@ void ABorn2FlapMenu::Build()
         const auto& W = Born2FlapWeather::Profile(C.Weather);
         const float Speed = Born2FlapWeather::Wind(Level, C, FVector::ZeroVector, 0).Size2D();
 
-        CardChildren.push_back(Nd("Banner", P({ {"text", S(WD.Title)}, {"tone", S("accent")}, {"size", S("xl")} })));
+        FValue Pages;Pages.kind=FValue::Kind::Array;for(const char* Page:{"LOCATION","WEATHER & TIME","ROUTE"}) Pages.arr.push_back(S(Page));
+        CardChildren.push_back(Nd("Select",P({{"options",Pages},{"value",N(SelectedPage)},{"action",S("menu.page")},{"tooltip",S("Choose a location, set flight conditions, then select your starting point.")}})));
+        const int32 LocationStart=CardChildren.size();
         const FString Preview = Level == TEXT("Shiomori") ? TEXT("Coast") : Level == TEXT("Ravenstonefield") ? TEXT("Valley") : TEXT("Islands");
         CardChildren.push_back(Nd("HorizontalBox", P({{"spacing",N(18)}}), {
             Nd("SizeBox",P({{"width",N(234)},{"height",N(128)}}),{
                 Nd("Image",P({{"texture",S(TEXT("/Game/UI/Elements/")+Preview+TEXT(".")+Preview)}}))}),
-            Nd("SizeBox",P({{"width",N(420)}}),{
+            Nd("SizeBox",P({{"width",N(600)}}),{
                 Nd("TextBlock", P({ {"text", S(WD.Story)}, {"size", S("m")}, {"wrap", B(true)} }))})
         }));
         CardChildren.push_back(Nd("Spacer", P({})));
+        const int32 WeatherStart=CardChildren.size();
         CardChildren.push_back(Nd("Select", P({ {"label", S("Weather")}, {"options", WeatherLabels}, {"value", N(Weathers.IndexOfByKey(C.Weather))}, {"action", S(TEXT("weather.") + Level)} })));
         CardChildren.push_back(Nd("Select", P({ {"label", S("Time of day")}, {"options", TimeLabels}, {"value", N(Times.IndexOfByKey(C.Time))}, {"action", S(TEXT("daytime.") + Level)} })));
         CardChildren.push_back(Nd("TextBlock", P({ {"text", S(FString::Printf(TEXT("Wind %.1f m/s | %s"), Speed, W.Gust < .5f ? TEXT("gentle gusts") : TEXT("variable breeze")))}, {"size", S("s")} })));
         // Travel destinations: a scrollable list of this world's points of
         // interest. Choosing one makes it the reset start point the FLY button
         // travels to. It replaces the old in-world beacon/cycling UI.
+        const int32 RouteStart=CardChildren.size();
         const TArray<FBorn2FlapPoi> PoiCat = Born2FlapPoi::Catalog(Level);
         const int32 PoiSel = SelectedPoi.FindRef(Level);
         std::vector<FNode> PoiButtons;
@@ -153,6 +163,8 @@ void ABorn2FlapMenu::Build()
                 Nd("VerticalBox", P({}), std::move(PoiButtons))
             })
         }));
+        for(int32 I=LocationStart;I<(int32)CardChildren.size();++I)
+            CardChildren[I].props["visible"]=B(SelectedPage==(I<WeatherStart ? 0 : I<RouteStart ? 1 : 2));
         CardChildren.push_back(Nd("Button", P({ {"label", S(FString(TEXT("FLY  ")) + WD.Title)}, {"action", S(TEXT("menu.") + Level.ToLower())}, {"tone", S("good")} })));
 
         CardChildren.push_back(Nd("Spacer", P({})));
@@ -187,8 +199,8 @@ void ABorn2FlapMenu::Build()
         Nd("Image", P({ {"texture", S("/Game/Splash/born2flap-background.born2flap-background")} })),
         Nd("Overlay", P({ {"align", S("center")}, {"valign", S("center")} }),
         {
-            Nd("SizeBox",P({{"width",N(bLevelSelect ? 760 : 480)}}),{
-                Nd("Panel", P({ {"bg", S("solid")}, {"padding", N(30)}, {"spacing", N(10)} }), std::move(CardChildren))})
+            Nd("SizeBox",P({{"width",N(bLevelSelect ? 960 : 540)}}),{
+                Nd("Panel", P({ {"title", S(bLevelSelect ? Worlds[SelectedWorld].Title : TEXT("FLIGHT MENU"))}, {"bg", S("solid")}, {"padding", N(30)}, {"spacing", N(14)} }), std::move(CardChildren))})
         })
     });
 
@@ -225,6 +237,7 @@ void ABorn2FlapMenu::SetOpacity(float Opacity)
 
 void ABorn2FlapMenu::OnAction(const FString& Action, float Value, const FString& Text)
 {
+    if(Action==TEXT("menu.page")){SelectedPage=FMath::Clamp(FMath::RoundToInt(Value),0,2);Build();return;}
     if(Action.StartsWith(TEXT("weather.")) || Action.StartsWith(TEXT("daytime.")))
     {
         const bool Weather=Action.StartsWith(TEXT("weather."));

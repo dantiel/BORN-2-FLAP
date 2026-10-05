@@ -78,3 +78,11 @@ Experience tests capture three frames per scenario, check surf geometry and
 foam, surface accumulation and an actual roof collision probe, and record the
 Unreal audio mix into `Saved/BouncedWavFiles`. Audio tests deliberately avoid
 `-benchmark`, because Unreal disables its audio device in benchmark mode.
+
+Bird/water rendering: ocean meshes sort before breaking surf, and surf before
+the bird. Water screen-space refraction is disabled because it displaced the
+foreground wing artwork. `repair_bird_water_rendering.py` applies the depth,
+render-pass and texture-quality repair to existing assets without rebuilding
+the map. `test-weather.ps1 -BirdWater -Weather sunny -DayTime noon` captures the
+bird above water plus a settled tail close-up. The tail uses one two-sided
+surface rather than coincident front/back geometry.
