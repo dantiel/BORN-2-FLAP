@@ -28,12 +28,25 @@ DL = Path(r"C:\Users\d\Downloads\kestrel_fuselage_unreal_final")
 BIRDS = "/Game/Birds"
 
 
-def import_texture(src, tex_path, srgb, compression=None):
+def apply_texture_settings(tex, srgb, compression, max_size):
+    tex.set_editor_property("srgb", srgb)
+    tex.set_editor_property("never_stream", True)
+    if compression is not None:
+        tex.set_editor_property("compression_settings", compression)
+    if max_size is not None:
+        tex.set_editor_property("max_texture_size", max_size)
+
+
+def import_texture(src, tex_path, srgb, compression=None, max_size=None):
     # Geometry repairs do not change the supplied rasters. Reuse their imports;
     # needless reimports also contend with texture streaming in a running game.
     if ela.does_asset_exist(tex_path):
         tex = u.load_asset(tex_path)
         assert isinstance(tex, u.Texture2D), 'Expected texture at ' + tex_path
+        # Refresh quality settings (e.g. a later BC7 / size bump) in place without
+        # a destructive reimport of the source raster.
+        apply_texture_settings(tex, srgb, compression, max_size)
+        ela.save_asset(tex_path)
         return tex
     if not src.exists():
         u.log_warning("KESTREL_FUSELAGE: missing texture " + str(src))
@@ -50,10 +63,7 @@ def import_texture(src, tex_path, srgb, compression=None):
     if not isinstance(tex, u.Texture2D):
         u.log_warning("KESTREL_FUSELAGE: texture import failed " + tex_path)
         raise SystemExit(1)
-    tex.set_editor_property("srgb", srgb)
-    tex.set_editor_property("never_stream", True)
-    if compression is not None:
-        tex.set_editor_property("compression_settings", compression)
+    apply_texture_settings(tex, srgb, compression, max_size)
     assert ela.save_asset(tex_path), "KESTREL_FUSELAGE: failed to save " + tex_path
     u.log("KESTREL_FUSELAGE_TEX " + tex_path)
     return tex
@@ -156,10 +166,13 @@ def tail_material(tail_tex):
         "M_KestrelTail", BIRDS, u.Material, u.MaterialFactoryNew())
     lib.delete_all_material_expressions(m)
     m.set_editor_property("two_sided", True)
-    # Slightly translucent feathers: light passes through the tail fan. TailOpacity
-    # (scalar parameter) tunes the translucency from 0 (invisible) to 1 (opaque).
-    m.set_editor_property("blend_mode", u.BlendMode.BLEND_TRANSLUCENT)
+    # Masked (not translucent): a masked surface writes depth and casts a shadow —
+    # the two things the translucent tail lost (no shadow, foam drawing over it).
+    # TailOpacity < 1 becomes a screen-space dither on the opacity mask below, so
+    # slight transparency reads as a faint stipple rather than a hard alpha cut.
+    m.set_editor_property("blend_mode", u.BlendMode.BLEND_MASKED)
     m.set_editor_property("shading_model", u.MaterialShadingModel.MSM_DEFAULT_LIT)
+    m.set_editor_property("disable_depth_test", False)
 
     paint = node(m, "TextureSampleParameter2D", parameter_name="TailPaint", texture=tail_tex)
     output(paint, "BASE_COLOR", "RGB")
@@ -167,8 +180,24 @@ def tail_material(tail_tex):
     rough = node(m, "Constant", r=0.65)
     output(rough, "ROUGHNESS")
 
-    opacity = node(m, "ScalarParameter", parameter_name="TailOpacity", default_value=0.72)
-    output(opacity, "OPACITY")
+    opacity = node(m, "ScalarParameter", parameter_name="TailOpacity", default_value=0.95)
+    dither = node(m, "Custom",
+                  code=("float2 px = floor(Parameters.SvPosition.xy);\n"
+                        "float d = frac(sin(dot(px, float2(12.9898, 78.233))) * 43758.5453);\n"
+                        "return step(d, Opacity);"),
+                  output_type=u.CustomMaterialOutputType.CMOT_FLOAT1)
+    pin = u.CustomInput()
+    pin.set_editor_property("input_name", "Opacity")
+    dither.set_editor_property("inputs", [pin])
+    wire(opacity, dither, "Opacity")
+    output(dither, "OPACITY_MASK")
+
+    # Soft-light substitute: faint emissive backlight reads as light through feathers.
+    glow = node(m, "ScalarParameter", parameter_name="TailGlow", default_value=0.15)
+    emissive = node(m, "Multiply")
+    wire(paint, emissive, "A", "RGB")
+    wire(glow, emissive, "B")
+    output(emissive, "EMISSIVE_COLOR")
 
     lib.recompile_material(m)
     assert ela.save_asset(path), "KESTREL_FUSELAGE: failed to save tail material"
@@ -187,7 +216,8 @@ rough = import_texture(DL / "kestrel_fuselage_roughness_4k.png",
                        BIRDS + "/T_KestrelFuselage_Roughness", False,
                        u.TextureCompressionSettings.TC_GRAYSCALE)
 tail = import_texture(OUT / "kestrel-tail.png",
-                      BIRDS + "/T_KestrelTail", True)
+                      BIRDS + "/T_KestrelTail", True,
+                      u.TextureCompressionSettings.TC_BC7, 4096)
 
 mesh = import_mesh(OUT / "kestrel_fuselage_cm.obj", BIRDS + "/SM_KestrelFuselage")
 

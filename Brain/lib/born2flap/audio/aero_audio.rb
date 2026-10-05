@@ -94,6 +94,7 @@ module Born2Flap
         wing: lambda { |t|
           {
             "rate" => t.wingbeat_hz,
+            "air_speed" => t.airspeed,
             "gain" => clamp01((t.wingbeat_hz / 8.0) * (0.3 + 0.7 * clamp01(t.airspeed / 20.0))),
             "tone" => clamp01(1.0 - t.phase_error_rad.abs / 0.5),
             "whoosh" => clamp01(t.airspeed / 25.0),

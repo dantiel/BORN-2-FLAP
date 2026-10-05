@@ -14,6 +14,7 @@ class USpringArmComponent;
 class UCameraComponent;
 class UBorn2FlapAudioSynth;
 class ABorn2FlapFlightSettings;
+class ABorn2FlapPoiOverlay;
 class IInputProcessor;
 // Live-tuning surface the hangar edits: servo, battery and the exposed
 // controller knobs. Mirrors B2F_TuningConfig field order.
@@ -50,9 +51,12 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     void SetMouseGain(int32 Axis, float Gain);
     float GetControlExpo() const { return ControlExpo; }
     void SetControlExpo(float Value) { if(FMath::IsFinite(Value)) ControlExpo=FMath::Clamp(Value,0.f,1.f); }
+    // Flight-safety reset amount: 0 = off, 1 = very low (acro-friendly), 2 = normal.
+    float GetFlightSafety() const { return FlightSafety; }
+    void SetFlightSafety(float Value) { if(FMath::IsFinite(Value)) FlightSafety=FMath::Clamp(Value,0.f,2.f); }
     void OpenFlightSettings();
     void CloseFlightSettings();
-    bool IsFlightSettingsOpen() const { return SettingsPanel.IsValid(); }
+    bool IsFlightSettingsOpen() const { return SettingsPanel.IsValid() || bBrainSettingsOpen; }
     bool IsFlying() const { return bFlying; }
     bool IsHealthy() const { return bHealthy; }
     bool IsBlindFlight() const { return bBlind; }
@@ -82,10 +86,17 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     FString GetFlightStatus() const;
     const FBorn2FlapRcController *GetRcController() const { return RcController.Get(); }
     // Points of interest: named reset/launch points supplied by the GameMode.
+    // The start point is chosen in the level-select menu (?PoiKey=) and read once
+    // at spawn; it is no longer cycled or shown as beacons in the world.
     int32 GetSelectedPoi() const { return SelectedPoi; }
     int32 GetPoiCount() const { return POIs.Num(); }
-    FString GetSelectedPoiName() const;
-    void CyclePoi(int32 Dir); // +1 next, -1 previous (wraps)
+    const TArray<FBorn2FlapPoi>& GetPOIs() const { return POIs; }
+    // Teleport to a point of interest from the F8 overlay (resets flight state).
+    void SelectPoi(int32 Index);
+    // F8 "points of interest" overlay (lightweight in-flight teleport selector).
+    void OpenPoiOverlay();
+    void ClosePoiOverlay();
+    bool IsPoiOverlayOpen() const { return PoiOverlay.IsValid() || bBrainPoiOpen; }
 
   private:
     UPROPERTY(VisibleAnywhere) TObjectPtr<UBoxComponent> Body;
@@ -122,12 +133,20 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     float PrevLeftFlap = 0;
     born2flap::DesktopInput Desktop;
     float ControlExpo=.65f;
+    float FlightSafety=1.0f;  // 0 off · 1 very low (acro) · 2 normal
     bool bCoupledThrottle = true;
     FVector MouseGains = FVector(1, -1, 1);
     int32 BirdModel = 0;
     B2F_TuningConfig Tuning{};
     void ApplyTuning();
     TWeakObjectPtr<ABorn2FlapFlightSettings> SettingsPanel;
+    TWeakObjectPtr<ABorn2FlapPoiOverlay> PoiOverlay;
+    // Brain (UMGHAML) path: when the Ruby Brain is the live authoring host the
+    // native panel actors are not spawned — these flags stand in for their open
+    // state so IsPoiOverlayOpen/IsFlightSettingsOpen still read correctly for
+    // telemetry and the F8/Esc toggle handlers.
+    bool bBrainPoiOpen = false;
+    bool bBrainSettingsOpen = false;
     void BuildRavenCrow();
     void LoadFlightPreferences();
     void SaveFlightPreferences();

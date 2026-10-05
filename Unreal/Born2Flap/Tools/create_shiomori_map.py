@@ -220,8 +220,9 @@ def make_water_mpc():
         ('QualityLevel', 2.0), ('WaterLOD', 0.0),
     ]
     params = []
+    existing = {str(p.get_editor_property('parameter_name')): p for p in mpc.get_editor_property('scalar_parameters')}
     for n, v in scalars:
-        sp = u.CollectionScalarParameter()
+        sp = existing.get(n, u.CollectionScalarParameter())
         sp.set_editor_property('parameter_name', n)
         sp.set_editor_property('default_value', v)
         params.append(sp)
@@ -232,7 +233,7 @@ def make_water_mpc():
 
 def water_material(name, color, rough=0.08, specular=0.6, shore_color=(0.03, 0.22, 0.25), waves=None):
     """Translucent ocean with depth-graded colour/opacity, Fresnel sky reflection,
-    index-of-refraction bending, vertex-displaced parallel swells, and animated
+    vertex-displaced parallel swells, and animated
     foam (breaking surf line at the shoreline + white crests on the swells).
 
     Depth is SceneDepth - PixelDepth (the water-column thickness above the opaque
@@ -257,8 +258,11 @@ def water_material(name, color, rough=0.08, specular=0.6, shore_color=(0.03, 0.2
     except Exception:
         pass
     m.set_editor_property('blend_mode', u.BlendMode.BLEND_TRANSLUCENT)
+    m.set_editor_property('disable_depth_test', False)
+    m.set_editor_property('translucency_pass', u.MaterialTranslucencyPass.MTP_BEFORE_DOF)
     m.set_editor_property('two_sided', True)
-    m.set_editor_property('refraction_method', u.RefractionMode.RM_INDEX_OF_REFRACTION)
+    m.set_editor_property('refraction_method', u.RefractionMode.RM_NONE)
+    # Screen-space refraction can displace foreground wings through the ocean.
     output(node(m, 'Constant', r=1.33), 'REFRACTION')
     p = node(m, 'WorldPosition')
     t = node(m, 'Time')
@@ -285,8 +289,7 @@ def water_material(name, color, rough=0.08, specular=0.6, shore_color=(0.03, 0.2
  float3 water=deep+(shallow-deep)*exp(-d/250.0);
  float3 sky=float3(0.30,0.52,0.74);
  float3 col=lerp(water, sky, saturate(Fresnel*0.85));
- float ramp=smoothstep(10000.0,24000.0,P.y);
- float h=(sin(P.y*.0016+T*.85)*44.0+sin(P.y*.0028+T*1.35)*22.0+sin(P.y*.0041-T*1.9)*10.0)*ramp;
+ float h=0.0; // The runtime surf mesh supplies synchronized breaking crests.
  float surf=smoothstep(26.0,6.0,d)*Foam;
  float crest=smoothstep(26.0,80.0,h)*Foam*Foam;
  return lerp(col, float3(0.96,0.97,0.96), saturate(surf+crest));''' % (
@@ -340,7 +343,8 @@ return 1.0-exp(-d/90.0);''', {'SceneDepth': sd, 'PixelDepth': pd}, 1)
   float Om=6.28318530718*Cs/(Wl*sqrt(lenF[i]));
   H+=A*cos(K*(P.x*cos(ang)+P.y*sin(ang))-Om*WT+phase[i]);
  }
- float shore=smoothstep(10000.0,24000.0,P.y);
+ float edge=10000+520*sin(P.x*.00030+1.7)+300*sin(P.x*.00105+4.2)+160*sin(P.x*.0024+.6)+85*sin(P.x*.0056+2.3)+45*sin(P.x*.013+5.1);
+ float shore=smoothstep(100.0,3000.0,P.y-edge);
  return float3(0.0,0.0,H*shore);''',
         {'P': p, 'Amp': _mpc('SwellAmplitude'), 'WL': _mpc('SwellLength'),
          'CS': _mpc('SwellSpeed'), 'Sea': _mpc('SeaState'),

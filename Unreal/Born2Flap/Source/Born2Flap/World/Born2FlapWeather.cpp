@@ -1,6 +1,7 @@
 #include "World/Born2FlapWeather.h"
 #include "Game/Born2FlapGameMode.h"
 #include "Components/InstancedStaticMeshComponent.h"
+#include "Components/BoxComponent.h"
 #include "Components/VolumetricCloudComponent.h"
 #include "Components/PostProcessComponent.h"
 #include "Components/DirectionalLightComponent.h"
@@ -10,6 +11,8 @@
 #include "Camera/CameraComponent.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "Materials/MaterialParameterCollection.h"
+#include "Materials/MaterialParameterCollectionInstance.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/ExponentialHeightFog.h"
 #include "EngineUtils.h"
@@ -18,6 +21,12 @@
 #include "Misc/Parse.h"
 #include "HAL/IConsoleManager.h"
 #include "UnrealClient.h"
+#include "Water/Born2FlapSurf.h"
+#include "Audio/Born2FlapSoundscape.h"
+#include "AudioMixerBlueprintLibrary.h"
+#include "Misc/Paths.h"
+#include "Misc/App.h"
+#include "Flight/Born2FlapFlightPawn.h"
 
 ABorn2FlapWeather::ABorn2FlapWeather()
 {
@@ -27,6 +36,10 @@ ABorn2FlapWeather::ABorn2FlapWeather()
     Precipitation->SetupAttachment(RootComponent);
     Precipitation->SetCollisionEnabled(ECollisionEnabled::NoCollision);
     Precipitation->SetCastShadow(false);
+    Splashes=CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("RainSplashes"));
+    Splashes->SetupAttachment(RootComponent);
+    Splashes->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    Splashes->SetCastShadow(false);
     Clouds=CreateDefaultSubobject<UVolumetricCloudComponent>(TEXT("WeatherClouds"));
     Clouds->SetupAttachment(RootComponent);
     Clouds->SetVisibility(false);
@@ -119,6 +132,13 @@ void ABorn2FlapWeather::Apply()
         Clouds->SetVisibility(W.Cloud>.2f);
     }
     Precipitation->ClearInstances();
+    SurfaceCollection=LoadObject<UMaterialParameterCollection>(nullptr,TEXT("/Game/Weather/MPC_Weather"));
+    Wetness=W.Rain ? .45f : 0;
+    SnowCoverage=W.Snow ? .30f : 0;
+    Splashes->ClearInstances();SplashPositions.SetNum(96);SplashAges.Init(1.f,96);
+    Splashes->SetStaticMesh(LoadObject<UStaticMesh>(nullptr,TEXT("/Engine/BasicShapes/Plane")));
+    Splashes->SetMaterial(0,LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Weather/M_RainSplash")));
+    for(int I=0;I<96;++I) Splashes->AddInstance(FTransform(FQuat::Identity,FVector::ZeroVector,FVector::ZeroVector));
     Positions.Reset(); Floors.Reset();
     const int32 Count=W.Rain ? 480 : (W.Snow ? 300 : 0);
     if(Count)
@@ -142,15 +162,42 @@ void ABorn2FlapWeather::Apply()
 void ABorn2FlapWeather::Respawn(int32 Index,const FVector& Camera)
 {
     Positions[Index]=Camera+FVector(Random.FRandRange(-1200,1200),Random.FRandRange(-1200,1200),Random.FRandRange(800,1800));
+    Floors[Index]=SurfaceHeight(Positions[Index]);
+    Positions[Index].Z=FMath::Max(Positions[Index].Z,double(Floors[Index]+300));
+}
+float ABorn2FlapWeather::SurfaceHeight(const FVector& P) const
+{
     FHitResult Hit;
     FCollisionQueryParams Query(SCENE_QUERY_STAT(WeatherShelter),false,this);
     if(auto* Pawn=UGameplayStatics::GetPlayerPawn(this,0)) Query.AddIgnoredActor(Pawn);
-    const FVector P=Positions[Index];
-    if(GetWorld()->LineTraceSingleByChannel(Hit,P,P-FVector(0,0,10000),ECC_Visibility,Query))
-        Floors[Index]=Hit.ImpactPoint.Z;
-    else if(auto* GM=Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode()))
-        Floors[Index]=FMath::Max(GM->GroundHeight(P.X,P.Y),GM->IsWater(P.X,P.Y) ? GM->WaterHeight() : -100000.);
-    else Floors[Index]=Camera.Z-3000;
+    // Trace from the sky, not from below a roof. Refresh after horizontal drift.
+    float Height=-100000;
+    if(GetWorld()->LineTraceSingleByChannel(Hit,P+FVector(0,0,20000),P-FVector(0,0,30000),ECC_Visibility,Query))
+        Height=Hit.ImpactPoint.Z;
+    if(auto* GM=Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode()))
+        Height=FMath::Max(double(Height),FMath::Max(GM->GroundHeight(P.X,P.Y),GM->IsWater(P.X,P.Y) ? GM->WaterHeight() : -100000.));
+    return Height;
+}
+void ABorn2FlapWeather::UpdateSurfaces(float Dt)
+{
+    const auto& W=Born2FlapWeather::Profile(Conditions.Weather);
+    Wetness=FMath::FInterpConstantTo(Wetness,W.Rain ? 1.f : 0.f,Dt,W.Rain ? .025f : .006f);
+    SnowCoverage=FMath::FInterpConstantTo(SnowCoverage,W.Snow ? 1.f : 0.f,Dt,W.Snow ? .008f : .004f);
+    if(SurfaceCollection)
+    {
+        auto* MPC=GetWorld()->GetParameterCollectionInstance(SurfaceCollection);
+        MPC->SetScalarParameterValue(TEXT("Wetness"),Wetness);
+        MPC->SetScalarParameterValue(TEXT("SnowCoverage"),SnowCoverage);
+        MPC->SetScalarParameterValue(TEXT("RainAmount"),W.Rain ? 1.f : 0.f);
+    }
+    for(int I=0;I<SplashAges.Num();++I)
+    {
+        SplashAges[I]+=Dt;
+        const float Age=SplashAges[I];
+        const float Scale=Age<.5f ? (.04f+.48f*Age)*(1-Age*2) : 0.f;
+        Splashes->UpdateInstanceTransform(I,FTransform(FQuat::Identity,SplashPositions[I],FVector(Scale,Scale,1)),true,false,false);
+    }
+    Splashes->MarkRenderStateDirty();
 }
 void ABorn2FlapWeather::Tick(float DeltaSeconds)
 {
@@ -158,6 +205,8 @@ void ABorn2FlapWeather::Tick(float DeltaSeconds)
     if(Level.IsEmpty()) return;
     if(!bApplied) Apply();
     Elapsed+=DeltaSeconds;
+    UpdateSurfaces(DeltaSeconds);
+    ++SurfaceFrame;
     const double Time=GetWorld()->GetTimeSeconds();
     const auto& W=Born2FlapWeather::Profile(Conditions.Weather);
     const FVector Flow=Born2FlapWeather::Wind(Level,Conditions,GetActorLocation(),Time);
@@ -171,6 +220,13 @@ void ABorn2FlapWeather::Tick(float DeltaSeconds)
             Velocity.Z=W.Snow ? -100 : -850;
             if(W.Snow) Velocity.X+=35*FMath::Sin(Time*1.8+I);
             Positions[I]+=Velocity*FMath::Min(DeltaSeconds,.1f);
+            if((I+SurfaceFrame)%8==0) Floors[I]=SurfaceHeight(Positions[I]);
+            if(W.Rain && Positions[I].Z<Floors[I]+5 && Positions[I].Z>Floors[I]-120)
+            {
+                SplashPositions[NextSplash]=FVector(Positions[I].X,Positions[I].Y,Floors[I]+2);
+                SplashAges[NextSplash]=0;
+                NextSplash=(NextSplash+1)%SplashAges.Num();
+            }
             if(Positions[I].Z<Floors[I]+5 || Positions[I].Z<Center.Z-1200 || FVector2D(Positions[I]-Center).Size()>1800)
                 Respawn(I,Center);
             const FVector Scale=W.Snow ? FVector(.035+.025*(I%7)/6.) : FVector(.004,.004,.30);
@@ -179,6 +235,78 @@ void ABorn2FlapWeather::Tick(float DeltaSeconds)
         if(Positions.Num()) Precipitation->MarkRenderStateDirty();
     }
     if(FParse::Param(FCommandLine::Get(),TEXT("B2FWeatherTest"))) CheckTest();
+    if(FParse::Param(FCommandLine::Get(),TEXT("B2FWeatherExperienceTest"))) CheckExperienceTest();
+}
+void ABorn2FlapWeather::CheckExperienceTest()
+{
+    if(Elapsed>1 && !ExperienceCamera)
+    {
+        // Offscreen windows never gain focus. Keep the test mix audible rather
+        // than recording the application's intentional background mute.
+        FApp::SetUnfocusedVolumeMultiplier(1.f);
+        FApp::SetVolumeMultiplier(1.f);
+        auto* View=GetWorld()->SpawnActor<ACameraActor>();ExperienceCamera=View;
+        const FVector P=Level==TEXT("Shiomori") ? FVector(0,7500,450) : FVector(0,0,500);
+        View->SetActorLocation(P);View->SetActorRotation(FRotator(-8,Level==TEXT("Shiomori") ? 90 : 20,0));
+        if(FParse::Param(FCommandLine::Get(),TEXT("B2FBirdWaterTest")))
+        {
+            if(auto* Bird=Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this,0)))
+            {
+                Bird->SelectBirdModel(2);Bird->SetActorTickEnabled(false);
+                if(auto* Body=Cast<UPrimitiveComponent>(Bird->GetRootComponent())) Body->SetSimulatePhysics(false);
+                const FVector Position(0,11800,220);
+                Bird->SetActorLocation(Position);
+                View->SetActorLocation(Position+FVector(-190,-190,240));
+                View->SetActorRotation((Position-View->GetActorLocation()).Rotation());
+                View->GetCameraComponent()->SetFieldOfView(55);
+            }
+        }
+        UGameplayStatics::GetPlayerController(this,0)->SetViewTarget(View);
+        UAudioMixerBlueprintLibrary::StartRecordingOutput(this,18);
+    }
+    // Let temporal history settle after the close-up camera move before capture.
+    if(FParse::Param(FCommandLine::Get(),TEXT("B2FBirdWaterTest")) && ExperienceCapture==2 && Elapsed>12)
+    {
+        const FVector Position=UGameplayStatics::GetPlayerPawn(this,0)->GetActorLocation();
+        ExperienceCamera->SetActorLocation(Position+FVector(-150,20,160));
+        ExperienceCamera->SetActorRotation((Position+FVector(-40,0,0)-ExperienceCamera->GetActorLocation()).Rotation());
+    }
+    if(ExperienceCapture<3 && Elapsed>5+ExperienceCapture*4)
+    {
+        const bool BirdView=FParse::Param(FCommandLine::Get(),TEXT("B2FBirdWaterTest"));
+        FScreenshotRequest::RequestScreenshot(FString::Printf(TEXT("%s_%s_%s_%d.png"),BirdView ? TEXT("BIRD_WATER") : TEXT("EXPERIENCE"),*Level,*Conditions.Weather,ExperienceCapture),false,false);
+        ++ExperienceCapture;
+    }
+    if(Elapsed>15 && !bTestDone)
+    {
+        bool Pass=SurfaceCollection!=nullptr;
+        for(TActorIterator<ABorn2FlapSoundscape> It(GetWorld());It;++It) Pass &= It->ValidateAudio();
+        if(Level==TEXT("Shiomori"))
+        {
+            int Count=0;
+            for(TActorIterator<ABorn2FlapSurf> It(GetWorld());It;++It){++Count;Pass &= It->ValidateGeometry();}
+            Pass &= Count==1;
+        }
+        const auto& W=Born2FlapWeather::Profile(Conditions.Weather);
+        Pass &= !W.Rain || Wetness>.7f;
+        Pass &= !W.Snow || SnowCoverage>.4f;
+        // Actual roof collision probe, including a start below the roof.
+        if(W.Rain || W.Snow)
+        {
+            auto* Roof=GetWorld()->SpawnActor<AActor>();
+            auto* Box=NewObject<UBoxComponent>(Roof);
+            Roof->SetRootComponent(Box);Box->SetBoxExtent(FVector(400,400,20));
+            Box->SetCollisionEnabled(ECollisionEnabled::QueryOnly);Box->SetCollisionResponseToAllChannels(ECR_Block);
+            Box->RegisterComponent();Roof->SetActorLocation(FVector(0,0,8000));
+            Pass &= SurfaceHeight(FVector(0,0,7500))>=8019;
+            Roof->Destroy();
+        }
+        UAudioMixerBlueprintLibrary::StopRecordingOutput(this,EAudioRecordingExportType::WavFile,
+            FString::Printf(TEXT("EXPERIENCE_%s_%s"),*Level,*Conditions.Weather),FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir()/TEXT("BouncedWavFiles")));
+        UE_LOG(LogTemp,Display,TEXT("WeatherExperienceTest %s: surf geometry, sound playback, surface response, roof shelter; wet=%.2f snow=%.2f"),Pass ? TEXT("PASS") : TEXT("FAIL"),Wetness,SnowCoverage);
+        bTestDone=true;
+    }
+    if(Elapsed>18) FPlatformMisc::RequestExit(false);
 }
 void ABorn2FlapWeather::CheckTest()
 {

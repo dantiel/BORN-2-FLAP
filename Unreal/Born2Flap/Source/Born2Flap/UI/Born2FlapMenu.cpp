@@ -6,6 +6,8 @@
 #include "UI/Born2FlapUiOps.h"
 #include "UI/Born2FlapI18n.h"
 #include "Game/Born2FlapGameMode.h"
+#include "Game/Born2FlapPoi.h"
+#include "Flight/Born2FlapFlightPawn.h"
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Misc/CommandLine.h"
@@ -116,11 +118,41 @@ void ABorn2FlapMenu::Build()
         const float Speed = Born2FlapWeather::Wind(Level, C, FVector::ZeroVector, 0).Size2D();
 
         CardChildren.push_back(Nd("Banner", P({ {"text", S(WD.Title)}, {"tone", S("accent")}, {"size", S("xl")} })));
-        CardChildren.push_back(Nd("TextBlock", P({ {"text", S(WD.Story)}, {"size", S("s")}, {"tone", S("dim")}, {"wrap", B(true)} })));
+        const FString Preview = Level == TEXT("Shiomori") ? TEXT("Coast") : Level == TEXT("Ravenstonefield") ? TEXT("Valley") : TEXT("Islands");
+        CardChildren.push_back(Nd("HorizontalBox", P({{"spacing",N(18)}}), {
+            Nd("SizeBox",P({{"width",N(234)},{"height",N(128)}}),{
+                Nd("Image",P({{"texture",S(TEXT("/Game/UI/Elements/")+Preview+TEXT(".")+Preview)}}))}),
+            Nd("SizeBox",P({{"width",N(420)}}),{
+                Nd("TextBlock", P({ {"text", S(WD.Story)}, {"size", S("m")}, {"wrap", B(true)} }))})
+        }));
         CardChildren.push_back(Nd("Spacer", P({})));
         CardChildren.push_back(Nd("Select", P({ {"label", S("Weather")}, {"options", WeatherLabels}, {"value", N(Weathers.IndexOfByKey(C.Weather))}, {"action", S(TEXT("weather.") + Level)} })));
         CardChildren.push_back(Nd("Select", P({ {"label", S("Time of day")}, {"options", TimeLabels}, {"value", N(Times.IndexOfByKey(C.Time))}, {"action", S(TEXT("daytime.") + Level)} })));
         CardChildren.push_back(Nd("TextBlock", P({ {"text", S(FString::Printf(TEXT("Wind %.1f m/s | %s"), Speed, W.Gust < .5f ? TEXT("gentle gusts") : TEXT("variable breeze")))}, {"size", S("s")} })));
+        // Travel destinations: a scrollable list of this world's points of
+        // interest. Choosing one makes it the reset start point the FLY button
+        // travels to. It replaces the old in-world beacon/cycling UI.
+        const TArray<FBorn2FlapPoi> PoiCat = Born2FlapPoi::Catalog(Level);
+        const int32 PoiSel = SelectedPoi.FindRef(Level);
+        std::vector<FNode> PoiButtons;
+        for (int32 I = 0; I < PoiCat.Num(); ++I)
+        {
+            FString Name = Born2Flap::I18n::T(PoiCat[I].Key);
+            if (PoiCat[I].Number > 0)
+                Name += TEXT(" ") + FString::FromInt(PoiCat[I].Number);
+            PoiButtons.push_back(Nd("Button", P({
+                {"label", S(Name)},
+                {"action", S(FString::Printf(TEXT("poi.%d"), I))},
+                {"tone", S(I == PoiSel ? "good" : "accent")} })));
+        }
+        CardChildren.push_back(Nd("TextBlock", P({ {"text", S("TRAVEL TO")}, {"size", S("xs")}, {"tone", S("dim")} })));
+        CardChildren.push_back(Nd("SizeBox", P({ {"height", N(150)} }),
+        {
+            Nd("ScrollBox", P({}),
+            {
+                Nd("VerticalBox", P({}), std::move(PoiButtons))
+            })
+        }));
         CardChildren.push_back(Nd("Button", P({ {"label", S(FString(TEXT("FLY  ")) + WD.Title)}, {"action", S(TEXT("menu.") + Level.ToLower())}, {"tone", S("good")} })));
 
         CardChildren.push_back(Nd("Spacer", P({})));
@@ -142,7 +174,10 @@ void ABorn2FlapMenu::Build()
             Nd("Spacer", P({})),
         };
         if (bInLevel)
+        {
             CardChildren.push_back(Nd("Button", P({ {"label", S(Born2Flap::I18n::T("menu.resume"))}, {"action", S("menu.resume")} })));
+            CardChildren.push_back(Nd("Button", P({ {"label", S("FLIGHT DESK")}, {"action", S("menu.settings")} })));
+        }
         CardChildren.push_back(Nd("Button", P({ {"label", S("OPEN WORLDS")}, {"action", S("menu.play")} })));
         CardChildren.push_back(Nd("Button", P({ {"label", S(Born2Flap::I18n::T("menu.quit"))}, {"action", S("menu.quit")} })));
     }
@@ -152,7 +187,8 @@ void ABorn2FlapMenu::Build()
         Nd("Image", P({ {"texture", S("/Game/Splash/born2flap-background.born2flap-background")} })),
         Nd("Overlay", P({ {"align", S("center")}, {"valign", S("center")} }),
         {
-            Nd("Panel", P({ {"bg", S("solid")}, {"padding", N(30)}, {"spacing", N(10)} }), std::move(CardChildren))
+            Nd("SizeBox",P({{"width",N(bLevelSelect ? 760 : 480)}}),{
+                Nd("Panel", P({ {"bg", S("solid")}, {"padding", N(30)}, {"spacing", N(10)} }), std::move(CardChildren))})
         })
     });
 
@@ -207,12 +243,31 @@ void ABorn2FlapMenu::OnAction(const FString& Action, float Value, const FString&
         }
         return;
     }
+    // Travel-destination list: "poi.<index>" sets the chosen start point for the
+    // currently displayed world; the FLY button later travels there (?PoiKey=).
+    if (Action.StartsWith(TEXT("poi.")))
+    {
+        SelectedPoi.Add(Worlds[SelectedWorld].Id, FCString::Atoi(*Action.Mid(4)));
+        Build();
+        return;
+    }
     // RESUME (only shown when the menu was opened from inside a level): close
     // the menu and return to the running flight.
     if (Action == TEXT("menu.resume"))
     {
         if (ABorn2FlapGameMode* GM = Cast<ABorn2FlapGameMode>(UGameplayStatics::GetGameMode(this)))
             GM->CloseMainMenu();
+        return;
+    }
+
+    // FLIGHT DESK (only shown in-level): leave the menu and open the settings
+    // panel. It is now reached from here — F8 is the POI overlay, not settings.
+    if (Action == TEXT("menu.settings"))
+    {
+        if (ABorn2FlapGameMode* GM = Cast<ABorn2FlapGameMode>(UGameplayStatics::GetGameMode(this)))
+            GM->CloseMainMenu();
+        if (ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
+            Bird->OpenFlightSettings();
         return;
     }
 
@@ -260,8 +315,18 @@ void ABorn2FlapMenu::OnAction(const FString& Action, float Value, const FString&
     {
         if (Action == E.Action)
         {
-            UGameplayStatics::OpenLevel(this, E.Map, true,
-                Born2FlapWeather::TravelOptions(E.Level,LevelConditions.FindChecked(E.Level)));
+            FString Options = Born2FlapWeather::TravelOptions(E.Level, LevelConditions.FindChecked(E.Level));
+            if (const int32* Sel = SelectedPoi.Find(E.Level))
+            {
+                const TArray<FBorn2FlapPoi> Cat = Born2FlapPoi::Catalog(E.Level);
+                if (Cat.IsValidIndex(*Sel))
+                {
+                    Options += FString::Printf(TEXT("?PoiKey=%s"), *Cat[*Sel].Key);
+                    if (Cat[*Sel].Number > 0)
+                        Options += FString::Printf(TEXT("?PoiNum=%d"), Cat[*Sel].Number);
+                }
+            }
+            UGameplayStatics::OpenLevel(this, E.Map, true, Options);
             return;
         }
     }

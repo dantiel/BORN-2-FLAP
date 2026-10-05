@@ -83,6 +83,7 @@ inline ui::FProps ComputeIntrinsic(const std::string& Voice, const FTelemetry& T
         SetNum(P, "gust_rate", 0.4 + 0.6 * T.wingbeat_hz);
     } else if (Voice == "wing") {
         SetNum(P, "rate", T.wingbeat_hz);
+        SetNum(P, "air_speed", T.airspeed);
         SetNum(P, "gain", Clamp01((T.wingbeat_hz / 8.0) * (0.3 + 0.7 * Clamp01(T.airspeed / 20.0))));
         SetNum(P, "tone", Clamp01(1.0 - std::fabs(T.phase_error_rad) / 0.5));
         SetNum(P, "whoosh", Clamp01(T.airspeed / 25.0));

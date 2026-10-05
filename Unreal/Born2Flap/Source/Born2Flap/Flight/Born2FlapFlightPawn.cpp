@@ -361,8 +361,7 @@ void ABorn2FlapFlightPawn::BeginPlay()
     if (auto* Mode = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode()))
     {
         POIs = Mode->GetPOIs();
-        SelectedPoi = FMath::Clamp(SelectedPoi, 0, FMath::Max(0, POIs.Num() - 1));
-        Mode->HighlightPoi(SelectedPoi);
+        SelectedPoi = FMath::Clamp(Mode->GetInitialPoiIndex(), 0, FMath::Max(0, POIs.Num() - 1));
     }
     if (POIs.IsEmpty())
     {
@@ -478,14 +477,7 @@ FString ABorn2FlapFlightPawn::GetFlightStatus() const
     if (bReturning)
         return Born2Flap::I18n::T("status.field_edge");
     if (!bFlying)
-    {
-        // Grounded: lead with the selected respawn point so the player always
-        // knows where R will put them.
-        FString Hint = GetSelectedPoiName();
-        Hint += TEXT(" · ");
-        Hint += Born2Flap::I18n::T("status.hand_launch");
-        return Hint;
-    }
+        return Born2Flap::I18n::T("status.hand_launch");
     if (GetSpeed() < 4.5f)
         return Born2Flap::I18n::T("status.low_airspeed");
     if (Throttle < .08f)
@@ -493,27 +485,6 @@ FString ABorn2FlapFlightPawn::GetFlightStatus() const
     return Throttle > .85f ? Born2Flap::I18n::T("status.power_strokes") : Born2Flap::I18n::T("status.flapping");
 }
 
-FString ABorn2FlapFlightPawn::GetSelectedPoiName() const
-{
-    if (POIs.IsValidIndex(SelectedPoi))
-    {
-        FString Name = Born2Flap::I18n::T(POIs[SelectedPoi].Key);
-        if (POIs[SelectedPoi].Number > 0)
-            Name += TEXT(" ") + FString::FromInt(POIs[SelectedPoi].Number);
-        return Name;
-    }
-    return Born2Flap::I18n::T("poi.start_line");
-}
-
-void ABorn2FlapFlightPawn::CyclePoi(int32 Dir)
-{
-    if (POIs.Num() <= 1)
-        return;
-    SelectedPoi = (SelectedPoi + Dir + POIs.Num()) % POIs.Num();
-    if (auto* Mode = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode()))
-        Mode->HighlightPoi(SelectedPoi);
-    UE_LOG(LogTemp, Display, TEXT("PoiSelect index=%d name=%s"), SelectedPoi, *GetSelectedPoiName());
-}
 void ABorn2FlapFlightPawn::SetBlindFlight(bool bOn)
 {
     bBlind = bOn;
@@ -541,7 +512,9 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
     MathBridge->InjectWindPhaseNoise(bFlightTest ? 0.0 : FMath::Clamp(CurrentWind.Size()*.15+FMath::Abs(CurrentWind.Z)*.25,0.,4.)*Shelter);
     B2F_PilotInput Pilot{};
     Pilot.throttle = Throttle;
-    Pilot.roll = RollInput;
+    // Roll movement is inverted relative to the raw stick/mouse sign: negate
+    // here (the physics boundary), leaving the desktop/RC input mapping alone.
+    Pilot.roll = -RollInput;
     Pilot.pitch = PitchInput;
     Pilot.yaw = YawInput;
     Pilot.speed_mod = Desktop.speedModifier;
@@ -681,18 +654,31 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         bF8Pressed = bF8Pressed || PanelPC->WasInputKeyJustPressed(EKeys::F8);
         bEscPressed = bEscPressed || PanelPC->WasInputKeyJustPressed(EKeys::Escape);
     }
-    if (bF8Pressed)
+    // The main menu (F10) is modal and owned by the GameMode. While it is open,
+    // F8/Esc must not open or close the settings panel / POI overlay here.
+    const bool bMenuOpen = [&]()
     {
-        if (IsFlightSettingsOpen()) CloseFlightSettings();
-        else OpenFlightSettings();
+        const ABorn2FlapGameMode* GM = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode());
+        return GM && GM->IsMenuOpen();
+    }();
+    if (bF8Pressed && !bMenuOpen)
+    {
+        // F8 toggles the POI overlay (settings are reached from the F10 menu now).
+        if (IsFlightSettingsOpen()) { /* F8 is inert while settings are open */ }
+        else if (IsPoiOverlayOpen()) ClosePoiOverlay();
+        else OpenPoiOverlay();
         return;
     }
-    if (IsFlightSettingsOpen() && bEscPressed)
+    if (IsFlightSettingsOpen())
     {
-        CloseFlightSettings();
+        if (bEscPressed && !bMenuOpen) CloseFlightSettings();
         return;
     }
-    if (IsFlightSettingsOpen()) return;
+    if (IsPoiOverlayOpen())
+    {
+        if (bEscPressed && !bMenuOpen) ClosePoiOverlay();
+        return;
+    }
     const float Dt = FMath::Clamp(DeltaSeconds, 0.f, .1f);
     WorldTime += Dt;
     if(FParse::Param(FCommandLine::Get(),TEXT("B2FAudioTest")))
@@ -759,12 +745,6 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
             ToggleUIHidden();
         if (PC->WasInputKeyJustPressed(EKeys::T))
             ToggleThrottleMode();
-        // Cycle the selected point of interest ("[" previous, "]" next); R then
-        // resets to the chosen spot.
-        if (PC->WasInputKeyJustPressed(EKeys::LeftBracket))
-            CyclePoi(-1);
-        if (PC->WasInputKeyJustPressed(EKeys::RightBracket))
-            CyclePoi(1);
     }
     if (bFlightTest)
     {
@@ -815,7 +795,14 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     const FVector P = Body->GetComponentLocation(), V = Body->GetPhysicsLinearVelocity() / 100.0;
     const FVector Omega = Body->GetPhysicsAngularVelocityInRadians();
     const auto *Mode = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode());
-    if (!Finite(P) || !Finite(V) || !Finite(Omega) || V.Size() > 40 || Omega.Size() > 12 ||
+    // Flight-safety reset: the velocity/angular-rate caps are configurable
+    // (0 = off, 1 = very low / acro-friendly, 2 = normal). NaN/Inf and the hard
+    // world bounds always stay — those are genuine glitch guards, not acro trips.
+    const int32 Safety = FMath::Clamp(FMath::RoundToInt(FlightSafety), 0, 2);
+    double SafetySpeed = 120.0, SafetyOmega = 40.0;  // normal
+    if (Safety == 1) { SafetySpeed = 180.0; SafetyOmega = 55.0; }  // very low (more acro)
+    const bool bSpeedReset = Safety > 0 && (V.Size() > SafetySpeed || Omega.Size() > SafetyOmega);
+    if (!Finite(P) || !Finite(V) || !Finite(Omega) || bSpeedReset ||
         P.Z < (Mode ? Mode->GroundHeight(P.X, P.Y) : 0) - 300 || P.Z > 300000 || P.Size2D() > 480000)
     {
         UE_LOG(LogTemp, Warning, TEXT("FlightSafetyReset pos=%s vel=%s omega=%s"), *P.ToString(), *V.ToString(),

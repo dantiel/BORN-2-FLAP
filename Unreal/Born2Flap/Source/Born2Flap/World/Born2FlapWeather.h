@@ -40,6 +40,7 @@ class UInstancedStaticMeshComponent;
 class UVolumetricCloudComponent;
 class UPostProcessComponent;
 class UMaterialInstanceDynamic;
+class UMaterialParameterCollection;
 
 UCLASS()
 class BORN2FLAP_API ABorn2FlapWeather : public AActor
@@ -53,7 +54,10 @@ public:
 private:
     void Apply();
     void Respawn(int32 Index, const FVector& Camera);
+    float SurfaceHeight(const FVector& Position) const;
+    void UpdateSurfaces(float DeltaSeconds);
     void CheckTest();
+    void CheckExperienceTest();
     FString Level;
     FBorn2FlapConditions Conditions;
     bool bApplied=false, bCaptured=false, bTestDone=false;
@@ -61,6 +65,14 @@ private:
     FRandomStream Random{4202026};
     TArray<FVector> Positions;
     TArray<float> Floors;
+    TArray<FVector> SplashPositions;
+    TArray<float> SplashAges;
+    int32 NextSplash=0, SurfaceFrame=0;
+    float Wetness=0, SnowCoverage=0;
+    int32 ExperienceCapture=0;
+    UPROPERTY() TObjectPtr<AActor> ExperienceCamera;
+    UPROPERTY() TObjectPtr<UInstancedStaticMeshComponent> Splashes;
+    UPROPERTY() TObjectPtr<UMaterialParameterCollection> SurfaceCollection;
     UPROPERTY() TObjectPtr<UInstancedStaticMeshComponent> Precipitation;
     UPROPERTY() TObjectPtr<UVolumetricCloudComponent> Clouds;
     UPROPERTY() TObjectPtr<UPostProcessComponent> PostProcess;

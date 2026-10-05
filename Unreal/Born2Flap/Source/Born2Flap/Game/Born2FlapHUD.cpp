@@ -22,6 +22,11 @@ void ABorn2FlapHUD::DrawHUD()
     auto *Bird = Cast<ABorn2FlapFlightPawn>(GetOwningPawn());
     if (!Bird)
         return;
+    // Brain path: the Ruby Brain authors every panel (cockpit / RC / channels /
+    // radio / menu / poi / splash) — the imperative canvas stays dormant.
+    if (auto* GM = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode()))
+        if (GM->IsBrainActive())
+            return;
     if (Bird->IsFlightSettingsOpen()) return;
     auto* PC = GetOwningPlayerController();
     if (PC->WasInputKeyJustPressed(EKeys::F2)) bShowChannels = !bShowChannels;

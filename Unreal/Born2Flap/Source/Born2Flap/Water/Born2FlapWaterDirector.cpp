@@ -9,6 +9,8 @@
 #include "Scalability.h"
 #include "Kismet/GameplayStatics.h"
 #include "Game/Born2FlapGameMode.h"
+#include "Components/MeshComponent.h"
+#include "Materials/MaterialInterface.h"
 
 AShiomoriWaterDirector::AShiomoriWaterDirector()
 {
@@ -31,6 +33,20 @@ AShiomoriWaterDirector* AShiomoriWaterDirector::Get(const UWorld* World)
 void AShiomoriWaterDirector::BeginPlay()
 {
     Super::BeginPlay();
+    for(TActorIterator<AActor> It(GetWorld());It;++It)
+    {
+        TInlineComponentArray<UMeshComponent*> Meshes(*It);
+        for(auto* Mesh:Meshes) for(int I=0;I<Mesh->GetNumMaterials();++I)
+        {
+            const auto* Material=Mesh->GetMaterial(I);
+            if(!Material) continue;
+            const FString Path=Material->GetPathName();
+            if(Path.StartsWith(TEXT("/Game/Shiomori/Materials/M_Water.")) ||
+               Path.StartsWith(TEXT("/Game/Shiomori/Materials/M_Shallows.")) ||
+               Path.StartsWith(TEXT("/Game/Shiomori/Materials/M_Foam.")))
+                Mesh->SetTranslucentSortPriority(-20);
+        }
+    }
 
     // Optional authored parameter asset overrides the inline defaults.
     if (!ParametersAsset.IsNull())
@@ -84,7 +100,10 @@ void AShiomoriWaterDirector::Tick(float DeltaSeconds)
         const FVector Wind=GM->WindAt(GetActorLocation(),TimeSeconds);
         Parameters.WindSpeed=Wind.Size2D();
         Parameters.WindDirection=FMath::RadiansToDegrees(FMath::Atan2(Wind.Y,Wind.X));
-        Parameters.SeaState=FMath::Clamp(Parameters.WindSpeed*.08f,.05f,.55f);
+        // SeaState is a 0..6 scale. Persistent ocean swell survives light wind.
+        Parameters.SeaState=FMath::Clamp(1.6f+Parameters.WindSpeed*.35f,1.6f,3.5f);
+        Parameters.ShoreBreakIntensity=.85f+Parameters.WindSpeed*.065f;
+        Parameters.FoamAmount=1.1f+Parameters.WindSpeed*.08f;
         Parameters.StormAmount=0.f; // these presets intentionally exclude storms
         ApplyParameters();
     }

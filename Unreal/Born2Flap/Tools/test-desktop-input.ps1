@@ -8,6 +8,7 @@ else { $arguments += '-nullrhi' }
 if ($WingPaintPreview) { $arguments += '-B2FWingPaintPreview' }
 if ($BirdPreview) { $arguments += '-B2FBirdPreview' }
 if ($SettingsCapture) { $arguments += '-B2FSettingsCapture' }
+$arguments += '-B2FNoMenu'
 $process = Start-Process -FilePath (Join-Path $EngineRoot 'Engine/Binaries/Win64/UnrealEditor-Cmd.exe') -ArgumentList $arguments -WindowStyle Hidden -PassThru
 if (!$process.WaitForExit(180000)) { Stop-Process -Id $process.Id; throw "Desktop input test timed out: $log" }
 $result = Select-String -LiteralPath $log -Pattern 'DesktopInputTest PASS' -SimpleMatch

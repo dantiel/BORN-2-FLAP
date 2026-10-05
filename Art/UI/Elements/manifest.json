@@ -1,0 +1,432 @@
+[
+    {
+        "rect":  [
+                     29,
+                     319,
+                     647,
+                     257
+                 ],
+        "name":  "PanelWide",
+        "mask":  "panel"
+    },
+    {
+        "rect":  [
+                     690,
+                     313,
+                     335,
+                     265
+                 ],
+        "name":  "Panel",
+        "mask":  "panel"
+    },
+    {
+        "rect":  [
+                     1034,
+                     322,
+                     380,
+                     80
+                 ],
+        "name":  "Banner",
+        "mask":  "panel"
+    },
+    {
+        "rect":  [
+                     1040,
+                     414,
+                     188,
+                     77
+                 ],
+        "name":  "Field",
+        "mask":  "panel"
+    },
+    {
+        "rect":  [
+                     1243,
+                     414,
+                     170,
+                     77
+                 ],
+        "name":  "FieldCloud",
+        "mask":  "panel"
+    },
+    {
+        "rect":  [
+                     1040,
+                     502,
+                     188,
+                     72
+                 ],
+        "name":  "FieldMountain",
+        "mask":  "panel"
+    },
+    {
+        "rect":  [
+                     1243,
+                     502,
+                     170,
+                     72
+                 ],
+        "name":  "FieldSky",
+        "mask":  "panel"
+    },
+    {
+        "rect":  [
+                     30,
+                     589,
+                     365,
+                     44
+                 ],
+        "name":  "ButtonNormal",
+        "mask":  "button"
+    },
+    {
+        "rect":  [
+                     30,
+                     638,
+                     365,
+                     46
+                 ],
+        "name":  "ButtonHover",
+        "mask":  "button"
+    },
+    {
+        "rect":  [
+                     30,
+                     688,
+                     365,
+                     44
+                 ],
+        "name":  "ButtonPressed",
+        "mask":  "button"
+    },
+    {
+        "rect":  [
+                     30,
+                     738,
+                     365,
+                     44
+                 ],
+        "name":  "ButtonDisabled",
+        "mask":  "button"
+    },
+    {
+        "rect":  [
+                     416,
+                     597,
+                     172,
+                     38
+                 ],
+        "name":  "TabHover",
+        "mask":  "button"
+    },
+    {
+        "rect":  [
+                     416,
+                     644,
+                     172,
+                     38
+                 ],
+        "name":  "TabSelected",
+        "mask":  "button"
+    },
+    {
+        "rect":  [
+                     606,
+                     597,
+                     165,
+                     38
+                 ],
+        "name":  "TabNormal",
+        "mask":  "button"
+    },
+    {
+        "rect":  [
+                     606,
+                     644,
+                     165,
+                     38
+                 ],
+        "name":  "TabDisabled",
+        "mask":  "button"
+    },
+    {
+        "rect":  [
+                     430,
+                     698,
+                     57,
+                     56
+                 ],
+        "name":  "ArrowLeft",
+        "mask":  "circle"
+    },
+    {
+        "rect":  [
+                     522,
+                     698,
+                     57,
+                     56
+                 ],
+        "name":  "ArrowRight",
+        "mask":  "circle"
+    },
+    {
+        "rect":  [
+                     616,
+                     698,
+                     57,
+                     56
+                 ],
+        "name":  "ArrowFast",
+        "mask":  "circle"
+    },
+    {
+        "rect":  [
+                     706,
+                     698,
+                     57,
+                     56
+                 ],
+        "name":  "ArrowNext",
+        "mask":  "circle"
+    },
+    {
+        "rect":  [
+                     416,
+                     765,
+                     81,
+                     40
+                 ],
+        "name":  "ToggleOn",
+        "mask":  "pill"
+    },
+    {
+        "rect":  [
+                     516,
+                     765,
+                     73,
+                     40
+                 ],
+        "name":  "ToggleOff",
+        "mask":  "pill"
+    },
+    {
+        "rect":  [
+                     617,
+                     769,
+                     30,
+                     30
+                 ],
+        "name":  "RadioOff",
+        "mask":  "circle"
+    },
+    {
+        "rect":  [
+                     668,
+                     769,
+                     30,
+                     30
+                 ],
+        "name":  "RadioOn",
+        "mask":  "circle"
+    },
+    {
+        "rect":  [
+                     716,
+                     769,
+                     28,
+                     30
+                 ],
+        "name":  "SliderThumb",
+        "mask":  "circle"
+    },
+    {
+        "rect":  [
+                     762,
+                     769,
+                     28,
+                     30
+                 ],
+        "name":  "SliderThumbGold",
+        "mask":  "circle"
+    },
+    {
+        "rect":  [
+                     836,
+                     769,
+                     35,
+                     34
+                 ],
+        "name":  "CheckOn",
+        "mask":  "rect"
+    },
+    {
+        "rect":  [
+                     901,
+                     769,
+                     35,
+                     34
+                 ],
+        "name":  "CheckOff",
+        "mask":  "rect"
+    },
+    {
+        "rect":  [
+                     1439,
+                     294,
+                     70,
+                     67
+                 ],
+        "name":  "Sun",
+        "mask":  "circle"
+    },
+    {
+        "rect":  [
+                     1439,
+                     365,
+                     70,
+                     66
+                 ],
+        "name":  "Cloud",
+        "mask":  "circle"
+    },
+    {
+        "rect":  [
+                     1439,
+                     434,
+                     70,
+                     66
+                 ],
+        "name":  "Storm",
+        "mask":  "circle"
+    },
+    {
+        "rect":  [
+                     1439,
+                     505,
+                     70,
+                     66
+                 ],
+        "name":  "Rain",
+        "mask":  "circle"
+    },
+    {
+        "rect":  [
+                     1439,
+                     577,
+                     70,
+                     66
+                 ],
+        "name":  "Wind",
+        "mask":  "circle"
+    },
+    {
+        "rect":  [
+                     1439,
+                     648,
+                     70,
+                     66
+                 ],
+        "name":  "Moon",
+        "mask":  "circle"
+    },
+    {
+        "rect":  [
+                     1439,
+                     721,
+                     70,
+                     66
+                 ],
+        "name":  "Turbulence",
+        "mask":  "circle"
+    },
+    {
+        "rect":  [
+                     47,
+                     819,
+                     234,
+                     128
+                 ],
+        "name":  "Coast",
+        "mask":  "panel"
+    },
+    {
+        "rect":  [
+                     290,
+                     819,
+                     234,
+                     128
+                 ],
+        "name":  "Mountains",
+        "mask":  "panel"
+    },
+    {
+        "rect":  [
+                     536,
+                     819,
+                     228,
+                     128
+                 ],
+        "name":  "Volcano",
+        "mask":  "panel"
+    },
+    {
+        "rect":  [
+                     775,
+                     819,
+                     230,
+                     128
+                 ],
+        "name":  "Islands",
+        "mask":  "panel"
+    },
+    {
+        "rect":  [
+                     1012,
+                     819,
+                     234,
+                     128
+                 ],
+        "name":  "Desert",
+        "mask":  "panel"
+    },
+    {
+        "rect":  [
+                     1257,
+                     819,
+                     231,
+                     128
+                 ],
+        "name":  "Valley",
+        "mask":  "panel"
+    },
+    {
+        "rect":  [
+                     815,
+                     608,
+                     154,
+                     10
+                 ],
+        "name":  "SliderTrack",
+        "mask":  "pill"
+    },
+    {
+        "rect":  [
+                     999,
+                     608,
+                     146,
+                     10
+                 ],
+        "name":  "SliderTrackDark",
+        "mask":  "pill"
+    },
+    {
+        "rect":  [
+                     831,
+                     650,
+                     142,
+                     5
+                 ],
+        "name":  "Divider",
+        "mask":  "rect"
+    }
+]

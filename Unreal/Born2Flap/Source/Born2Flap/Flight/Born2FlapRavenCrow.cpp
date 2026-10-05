@@ -70,14 +70,14 @@ const FLinearColor Ink(.018,.025,.035), Slate(.05,.067,.088), Edge(.10,.13,.16);
 // silhouette. The wing membrane (Born2FlapWingMesh, Design 2) hangs from the
 // shoulders at RavenRoot X=+3 and its trailing-edge root reaches X=-35.3, so the
 // fuselage must extend aft of that to overlap the tail fan.
-constexpr float KestrelNoseX = 32.5f;                // nose position (+forward)
+constexpr float KestrelNoseX = 28.5f;                // nose position (+forward); shifted aft 4 cm
 constexpr float KestrelFuselageLengthCm = 82.f;      // nose -> aft end of the body (elongated, slim)
 constexpr float KestrelFuselageWidthCm = 15.f;       // full side-to-side width (de-bulked)
 constexpr float KestrelFuselageHeightScale = 0.62f;  // authored height (~16.7 cm, slim)
 constexpr float KestrelFuselageXScale = KestrelFuselageLengthCm / 100.f;
 constexpr float KestrelFuselageYScale = KestrelFuselageWidthCm / 15.34f;
 
-// Tail fan: the root tucks under the elongated body taper (body aft end ~-49.5)
+// Tail fan: the root tucks under the elongated body taper (body aft end ~-53.5)
 // so the body extends a bit further over the fan; the tip sits at the overall
 // falcon length. Authored tail points run X -61 (root) to -112.0293 (tip) with
 // Y +/-22; UVs stay pinned to the T_KestrelTail feather raster. The mapping is
@@ -88,7 +88,10 @@ constexpr float KestrelFuselageYScale = KestrelFuselageWidthCm / 15.34f;
 constexpr float KestrelTailAuthoredRootX = -61.f;
 constexpr float KestrelTailAuthoredTipX = -112.0293f;
 constexpr float KestrelTailRootX = -38.f;
-constexpr float KestrelTailTipX = KestrelNoseX - 110.f;  // = -77.5
+// Pinned to a literal (not derived from KestrelNoseX) so shifting the body aft
+// does not drag the tail with it: the wing-to-tail distance stays fixed while
+// the fuselage overlaps the fan more.
+constexpr float KestrelTailTipX = -77.5f;
 constexpr float KestrelTailYScale = 1.15425f;   // 5% narrower than 1.215
 FVector KestrelTailPosition(FVector P)
 {
@@ -100,7 +103,7 @@ FVector KestrelTailPosition(FVector P)
 // Kestrel fanned tail membrane (kestreltail.svg "tailmembrane"), authored top-view
 // mapped into the game body: X = nose->tail (root -61 -> aft -112), Y = left/right,
 // Z = 0 (flat). UVs land on the T_KestrelTail feather raster placement; the mesh is
-// two-sided (front fan + reversed back fan) so it reads from above and below.
+// rendered from both sides by its material, without duplicate coplanar triangles.
 const FVector KestrelTailPts[8] = {
     FVector(-61.0013, 5.1481, 0), FVector(-59.7605, -0.1170, 0),
     FVector(-61.0013, -5.9671, 0), FVector(-107.8416, -21.9963, 0),
@@ -126,13 +129,8 @@ void BuildKestrelTail(AActor* Owner, USceneComponent* Parent)
         N.Add(FVector(0, 0, 1)); C.Add(FLinearColor::White);
     }
     for (int32 I = 1; I < 7; ++I) T.Append({0, I, I + 1});  // front fan from root centre
-    const int32 B = V.Num();
-    for (int32 I = 0; I < 8; ++I)
-    {
-        V.Add(KestrelTailPosition(KestrelTailPts[I])); UV.Add(KestrelTailUV[I]);
-        N.Add(FVector(0, 0, -1)); C.Add(FLinearColor::White);
-    }
-    for (int32 I = 1; I < 7; ++I) T.Append({B, B + I + 1, B + I});  // back fan (reversed winding)
+    // The material is two-sided. A coincident reversed fan double-blends the
+    // translucent paint and creates unstable overlap at grazing angles.
 
     auto* Mesh = NewObject<UProceduralMeshComponent>(Owner, TEXT("KestrelTail_2"));
     Owner->AddInstanceComponent(Mesh);

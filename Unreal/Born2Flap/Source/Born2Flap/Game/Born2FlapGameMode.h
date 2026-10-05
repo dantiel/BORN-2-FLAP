@@ -9,9 +9,9 @@ class UBorn2FlapRadioStation;
 class ABorn2FlapRadioHUD;
 class ABorn2FlapSplash;
 class ABorn2FlapMenu;
+class ABorn2FlapUIBridge;
 class AStaticMeshActor;
 class UMaterialInstanceDynamic;
-class ABorn2FlapPoiBeacon;
 class IInputProcessor;
 
 UCLASS()
@@ -34,6 +34,7 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     double GetBestLapTime() const { return BestLapTime; }
     bool IsRaceComplete() const { return Gates.Num() > 0 && GatesPassed >= Gates.Num(); }
     bool IsCoastLevel() const { return bCoastLevel; }
+    bool IsMenuOpen() const { return bMenuOpen; }
     bool IsWater(double X,double Y) const;
     double WaterHeight() const;
     FVector WindAt(const FVector& P,double Time) const;
@@ -41,18 +42,34 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     const FBorn2FlapConditions& GetConditions() const { return Conditions; }
     double GroundHeight(double X, double Y) const;
     bool HasRadioTrack() const;
-    // Points of interest: named, selectable reset/launch points per level.
+    // Points of interest: named reset/launch points per level. The start point
+    // is chosen in the level-select menu (?PoiKey=/?PoiNum=) and resolved here.
     const TArray<FBorn2FlapPoi>& GetPOIs() const { return POIs; }
-    void HighlightPoi(int32 Index);
+    int32 GetInitialPoiIndex() const;
 
     // Main menu / level selector. On a plain boot (no explicit level) it shows
-    // after the splash; from inside a level the player re-opens it with Escape.
+    // after the splash; from inside a level the player re-opens it with F10.
     void ShowMainMenu(bool bInLevel);
     void CloseMainMenu();
 
+    // --- Ruby Brain / UMGHAML (the live UI authoring path) ------------------
+    // True once the Ruby Brain process is running and the C++ bridge is the
+    // single UMG host: native panels (cockpit/menu/poi/radio/splash) stay
+    // dormant and the Brain authors them from BuildBrainTelemetry().
+    bool IsBrainActive() const;
+    // Route a semantic component action (button/slider/select) from the Brain's
+    // renderer into game logic. Mirrors ABorn2FlapMenu::OnAction + the POI
+    // overlay handler so the Ruby path and the native path share one behaviour.
+    void HandleBrainAction(const FString& Action, float Value, const FString& Text);
+    // Full JSON telemetry for the Brain: panel visibility + menu catalog + POI
+    // list + radio + RC + splash + flight readouts (single source of truth).
+    FString BuildBrainTelemetry() const;
+    // Menu world-select state (mirrors ABorn2FlapMenu so the Brain can author it).
+    int32 GetMenuWorldIndex() const { return MenuWorldIndex; }
+    const TMap<FString, FBorn2FlapConditions>& GetMenuLevelConditions() const { return MenuLevelConditions; }
+
   private:
     void PopulatePOIs();
-    void SpawnPoiBeacons();
     void AddPoi(const FString& Key, double X, double Y, float Clearance = 80.f);
     void AddPoi(const FString& Key, const FVector& Position, float Yaw = 0.f);
 
@@ -64,7 +81,8 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     TArray<TObjectPtr<UMaterialInstanceDynamic>> GateMaterials;
     int32 GatesPassed = 0;
     TArray<FBorn2FlapPoi> POIs;
-    TArray<TObjectPtr<ABorn2FlapPoiBeacon>> PoiBeacons;
+    FString InitialPoiKey;    // ?PoiKey= travel token from the level-select menu
+    int32 InitialPoiNumber = 0; // ?PoiNum= (gates), 0 = none
     bool bNatureLevel = true;
     bool bCoastLevel = false;
     FBorn2FlapConditions Conditions;
@@ -76,6 +94,17 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     UPROPERTY(Transient)
     TObjectPtr<ABorn2FlapRadioHUD> RadioHUD;
 
+    // Ruby Brain bridge — when active it is the single UMG host (native panels
+    // are suppressed and the Brain authors the full dashboard).
+    UPROPERTY(Transient)
+    TObjectPtr<ABorn2FlapUIBridge> BrainBridge;
+
+    // Menu world-select state (mirrors ABorn2FlapMenu for the Brain path).
+    int32 MenuWorldIndex = 0;
+    TMap<FString, FBorn2FlapConditions> MenuLevelConditions;
+    TMap<FString, int32> MenuSelectedPoi;
+    bool bMenuInLevel = false;
+
     // Startup splash (image + loading bar), shown on real launches only.
     UPROPERTY(Transient)
     TObjectPtr<ABorn2FlapSplash> SplashWidget;
@@ -83,13 +112,13 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
 
     // Main menu / level selector, opened once the splash fades on a plain boot
     // (no ?Level=, no ?SkipMenu=1). Selecting a level re-opens with SkipMenu.
-    // Escape re-opens it from inside a level (bSkipMenu true, menu closed).
+    // F10 re-opens it from inside a level (bSkipMenu true, menu closed).
     UPROPERTY(Transient)
     TObjectPtr<ABorn2FlapMenu> MenuWidget;
     bool bSkipMenu = false;
     bool bMenuOpen = false;
 
-    // Slate pre-processor: captures Escape while the menu is open (UIOnly input
+    // Slate pre-processor: captures F10 while the menu is open (UIOnly input
     // mode routes the key away from PlayerInput). Registered in BeginPlay.
     TSharedPtr<IInputProcessor> MenuKeyProcessor;
 

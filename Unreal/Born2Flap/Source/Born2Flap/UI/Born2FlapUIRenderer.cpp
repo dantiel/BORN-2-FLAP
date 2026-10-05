@@ -167,11 +167,20 @@ FString Readout(double Value, int32 Decimals, const FString& Unit)
     return S;
 }
 
+FSlateBrush ArtBrush(const TCHAR* Name, FVector2D Size, FMargin Margin = FMargin(0));
+void ArtButton(UButton* Button, bool Selected = false, bool Tab = false);
+
 UBorn2FlapComposite* NewComposite(UObject* Outer, const FString& Type)
 {
     UBorn2FlapComposite* C = NewObject<UBorn2FlapComposite>(Outer);
     C->SemanticType = Type;
     C->SetBrush(FSlateRoundedBoxBrush(theme::BG(), theme::Radius()));
+    if (Type == TEXT("Panel"))
+        C->SetBrush(ArtBrush(TEXT("Panel"), FVector2D(335,265), FMargin(.08f)));
+    else if (Type == TEXT("Stat") || Type == TEXT("Value") || Type == TEXT("Gauge"))
+        C->SetBrush(ArtBrush(TEXT("Field"), FVector2D(188,77), FMargin(.1f,.22f)));
+    else
+        C->SetBrushColor(FLinearColor::Transparent);
     C->SetPadding(FMargin(10.f));
     return C;
 }
@@ -195,6 +204,43 @@ UTexture2D* GetOrLoadTexture(const FString& Path)
     }
     UE_LOG(LogTemp, Warning, TEXT("Born2FlapUIRenderer: FAILED to load texture %s"), *Path);
     return nullptr;
+}
+
+FSlateBrush ArtBrush(const TCHAR* Name, FVector2D Size, FMargin Margin)
+{
+    FSlateBrush Brush;
+    Brush.SetResourceObject(GetOrLoadTexture(FString::Printf(TEXT("/Game/UI/Elements/%s.%s"),Name,Name)));
+    Brush.ImageSize = Size;
+    Brush.Margin = Margin;
+    Brush.DrawAs = Margin == FMargin(0) ? ESlateBrushDrawType::Image : ESlateBrushDrawType::Box;
+    Brush.TintColor = FLinearColor::White;
+    if (FCString::Strcmp(Name,TEXT("Panel")) == 0)
+        Brush.TintColor = FLinearColor(.22f,.28f,.32f,1.f);
+    else if (FCString::Strcmp(Name,TEXT("Banner")) == 0)
+        Brush.TintColor = FLinearColor(.35f,.39f,.4f,1.f);
+    return Brush;
+}
+
+void ArtButton(UButton* Button, bool Selected, bool Tab)
+{
+    if (!Button) return;
+    FButtonStyle Style = Button->GetStyle();
+    const FVector2D Size(Tab ? 165 : 365, Tab ? 38 : 44);
+    const FMargin Slice(Tab ? .15f : .08f,.35f);
+    Style.Normal = ArtBrush(Selected ? TEXT("TabSelected") : Tab ? TEXT("TabNormal") : TEXT("ButtonNormal"),Size,Slice);
+    Style.Hovered = ArtBrush(Tab ? TEXT("TabHover") : TEXT("ButtonHover"),Size,Slice);
+    Style.Pressed = ArtBrush(Tab ? TEXT("TabSelected") : TEXT("ButtonPressed"),Size,Slice);
+    Style.Disabled = ArtBrush(Tab ? TEXT("TabDisabled") : TEXT("ButtonDisabled"),Size,Slice);
+    Style.Disabled.TintColor = FLinearColor(.5f,.5f,.5f,.65f);
+    Style.NormalForeground = theme::FG();
+    Style.HoveredForeground = FLinearColor(.025f,.025f,.025f,1);
+    Style.PressedForeground = theme::FG();
+    Style.NormalPadding = FMargin(Tab ? 14 : 24,8);
+    Style.PressedPadding = FMargin(Tab ? 14 : 24,9,Tab ? 14 : 24,7);
+    Button->SetStyle(Style);
+    Button->SetBackgroundColor(FLinearColor::White);
+    if (auto* Label = Cast<UTextBlock>(Button->GetContent()))
+        Label->SetColorAndOpacity(FSlateColor::UseForeground());
 }
 
 }  // namespace
@@ -617,7 +663,11 @@ UBorn2FlapComposite* UBorn2FlapUIRenderer::BuildComponent(const FString& Type)
         ValueText->SetFont(theme::Font(TEXT("s"), 12, true));
         Head->AddChildToHorizontalBox(ValueText);
         UProgressBar* Bar = NewObject<UProgressBar>(this);
-        Bar->SetFillColorAndOpacity(theme::ACCENT());
+        FProgressBarStyle GaugeStyle;
+        GaugeStyle.BackgroundImage = ArtBrush(TEXT("SliderTrackDark"),FVector2D(146,10),FMargin(.05f));
+        GaugeStyle.FillImage = ArtBrush(TEXT("SliderTrack"),FVector2D(154,10),FMargin(.05f));
+        Bar->SetWidgetStyle(GaugeStyle);
+        Bar->SetFillColorAndOpacity(FLinearColor::White);
         Body->AddChildToVerticalBox(Bar);
         C->Parts.Add(TEXT("label"), Label);
         C->Parts.Add(TEXT("value"), ValueText);
@@ -646,6 +696,7 @@ UBorn2FlapComposite* UBorn2FlapUIRenderer::BuildComponent(const FString& Type)
         Label->SetFont(theme::Font(TEXT("m"), 15, true));
         Label->SetColorAndOpacity(FSlateColor(FLinearColor(0.06f, 0.06f, 0.08f, 1.0f)));
         Btn->SetContent(Label);
+        ArtButton(Btn);
         C->Parts.Add(TEXT("button"), Btn);
         C->Parts.Add(TEXT("label"), Label);
         BindButton(Btn, C);
@@ -666,8 +717,16 @@ UBorn2FlapComposite* UBorn2FlapUIRenderer::BuildComponent(const FString& Type)
         ValueText->SetFont(theme::Font(TEXT("s"), 12, true));
         Head->AddChildToHorizontalBox(ValueText);
         USlider* Slider = NewObject<USlider>(this);
-        Slider->SetSliderBarColor(theme::FG_DIM());
-        Slider->SetSliderHandleColor(theme::ACCENT());
+        FSliderStyle SliderStyle;
+        SliderStyle.NormalBarImage = ArtBrush(TEXT("SliderTrackDark"),FVector2D(146,8),FMargin(.05f));
+        SliderStyle.HoveredBarImage = SliderStyle.DisabledBarImage = SliderStyle.NormalBarImage;
+        SliderStyle.NormalThumbImage = ArtBrush(TEXT("SliderThumb"),FVector2D(20,20));
+        SliderStyle.HoveredThumbImage = ArtBrush(TEXT("SliderThumbGold"),FVector2D(20,20));
+        SliderStyle.DisabledThumbImage = SliderStyle.NormalThumbImage;
+        SliderStyle.BarThickness = 8;
+        Slider->SetWidgetStyle(SliderStyle);
+        Slider->SetSliderBarColor(FLinearColor::White);
+        Slider->SetSliderHandleColor(FLinearColor::White);
         Body->AddChildToVerticalBox(Slider);
         C->Parts.Add(TEXT("label"), Label);
         C->Parts.Add(TEXT("value"), ValueText);
@@ -684,6 +743,10 @@ UBorn2FlapComposite* UBorn2FlapUIRenderer::BuildComponent(const FString& Type)
         C->SetContent(Btn);
         UHorizontalBox* Row = NewObject<UHorizontalBox>(this);
         Btn->SetContent(Row);
+        UImage* Switch = NewObject<UImage>(this);
+        Switch->SetBrush(ArtBrush(TEXT("ToggleOff"),FVector2D(40,22)));
+        Row->AddChildToHorizontalBox(Switch)->SetPadding(FMargin(0,0,10,0));
+        C->Parts.Add(TEXT("switch"),Switch);
         UTextBlock* Label = NewObject<UTextBlock>(this);
         Label->SetFont(theme::Font(TEXT("s"), 12));
         Label->SetColorAndOpacity(FSlateColor(theme::FG_DIM()));
@@ -728,6 +791,8 @@ UBorn2FlapComposite* UBorn2FlapUIRenderer::BuildComponent(const FString& Type)
         FEditableTextBoxStyle Style = Edit->WidgetStyle;
         Style.TextStyle.Font = theme::Font(TEXT("m"), 14);
         Style.TextStyle.ColorAndOpacity = FSlateColor(theme::FG());
+        Style.BackgroundImageNormal = ArtBrush(TEXT("Field"),FVector2D(188,77),FMargin(.1f,.22f));
+        Style.BackgroundImageHovered = Style.BackgroundImageFocused = Style.BackgroundImageReadOnly = Style.BackgroundImageNormal;
         Edit->SetWidgetStyle(Style);
         Head->AddChildToHorizontalBox(Edit);
         C->Parts.Add(TEXT("label"), Label);
@@ -758,6 +823,7 @@ UBorn2FlapComposite* UBorn2FlapUIRenderer::BuildComponent(const FString& Type)
         C->SetContent(Body);
         UButton* Header = NewObject<UButton>(this);
         Header->SetBackgroundColor(theme::BG_SOLID());
+        ArtButton(Header,false,true);
         Body->AddChildToVerticalBox(Header);
         UHorizontalBox* HeadRow = NewObject<UHorizontalBox>(this);
         Header->SetContent(HeadRow);
@@ -830,14 +896,12 @@ void UBorn2FlapUIRenderer::ApplyCompositeProps(UBorn2FlapComposite* C, const FPr
             const FString Bg = Str(Props.at("bg"));
             if (Bg == TEXT("clear") || Bg == TEXT("none"))
                 C->SetBrush(FSlateRoundedBoxBrush(FLinearColor(0.f, 0.f, 0.f, 0.f), theme::Radius()));
-            else if (Bg == TEXT("solid"))
-                C->SetBrush(FSlateRoundedBoxBrush(theme::BG_SOLID(), theme::Radius()));
             else
-                C->SetBrush(FSlateRoundedBoxBrush(theme::BG(), theme::Radius()));
+                C->SetBrush(ArtBrush(TEXT("Panel"),FVector2D(335,265),FMargin(.08f)));
         }
         else if (!Tone.IsEmpty())
         {
-            C->SetBrush(FSlateRoundedBoxBrush(theme::ToneAt(Tone, theme::BG(), 0.30f), theme::Radius()));
+            C->SetBrush(ArtBrush(TEXT("Panel"),FVector2D(335,265),FMargin(.08f)));
         }
         if (C->ContentPanel())
             StoreContainerLayout(C->ContentPanel(), Props);
@@ -899,7 +963,8 @@ void UBorn2FlapUIRenderer::ApplyCompositeProps(UBorn2FlapComposite* C, const FPr
         if (Props.count("text") && Text) SetText(Text, Props.at("text"));
         if (!Tone.IsEmpty())
         {
-            C->SetBrush(FSlateRoundedBoxBrush(theme::ToneAt(Tone, theme::ACCENT(), 0.18f), theme::Radius()));
+            C->SetBrushColor(FLinearColor::White);
+            C->SetBrush(ArtBrush(TEXT("Banner"),FVector2D(380,80),FMargin(.06f,.2f)));
             if (Text) Text->SetColorAndOpacity(FSlateColor(ToneColor));
         }
         StyleText(Text, Props);
@@ -914,6 +979,7 @@ void UBorn2FlapUIRenderer::ApplyCompositeProps(UBorn2FlapComposite* C, const FPr
         if (!Tone.IsEmpty() && Label)
             Label->SetColorAndOpacity(FSlateColor(FLinearColor(0.06f, 0.06f, 0.08f, 1.0f)));
         StyleText(Label, Props);
+        ArtButton(Btn,Tone == TEXT("good") || Tone == TEXT("danger"));
     }
     else if (Type == TEXT("Slider"))
     {
@@ -1172,6 +1238,21 @@ void UBorn2FlapUIRenderer::RebuildSelectOptions(UBorn2FlapComposite* C, const FV
         L->SetColorAndOpacity(FSlateColor(theme::FG_DIM()));
         L->SetText(FText::FromString(Labels[i]));
         B->SetContent(L);
+        ArtButton(B,false,true);
+        const TCHAR* Icon = nullptr;
+        if(Labels[i] == TEXT("Sunny") || Labels[i] == TEXT("Parhelion")) Icon=TEXT("Sun");
+        else if(Labels[i] == TEXT("Cloudy") || Labels[i] == TEXT("Mist")) Icon=TEXT("Cloud");
+        else if(Labels[i] == TEXT("Gentle rain")) Icon=TEXT("Rain");
+        else if(Labels[i] == TEXT("Moonlit night")) Icon=TEXT("Moon");
+        if(Icon)
+        {
+            UHorizontalBox* Row=NewObject<UHorizontalBox>(this);
+            UImage* Badge=NewObject<UImage>(this);
+            Badge->SetBrush(ArtBrush(Icon,FVector2D(24,24)));
+            B->SetContent(Row);
+            Row->AddChildToHorizontalBox(Badge)->SetPadding(FMargin(0,0,5,0));
+            Row->AddChildToHorizontalBox(L)->SetVerticalAlignment(VAlign_Center);
+        }
         Box->AddChildToHorizontalBox(B);
         BindButton(B, C, i);
         Csv += (i ? TEXT(",") : TEXT("")) + Labels[i];
@@ -1192,10 +1273,8 @@ void UBorn2FlapUIRenderer::ApplySelectSelection(UBorn2FlapComposite* C, int32 In
         UWidget* Child = Box->GetChildAt(i);
         UButton* B = Cast<UButton>(Child);
         UTextBlock* L = B ? Cast<UTextBlock>(B->GetContent()) : nullptr;
-        if (B) B->SetBackgroundColor(i == Index ? theme::ACCENT() : theme::BG_SOLID());
-        if (L) L->SetColorAndOpacity(i == Index
-            ? FSlateColor(FLinearColor(0.06f, 0.06f, 0.08f, 1.0f))
-            : FSlateColor(theme::FG_DIM()));
+        ArtButton(B,i == Index,true);
+        if (L) L->SetColorAndOpacity(FSlateColor::UseForeground());
     }
 }
 
@@ -1205,13 +1284,15 @@ void UBorn2FlapUIRenderer::ApplyToggleState(UBorn2FlapComposite* C)
         return;
     const bool bOn = C->State.FindRef(TEXT("value")).Equals(TEXT("1"));
     UButton* B = Cast<UButton>(C->Part(TEXT("button")));
-    if (B) B->SetBackgroundColor(bOn ? theme::GOOD() : theme::BG_SOLID());
+    ArtButton(B,bOn,true);
+    if(auto* Switch=Cast<UImage>(C->Part(TEXT("switch"))))
+        Switch->SetBrush(ArtBrush(bOn ? TEXT("ToggleOn") : TEXT("ToggleOff"),FVector2D(40,22)));
     if (UTextBlock* V = Cast<UTextBlock>(C->Part(TEXT("value"))))
     {
         const FString On  = C->State.FindRef(TEXT("on")).IsEmpty()  ? TEXT("ON")  : C->State.FindRef(TEXT("on"));
         const FString Off = C->State.FindRef(TEXT("off")).IsEmpty() ? TEXT("OFF") : C->State.FindRef(TEXT("off"));
         V->SetText(FText::FromString(bOn ? On : Off));
-        V->SetColorAndOpacity(FSlateColor(bOn ? FLinearColor(0.06f, 0.06f, 0.08f, 1.0f) : theme::FG_DIM()));
+        V->SetColorAndOpacity(FSlateColor::UseForeground());
     }
 }
 

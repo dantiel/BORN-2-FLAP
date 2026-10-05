@@ -1,0 +1,6 @@
+%Overlay{ align: "center", valign: "center" }
+  %Panel{ bg: "solid", padding: 40 }
+    %VBox{ spacing: 12 }
+      %Banner{ text: "BORN 2 FLAP", tone: "accent", size: "xxl" }
+      %Progress{ value: #{splash_progress} }
+      %TextBlock{ text: "LOADING  #{splash_pct}%", tone: "dim", size: "s", align: "center" }
