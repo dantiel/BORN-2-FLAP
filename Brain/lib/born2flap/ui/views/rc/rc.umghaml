@@ -1,0 +1,9 @@
+%Overlay{ align: "center", valign: "center" }
+  %Panel{ bg: "solid", padding: 20 }
+    %VBox{ spacing: 6 }
+      %Banner{ text: "RC SENDER", tone: "accent" }
+      %TextBlock{ text: "#{rc_device}", tone: "info", size: "s" }
+      %TextBlock{ text: "#{rc_status}", tone: "dim", size: "s" }
+      %TextBlock{ text: "#{rc_instruction}", tone: "dim", size: "s" }
+#{channel_rows}
+      %TextBlock{ text: "#{rc_buttons}", tone: "dim", size: "xs" }

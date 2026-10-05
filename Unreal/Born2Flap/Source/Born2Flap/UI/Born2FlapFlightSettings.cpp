@@ -140,6 +140,20 @@ void ABorn2FlapFlightSettings::BuildTree()
         Rows.push_back(Nd("Toggle", std::move(Props)));
     }
 
+    // Flight-safety reset amount — one slider, three stops.
+    Rows.push_back(Nd("TextBlock", P({ {"text", S("FLIGHT SAFETY RESET")}, {"tone", S("accent")}, {"size", S("l")} })));
+    Rows.push_back(Nd("TextBlock", P({ {"text", S("0 = OFF (only glitch guards)   ·   1 = VERY LOW (acro)   ·   2 = NORMAL")}, {"tone", S("dim")}, {"size", S("xs")}, {"wrap", B(true)} })));
+    {
+        FProps Props;
+        Props["action"] = S("flight.safety");
+        Props["label"] = S("SAFETY");
+        Props["value"] = N(Bird->GetFlightSafety());
+        Props["min"] = N(0);
+        Props["max"] = N(2);
+        Props["step"] = N(1);
+        Rows.push_back(Nd("Slider", std::move(Props)));
+    }
+
     // Mouse response.
     Rows.push_back(Nd("TextBlock", P({ {"text", S("MOUSE RESPONSE")}, {"tone", S("accent")}, {"size", S("l")} })));
     Rows.push_back(Nd("TextBlock", P({ {"text", S("Negative reverses direction. Zero disables that mouse axis. Magnitude sets sensitivity.")}, {"tone", S("dim")}, {"size", S("xs")}, {"wrap", B(true)} })));
@@ -198,7 +212,7 @@ void ABorn2FlapFlightSettings::BuildTree()
     {
         FProps Props;
         Props["action"] = S("settings.close");
-        Props["label"] = S("SAVE & RETURN TO FLIGHT   /   Esc or F8");
+        Props["label"] = S("SAVE & RETURN TO FLIGHT   /   Esc");
         Props["tone"] = S("good");
         Rows.push_back(Nd("Button", std::move(Props)));
     }
@@ -293,6 +307,12 @@ void ABorn2FlapFlightSettings::HandleAction(const FString& Action, float Value, 
     if (Action == TEXT("control.expo"))
     {
         Bird->SetControlExpo(Value / 100.f);
+        return;
+    }
+
+    if (Action == TEXT("flight.safety"))
+    {
+        Bird->SetFlightSafety(Value);
         return;
     }
 

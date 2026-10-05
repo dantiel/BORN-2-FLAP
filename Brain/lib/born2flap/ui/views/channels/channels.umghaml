@@ -1,0 +1,5 @@
+%Overlay{ align: "right", valign: "top" }
+  %Panel{ bg: "solid", padding: 14 }
+    %VBox{ spacing: 4 }
+      %Banner{ text: "CHANNELS", tone: "accent", size: "s" }
+#{channel_rows}

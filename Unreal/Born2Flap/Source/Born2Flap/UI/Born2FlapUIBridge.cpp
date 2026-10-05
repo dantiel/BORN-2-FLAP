@@ -10,6 +10,7 @@
 #include "UI/Born2FlapUIRenderer.h"
 #include "EngineUtils.h"
 #include "Flight/Born2FlapFlightPawn.h"
+#include "Game/Born2FlapGameMode.h"
 #include "HAL/PlatformFileManager.h"
 #include "Misc/CommandLine.h"
 #include "Misc/FileHelper.h"
@@ -41,6 +42,7 @@ void ABorn2FlapUIBridge::BeginPlay()
     }
 
     Renderer = NewObject<UBorn2FlapUIRenderer>(this);
+    Renderer->OnComponentAction.AddDynamic(this, &ABorn2FlapUIBridge::HandleAction);
 
     // Default brain (dev): run the Ruby Brain from the repo via a PATH-resolving
     // env. In a packaged build the script is absent, so the native C++ cockpit
@@ -176,27 +178,38 @@ void ABorn2FlapUIBridge::WriteTelemetry()
     if (TelemetryPath.IsEmpty())
         return;
 
-    ABorn2FlapFlightPawn* Pawn = nullptr;
-    TActorIterator<ABorn2FlapFlightPawn> It(GetWorld());
-    if (It)
-        Pawn = *It;
-    if (!Pawn)
-        return;
-
-    FString Status = Pawn->GetFlightStatus();
-    Status.ReplaceInline(TEXT("\""), TEXT("'"));
-
-    const FString Json = FString::Printf(
-        TEXT("{\"altitude\":%.1f,\"climb\":%.1f,\"speed\":%.1f,\"battery\":%.0f,\"throttle\":%.2f,\"status\":\"%s\"}"),
-        Pawn->GetAltitude(),
-        Pawn->GetClimbRate(),
-        Pawn->GetSpeed(),
-        Pawn->GetBattery() * 100.0f,
-        Pawn->GetEffort(),
-        *Status);
+    // The GameMode builds the full telemetry (panel state + menu catalog + POI
+    // + radio + RC + splash + flight readouts). Fall back to a minimal flight
+    // readout when there is no GameMode (headless/tests).
+    FString Json;
+    if (ABorn2FlapGameMode* GM = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode()))
+    {
+        Json = GM->BuildBrainTelemetry();
+    }
+    else
+    {
+        ABorn2FlapFlightPawn* Pawn = nullptr;
+        TActorIterator<ABorn2FlapFlightPawn> It(GetWorld());
+        if (It)
+            Pawn = *It;
+        if (!Pawn)
+            return;
+        FString Status = Pawn->GetFlightStatus();
+        Status.ReplaceInline(TEXT("\""), TEXT("'"));
+        Json = FString::Printf(
+            TEXT("{\"altitude\":%.1f,\"climb\":%.1f,\"speed\":%.1f,\"battery\":%.0f,\"throttle\":%.2f,\"status\":\"%s\"}"),
+            Pawn->GetAltitude(), Pawn->GetClimbRate(), Pawn->GetSpeed(),
+            Pawn->GetBattery() * 100.0f, Pawn->GetEffort(), *Status);
+    }
 
     FFileHelper::SaveStringToFile(Json + LINE_TERMINATOR, *TelemetryPath,
         FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
+}
+
+void ABorn2FlapUIBridge::HandleAction(const FString& Action, float Value, const FString& Text)
+{
+    if (ABorn2FlapGameMode* GM = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode()))
+        GM->HandleBrainAction(Action, Value, Text);
 }
 
 void ABorn2FlapUIBridge::ApplyFrame(const TArray<uint8>& Bytes)

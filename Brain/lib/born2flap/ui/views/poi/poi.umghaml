@@ -1,0 +1,7 @@
+%Overlay{ align: "center", valign: "center" }
+  %Panel{ bg: "solid", padding: 20 }
+    %VBox{ spacing: 6 }
+      %Banner{ text: "POINTS OF INTEREST", tone: "accent" }
+      %TextBlock{ text: "Choose a launch point — the bird re-places there instantly.", tone: "dim", size: "xs", wrap: true }
+#{rows}
+      %Button{ label: "CLOSE  /  F8", action: "poi.close", tone: "dim" }

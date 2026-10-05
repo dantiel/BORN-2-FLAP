@@ -53,6 +53,12 @@ public:
     // authoring path is live; the native C++ cockpit should stay dormant).
     bool IsBrainActive() const { return BrainProcess.IsValid(); }
 
+    // Semantic component action from the Brain-authored renderer (a button /
+    // slider / select). Forwarded to the GameMode's central handler so game
+    // logic stays in C++ — the Brain is a stateless renderer of telemetry.
+    UFUNCTION()
+    void HandleAction(const FString& Action, float Value, const FString& Text);
+
     virtual void BeginPlay() override;
     virtual void Tick(float DeltaSeconds) override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;

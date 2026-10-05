@@ -1,7 +1,9 @@
 #include "Flight/Born2FlapFlightPawn.h"
 #include "Flight/Born2FlapTuning.h"
+#include "Game/Born2FlapGameMode.h"
 #include "Framework/Application/SlateApplication.h"
 #include "UI/Born2FlapFlightSettings.h"
+#include "UI/Born2FlapPoiOverlay.h"
 #include "Engine/Engine.h"
 #include "Engine/GameViewportClient.h"
 #include "Engine/World.h"
@@ -34,6 +36,8 @@ void ABorn2FlapFlightPawn::LoadFlightPreferences()
     FpvCameraAngleDeg = FMath::IsFinite(FpvCameraAngleDeg) ? FMath::Clamp(FpvCameraAngleDeg,-45.f,45.f) : 0.f;
     Config.GetBool(TEXT("Flight"),TEXT("RollWingTwist"),bRollWingTwist);
     Config.GetBool(TEXT("Flight"),TEXT("CoupledThrottle"),bCoupledThrottle);
+    Config.GetFloat(TEXT("Flight"),TEXT("Safety"),FlightSafety);
+    FlightSafety=FMath::IsFinite(FlightSafety) ? FMath::Clamp(FlightSafety,0.f,2.f) : 1.f;
     double SpeedMod = Desktop.speedModifier;
     Config.GetDouble(TEXT("Controls"),TEXT("SpeedModifier"),SpeedMod);
     Desktop.speedModifier = FMath::IsFinite(SpeedMod) ? FMath::Clamp(SpeedMod,0.0,1.0) : 0.5;
@@ -61,6 +65,7 @@ void ABorn2FlapFlightPawn::SaveFlightPreferences()
     Config.SetFloat(TEXT("Flight"),TEXT("FpvCameraAngle"),FpvCameraAngleDeg);
     Config.SetBool(TEXT("Flight"),TEXT("RollWingTwist"),bRollWingTwist);
     Config.SetBool(TEXT("Flight"),TEXT("CoupledThrottle"),bCoupledThrottle);
+    Config.SetFloat(TEXT("Flight"),TEXT("Safety"),FlightSafety);
     Config.SetDouble(TEXT("Controls"),TEXT("SpeedModifier"),Desktop.speedModifier);
     for(int32 Axis=0;Axis<3;++Axis)
         Config.SetDouble(TEXT("Mouse"),*FString::Printf(TEXT("Gain%d"),Axis),MouseGains[Axis]);
@@ -82,6 +87,22 @@ void ABorn2FlapFlightPawn::OpenFlightSettings()
     auto* PC=Cast<APlayerController>(GetController());
     if(!PC || (RcController && RcController->IsPanelOpen())) return;
     Desktop.mouseRoll=Desktop.mousePitch=Desktop.mouseYaw=0;
+
+    // Brain path: the settings panel is authored by the Ruby Brain; just flag it
+    // open and hand the mouse to UMG (no native actor to spawn).
+    if (ABorn2FlapGameMode* GM = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode()))
+    {
+        if (GM->IsBrainActive())
+        {
+            bBrainSettingsOpen = true;
+            PC->bShowMouseCursor = true;
+            FInputModeUIOnly Mode;
+            Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+            PC->SetInputMode(Mode);
+            PC->FlushPressedKeys();
+            return;
+        }
+    }
 
     // The panel is the semantic view-framework actor (react-native-umg), not
     // the old raw-Slate SFlightSettings. It renders through UBorn2FlapUIRenderer
@@ -108,6 +129,14 @@ void ABorn2FlapFlightPawn::OpenFlightSettings()
 }
 void ABorn2FlapFlightPawn::CloseFlightSettings()
 {
+    if (bBrainSettingsOpen)
+    {
+        bBrainSettingsOpen = false;
+        SaveFlightPreferences();
+        if (auto* PC = Cast<APlayerController>(GetController()))
+        { PC->bShowMouseCursor = false; PC->SetInputMode(FInputModeGameOnly()); PC->FlushPressedKeys(); }
+        return;
+    }
     if(!SettingsPanel.IsValid()) return;
     SaveFlightPreferences();
     if(SettingsPanel.IsValid())
@@ -120,9 +149,73 @@ void ABorn2FlapFlightPawn::CloseFlightSettings()
     { PC->bShowMouseCursor=false; PC->SetInputMode(FInputModeGameOnly()); PC->FlushPressedKeys(); }
     Desktop.mouseRoll=Desktop.mousePitch=Desktop.mouseYaw=0;
 }
+void ABorn2FlapFlightPawn::OpenPoiOverlay()
+{
+    if(PoiOverlay.IsValid() || !GEngine || !GEngine->GameViewport) return;
+    auto* PC=Cast<APlayerController>(GetController());
+    if(!PC) return;
+    Desktop.mouseRoll=Desktop.mousePitch=Desktop.mouseYaw=0;
+
+    // Brain path: the POI overlay is authored by the Ruby Brain (F8 flag); no
+    // native actor to spawn.
+    if (ABorn2FlapGameMode* GM = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode()))
+    {
+        if (GM->IsBrainActive())
+        {
+            bBrainPoiOpen = true;
+            PC->bShowMouseCursor = true;
+            FInputModeUIOnly Mode;
+            Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+            PC->SetInputMode(Mode);
+            PC->FlushPressedKeys();
+            return;
+        }
+    }
+
+    FActorSpawnParameters Params;
+    Params.Owner=this;
+    Params.SpawnCollisionHandlingOverride=ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+    ABorn2FlapPoiOverlay* Overlay=GetWorld()->SpawnActor<ABorn2FlapPoiOverlay>(
+        FVector::ZeroVector,FRotator::ZeroRotator,Params);
+    if(!Overlay) return;
+    Overlay->Open(this);
+    PoiOverlay=Overlay;
+    PC->bShowMouseCursor=true;
+    FInputModeUIOnly Mode;
+    Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+    PC->SetInputMode(Mode);
+    PC->FlushPressedKeys();
+}
+void ABorn2FlapFlightPawn::ClosePoiOverlay()
+{
+    if (bBrainPoiOpen)
+    {
+        bBrainPoiOpen = false;
+        if (auto* PC = Cast<APlayerController>(GetController()))
+        { PC->bShowMouseCursor = false; PC->SetInputMode(FInputModeGameOnly()); PC->FlushPressedKeys(); }
+        return;
+    }
+    if(!PoiOverlay.IsValid()) return;
+    if(PoiOverlay.IsValid())
+    {
+        PoiOverlay->Close();
+        PoiOverlay->Destroy();
+    }
+    PoiOverlay.Reset();
+    if(auto* PC=Cast<APlayerController>(GetController()))
+    { PC->bShowMouseCursor=false; PC->SetInputMode(FInputModeGameOnly()); PC->FlushPressedKeys(); }
+    Desktop.mouseRoll=Desktop.mousePitch=Desktop.mouseYaw=0;
+}
+void ABorn2FlapFlightPawn::SelectPoi(int32 Index)
+{
+    if(POIs.IsEmpty()) return;
+    SelectedPoi=FMath::Clamp(Index,0,POIs.Num()-1);
+    ResetFlight();
+}
 void ABorn2FlapFlightPawn::EndPlay(const EEndPlayReason::Type Reason)
 {
     CloseFlightSettings();
+    ClosePoiOverlay();
     if (PanelKeyProcessor.IsValid() && FSlateApplication::IsInitialized())
         FSlateApplication::Get().UnregisterInputPreProcessor(PanelKeyProcessor);
     PanelKeyProcessor.Reset();

@@ -1,0 +1,16 @@
+%Overlay{ align: "center", valign: "center" }
+  %Panel{ bg: "solid", padding: 24 }
+    %VBox{ spacing: 10 }
+      %Banner{ text: "BORN 2 FLAP", tone: "accent", size: "xxl" }
+      %Banner{ text: "#{world_title}", tone: "info", size: "l" }
+      %TextBlock{ text: "#{world_story}", tone: "dim", size: "s", wrap: true }
+      %Field{ label: "Weather" }
+        %Select{ value: #{weather_index}, options: #{weathers}, action: "weather.#{world_id}" }
+      %Field{ label: "Time of day" }
+        %Select{ value: #{time_index}, options: #{times}, action: "daytime.#{world_id}" }
+      %HBox{ spacing: 8 }
+        %Button{ label: "PREV", action: "menu.prevWorld" }
+        %Button{ label: "FLY  #{world_title}", action: "menu.#{world_id.downcase}", tone: "good" }
+        %Button{ label: "NEXT", action: "menu.nextWorld" }
+#{action_buttons}
+      %Button{ label: "QUIT", action: "menu.quit", tone: "dim" }

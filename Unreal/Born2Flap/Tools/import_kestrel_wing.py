@@ -2,7 +2,7 @@
 
 Run once via the editor commandlet (same style as create_falcon_materials.py):
 
-  UnrealEditor-Cmd.exe "Unreal/Born2Flap/Born2Flap.uproject" -run=pythonscript \\
+  UnrealEditor-Cmd.exe "Unreal/Born2Flap/Born2Flap.uproject" -run=pythonscript \
     -script="Unreal/Born2Flap/Tools/import_kestrel_wing.py" -unattended -nosplash -nullrhi -nosound
 
 Imports  Tools/out/kestrel-wing-top.png  ->  /Game/Birds/T_KestrelWingTop
@@ -42,6 +42,11 @@ def import_texture():
         raise SystemExit(1)
     tex.set_editor_property("srgb", True)
     tex.set_editor_property("never_stream", True)
+    # Render the membrane at full fidelity: keep the 3032x1190 source uncropped and
+    # use BC7 (the highest-quality 4-channel block format) instead of the default
+    # BC3/DXT5, whose 4x4 colour blocks read as "pixelated" on fine feather detail.
+    tex.set_editor_property("max_texture_size", 4096)
+    tex.set_editor_property("compression_settings", u.TextureCompressionSettings.TC_BC7)
     assert ela.save_asset(TEX_PATH), "KESTREL_WING: failed to save texture"
     u.log("KESTREL_WING_TEX " + TEX_PATH)
     return tex
@@ -69,6 +74,14 @@ def wing_material(tex):
         "M_FalconWing", "/Game/Birds", u.Material, u.MaterialFactoryNew())
     lib.delete_all_material_expressions(m)
     m.set_editor_property("two_sided", True)
+    # BLEND_MASKED (not translucent): a masked surface writes depth and casts a
+    # shadow — the two things a translucent wing loses. WingOpacity < 1 is turned
+    # into a screen-space dither on the opacity mask below, so the "slight
+    # transparency" reads as a faint stipple instead of a hard alpha cut. Blend
+    # mode and shading model survive delete_all_material_expressions, so reset them.
+    m.set_editor_property("blend_mode", u.BlendMode.BLEND_MASKED)
+    m.set_editor_property("shading_model", u.MaterialShadingModel.MSM_DEFAULT_LIT)
+    m.set_editor_property("disable_depth_test", False)
 
     vertex = node(m, "VertexColor")
     paint = node(m, "TextureSampleParameter2D", parameter_name="WingPaint", texture=tex)
@@ -101,6 +114,31 @@ def wing_material(tex):
 
     rough = node(m, "Constant", r=0.65)
     output(rough, "ROUGHNESS")
+
+    # Slight transparency via a dithered opacity mask. WingOpacity 1 = fully
+    # opaque, lower = more see-through. At 0.95 only ~5% of pixels are dropped in
+    # a stable screen-space stipple, which reads as a faint translucency while the
+    # masked surface still writes depth (foam stays behind it) and casts a shadow.
+    opacity = node(m, "ScalarParameter", parameter_name="WingOpacity", default_value=0.95)
+    dither = node(m, "Custom",
+                  code=("float2 px = floor(Parameters.SvPosition.xy);\n"
+                        "float d = frac(sin(dot(px, float2(12.9898, 78.233))) * 43758.5453);\n"
+                        "return step(d, Opacity);"),
+                  output_type=u.CustomMaterialOutputType.CMOT_FLOAT1)
+    pin = u.CustomInput()
+    pin.set_editor_property("input_name", "Opacity")
+    dither.set_editor_property("inputs", [pin])
+    wire(opacity, dither, "Opacity")
+    output(dither, "OPACITY_MASK")
+
+    # Soft-light substitute: UE has no native Soft Light blend mode. A faint
+    # emissive backlight on the paint reads as light passing through the thin
+    # membrane rather than hard see-through.
+    glow = node(m, "ScalarParameter", parameter_name="WingGlow", default_value=0.12)
+    emissive = node(m, "Multiply")
+    wire(paint, emissive, "A", "RGB")
+    wire(glow, emissive, "B")
+    output(emissive, "EMISSIVE_COLOR")
 
     lib.recompile_material(m)
     assert ela.save_asset(MAT_PATH), "KESTREL_WING: failed to save material"

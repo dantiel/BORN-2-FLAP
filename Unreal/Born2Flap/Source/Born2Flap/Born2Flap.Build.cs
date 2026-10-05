@@ -17,7 +17,7 @@ public class Born2Flap : ModuleRules
         PrivateDependencyModuleNames.AddRange(new[]
         {
             "Slate", "SlateCore", "UMG", "ProceduralMeshComponent", "ApplicationCore",
-            "AudioMixer"
+            "AudioMixer", "Json"
         });
 
         if (Target.Platform == UnrealTargetPlatform.Win64)
@@ -30,4 +30,3 @@ public class Born2Flap : ModuleRules
             Path.Combine(ModuleDirectory, "../../../../Native/include")));
     }
 }
-

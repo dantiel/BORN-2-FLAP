@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.20)
+project(Born2FlapAudioQuality LANGUAGES CXX)
+add_executable(audio_quality audio_quality.cpp)
+target_compile_features(audio_quality PRIVATE cxx_std_17)
+target_include_directories(audio_quality PRIVATE ../../Unreal/Born2Flap/Source/Born2Flap ../../Unreal/Born2Flap/Source/Born2Flap/UI)

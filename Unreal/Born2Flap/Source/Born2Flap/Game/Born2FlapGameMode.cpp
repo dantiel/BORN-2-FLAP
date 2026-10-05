@@ -25,9 +25,10 @@
 #include "UI/Born2FlapI18n.h"
 #include "UI/Born2FlapSplash.h"
 #include "UI/Born2FlapMenu.h"
-#include "Game/Born2FlapPoiBeacon.h"
 #include "Racing/Born2FlapRacing.h"
 #include "Water/Born2FlapWaterDirector.h"
+#include "Water/Born2FlapSurf.h"
+#include "Audio/Born2FlapSoundscape.h"
 #include "GameFramework/PlayerController.h"
 #include "Engine/GameViewportClient.h"
 #include "Framework/Application/SlateApplication.h"
@@ -42,10 +43,15 @@
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
 #include "UnrealClient.h"
+#include "Serialization/JsonWriter.h"
+#include "Serialization/JsonSerializer.h"
+#include "Dom/JsonObject.h"
+#include "Input/Born2FlapRcController.h"
+#include "Kismet/KismetSystemLibrary.h"
 
 namespace
 {
-// Captures Escape while the main menu is open. The menu runs in FInputModeUIOnly,
+// Captures F10 while the main menu is open. The menu runs in FInputModeUIOnly,
 // which routes keyboard input away from PlayerInput, so the GameMode's
 // WasInputKeyJustPressed cannot see it. This pre-processor sees every key-down
 // before that routing and defers the close to the GameMode Tick (the same
@@ -62,20 +68,37 @@ public:
             return false;
         if (InKeyEvent.IsRepeat())
             return false;
-        if (InKeyEvent.GetKey() == EKeys::Escape)
+        if (InKeyEvent.GetKey() == EKeys::F10)
         {
-            bEscPressed = true;
-            return true;  // consume: the menu closes on this Esc, nothing else sees it
+            bF10Pressed = true;
+            return true;  // consume: the menu closes on this F10, nothing else sees it
         }
         return false;
     }
 
-    bool ConsumeEsc() { const bool v = bEscPressed; bEscPressed = false; return v; }
+    bool ConsumeF10() { const bool v = bF10Pressed; bF10Pressed = false; return v; }
 
 private:
-    bool bEscPressed = false;
+    bool bF10Pressed = false;
 };
 }  // namespace
+
+// Open-world catalog for the Brain-authored menu (mirrors ABorn2FlapMenu's
+// Worlds[]). `Id` is the level key, `Title`/`Story` the card copy.
+namespace
+{
+struct FMenuWorld { const TCHAR* Id; const TCHAR* Title; const TCHAR* Story; };
+const FMenuWorld MenuWorlds[] = {
+    { TEXT("Ravenstonefield"), TEXT("RAVENSTONEFIELD"),
+      TEXT("A highland valley of black basalt columns rising from amber bracken. Ravens ride the thermals between the spires, and the wind carries heather and cold stone. An old ornithopter field, flown by generations of wing-builders.") },
+    { TEXT("Shiomori"), TEXT("SHIOMORI BAY"),
+      TEXT("A sheltered bay where the low winter sun splits into three, its parhelion false suns hanging on either side of the true one. Salt spray, dark water and a long pale beach. Only here does the ice-halo weather reveal itself.") },
+    { TEXT("Training"), TEXT("TRAINING"),
+      TEXT("A flat grass course marked with floating sky-gates. The field where every pilot learns to fold the wing, hold the line and thread the gates against the clock.") },
+};
+constexpr int32 MenuWorldCount = 3;
+}  // namespace
+
 ABorn2FlapGameMode::ABorn2FlapGameMode()
 {
     DefaultPawnClass = ABorn2FlapFlightPawn::StaticClass();
@@ -112,6 +135,8 @@ void ABorn2FlapGameMode::InitGame(const FString &MapName, const FString &Options
     Conditions=FApp::IsUnattended() ? Born2FlapWeather::Defaults(GetLevelId()) : Born2FlapWeather::Load(GetLevelId());
     FString Weather=UGameplayStatics::ParseOption(Options,TEXT("Weather"));
     FString DayTime=UGameplayStatics::ParseOption(Options,TEXT("DayTime"));
+    InitialPoiKey=UGameplayStatics::ParseOption(Options,TEXT("PoiKey"));
+    InitialPoiNumber=FCString::Atoi(*UGameplayStatics::ParseOption(Options,TEXT("PoiNum")));
     if(Weather.IsEmpty()) FParse::Value(FCommandLine::Get(),TEXT("B2FWeather="),Weather);
     if(DayTime.IsEmpty()) FParse::Value(FCommandLine::Get(),TEXT("B2FDayTime="),DayTime);
     if(!Weather.IsEmpty()) Conditions.Weather=Weather.ToLower();
@@ -176,8 +201,8 @@ FVector ABorn2FlapGameMode::WindAt(const FVector& P,double Time) const
 void ABorn2FlapGameMode::BeginPlay()
 {
     Super::BeginPlay();
-    // Escape-while-menu-open capture (see FMenuKeyInputProcessor). The pointer
-    // is wired to bMenuOpen so the processor only consumes Esc when the menu is
+    // F10-while-menu-open capture (see FMenuKeyInputProcessor). The pointer
+    // is wired to bMenuOpen so the processor only consumes F10 when the menu is
     // actually on screen — otherwise Escape stays free for the F8 flight desk.
     {
         auto* Proc = new FMenuKeyInputProcessor();
@@ -190,7 +215,21 @@ void ABorn2FlapGameMode::BeginPlay()
     // (set in InitGame) plus the saved-map camera actors, so they can be built
     // before the level geometry branches below.
     PopulatePOIs();
-    SpawnPoiBeacons();
+
+    // Menu world-select state (for the Brain-authored menu; the native
+    // ABorn2FlapMenu keeps its own copy when the Brain is offline).
+    for (int32 I = 0; I < MenuWorldCount; ++I)
+        MenuLevelConditions.Add(MenuWorlds[I].Id, Born2FlapWeather::Load(MenuWorlds[I].Id));
+
+    // Ruby Brain bridge: when the Brain process launches, it becomes the single
+    // UMG host and native panels stay dormant (fallback when Ruby is absent).
+    {
+        FActorSpawnParameters BrainParams;
+        BrainParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+        BrainBridge = GetWorld()->SpawnActor<ABorn2FlapUIBridge>(FVector::ZeroVector, FRotator::ZeroRotator, BrainParams);
+    }
+    const bool bBrain = IsBrainActive();
+
     // Startup splash screen: show the artwork + loading bar on real launches.
     // Automated runs (tests) pass -nosplash/-unattended and skip it entirely.
     // Spawned here (not on the first Tick) so it is already in the viewport for
@@ -199,17 +238,22 @@ void ABorn2FlapGameMode::BeginPlay()
     // no player controller, so BeginPlay is safe.
     if (!FParse::Param(FCommandLine::Get(), TEXT("nosplash")) && !FApp::IsUnattended())
     {
-        FActorSpawnParameters SplashParams;
-        SplashParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-        SplashWidget = GetWorld()->SpawnActor<ABorn2FlapSplash>(FVector::ZeroVector, FRotator::ZeroRotator, SplashParams);
-        if (SplashWidget)
-            SplashElapsed = 0.f;
+        // Splash timing drives both the native actor and (in the Brain path)
+        // the Ruby splash overlay via BuildBrainTelemetry().
+        SplashElapsed = 0.f;
+        if (!bBrain)
+        {
+            FActorSpawnParameters SplashParams;
+            SplashParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+            SplashWidget = GetWorld()->SpawnActor<ABorn2FlapSplash>(FVector::ZeroVector, FRotator::ZeroRotator, SplashParams);
+        }
     }
     UWorld *World = GetWorld();
     World->GetWorldSettings()->bForceNoPrecomputedLighting = true;
-    // The glass cockpit is authored natively in C++ (ABorn2FlapFlightHUD drives
-    // the same semantic view system as every other panel). The legacy Ruby Brain
-    // (UMGHAML) bridge is gone — no more dual-path UI or failed-ruby launch spam.
+    // The glass cockpit is authored natively in C++ (ABorn2FlapFlightHUD) only
+    // when the Ruby Brain is offline; otherwise the Brain authors it from
+    // BuildBrainTelemetry() and this actor stays dormant.
+    if (!bBrain)
     {
         FActorSpawnParameters CockpitParams;
         CockpitParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
@@ -228,7 +272,7 @@ void ABorn2FlapGameMode::BeginPlay()
         RadioStation = NewObject<UBorn2FlapRadioStation>(this);
         const FString RadioLevel = bCoastLevel ? TEXT("Shiomori") : (bNatureLevel ? TEXT("Ravenstonefield") : TEXT("Training"));
         RadioStation->Initialize(World, RadioLevel);
-        if (RadioStation->HasTrack())
+        if (!bBrain && RadioStation->HasTrack())
         {
             FActorSpawnParameters RadioParams;
             RadioParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
@@ -241,6 +285,8 @@ void ABorn2FlapGameMode::BeginPlay()
     Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
     WeatherActor=World->SpawnActor<ABorn2FlapWeather>(FVector::ZeroVector,FRotator::ZeroRotator,Params);
     WeatherActor->Configure(GetLevelId(),Conditions);
+    World->SpawnActor<ABorn2FlapSoundscape>();
+    if(bCoastLevel) World->SpawnActor<ABorn2FlapSurf>();
     if(bCoastLevel)
     {
         // Saved coastal map supplies geometry and atmosphere. The water
@@ -450,32 +496,15 @@ void ABorn2FlapGameMode::PopulatePOIs()
     }
 }
 
-void ABorn2FlapGameMode::SpawnPoiBeacons()
+int32 ABorn2FlapGameMode::GetInitialPoiIndex() const
 {
-    UWorld* World = GetWorld();
-    PoiBeacons.Reset(POIs.Num());
-    FActorSpawnParameters Params;
-    Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-    for (const FBorn2FlapPoi& P : POIs)
-    {
-        // Localize the name once at spawn; the beacon caches the label text.
-        FString Label = Born2Flap::I18n::T(P.Key);
-        if (P.Number > 0)
-            Label += TEXT(" ") + FString::FromInt(P.Number);
-        auto* Beacon = World->SpawnActor<ABorn2FlapPoiBeacon>(FVector::ZeroVector, FRotator::ZeroRotator, Params);
-        if (Beacon)
-        {
-            Beacon->Initialize(Label, P.Position);
-            PoiBeacons.Add(Beacon);
-        }
-    }
-}
-
-void ABorn2FlapGameMode::HighlightPoi(int32 Index)
-{
-    for (int32 I = 0; I < PoiBeacons.Num(); ++I)
-        if (PoiBeacons[I])
-            PoiBeacons[I]->SetSelected(I == Index);
+    // Map the menu's travel token (key + optional gate number) onto this level's
+    // populated POI list. An empty key (no ?PoiKey=) returns the default launch
+    // point, matching the old behaviour of spawning at POI index 0.
+    for (int32 I = 0; I < POIs.Num(); ++I)
+        if (POIs[I].Key == InitialPoiKey && POIs[I].Number == InitialPoiNumber)
+            return I;
+    return 0;
 }
 
 void ABorn2FlapGameMode::Tick(float DeltaSeconds)
@@ -491,23 +520,29 @@ void ABorn2FlapGameMode::Tick(float DeltaSeconds)
     }
     // Startup splash: ease the loading bar to full, fade out, then remove.
     // (The actor is spawned in BeginPlay so it already covers the first frame.)
-    if (SplashWidget)
+    if (SplashElapsed >= 0.f)
     {
         static constexpr float LoadDuration = 2.4f;
         static constexpr float FadeDuration = 0.5f;
         SplashElapsed += DeltaSeconds;
-        const float T = FMath::Clamp(SplashElapsed / LoadDuration, 0.f, 1.f);
-        SplashWidget->SetProgress(T * T * (3.f - 2.f * T)); // smoothstep
-        if (SplashElapsed >= LoadDuration)
+        if (SplashWidget)
         {
-            const float FadeT = FMath::Clamp((SplashElapsed - LoadDuration) / FadeDuration, 0.f, 1.f);
-            SplashWidget->SetOpacity(1.f - FadeT);
+            const float T = FMath::Clamp(SplashElapsed / LoadDuration, 0.f, 1.f);
+            SplashWidget->SetProgress(T * T * (3.f - 2.f * T)); // smoothstep
+            if (SplashElapsed >= LoadDuration)
+            {
+                const float FadeT = FMath::Clamp((SplashElapsed - LoadDuration) / FadeDuration, 0.f, 1.f);
+                SplashWidget->SetOpacity(1.f - FadeT);
+            }
         }
         if (SplashElapsed >= LoadDuration + FadeDuration)
         {
-            SplashWidget->Close();
-            SplashWidget->Destroy();
-            SplashWidget = nullptr;
+            if (SplashWidget)
+            {
+                SplashWidget->Close();
+                SplashWidget->Destroy();
+                SplashWidget = nullptr;
+            }
             SplashElapsed = -1.f;
         }
     }
@@ -516,22 +551,27 @@ void ABorn2FlapGameMode::Tick(float DeltaSeconds)
     // has faded (or straight away on a splash-less boot) on a plain boot with no
     // explicit level. Decoupled from the splash so -nosplash/-unattended never
     // also skip the menu and drop the player straight into a map.
-    if (!bSkipMenu && !SplashWidget && !MenuWidget)
+    if (!bSkipMenu && !bMenuOpen && SplashElapsed < 0.f && !MenuWidget)
         ShowMainMenu(false);
 
-    // Escape re-opens the menu from inside a level. In GameOnly input mode the
-    // key is reported reliably by the PlayerController (the menu, once open,
-    // switches to UIOnly and its pre-processor takes over for the close).
+    // F10 re-opens the menu from inside a level. In GameOnly input mode the key
+    // is reported reliably by the PlayerController (the menu, once open, switches
+    // to UIOnly and its pre-processor takes over for the close).
     if (!bMenuOpen && bSkipMenu && !MenuWidget)
     {
         if (APlayerController* PC = UGameplayStatics::GetPlayerController(this, 0))
-            if (PC->WasInputKeyJustPressed(EKeys::Escape))
+            if (PC->WasInputKeyJustPressed(EKeys::F10))
+            {
+                if (ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
+                    if (Bird->IsPoiOverlayOpen())
+                        Bird->ClosePoiOverlay();
                 ShowMainMenu(true);
+            }
     }
     else if (bMenuOpen)
     {
         if (const auto Proc = StaticCastSharedPtr<FMenuKeyInputProcessor>(MenuKeyProcessor))
-            if (Proc->ConsumeEsc())
+            if (Proc->ConsumeF10())
                 CloseMainMenu();
     }
     if(bCoastLevel && FParse::Param(FCommandLine::Get(),TEXT("B2FCoastTest")))
@@ -621,15 +661,7 @@ void ABorn2FlapGameMode::Tick(float DeltaSeconds)
         }
     }
 
-    if (auto *Player = UGameplayStatics::GetPlayerController(this, 0))
-        if (Player->WasInputKeyJustPressed(EKeys::F4))
-        {
-            const TCHAR* Next=bCoastLevel?TEXT("Training"):bNatureLevel?TEXT("Shiomori"):TEXT("Ravenstonefield");
-            const TCHAR* Map=bCoastLevel?TEXT("/Engine/Maps/Entry"):bNatureLevel?TEXT("/Game/Shiomori/Maps/SHIOMORI"):TEXT("/Game/Ravenstonefield/Maps/RAVENSTONEFIELD");
-            UE_LOG(LogTemp,Display,TEXT("FlightLevel switch=%s"),Next);
-            UGameplayStatics::OpenLevel(this,Map,true,Born2FlapWeather::TravelOptions(Next,Born2FlapWeather::Load(Next)));
-            return;
-        }
+    // F4 (quick level cycle) removed — level travel now lives in the F10 menu.
     auto *Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0));
     if (!Bird)
         return;
@@ -674,9 +706,10 @@ void ABorn2FlapGameMode::Tick(float DeltaSeconds)
 
 void ABorn2FlapGameMode::ShowMainMenu(bool bInLevel)
 {
-    if (MenuWidget)
+    if (MenuWidget || (IsBrainActive() && bMenuOpen))
         return;
     bMenuOpen = true;
+    bMenuInLevel = bInLevel;
 
     // The menu is modal: the game stops receiving input (UIOnly) and the cursor
     // is freed so its buttons are clickable. The opaque full-bleed backdrop
@@ -691,6 +724,11 @@ void ABorn2FlapGameMode::ShowMainMenu(bool bInLevel)
         PC->FlushPressedKeys();
     }
 
+    // Brain path: the menu is authored by the Ruby Brain from telemetry; there
+    // is no native actor to spawn (MenuWidget stays null).
+    if (IsBrainActive())
+        return;
+
     FActorSpawnParameters Params;
     Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
     MenuWidget = GetWorld()->SpawnActor<ABorn2FlapMenu>(FVector::ZeroVector, FRotator::ZeroRotator, Params);
@@ -700,15 +738,20 @@ void ABorn2FlapGameMode::ShowMainMenu(bool bInLevel)
 
 void ABorn2FlapGameMode::CloseMainMenu()
 {
-    if (!MenuWidget)
+    if (!MenuWidget && !bMenuOpen)
         return;
     bMenuOpen = false;
+    bMenuInLevel = false;
 
     // Detach the UMG window now (Destroy() only schedules GC — the window would
-    // otherwise linger until the next collection).
-    MenuWidget->Close();
-    MenuWidget->Destroy();
-    MenuWidget = nullptr;
+    // otherwise linger until the next collection). In the Brain path MenuWidget
+    // is already null (the Ruby Brain hides the menu from the telemetry flag).
+    if (MenuWidget)
+    {
+        MenuWidget->Close();
+        MenuWidget->Destroy();
+        MenuWidget = nullptr;
+    }
 
     if (APlayerController* PC = UGameplayStatics::GetPlayerController(this, 0))
     {
@@ -716,6 +759,209 @@ void ABorn2FlapGameMode::CloseMainMenu()
         PC->SetInputMode(FInputModeGameOnly());
         PC->FlushPressedKeys();
     }
+}
+
+bool ABorn2FlapGameMode::IsBrainActive() const
+{
+    return BrainBridge && BrainBridge->IsBrainActive();
+}
+
+void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, const FString& Text)
+{
+    // POI overlay (F8): select + teleport, or close.
+    if (Action == TEXT("poi.close"))
+    {
+        if (ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
+            Bird->ClosePoiOverlay();
+        return;
+    }
+    if (Action.StartsWith(TEXT("poi.")))
+    {
+        if (ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
+        {
+            Bird->SelectPoi(FCString::Atoi(*Action.Mid(4)));
+            Bird->ClosePoiOverlay();
+        }
+        return;
+    }
+
+    // Menu weather / time-of-day selects (per world).
+    if (Action.StartsWith(TEXT("weather.")) || Action.StartsWith(TEXT("daytime.")))
+    {
+        const bool bWeather = Action.StartsWith(TEXT("weather."));
+        const FString Level = Action.Mid(8);
+        if (FBorn2FlapConditions* C = MenuLevelConditions.Find(Level))
+        {
+            const auto Options = bWeather
+                ? Born2FlapWeather::WeatherOptions(Level)
+                : Born2FlapWeather::TimeOptions(Level, C->Weather);
+            const int32 Index = FMath::RoundToInt(Value);
+            if (Options.IsValidIndex(Index))
+            {
+                if (bWeather) C->Weather = Options[Index]; else C->Time = Options[Index];
+                *C = Born2FlapWeather::Validate(Level, *C);
+                Born2FlapWeather::Save(Level, *C);
+            }
+        }
+        return;
+    }
+
+    if (Action == TEXT("menu.resume")) { CloseMainMenu(); return; }
+    if (Action == TEXT("menu.settings"))
+    {
+        CloseMainMenu();
+        if (ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
+            Bird->OpenFlightSettings();
+        return;
+    }
+    if (Action == TEXT("menu.prevWorld")) { MenuWorldIndex = (MenuWorldIndex + MenuWorldCount - 1) % MenuWorldCount; return; }
+    if (Action == TEXT("menu.nextWorld")) { MenuWorldIndex = (MenuWorldIndex + 1) % MenuWorldCount; return; }
+    if (Action == TEXT("menu.quit")) { UKismetSystemLibrary::QuitGame(this, nullptr, EQuitPreference::Quit, false); return; }
+
+    // Level travel (menu.<world>).
+    struct FEntry { const TCHAR* ActionKey; const TCHAR* Map; const TCHAR* Level; };
+    static const FEntry Entries[] = {
+        { TEXT("menu.ravenstonefield"), TEXT("/Game/Ravenstonefield/Maps/RAVENSTONEFIELD"), TEXT("Ravenstonefield") },
+        { TEXT("menu.shiomori"),        TEXT("/Game/Shiomori/Maps/SHIOMORI"),               TEXT("Shiomori") },
+        { TEXT("menu.training"),        TEXT("/Engine/Maps/Entry"),                         TEXT("Training") },
+    };
+    for (const FEntry& E : Entries)
+    {
+        if (Action == E.ActionKey)
+        {
+            FString Options = Born2FlapWeather::TravelOptions(E.Level, MenuLevelConditions.FindChecked(E.Level));
+            if (const int32* Sel = MenuSelectedPoi.Find(E.Level))
+            {
+                const TArray<FBorn2FlapPoi> Cat = Born2FlapPoi::Catalog(E.Level);
+                if (Cat.IsValidIndex(*Sel))
+                {
+                    Options += FString::Printf(TEXT("?PoiKey=%s"), *Cat[*Sel].Key);
+                    if (Cat[*Sel].Number > 0)
+                        Options += FString::Printf(TEXT("?PoiNum=%d"), Cat[*Sel].Number);
+                }
+            }
+            UGameplayStatics::OpenLevel(this, E.Map, true, Options);
+            return;
+        }
+    }
+}
+
+FString ABorn2FlapGameMode::BuildBrainTelemetry() const
+{
+    TSharedPtr<FJsonObject> Root = MakeShareable(new FJsonObject());
+
+    ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0));
+    if (Bird)
+    {
+        Root->SetNumberField(TEXT("altitude"), Bird->GetAltitude());
+        Root->SetNumberField(TEXT("climb"), Bird->GetClimbRate());
+        Root->SetNumberField(TEXT("speed"), Bird->GetSpeed());
+        Root->SetNumberField(TEXT("battery"), Bird->GetBattery() * 100.0);
+        Root->SetNumberField(TEXT("throttle"), Bird->GetEffort());
+        Root->SetStringField(TEXT("status"), Bird->GetFlightStatus());
+        Root->SetBoolField(TEXT("settings"), Bird->IsFlightSettingsOpen());
+        Root->SetBoolField(TEXT("poi"), Bird->IsPoiOverlayOpen());
+
+        // POI list (current level).
+        const TArray<FBorn2FlapPoi>& PoiList = Bird->GetPOIs();
+        const int32 PoiSelected = Bird->GetSelectedPoi();
+        TArray<TSharedPtr<FJsonValue>> PoiArr;
+        for (int32 I = 0; I < PoiList.Num(); ++I)
+        {
+            FString Name = Born2Flap::I18n::T(PoiList[I].Key);
+            if (PoiList[I].Number > 0)
+                Name += TEXT(" ") + FString::FromInt(PoiList[I].Number);
+            TSharedPtr<FJsonObject> PoiObj = MakeShareable(new FJsonObject());
+            PoiObj->SetStringField(TEXT("name"), Name);
+            PoiObj->SetBoolField(TEXT("selected"), I == PoiSelected);
+            PoiArr.Add(MakeShareable(new FJsonValueObject(PoiObj)));
+        }
+        Root->SetArrayField(TEXT("pois"), PoiArr);
+
+        // RC sender (F3 panel) + live channels.
+        const FBorn2FlapRcController* Rc = Bird->GetRcController();
+        Root->SetBoolField(TEXT("rc"), Rc && Rc->IsPanelOpen());
+        Root->SetStringField(TEXT("rc_device"), Rc ? Rc->GetDeviceName() : TEXT(""));
+        Root->SetStringField(TEXT("rc_status"), Rc ? Rc->GetStatus() : TEXT(""));
+        Root->SetStringField(TEXT("rc_instruction"), Rc ? Rc->GetInstruction() : TEXT(""));
+        Root->SetBoolField(TEXT("rc_connected"), Rc && Rc->IsConnected());
+        Root->SetBoolField(TEXT("rc_armed"), Rc && Rc->IsArmed());
+        Root->SetStringField(TEXT("rc_buttons"), Rc ? Rc->GetButtons() : TEXT(""));
+        static const TCHAR* ChannelNames[] = { TEXT("GAS"), TEXT("ROLL"), TEXT("PITCH"), TEXT("YAW"), TEXT("SPEED") };
+        TArray<TSharedPtr<FJsonValue>> ChArr;
+        if (Rc)
+        {
+            const auto& Ch = Rc->GetChannels();
+            for (int32 I = 0; I < 5; ++I)
+            {
+                TSharedPtr<FJsonObject> ChObj = MakeShareable(new FJsonObject());
+                ChObj->SetStringField(TEXT("name"), ChannelNames[I]);
+                ChObj->SetNumberField(TEXT("value"), (double)Ch[I]);
+                ChArr.Add(MakeShareable(new FJsonValueObject(ChObj)));
+            }
+        }
+        Root->SetArrayField(TEXT("rc_channels"), ChArr);
+    }
+
+    // Menu / level selector.
+    Root->SetBoolField(TEXT("menu"), bMenuOpen);
+    Root->SetBoolField(TEXT("menu_inlevel"), bMenuInLevel);
+    Root->SetNumberField(TEXT("world_index"), MenuWorldIndex);
+
+    TArray<TSharedPtr<FJsonValue>> WorldArr;
+    for (int32 I = 0; I < MenuWorldCount; ++I)
+    {
+        const FMenuWorld& W = MenuWorlds[I];
+        const FBorn2FlapConditions& C = MenuLevelConditions.FindChecked(W.Id);
+        TSharedPtr<FJsonObject> WObj = MakeShareable(new FJsonObject());
+        WObj->SetStringField(TEXT("id"), W.Id);
+        WObj->SetStringField(TEXT("title"), W.Title);
+        WObj->SetStringField(TEXT("story"), W.Story);
+        WObj->SetStringField(TEXT("weather"), C.Weather);
+        WObj->SetStringField(TEXT("time"), C.Time);
+        TArray<TSharedPtr<FJsonValue>> WeatherOpts, TimeOpts;
+        for (const FString& S : Born2FlapWeather::WeatherOptions(W.Id))
+            WeatherOpts.Add(MakeShareable(new FJsonValueString(S)));
+        for (const FString& S : Born2FlapWeather::TimeOptions(W.Id, C.Weather))
+            TimeOpts.Add(MakeShareable(new FJsonValueString(S)));
+        WObj->SetArrayField(TEXT("weathers"), WeatherOpts);
+        WObj->SetArrayField(TEXT("times"), TimeOpts);
+        WorldArr.Add(MakeShareable(new FJsonValueObject(WObj)));
+    }
+    Root->SetArrayField(TEXT("worlds"), WorldArr);
+
+    // Splash: driven by SplashElapsed (native actor or Ruby overlay).
+    if (SplashElapsed >= 0.f)
+    {
+        static constexpr float LoadDuration = 2.4f;
+        static constexpr float FadeDuration = 0.5f;
+        const float T = FMath::Clamp(SplashElapsed / LoadDuration, 0.f, 1.f);
+        Root->SetBoolField(TEXT("splash"), true);
+        Root->SetNumberField(TEXT("splash_progress"), T * T * (3.f - 2.f * T));
+        Root->SetNumberField(TEXT("splash_opacity"),
+            SplashElapsed >= LoadDuration ? 1.f - FMath::Clamp((SplashElapsed - LoadDuration) / FadeDuration, 0.f, 1.f) : 1.f);
+    }
+    else
+    {
+        Root->SetBoolField(TEXT("splash"), false);
+        Root->SetNumberField(TEXT("splash_progress"), 0.0);
+        Root->SetNumberField(TEXT("splash_opacity"), 1.0);
+    }
+
+    // Radio.
+    Root->SetBoolField(TEXT("radio_visible"), RadioStation != nullptr && RadioStation->HasTrack());
+    Root->SetStringField(TEXT("radio_station"), RadioStation ? RadioStation->GetStationName() : TEXT(""));
+    Root->SetStringField(TEXT("radio_track"), RadioStation ? RadioStation->GetTrackName() : TEXT(""));
+    Root->SetBoolField(TEXT("radio_playing"), RadioStation && RadioStation->IsPlaying());
+    Root->SetNumberField(TEXT("radio_volume"), RadioStation ? RadioStation->GetVolume() : 0.5);
+
+    // Channels (F2) — the Ruby path folds this into the RC readout for now.
+    Root->SetBoolField(TEXT("channels"), false);
+
+    FString Out;
+    TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Out);
+    FJsonSerializer::Serialize(Root.ToSharedRef(), Writer);
+    return Out;
 }
 
 void ABorn2FlapGameMode::EndPlay(const EEndPlayReason::Type EndPlayReason)

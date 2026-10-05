@@ -1,5 +1,6 @@
 // BORN 2 FLAP — Shiomori Bay coastal water system.
 #include "Water/Born2FlapWater.h"
+#include "Water/Born2FlapSurf.h"
 
 namespace Born2FlapWater
 {
@@ -53,5 +54,5 @@ float FOceanParameters::SampleWaveHeight(const FVector2D& P, float Time) const
         const float Omega = 6.28318530718f * Cs / (Wl * FMath::Sqrt(LenF[i]));
         H += A * FMath::Cos(K * (P.X * D.X + P.Y * D.Y) - Omega * Time + Phase[i]);
     }
-    return H;
+    return H*FMath::SmoothStep(100.,3000.,P.Y-Born2FlapSurf::Shore(P.X));
 }

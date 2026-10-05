@@ -5,15 +5,15 @@
 #   ruby bin/umghaml_brain <telemetry.ndjson|-> <frames.ndjson|-> [--ticks N] [--interval S]
 #
 # Reads telemetry (one JSON object per line, overwritten each game tick by the
-# C++ bridge), authors the glass cockpit in UMGHAML, reconciles against the
-# previous tree, and writes the minimal NDJSON op stream to the frames sink.
-# The C++ host (Born2FlapUIBridge) tails the frames sink and applies each frame;
-# it is the writer of the telemetry source. This file is the "always-on" loop
-# that makes UMGHAML the live authoring path instead of a build-time grammar.
+# C++ bridge), authors the full dashboard (cockpit + radio + menu/poi/settings/
+# rc/channels/splash overlays) in UMGHAML, reconciles against the previous tree,
+# and writes the minimal NDJSON op stream to the frames sink. The C++ host
+# (Born2FlapUIBridge) tails the frames sink and applies each frame; it is the
+# writer of the telemetry source. This file is the "always-on" loop that makes
+# UMGHAML the live authoring path instead of a build-time grammar.
 
 $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
 require "born2flap"
-require "born2flap/ui/flight_hud"
 require "json"
 
 telemetry_path = ARGV[0]
@@ -69,8 +69,8 @@ loop do
   raw = read_telemetry(telemetry_path)
   telemetry = sanitize(raw) if raw
 
-  current_tree = telemetry ? Born2Flap::UI::FlightHud.build(telemetry)
-                           : (current_tree || Born2Flap::UI::FlightHud.tree)
+  current_tree = telemetry ? Born2Flap::UI::Dashboard.build(telemetry)
+                           : (current_tree || Born2Flap::UI::Dashboard.build({}))
 
   root.render(current_tree)
   frames_bytes += transport.flush
