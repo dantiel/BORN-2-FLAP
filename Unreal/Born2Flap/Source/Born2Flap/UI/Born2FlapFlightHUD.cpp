@@ -105,7 +105,9 @@ void ABorn2FlapFlightHUD::BuildCockpit()
         Nd("SizeBox",P({{"width",N(350)}}),{
         Nd("VerticalBox", P({ {"spacing", N(8)} }),
         {
-            Nd("Banner", P({ {"text", L("brand")}, {"tone", S("accent")} })),
+            Nd("SizeBox", P({ {"width", N(300)}, {"height", N(92)} }), {
+                Nd("Image", P({ {"texture", S("/Game/Splash/born2flap-logo.born2flap-logo")} }))
+            }),
 
             Nd("Panel", P({ {"title", L("hud.instruments")}, {"spacing", N(2)} }),
             {
