@@ -251,6 +251,9 @@ return float3(sin(T*1.1+P.x*.002)*2.5,sin(T*.83+P.y*.003)*1.7,0)*height;''',
 
 
 def radio():
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import mp3_cover
     source = Path.home() / 'Downloads/TurboRaven.mp3'
     if not source.exists():
         raise RuntimeError('TURBORAVEN source missing: ' + str(source))
@@ -264,6 +267,9 @@ def radio():
     wave.set_editor_property('volume', .55)
     LIB.save_loaded_asset(wave)
     u.log('RAVENSTONEFIELD_AUDIO duration=' + str(wave.duration))
+    # Recover the song's embedded cover art (ID3 APIC) and import it next to
+    # the track under the "<Track>_Cover" name the radio auto-detect finds.
+    mp3_cover.extract_mp3_cover(source, DEST + '/Audio', 'TURBORAVEN_Cover')
 
 
 def main():

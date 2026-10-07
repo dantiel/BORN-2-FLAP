@@ -28,6 +28,7 @@ module Born2Flap.Math.Planform
   , ShapeStation(..)
   , SpanStation(..)
   , defaultBirdWing
+  , scaleWing
     -- * Derived geometry (sweep implicit)
   , shapeLeadingEdgeX
   , shapeChord
@@ -89,11 +90,28 @@ defaultBirdWing = WingShape
   { wsSpanM = 0.72
   , wsShoulderM = 0.01  -- 1 cm shoulder: parallel-flapping ornithopter flies best with almost no shoulder width
   , wsStations =
-      [ ShapeStation 0.00 0.000 0.220  5.00 16.0 defaultBirdArmSection defaultBirdArmStructure  -- shoulder
-      , ShapeStation 0.45 0.087 0.185  2.00 16.0 defaultBirdArmSection defaultBirdArmStructure  -- elbow
-      , ShapeStation 1.00 0.262 0.090 (-2.0) 16.0 defaultBirdHandSection defaultBirdHandStructure  -- tip
+      [ ShapeStation 0.00 0.000 0.220  9.00 16.0 defaultBirdArmSection defaultBirdArmStructure  -- shoulder
+      , ShapeStation 0.45 0.087 0.185  5.00 16.0 defaultBirdArmSection defaultBirdArmStructure  -- elbow
+      , ShapeStation 1.00 0.262 0.090  0.00 16.0 defaultBirdHandSection defaultBirdHandStructure  -- tip
       ]
   }
+
+-- | Uniformly scale a wing outline by @s@: span, shoulder offset, leading-edge
+-- offsets and chords all scale together. Used to size the wing to the bird's
+-- mass — a 25 g bird gets a much smaller, lightly-loaded wing than a 1 kg
+-- bird, so a real micro-servo (≈0.2–0.6 N·m) can drive it. Span and chord
+-- scale together, so aspect ratio (and the aerodynamics) is unchanged.
+scaleWing :: Double -> WingShape -> WingShape
+scaleWing s wing = wing
+  { wsSpanM     = wsSpanM wing * s
+  , wsShoulderM = wsShoulderM wing * s
+  , wsStations  = map scaleStation (wsStations wing)
+  }
+  where
+    scaleStation st = st
+      { ssLeadX  = ssLeadX st * s
+      , ssChordM = ssChordM st * s
+      }
 
 -- | Local leading-edge x offset [m] at a span fraction.
 shapeLeadingEdgeX :: WingShape -> Double -> Double

@@ -1,0 +1,24 @@
+BORN 2 FLAP - Shiomori lava rock assets
+
+"Lava Rock Photoscan (PBR game asset)" by giantspaceoctopus (nschager)
+https://sketchfab.com/3d-models/lava-rock-photoscan-pbr-game-asset-c365f6c43be04fc7a75ac232a384a04b
+Licensed under Creative Commons Attribution 4.0 International:
+https://creativecommons.org/licenses/by/4.0/
+Changes: mesh sections merged, recentered and normalized; game LODs and collision
+generated; materials replaced with wet/dry charcoal rock shading; instances
+scaled, rotated and arranged into outcrops.
+
+"Scoria" by Emily Hauf, Digital Atlas of Ancient Life,
+Paleontological Research Institution, Ithaca, New York.
+Specimen from Klamath Falls, Oregon.
+https://sketchfab.com/3d-models/scoria-6dbd07399559472fba3f4c34c5bd7d0e
+CC0 1.0 Universal public-domain dedication:
+https://creativecommons.org/publicdomain/zero/1.0/
+Changes: mesh sections merged, recentered and normalized; game LODs and collision
+generated; specimen-label/baked-lighting material replaced; instances scaled,
+rotated and arranged into coastal outcrops.
+
+Both scans retrieved from the public Objaverse distribution (Allen Institute
+for AI): https://huggingface.co/datasets/allenai/objaverse
+Original author metadata and source SHA256 checksums are retained by the
+fetch_lava_assets.py workflow in Saved/LavaSource/manifest.json.

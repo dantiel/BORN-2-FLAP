@@ -14,5 +14,6 @@ namespace Born2FlapRaven
     // owner; returns nullptr when Owner or Parent is null.
     USceneComponent* Build(AActor* Owner, USceneComponent* Parent,
                            TObjectPtr<USceneComponent>& OutLeftShoulder,
-                           TObjectPtr<USceneComponent>& OutRightShoulder, int32 Design=0);
+                           TObjectPtr<USceneComponent>& OutRightShoulder,
+                           TObjectPtr<USceneComponent>& OutTailPivot, int32 Design=0);
 }

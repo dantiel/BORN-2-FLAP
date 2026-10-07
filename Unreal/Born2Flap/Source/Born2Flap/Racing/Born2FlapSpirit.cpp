@@ -20,7 +20,7 @@ void ABorn2FlapSpirit::SetupSpirit(const FB2FSpiritRecording &InRecording, bool 
     // Build the exact same folded-shard raven-crow airframe as the player bird,
     // so the shadow doppelgänger is a true shadow of the original model.
     if (!RavenRoot)
-        RavenRoot = Born2FlapRaven::Build(this, GetRootComponent(), LeftShoulder, RightShoulder);
+        RavenRoot = Born2FlapRaven::Build(this, GetRootComponent(), LeftShoulder, RightShoulder, TailPivot);
 
     const FString MaterialPath =
         bChampion ? TEXT("/Game/Training/M_Gold") : TEXT("/Game/Training/M_Ink");

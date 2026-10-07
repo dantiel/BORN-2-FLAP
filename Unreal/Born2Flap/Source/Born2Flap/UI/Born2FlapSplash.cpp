@@ -61,25 +61,20 @@ void ABorn2FlapSplash::Build()
     if (!Renderer)
         return;
 
-    // Full-bleed splash artwork (replaces the Windows engine splash) with a
-    // bottom-anchored loading readout overlaid on top. The 16:9 raster fills the
-    // viewport edge-to-edge so the first frame is the game's own splash, never
-    // the raw world behind it.
-    //   []         Overlay (root, children fill)
-    //   [0]        Image (splash artwork, full-bleed)
-    //   [1]        Overlay (align center, valign bottom)
-    //   [1,0]      Panel (solid, bottom-center block)
-    //   [1,0,0]    ProgressBar (0..1)
-    //   [1,0,1]    TextBlock  "LOADING" (below the bar)
+    // Small centred logo splash — the startup splash is a logo, NOT a
+    // full-bleed image. The loading bar lives on the full-bleed level-loading
+    // screen (FBorn2FlapModule). Tree:
+    //   []         Overlay (root, fills viewport)
+    //   [0]        Overlay (align center, valign center)
+    //   [0,0]      SizeBox (fixed logo size)
+    //   [0,0,0]    Image (logo artwork)
     FNode Root = Nd("Overlay", P({}),
     {
-        Nd("Image", P({ {"texture", S("/Game/Splash/born2flap-splash-new.born2flap-splash-new")} })),
-        Nd("Overlay", P({ {"align", S("center")}, {"valign", S("bottom")}, {"margin", N(24)} }),
+        Nd("Overlay", P({ {"align", S("center")}, {"valign", S("center")} }),
         {
-            Nd("Panel", P({ {"bg", S("solid")}, {"padding", N(18)}, {"spacing", N(8)} }),
+            Nd("SizeBox", P({ {"width", N(560)}, {"height", N(315)} }),
             {
-                Nd("ProgressBar", P({ {"value", N(0)}, {"tone", S("accent")} })),
-                Nd("TextBlock", P({ {"text", S("LOADING")}, {"size", S("m")}, {"align", S("center")} })),
+                Nd("Image", P({ {"texture", S("/Game/Splash/born2flap-splash-new.born2flap-splash-new")} }))
             })
         })
     });
@@ -95,26 +90,13 @@ void ABorn2FlapSplash::Build()
 
 void ABorn2FlapSplash::SetProgress(float Fraction)
 {
-    // The splash may have been spawned before the PlayerController existed,
-    // which defers its viewport attachment. Retry now (once per tick) so the
-    // artwork actually appears instead of silently never attaching.
+    // The startup splash is a plain centred logo — the loading bar now lives on
+    // the full-bleed level-loading screen (FBorn2FlapModule), so there is no
+    // bar to drive here. Keep the retry so a late-arriving PlayerController
+    // still mounts the splash viewport for its first frame.
+    (void)Fraction;
     if (Renderer)
         Renderer->EnsureAttached();
-
-    Fraction = FMath::Clamp(Fraction, 0.f, 1.f);
-
-    // Bar.
-    FProps BarProps;
-    BarProps["value"] = N(Fraction);
-    SendUpdate(Renderer, { 1, 0, 0 }, std::move(BarProps));
-
-    // Status label (below the bar).
-    FProps TextProps;
-    FValue TextV;
-    TextV.kind = FValue::Kind::String;
-    TextV.str = TCHAR_TO_UTF8(*FString::Printf(TEXT("LOADING %d%%"), FMath::RoundToInt(Fraction * 100.f)));
-    TextProps["text"] = TextV;
-    SendUpdate(Renderer, { 1, 0, 1 }, std::move(TextProps));
 }
 
 void ABorn2FlapSplash::SetOpacity(float Opacity)

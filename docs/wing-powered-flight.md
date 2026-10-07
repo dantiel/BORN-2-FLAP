@@ -118,5 +118,5 @@ test. Added mass remains omitted pending an implicit fluid/body solve; tail
 forces under arbitrary flow and completely unassisted trim need more work.
 The native Haskell and isolated C++ research models are not yet reconciled.
 
-The [earlier stability report](flight-stability-2026-09-24.md) is retained as a
+The earlier stability report (intern: flight-stability-2026-09-24.md) is retained as a
 historical record of the drag-sign repair and the now-replaced trainer.

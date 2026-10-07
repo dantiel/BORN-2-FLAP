@@ -9,8 +9,8 @@
 //
 // On top of the raw primitives it adds a *semantic component layer* (see
 // Born2FlapUiTheme.h / Born2FlapUiComposite.h): `Panel`, `Value`, `Stat`,
-// `Gauge`, `Banner`, `Button`, `Slider`, `Toggle`, `Select`, `NumberBox`,
-// `Field`, `Section`, `Divider` are composite widgets, so the Brain says
+// `Gauge`, `Banner`, `Button`, `Slider`, `Toggle`, `Select`, `Segment`,
+// `NumberBox`, `Field`, `Section`, `Divider` are composite widgets, so the Brain says
 // `slider label:"Höhe" value: h min:0 max:100 unit:" m"` and the host
 // resolves the look — the Brain never styles.
 
@@ -156,6 +156,10 @@ private:
     void BindNumber(UEditableTextBox* E, UBorn2FlapComposite* C);
     void RebuildSelectOptions(UBorn2FlapComposite* C, const born2flap::ui::FValue& Options);
     void ApplySelectSelection(UBorn2FlapComposite* C, int32 Index);
+    void RebuildSegmentOptions(UBorn2FlapComposite* C, const born2flap::ui::FValue& Options);
+    void ApplySegmentSelection(UBorn2FlapComposite* C, int32 Index);
+    void RebuildDropdownOptions(UBorn2FlapComposite* C, const born2flap::ui::FValue& Options);
+    void ApplyDropdownSelection(UBorn2FlapComposite* C, int32 Index);
     void ApplyToggleState(UBorn2FlapComposite* C);
     void ApplySectionFold(UBorn2FlapComposite* C, bool bOpen);
 

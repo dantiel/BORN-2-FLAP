@@ -24,7 +24,8 @@ class IInputProcessor;
 enum class ETuningField : uint8
 {
     ServoSpeed, StallTorque, Backdrive, BatteryVoltage, BatteryResistance, BatteryCapacity,
-    FlapBaseFreq, TailElevatorAngle, GlideAngle, StrokeFerocity, AileronScale, ElevatorScale, Count
+    FlapBaseFreq, TailElevatorAngle, GlideAngle, StrokeFerocity, AileronScale, ElevatorScale,
+    MountAngle, Count
 };
 // RC channels drive the native actuators. All forces and moments are aerodynamic.
 UCLASS()
@@ -57,6 +58,10 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     // Flight-safety reset amount: 0 = off, 1 = very low (acro-friendly), 2 = normal.
     float GetFlightSafety() const { return FlightSafety; }
     void SetFlightSafety(float Value) { if(FMath::IsFinite(Value)) FlightSafety=FMath::Clamp(Value,0.f,2.f); }
+    // Wingbeat-only audio level (0..2, default 1). Scales just the "wing" voice
+    // of the aero-audio synth so the flap can cut through wind/surf/music.
+    float GetWingbeatVolume() const { return WingbeatVolume; }
+    void SetWingbeatVolume(float Value) { if(FMath::IsFinite(Value)) WingbeatVolume=FMath::Clamp(Value,0.f,2.f); }
     // Replay shadow-doppelgängers: show past rounds flying alongside (default on).
     bool GetReplaySpiritsEnabled() const { return bReplaySpirits; }
     void SetReplaySpiritsEnabled(bool bOn);
@@ -74,11 +79,6 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     // F7 "remove all UI" toggle: collapses the cockpit/radio overlays.
     bool IsUIHidden() const { return bHideUI; }
     void ToggleUIHidden() { bHideUI = !bHideUI; }
-    // Optional visual aileron: twist the wings oppositely with roll input. Real
-    // flapping servos only flap, so this is off by default and kept for future
-    // actuators that can feather.
-    bool IsRollWingTwist() const { return bRollWingTwist; }
-    void SetRollWingTwist(bool bOn) { bRollWingTwist = bOn; }
     float GetAltitude() const;
     float GetSpeed() const;
     float GetEffort() const { return Throttle; }
@@ -102,8 +102,21 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     void SetSpeedModifier(float Value) { if (FMath::IsFinite(Value)) Desktop.speedModifier = FMath::Clamp((double)Value, 0.0, 1.0); }
     float GetFpvCameraAngle() const { return FpvCameraAngleDeg; }
     void SetFpvCameraAngle(float Deg) { if (FMath::IsFinite(Deg)) FpvCameraAngleDeg = FMath::Clamp(Deg, -45.f, 45.f); }
+    // Airframe mass (kg) and longitudinal centre-of-gravity offset (mm, + = aft).
+    // These are physical body properties, not firmware knobs: weight drives
+    // Chaos' body mass, CG shifts the centre of mass fore/aft.
+    float GetBodyMassKg() const { return BodyMassKg; }
+    void SetBodyMassKg(float Kg) { if (FMath::IsFinite(Kg)) { BodyMassKg = FMath::Clamp(Kg, 0.01f, 2.0f); ApplyBodyMass(); } }
+    float GetCgOffsetMm() const { return CgOffsetMm; }
+    void SetCgOffsetMm(float Mm) { if (FMath::IsFinite(Mm)) { CgOffsetMm = FMath::Clamp(Mm, -30.f, 30.f); ApplyBodyMass(); } }
+    // Persist the current flight/tuning preferences to Config (called by the
+    // integrated FLIGHT DESK page when the menu closes).
+    void SaveFlightPreferences();
     FString GetFlightStatus() const;
     const FBorn2FlapRcController *GetRcController() const { return RcController.Get(); }
+    // Mutable accessor for the semantic (Brain/umghaml) control panel to drive
+    // device selection / calibration / button learning.
+    FBorn2FlapRcController *GetRcControllerMutable() { return RcController.Get(); }
     // Points of interest: named reset/launch points supplied by the GameMode.
     // The start point is chosen in the level-select menu (?PoiKey=) and read once
     // at spawn; it is no longer cycled or shown as beacons in the world.
@@ -129,6 +142,9 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     UPROPERTY() TObjectPtr<USceneComponent> MembraneRightShoulder;
     UPROPERTY() TObjectPtr<USceneComponent> RavenLeftShoulder;
     UPROPERTY() TObjectPtr<USceneComponent> RavenRightShoulder;
+    // Tail fans pivot here so the tail-elevator trim is visible in the bird.
+    UPROPERTY() TObjectPtr<USceneComponent> RavenTailPivot;
+    UPROPERTY() TObjectPtr<USceneComponent> MembraneTailPivot;
     UPROPERTY(VisibleAnywhere) TObjectPtr<USpringArmComponent> CameraBoom;
     UPROPERTY(VisibleAnywhere) TObjectPtr<UCameraComponent> Camera;
     UPROPERTY() TObjectPtr<UStaticMeshComponent> SkyDome;
@@ -152,13 +168,17 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     float PrevLeftFlap = 0;
     born2flap::DesktopInput Desktop;
     float ControlExpo=.65f;
+    float WingbeatVolume=1.0f;   // wingbeat-only voice volume (0..2)
     float FlightSafety=1.0f;  // 0 off · 1 very low (acro) · 2 normal
     bool bReplaySpirits = true;   // show replay shadow-doppelgängers
     bool bCoupledThrottle = true;
     FVector MouseGains = FVector(1, -1, 1);
     int32 BirdModel = 0;
+    float BodyMassKg = 0.45f;
+    float CgOffsetMm = 0.f;
     B2F_TuningConfig Tuning{};
     void ApplyTuning();
+    void ApplyBodyMass();
     TWeakObjectPtr<ABorn2FlapFlightSettings> SettingsPanel;
     TWeakObjectPtr<ABorn2FlapPoiOverlay> PoiOverlay;
     // Brain (UMGHAML) path: when the Ruby Brain is the live authoring host the
@@ -168,16 +188,15 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     bool bBrainPoiOpen = false;
     bool bBrainSettingsOpen = false;
     void BuildRavenCrow();
-    void SweepWingColliders();
+    void SweepWingColliders(float Dt);
     TMap<UBorn2FlapWingMesh*, FVector> WingSweepPrev;
     double LastWingTouchTime = -1e30;
+    double LastWingPushTime = -1e30;
     bool bWingTouching = false;
     void LoadFlightPreferences();
-    void SaveFlightPreferences();
     float Throttle = 0, RollInput = 0, YawInput = 0, PitchInput = 0, LeftFlap = 0, RightFlap = 0, BatterySoc = 1;
     bool bFlying = false, bHealthy = false, bVectors = false, bReturning = false, bBlind = false;
     bool bHideUI = false;
-    bool bRollWingTwist = false;
     // Raw F8/Esc capture. An input pre-processor (registered in BeginPlay) sees
     // every key-down before FInputModeGameAndUI routes keyboard away from
     // PlayerInput while the flight-desk panel is open; Tick consumes its flags.

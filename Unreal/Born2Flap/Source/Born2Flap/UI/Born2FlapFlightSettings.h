@@ -54,4 +54,10 @@ private:
     // "reset mouse response").
     TArray<TArray<int32>> ModelButtons;
     TArray<TArray<int32>> MouseGainSliders;
+    // Servo preset selector: path to the Select + status readout, and the
+    // currently loaded preset (-1 = CUSTOM after a manual slider edit).
+    TArray<int32> ServoSelectPath;
+    TArray<int32> ServoStatusPath;
+    int32 ServoPresetIndex = -1;
+    void MarkServoCustom();
 };

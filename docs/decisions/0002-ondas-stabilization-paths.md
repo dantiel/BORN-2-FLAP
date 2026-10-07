@@ -4,7 +4,7 @@ Status: angenommen
 
 ## Kontext
 
-Der Implementationsplan `docs/ondas-stabilization-plan.md` (Albedo) beschreibt drei
+Der Implementationsplan (Albedo, intern) beschreibt drei
 Lücken (A/B/C) zur Einbringung des audit-verifizierten ONDAS-Wissens. Dieses ADR
 vergleicht für jede Lücke die realen Implementierungsalternativen und wählt den
 Pfad, der Eleganz, Effizienz und Codebase-Konformität (ADR 0001) optimal ausbalanciert.

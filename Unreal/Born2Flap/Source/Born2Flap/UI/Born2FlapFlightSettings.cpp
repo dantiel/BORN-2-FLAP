@@ -60,6 +60,20 @@ void SendUpdate(UBorn2FlapUIRenderer* R, const TArray<int32>& Path, FProps Props
     R->ApplyOps(Ops);
 }
 
+// Servos tested for flapping (dantiel.github.io/OrniFlight servo-efficiency
+// table). Speed = 60 / s-per-60°, torque = kg·cm × 0.0980665 → N·m. Backdrive
+// is not published on the table, so presets keep the simulator default (20).
+struct FServoPreset { const TCHAR* Name; float SpeedDegS; float StallTorqueNm; float Backdrive; float Voltage; };
+static const FServoPreset ServoPresets[] = {
+    { TEXT("Blue Arrow AF D43S-6.0-MG"), 1500.f, 0.17f, 20.f, 6.0f },
+    { TEXT("VOTIK PTK 7465 / 7465W MG"),   667.f, 0.56f, 20.f, 8.4f },
+    { TEXT("Blue Arrow D0576HT-MG-HV"),   1000.f, 0.41f, 20.f, 7.4f },
+    { TEXT("Inservos D0474HT-MG-HV"),      750.f, 0.35f, 20.f, 7.4f },
+    { TEXT("KST MR320"),                   750.f, 0.54f, 20.f, 7.4f },
+    { TEXT("SAVOX SV-1270TG"),             545.f, 3.43f, 20.f, 7.4f },
+};
+constexpr int32 ServoPresetCount = (int32)(sizeof(ServoPresets) / sizeof(ServoPresets[0]));
+
 }  // namespace
 
 ABorn2FlapFlightSettings::ABorn2FlapFlightSettings()
@@ -176,15 +190,6 @@ void ABorn2FlapFlightSettings::BuildTree()
     }
     {
         FProps Props;
-        Props["action"] = S("bird.rolltwist");
-        Props["label"] = S("WING TWIST AILERONS");
-        Props["on"] = S("ON  /  click to disable");
-        Props["off"] = S("OFF  /  click to enable");
-        Props["value"] = B(Bird->IsRollWingTwist());
-        Rows.push_back(Nd("Toggle", std::move(Props)));
-    }
-    {
-        FProps Props;
         Props["action"] = S("bird.coupled");
         Props["label"] = S("COUPLED THROTTLE");
         Props["on"] = S("ON  /  click to decouple");
@@ -283,19 +288,67 @@ void ABorn2FlapFlightSettings::BuildTree()
     }
 
     const int32 TuningStart=Rows.size();
-    // Tuning — twelve firmware knobs (metadata in Born2FlapTuning.h).
+    // Tuning — firmware knobs (metadata in Born2FlapTuning.h).
     Rows.push_back(Nd("TextBlock", P({ {"text", S("H A N G A R   /   TUNING")}, {"tone", S("accent")}, {"size", S("l")} })));
     Rows.push_back(Nd("TextBlock", P({ {"text", Sv(TEXT("Live edits reach the firmware on the next physics step — the bird re-tunes itself."))}, {"tone", S("dim")}, {"size", S("xs")}, {"wrap", B(true)} })));
+    // Servo preset: load speed/torque/voltage defaults from a servo tested for
+    // flapping. The selected preset stays highlighted until any servo slider is
+    // edited by hand, which flips the readout to CUSTOM.
+    {
+        FValue ServoOptions; ServoOptions.kind = FValue::Kind::Array;
+        for (const FServoPreset& Sp : ServoPresets) ServoOptions.arr.push_back(Sv(FString(Sp.Name)));
+        ServoSelectPath = RowPath((int32)Rows.size());
+        Rows.push_back(Nd("Select", P({
+            {"label", S("SERVO PRESET  /  load tested defaults")},
+            {"options", std::move(ServoOptions)},
+            {"value", N(ServoPresetIndex)},
+            {"action", S("servo.preset")},
+            {"tooltip", S("Load speed, stall torque and voltage defaults from a servo tested for flapping (dantiel.github.io/OrniFlight). Editing any servo slider afterwards marks it CUSTOM.")}
+        })));
+        ServoStatusPath = RowPath((int32)Rows.size());
+        const FString StatusText = (ServoPresetIndex >= 0 && ServoPresetIndex < ServoPresetCount)
+            ? FString(TEXT("SERVO:  ")) + ServoPresets[ServoPresetIndex].Name
+            : TEXT("SERVO:  CUSTOM  /  manual");
+        Rows.push_back(Nd("TextBlock", P({
+            {"text", Sv(StatusText)},
+            {"tone", S(ServoPresetIndex >= 0 ? "good" : "dim")},
+            {"size", S("s")}
+        })));
+    }
     for (const born2flap::tuning::FRow& Row : born2flap::tuning::Rows)
     {
         FProps Props;
         Props["action"] = S(TCHAR_TO_UTF8(born2flap::tuning::Key(Row.Field)));
         Props["label"] = Sv(FString(Row.Label));
-        Props["value"] = N(Bird->GetTuning(Row.Field));
+        Props["value"] = N(born2flap::tuning::ToDisplayValue(Row.Field, Bird->GetTuning(Row.Field)));
         Props["min"] = N(Row.Min);
         Props["max"] = N(Row.Max);
         Props["step"] = N(FMath::Pow(10.0f, (float)-Row.Decimals));
         Props["unit"] = Sv(FString(Row.Unit));
+        Rows.push_back(Nd("Slider", std::move(Props)));
+    }
+    // Airframe mass + centre of gravity: physical body properties, not firmware
+    // knobs — they act directly on the Chaos body (mass and COM offset).
+    {
+        FProps Props;
+        Props["action"] = S("bird.weight");
+        Props["label"] = S("BIRD WEIGHT");
+        Props["value"] = N(Bird->GetBodyMassKg() * 1000.f);
+        Props["min"] = N(100);
+        Props["max"] = N(2000);
+        Props["step"] = N(5);
+        Props["unit"] = S("g");
+        Rows.push_back(Nd("Slider", std::move(Props)));
+    }
+    {
+        FProps Props;
+        Props["action"] = S("bird.cg");
+        Props["label"] = S("CENTRE OF GRAVITY");
+        Props["value"] = N(Bird->GetCgOffsetMm());
+        Props["min"] = N(-30);
+        Props["max"] = N(30);
+        Props["step"] = N(1);
+        Props["unit"] = S("mm");
         Rows.push_back(Nd("Slider", std::move(Props)));
     }
 
@@ -389,9 +442,23 @@ void ABorn2FlapFlightSettings::HandleAction(const FString& Action, float Value, 
     if (Action == TEXT("camera.fpv")) { Bird->ToggleFpvView(); return; }
 
     if (Action == TEXT("camera.angle")) { Bird->SetFpvCameraAngle(Value); return; }
-    if (Action == TEXT("bird.rolltwist")) { Bird->SetRollWingTwist(Value > 0.5f); return; }
     if (Action == TEXT("bird.coupled")) { Bird->SetThrottleCoupled(Value > 0.5f); return; }
     if (Action == TEXT("mouse.speed")) { Bird->SetSpeedModifier(Value); return; }
+    if (Action == TEXT("bird.weight")) { Bird->SetBodyMassKg(Value / 1000.f); return; }
+    if (Action == TEXT("bird.cg")) { Bird->SetCgOffsetMm(Value); return; }
+
+    if (Action == TEXT("servo.preset"))
+    {
+        const int32 Idx = FMath::Clamp(FMath::RoundToInt(Value), 0, ServoPresetCount - 1);
+        const FServoPreset& Sp = ServoPresets[Idx];
+        Bird->SetTuning(ETuningField::ServoSpeed, Sp.SpeedDegS);
+        Bird->SetTuning(ETuningField::StallTorque, Sp.StallTorqueNm);
+        Bird->SetTuning(ETuningField::Backdrive, Sp.Backdrive);
+        Bird->SetTuning(ETuningField::BatteryVoltage, Sp.Voltage);
+        ServoPresetIndex = Idx;
+        BuildTree();
+        return;
+    }
 
     if (Action.StartsWith(TEXT("mouse.gain.")))
     {
@@ -435,7 +502,21 @@ void ABorn2FlapFlightSettings::HandleAction(const FString& Action, float Value, 
 
     const ETuningField Field = born2flap::tuning::FromKey(Action);
     if (Field != ETuningField::Count)
-        Bird->SetTuning(Field, Value);
+    {
+        Bird->SetTuning(Field, born2flap::tuning::FromDisplayValue(Field, Value));
+        if (Field == ETuningField::ServoSpeed || Field == ETuningField::StallTorque ||
+            Field == ETuningField::Backdrive || Field == ETuningField::BatteryVoltage)
+            MarkServoCustom();
+    }
+}
+
+void ABorn2FlapFlightSettings::MarkServoCustom()
+{
+    if (ServoPresetIndex == -1 || !Renderer || !Bird.IsValid())
+        return;
+    ServoPresetIndex = -1;
+    SendUpdate(Renderer, ServoSelectPath, P({ {"value", N(-1)} }));
+    SendUpdate(Renderer, ServoStatusPath, P({ {"text", S("SERVO:  CUSTOM  /  manual")}, {"tone", S("dim")} }));
 }
 
 void ABorn2FlapFlightSettings::HandleClose()

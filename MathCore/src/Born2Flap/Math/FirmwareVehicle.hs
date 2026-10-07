@@ -75,11 +75,11 @@ defaultFirmwareVehicleState = FirmwareVehicleState
 -- Returns @(VehicleOutput, next state)@. @VehicleOutput@ carries the total
 -- force/moment, total mechanical power, and the peak separation fraction.
 stepFirmwareVehicle
-  :: Bool -> RcChannels -> FirmwareParams -> ServoSpec -> BatterySpec
+  :: Bool -> RcChannels -> FirmwareParams -> ServoSpec -> BatterySpec -> Double
   -> Double -> Vec3 -> Vec3
   -> FirmwareVehicleState
   -> (VehicleOutput, FirmwareVehicleState)
-stepFirmwareVehicle coupled rc params servo battery dt bodyVel bodyRates state
+stepFirmwareVehicle coupled rc params servo battery wingScale dt bodyVel bodyRates state
   | not (finite dt) || dt <= 0 || dt > 0.05 = (zeroOutput 1, state)
   | not (all finite (components bodyVel ++ components bodyRates ++
       [rcAileron rc, rcElevator rc, rcThrottle rc, rcRudder rc, rcArm rc, rcFreq rc, rcProfile rc])) =
@@ -90,7 +90,7 @@ stepFirmwareVehicle coupled rc params servo battery dt bodyVel bodyRates state
   where
     transaction = do
       old <- getState
-      let (output, next) = advanceFirmwareVehicle coupled rc params servo battery dt bodyVel bodyRates old
+      let (output, next) = advanceFirmwareVehicle coupled rc params servo battery wingScale dt bodyVel bodyRates old
           values = components (totalForceN output) ++ components (totalMomentNm output) ++
             [totalMechanicalPowerW output, maxSeparation output, fvBatterySoc next,
              fvLeftHingeTorqueNm next, fvRightHingeTorqueNm next,
@@ -110,9 +110,9 @@ hingeTorque :: Double -> [StripResult] -> Double
 hingeTorque side = (* side) . sum . map (\r -> x (resultMoment r) + wingRootHeight * y (resultForce r))
 
 advanceFirmwareVehicle
-  :: Bool -> RcChannels -> FirmwareParams -> ServoSpec -> BatterySpec
+  :: Bool -> RcChannels -> FirmwareParams -> ServoSpec -> BatterySpec -> Double
   -> Double -> Vec3 -> Vec3 -> FirmwareVehicleState -> (VehicleOutput, FirmwareVehicleState)
-advanceFirmwareVehicle coupled rc params servo battery dt bodyVel bodyRates state
+advanceFirmwareVehicle coupled rc params servo battery wingScale dt bodyVel bodyRates state
   | otherwise =
       let -- 1. Firmware mixer: RC → wing servo commands (flap deviation deg).
           (mix, nextFw) = computeServoMixer coupled rc params (fvFirmware state) dt
@@ -127,11 +127,11 @@ advanceFirmwareVehicle coupled rc params servo battery dt bodyVel bodyRates stat
           (leftFlapDeg, nextServoL) = stepServo servo battery
                                         (mixLeftFlapDevDeg mix)
                                         (fvLeftHingeTorqueNm state)
-                                        voltage dt (fvServoLeft state)
+                                        wingScale voltage dt (fvServoLeft state)
           (rightFlapDeg, nextServoR) = stepServo servo battery
                                          (mixRightFlapDevDeg mix)
                                          (fvRightHingeTorqueNm state)
-                                         voltage dt (fvServoRight state)
+                                         wingScale voltage dt (fvServoRight state)
 
           -- 2b. ONDAS A-injection: golden-angle phase-envelope strobe at reversal.
           prevPhase = oscPhase (fwOscillator (fvFirmware state))
@@ -162,12 +162,13 @@ advanceFirmwareVehicle coupled rc params servo battery dt bodyVel bodyRates stat
 
           -- 3. Actual flap deviation → wing physics.
           input = VehicleInput dt bodyVel bodyRates 0 (crsfToNorm (rcAileron rc)) elevatorNorm 0
+          wingIncidenceRad = radians (fwMountIncidenceDeg params)
           strokeL = radians leftFlapDeg
           strokeR = radians rightFlapDeg
           rateL = radians (servoRateDegPerSec nextServoL)
           rateR = radians (servoRateDegPerSec nextServoR)
-          (leftResults, leftNext) = stepWingWithStroke (mixIsFlapping mix) (-1) strokeL rateL input (fvLeftStrips state)
-          (rightResults, rightNext) = stepWingWithStroke (mixIsFlapping mix) 1 strokeR rateR input (fvRightStrips state)
+          (leftResults, leftNext) = stepWingWithStroke (mixIsFlapping mix) (-1) strokeL rateL input wingScale wingIncidenceRad (fvLeftStrips state)
+          (rightResults, rightNext) = stepWingWithStroke (mixIsFlapping mix) 1 strokeR rateR input wingScale wingIncidenceRad (fvRightStrips state)
           wingResults = leftResults ++ rightResults
 
           -- 4. Generalized torque conjugate to each wing's flap coordinate.
@@ -183,7 +184,9 @@ advanceFirmwareVehicle coupled rc params servo battery dt bodyVel bodyRates stat
           wingForce = foldr (addVec . resultForce) zeroVec wingResults
           wingMoment = foldr (addVec . resultMoment) zeroVec wingResults
           speed = magnitude bodyVel
-          bodyDrag = scaleVec (-0.5 * 1.225 * 0.032 * speed) bodyVel
+          -- Frontal area scales with the planform scale squared (geometric
+          -- similarity): a small bird must not carry a full-size body's drag.
+          bodyDrag = scaleVec (-0.5 * 1.225 * 0.018 * wingScale * wingScale * speed) bodyVel
           -- Two real inverted-V panels, 12 degrees down, with mixed ruddervators.
           -- Each panel sees its own local flow and produces force at its own arm;
           -- the resulting pitch/yaw/roll coupling is geometric, not an added torque.
@@ -191,9 +194,12 @@ advanceFirmwareVehicle coupled rc params servo battery dt bodyVel bodyRates stat
           -- A direct flap-power/ruddervator mix balances the wing drive's changing
           -- pitching moment. Glide returns to its shallow incidence; no attitude,
           -- altitude or speed target is involved.
-          tailTrim = -2.1 - 22 * mixThrottlePct mix * mixThrottlePct mix
+          tailTrim = -2.0 - 4.0 * mixThrottlePct mix * mixThrottlePct mix
           tailPanel side =
-            let arm = Vec3 (-0.85) (side * 0.12) (-0.12 * tan cant)
+            let -- Tail geometry scales with the bird: arm ∝ wingScale,
+                -- panel area ∝ wingScale² (else a micro bird carries a
+                -- full-size tail whose downforce overwhelms its weight).
+                arm = Vec3 (-0.85 * wingScale) (side * 0.12 * wingScale) (-0.12 * wingScale * tan cant)
                 normal = Vec3 0 (side * sin cant) (cos cant)
                 flow = addVec bodyVel (crossVec bodyRates arm)
                 normalFlow = y flow * y normal + z flow * z normal
@@ -204,7 +210,7 @@ advanceFirmwareVehicle coupled rc params servo battery dt bodyVel bodyRates stat
                 -- incidence double-projects and throttles the rudder by sin²(cant).
                 incidence = radians (tailTrim - 18 * elevatorNorm
                                       - side * 30 * rudderNorm)
-                (fx, fn) = tailSurface 0.0242 incidence (x flow) normalFlow
+                (fx, fn) = tailSurface (0.0242 * wingScale * wingScale) incidence (x flow) normalFlow
                 panelForce = addVec (Vec3 fx 0 0) (scaleVec fn normal)
             in (panelForce, crossVec arm panelForce)
           panels = map tailPanel [-1,1]

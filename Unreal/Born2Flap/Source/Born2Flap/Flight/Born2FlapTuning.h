@@ -30,6 +30,7 @@ FORCEINLINE const TCHAR* Key(ETuningField Field)
     case ETuningField::StrokeFerocity:     return TEXT("StrokeFerocity");
     case ETuningField::AileronScale:       return TEXT("AileronScale");
     case ETuningField::ElevatorScale:      return TEXT("ElevatorScale");
+    case ETuningField::MountAngle:         return TEXT("MountAngle");
     default:                               return TEXT("");
     }
 }
@@ -54,10 +55,34 @@ struct FRow
     int32 Decimals;
 };
 
+// Display-unit conversion. The physics/tuning state stays in SI units (servo
+// no-load speed in °/s, stall torque in N·m); the editor exposes the hobbyist
+// units pilots actually spec servos with:
+//   * speed  -> seconds per 60° (reciprocal of °/s)
+//   * torque -> kg·cm  (1 kg·cm = 0.0980665 N·m)
+FORCEINLINE float ToDisplayValue(ETuningField Field, float Internal)
+{
+    switch (Field)
+    {
+    case ETuningField::ServoSpeed:  return Internal > 1e-3f ? 60.f / Internal : 0.f;
+    case ETuningField::StallTorque: return Internal / 0.0980665f;
+    default:                        return Internal;
+    }
+}
+FORCEINLINE float FromDisplayValue(ETuningField Field, float Display)
+{
+    switch (Field)
+    {
+    case ETuningField::ServoSpeed:  return Display > 1e-3f ? 60.f / Display : 0.f;
+    case ETuningField::StallTorque: return Display * 0.0980665f;
+    default:                        return Display;
+    }
+}
+
 static const FRow Rows[] =
 {
-    { ETuningField::ServoSpeed,         TEXT("SERVO SPEED"),           TEXT("°/s"),         100.f, 2400.f, 0 },
-    { ETuningField::StallTorque,        TEXT("STALL TORQUE"),          TEXT("N·m"),           0.5f,   20.f, 1 },
+    { ETuningField::ServoSpeed,         TEXT("SERVO SPEED"),           TEXT("s/60°"),       0.025f,  0.6f, 3 },
+    { ETuningField::StallTorque,        TEXT("STALL TORQUE"),          TEXT("kg·cm"),         0.5f,  40.f, 1 },
     { ETuningField::Backdrive,          TEXT("BACKDRIVE"),             TEXT("°/s per N·m"),   0.f,  100.f, 0 },
     { ETuningField::BatteryVoltage,     TEXT("BATTERY VOLTAGE"),       TEXT("V"),             3.7f,  22.2f, 1 },
     { ETuningField::BatteryResistance,  TEXT("BATTERY RESISTANCE"),    TEXT("Ω"),             0.01f,  0.5f, 2 },
@@ -68,6 +93,7 @@ static const FRow Rows[] =
     { ETuningField::StrokeFerocity,     TEXT("STROKE FEROCITY"),       TEXT("%"),             0.f,  100.f, 0 },
     { ETuningField::AileronScale,       TEXT("AILERON SCALE"),         TEXT("%"),             0.f,  100.f, 0 },
     { ETuningField::ElevatorScale,      TEXT("ELEVATOR SCALE"),        TEXT("%"),             0.f,  100.f, 0 },
+    { ETuningField::MountAngle,         TEXT("VERTICAL MOUNT ANGLE"), TEXT("°"),           -15.f,   15.f, 0 },
 };
 
 }  // namespace born2flap::tuning

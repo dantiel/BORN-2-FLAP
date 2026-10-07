@@ -80,6 +80,13 @@ void ABorn2FlapSurf::Tick(float Dt)
                 Alpha=SideFade*(1-FMath::SmoothStep(1100.,3200.,Front))*FMath::SmoothStep(-550.,100.,Front)
                     *FMath::Pow(FMath::Sin(PI*V),.55)*.9;
             }
+            // Follow the same displaced liquid surface as the ocean shader.
+            // Single Layer Water writes depth, so foam must actually lie above
+            // that surface rather than relying on translucent draw ordering.
+            const double ShoreBlend=FMath::SmoothStep(100.,3000.,Y);
+            const double LiquidZ=Director ? -50+(Director->GetWaterHeightAt(X,Shore+Y)+50)*ShoreBlend : -50;
+            if(Kind==0) Z+=LiquidZ+50+2;
+            else Z=FMath::Max(Z,LiquidZ+4);
             Vertices.Add(FVector(X,Shore+Y,Z));
             Normals.Add(FVector::UpVector);
             UV.Add(FVector2D(X*.003,V));

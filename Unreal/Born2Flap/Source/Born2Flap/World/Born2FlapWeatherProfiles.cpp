@@ -1,5 +1,6 @@
 #include "World/Born2FlapWeather.h"
 #include "World/Born2FlapWind.h"
+#include "World/Born2FlapBayTerrain.h"
 #include "Misc/ConfigCacheIni.h"
 
 namespace Born2FlapWeather
@@ -101,6 +102,7 @@ FVector Wind(const FString& Level,const FBorn2FlapConditions& C,const FVector& P
                    FMath::Sin(Heading+Drift)*Strength+GY*W.Gust,0);
     if(Level==TEXT("Shiomori"))
     {
+        Result*=Born2FlapBay::WindExposure(P,Result);
         Result.Z=.85*(Strength/3.2)*FMath::Exp(-FMath::Square((P.Y+1400)/650.))*
             FMath::Exp(-FMath::Max(0.,P.Z-150)/650.)*(1-FMath::SmoothStep(43000.,46000.,FMath::Abs(P.X)));
     }

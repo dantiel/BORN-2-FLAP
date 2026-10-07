@@ -8,6 +8,7 @@
 #include "GameFramework/PlayerController.h"
 #include "Kismet/GameplayStatics.h"
 #include "Engine/World.h"
+#include "Engine/Texture2D.h"
 
 using namespace born2flap::ui;
 
@@ -44,6 +45,22 @@ FOp UpdateProps(FPath Path, FProps Props)
 }
 
 FPath Pth(std::initializer_list<int> I) { return FPath(I); }
+
+// Fallback shown when a track has no cover art and nothing is auto-detected.
+static const TCHAR* kPlaceholderCover = TEXT("/Game/UI/Elements/RadioOn.RadioOn");
+
+// Normalize a package path ("/Game/A/B") into a full object ref ("/Game/A/B.B").
+FString ToAssetRef(const FString& Path)
+{
+    if (Path.IsEmpty())
+        return Path;
+    int32 Slash = INDEX_NONE;
+    Path.FindLastChar('/', Slash);
+    const FString Name = Path.Mid(Slash + 1);
+    if (Name.Contains(TEXT(".")))
+        return Path;
+    return Path + TEXT(".") + Name;
+}
 
 }  // namespace
 
@@ -83,6 +100,20 @@ void UBorn2FlapRadioStation::Initialize(UWorld* World, const FString& LevelName)
     {
         UE_LOG(LogTemp, Error, TEXT("Born2FlapRadio: no tracks imported for level '%s'"), *LevelName);
         return;
+    }
+
+    // Resolve cover art for each track: explicit config Covers[i] first, then
+    // auto-detect by naming convention, otherwise leave empty (placeholder).
+    for (int32 i = 0; i < Playlist.Num(); ++i)
+    {
+        FString Cover;
+        if (Found->Covers.IsValidIndex(i) && !Found->Covers[i].IsEmpty())
+            Cover = ToAssetRef(Found->Covers[i]);
+        else
+            Cover = AutoDetectCover(Found->Tracks[i]);
+        if (!Cover.IsEmpty() && !CoverExists(Cover))
+            Cover.Empty();
+        TrackCovers.Add(Cover);
     }
 
     UE_LOG(LogTemp, Display, TEXT("Born2FlapRadio: level='%s' station='%s' tracks=%d"),
@@ -202,6 +233,43 @@ FString UBorn2FlapRadioStation::GetTrackName() const
     return Playlist.IsValidIndex(TrackIndex) && Playlist[TrackIndex] ? Playlist[TrackIndex]->GetName() : FString();
 }
 
+FString UBorn2FlapRadioStation::GetCoverPath() const
+{
+    if (TrackCovers.IsValidIndex(TrackIndex) && !TrackCovers[TrackIndex].IsEmpty())
+        return TrackCovers[TrackIndex];
+    return kPlaceholderCover;
+}
+
+FString UBorn2FlapRadioStation::AutoDetectCover(const FString& TrackPath) const
+{
+    if (TrackPath.IsEmpty())
+        return FString();
+
+    int32 Slash = INDEX_NONE;
+    TrackPath.FindLastChar('/', Slash);
+    const FString Folder = TrackPath.Left(Slash);
+    const FString Name = TrackPath.Mid(Slash + 1);
+
+    // Common conventions: <Track>_Cover, Cover_<Track>, <Track>_Art.
+    const TArray<FString> Candidates = {
+        Folder / (Name + TEXT("_Cover")),
+        Folder / (FString(TEXT("Cover_")) + Name),
+        Folder / (Name + TEXT("_Art")),
+    };
+    for (const FString& C : Candidates)
+    {
+        const FString Ref = ToAssetRef(C);
+        if (CoverExists(Ref))
+            return Ref;
+    }
+    return FString();
+}
+
+bool UBorn2FlapRadioStation::CoverExists(const FString& AssetRef)
+{
+    return LoadObject<UTexture2D>(nullptr, *AssetRef) != nullptr;
+}
+
 // ---- HUD -------------------------------------------------------------------
 
 ABorn2FlapRadioHUD::ABorn2FlapRadioHUD()
@@ -223,9 +291,11 @@ void ABorn2FlapRadioHUD::SetStation(UBorn2FlapRadioStation* InStation)
 }
 
 // Semantic tree (paths from the Overlay root []):
-//   [0]     the station panel
-//   [0,0]   track banner (text)
-//   [0,1]   volume stat (value)
+//   [0]          the station panel
+//   [0,0]        cover + text row (cover art left of the title/volume)
+//   [0,0,0,0]    cover art image (texture)
+//   [0,0,1,0]    track banner (text)
+//   [0,0,1,1]    volume stat (value)
 void ABorn2FlapRadioHUD::BuildPanel()
 {
     if (!Renderer || !Station)
@@ -235,8 +305,18 @@ void ABorn2FlapRadioHUD::BuildPanel()
     {
         Nd("Panel", P({ {"title", S(TCHAR_TO_UTF8(*Station->GetStationName()))}, {"tone", S("accent")}, {"spacing", N(4)} }),
         {
-            Nd("Banner", P({ {"text", S("—")}, {"tone", S("normal")} })),
-            Nd("Stat",  P({ {"label", L("radio.vol")}, {"value", N(50)}, {"unit", S(" %")}, {"tone", S("info")} })),
+            Nd("HorizontalBox", P({ {"valign", S("center")}, {"spacing", N(12)} }),
+            {
+                Nd("SizeBox", P({ {"width", N(72)}, {"height", N(72)} }),
+                {
+                    Nd("Image", P({ {"texture", S(TCHAR_TO_UTF8(*Station->GetCoverPath()))} })),
+                }),
+                Nd("VerticalBox", P({ {"spacing", N(2)} }),
+                {
+                    Nd("Banner", P({ {"text", S("—")}, {"tone", S("normal")} })),
+                    Nd("Stat",  P({ {"label", L("radio.vol")}, {"value", N(50)}, {"unit", S(" %")}, {"tone", S("info")} })),
+                }),
+            }),
         }),
     });
 
@@ -248,6 +328,7 @@ void ABorn2FlapRadioHUD::BuildPanel()
     TArray<FOp> Ops;
     Ops.Add(MoveTemp(Mount));
     Renderer->ApplyOps(Ops);
+    LastCoverPath.Empty();
     LastTrackLine.Empty();
     LastVolumePct = -1;
 }
@@ -282,17 +363,24 @@ void ABorn2FlapRadioHUD::Refresh()
 
     TArray<FOp> Ops;
 
+    const FString CoverPath = Station->GetCoverPath();
+    if (CoverPath != LastCoverPath)
+    {
+        Ops.Add(UpdateProps(Pth({0, 0, 0, 0}), P({ {"texture", S(TCHAR_TO_UTF8(*CoverPath))} })));
+        LastCoverPath = CoverPath;
+    }
+
     const FString TrackLine = Station->IsPlaying() ? Station->GetTrackName() : FString(TEXT("(paused)"));
     if (TrackLine != LastTrackLine)
     {
-        Ops.Add(UpdateProps(Pth({0, 0}), P({ {"text", S(TCHAR_TO_UTF8(*TrackLine))} })));
+        Ops.Add(UpdateProps(Pth({0, 0, 1, 0}), P({ {"text", S(TCHAR_TO_UTF8(*TrackLine))} })));
         LastTrackLine = TrackLine;
     }
 
     const int32 VolumePct = FMath::RoundToInt(Station->GetVolume() * 100.f);
     if (VolumePct != LastVolumePct)
     {
-        Ops.Add(UpdateProps(Pth({0, 1}), P({ {"value", N((double)VolumePct)} })));
+        Ops.Add(UpdateProps(Pth({0, 0, 1, 1}), P({ {"value", N((double)VolumePct)} })));
         LastVolumePct = VolumePct;
     }
 

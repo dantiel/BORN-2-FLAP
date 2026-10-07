@@ -252,6 +252,62 @@ void ArtButton(UButton* Button, bool Selected, bool Tab)
         Label->SetColorAndOpacity(FSlateColor::UseForeground());
 }
 
+// A segmented-control cell: neighbours are connected (no gaps) inside one
+// shared track. The active cell fills with the accent tone; the rest stay
+// transparent so the track reads through. Only the first/last cells round
+// their outer corners, so the whole reads as a single pill.
+void ArtSegment(UButton* Button, bool Selected, int32 Index, int32 Count)
+{
+    if (!Button) return;
+    const float R = 6.f;
+    const bool First = (Index == 0);
+    const bool Last  = (Index == Count - 1);
+    // FVector4 radii order: (TopLeft, TopRight, BottomRight, BottomLeft).
+    const FVector4 Radii(First ? R : 0.f, Last ? R : 0.f, Last ? R : 0.f, First ? R : 0.f);
+
+    FButtonStyle Style;
+    Style.Normal    = FSlateRoundedBoxBrush(Selected ? FLinearColor(.22f,.055f,.035f,.9f) : FLinearColor::Transparent, Radii);
+    Style.Hovered   = FSlateRoundedBoxBrush(Selected ? FLinearColor(.3f,.065f,.04f,.98f) : FLinearColor(.13f,.17f,.18f,.6f), Radii);
+    Style.Pressed   = FSlateRoundedBoxBrush(FLinearColor(.35f,.075f,.045f,1.f), Radii);
+    Style.Disabled  = Style.Normal;
+    Style.Disabled.TintColor = FLinearColor(.5f,.5f,.5f,.65f);
+    Style.NormalForeground = Style.HoveredForeground = Style.PressedForeground = theme::FG();
+    Style.NormalPadding = Style.PressedPadding = FMargin(12.f, 8.f);
+    Button->SetStyle(Style);
+    Button->SetBackgroundColor(FLinearColor::White);
+    if (auto* Label = Cast<UTextBlock>(Button->GetContent()))
+        Label->SetColorAndOpacity(Selected ? FSlateColor(FLinearColor::White) : FSlateColor(theme::FG_DIM()));
+}
+
+// A text-only menu button: transparent in its resting state, but on hover the
+// accent fills in behind the label — the "active button background" of the
+// vertical main menu. The selected variant keeps the accent fill persistent.
+void ArtGhostButton(UButton* Button, bool Selected)
+{
+    if (!Button) return;
+    // Gold/cream from the vertical-main-menu sprites: border gold ~(144,112,80),
+    // highlight cream ~(240,216,180). The button rests TRANSPARENT (text only);
+    // only HOVER fills with the sprite's gold "active button background". The
+    // active page is shown by a gold text tint, not a persistent background.
+    const FLinearColor Hover(0.55f, 0.43f, 0.31f, 0.82f);       // warm gold fill
+    const FLinearColor Pressed(0.62f, 0.49f, 0.36f, 0.92f);
+    const FLinearColor ActiveText(0.86f, 0.70f, 0.52f, 1.0f);   // cream text tint
+
+    FButtonStyle Style;
+    Style.Normal    = FSlateRoundedBoxBrush(FLinearColor::Transparent, 3.f);
+    Style.Hovered   = FSlateRoundedBoxBrush(Hover, 3.f);
+    Style.Pressed   = FSlateRoundedBoxBrush(Pressed, 3.f);
+    Style.Disabled  = Style.Normal;
+    Style.Disabled.TintColor = FLinearColor(.5f,.5f,.5f,.65f);
+    const FLinearColor FG = Selected ? ActiveText : theme::FG();
+    Style.NormalForeground = Style.HoveredForeground = Style.PressedForeground = FG;
+    Style.NormalPadding = Style.PressedPadding = FMargin(18.f, 11.f);
+    Button->SetStyle(Style);
+    Button->SetBackgroundColor(FLinearColor::White);
+    if (auto* Label = Cast<UTextBlock>(Button->GetContent()))
+        Label->SetColorAndOpacity(FSlateColor::UseForeground());
+}
+
 }  // namespace
 
 UBorn2FlapUIRenderer::UBorn2FlapUIRenderer()
@@ -347,6 +403,29 @@ void UBorn2FlapUIRenderer::HandleClicked(UBorn2FlapComposite* C, int32 OptionInd
         ApplySelectSelection(C, OptionIndex);
         EmitAction(C->Action, (double)OptionIndex, TEXT(""));
     }
+    else if (Type == TEXT("Dropdown"))
+    {
+        if (OptionIndex == INDEX_NONE)
+        {
+            // Head clicked: toggle the options list open/closed.
+            const bool bOpen = !C->State.FindRef(TEXT("open")).Equals(TEXT("1"));
+            C->State.Add(TEXT("open"), bOpen ? TEXT("1") : TEXT("0"));
+            if (UVerticalBox* List = Cast<UVerticalBox>(C->Part(TEXT("list"))))
+                List->SetVisibility(bOpen ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+        }
+        else
+        {
+            C->State.Add(TEXT("selected"), FString::FromInt(OptionIndex));
+            ApplyDropdownSelection(C, OptionIndex);
+            EmitAction(C->Action, (double)OptionIndex, TEXT(""));
+        }
+    }
+    else if (Type == TEXT("Segment") && OptionIndex != INDEX_NONE)
+    {
+        C->State.Add(TEXT("selected"), FString::FromInt(OptionIndex));
+        ApplySegmentSelection(C, OptionIndex);
+        EmitAction(C->Action, (double)OptionIndex, TEXT(""));
+    }
     else
     {
         EmitAction(C->Action, 1.0, TEXT(""));
@@ -426,7 +505,8 @@ UWidget* UBorn2FlapUIRenderer::CreateInstance(const std::string& Type)
     if (T == TEXT("Panel") || T == TEXT("Value") || T == TEXT("Stat") ||
         T == TEXT("Gauge") || T == TEXT("Banner") || T == TEXT("Button") ||
         T == TEXT("Slider") || T == TEXT("Toggle") || T == TEXT("Select") ||
-        T == TEXT("NumberBox") || T == TEXT("Field") || T == TEXT("Section") ||
+        T == TEXT("Segment") || T == TEXT("Dropdown") || T == TEXT("NumberBox") || T == TEXT("Field") ||
+        T == TEXT("Section") ||
         T == TEXT("Divider"))
     {
         return BuildComponent(T);
@@ -814,6 +894,49 @@ UBorn2FlapComposite* UBorn2FlapUIRenderer::BuildComponent(const FString& Type)
         C->Parts.Add(TEXT("options"), Options);
         return C;
     }
+    if (Type == TEXT("Dropdown"))
+    {
+        UBorn2FlapComposite* C = NewComposite(this, TEXT("Dropdown"));
+        C->SetPadding(FMargin(0.f));
+        UVerticalBox* Body = NewObject<UVerticalBox>(this);
+        C->SetContent(Body);
+        UTextBlock* Label = NewObject<UTextBlock>(this);
+        Label->SetFont(theme::Font(TEXT("s"), 12));
+        Label->SetColorAndOpacity(FSlateColor(theme::FG_DIM()));
+        Body->AddChildToVerticalBox(Label);
+        // Head button shows the current selection; clicking it toggles the list.
+        UButton* Head = NewObject<UButton>(this);
+        ArtButton(Head, false, false);
+        UTextBlock* HeadLabel = NewObject<UTextBlock>(this);
+        HeadLabel->SetFont(theme::Font(TEXT("m"), 14));
+        HeadLabel->SetColorAndOpacity(FSlateColor(theme::FG()));
+        Head->SetContent(HeadLabel);
+        Body->AddChildToVerticalBox(Head);
+        // Options list (collapsed until the head is clicked).
+        UVerticalBox* List = NewObject<UVerticalBox>(this);
+        List->SetVisibility(ESlateVisibility::Collapsed);
+        Body->AddChildToVerticalBox(List);
+        C->Parts.Add(TEXT("label"), Label);
+        C->Parts.Add(TEXT("head"), Head);
+        C->Parts.Add(TEXT("headlabel"), HeadLabel);
+        C->Parts.Add(TEXT("list"), List);
+        BindButton(Head, C);
+        return C;
+    }
+    if (Type == TEXT("Segment"))
+    {
+        UBorn2FlapComposite* C = NewComposite(this, TEXT("Segment"));
+        C->SetPadding(FMargin(2.f));
+        // The shared track behind the cells — one rounded pill with a single
+        // outline; the cells themselves carry no border (see ArtSegment).
+        C->SetBrush(FSlateRoundedBoxBrush(
+            FLinearColor(.015f,.04f,.05f,.85f), theme::Radius(8.f),
+            FLinearColor(.56f,.46f,.28f,.4f), 1.f));
+        UHorizontalBox* Track = NewObject<UHorizontalBox>(this);
+        C->SetContent(Track);
+        C->Parts.Add(TEXT("options"), Track);
+        return C;
+    }
     if (Type == TEXT("NumberBox"))
     {
         UBorn2FlapComposite* C = NewComposite(this, TEXT("NumberBox"));
@@ -908,7 +1031,9 @@ void UBorn2FlapUIRenderer::ApplyCompositeProps(UBorn2FlapComposite* C, const FPr
     const FLinearColor ToneColor = theme::Tone(Tone, theme::FG());
     const bool bInteractive = (Type == TEXT("Button") || Type == TEXT("Slider") ||
                                Type == TEXT("Toggle") || Type == TEXT("Select") ||
-                               Type == TEXT("NumberBox") || Type == TEXT("Section"));
+                               Type == TEXT("Segment") || Type == TEXT("Dropdown") ||
+                               Type == TEXT("NumberBox") ||
+                               Type == TEXT("Section"));
 
     // common
     if (Props.count("visible"))
@@ -1023,12 +1148,21 @@ void UBorn2FlapUIRenderer::ApplyCompositeProps(UBorn2FlapComposite* C, const FPr
         UButton* Btn = Cast<UButton>(C->Part(TEXT("button")));
         UTextBlock* Label = Cast<UTextBlock>(C->Part(TEXT("label")));
         if (Props.count("label") && Label) SetText(Label, Props.at("label"));
-        if (!Tone.IsEmpty() && Btn) Btn->SetBackgroundColor(ToneColor);
         if (Props.count("disabled") && Btn) Btn->SetIsEnabled(!Props.at("disabled").AsBool(false));
-        if (!Tone.IsEmpty() && Label)
-            Label->SetColorAndOpacity(FSlateColor(FLinearColor(0.06f, 0.06f, 0.08f, 1.0f)));
+
+        const bool bGhost = (Tone == TEXT("ghost") || Tone == TEXT("ghost-active"));
+        if (bGhost)
+        {
+            ArtGhostButton(Btn, Tone == TEXT("ghost-active"));
+        }
+        else
+        {
+            if (!Tone.IsEmpty() && Btn) Btn->SetBackgroundColor(ToneColor);
+            if (!Tone.IsEmpty() && Label)
+                Label->SetColorAndOpacity(FSlateColor(FLinearColor(0.06f, 0.06f, 0.08f, 1.0f)));
+            ArtButton(Btn, Tone == TEXT("good") || Tone == TEXT("danger"));
+        }
         StyleText(Label, Props);
-        ArtButton(Btn,Tone == TEXT("good") || Tone == TEXT("danger"));
     }
     else if (Type == TEXT("Slider"))
     {
@@ -1064,21 +1198,6 @@ void UBorn2FlapUIRenderer::ApplyCompositeProps(UBorn2FlapComposite* C, const FPr
         if (Props.count("disabled") && Slider) Slider->SetIsEnabled(!Props.at("disabled").AsBool(false));
         StyleText(ValueTxt, Props);
     }
-    else if (Type == TEXT("Toggle"))
-    {
-        UTextBlock* Label = Cast<UTextBlock>(C->Part(TEXT("label")));
-        if (Props.count("label") && Label) SetText(Label, Props.at("label"));
-        if (Props.count("on"))  C->State.Add(TEXT("on"),  Str(Props.at("on")));
-        if (Props.count("off")) C->State.Add(TEXT("off"), Str(Props.at("off")));
-        if (Props.count("value"))
-        {
-            C->State.Add(TEXT("value"), Props.at("value").AsBool(false) ? TEXT("1") : TEXT("0"));
-            ApplyToggleState(C);
-        }
-        if (Props.count("disabled"))
-            if (UButton* B = Cast<UButton>(C->Part(TEXT("button"))))
-                B->SetIsEnabled(!Props.at("disabled").AsBool(false));
-    }
     else if (Type == TEXT("Select"))
     {
         UTextBlock* Label = Cast<UTextBlock>(C->Part(TEXT("label")));
@@ -1090,6 +1209,38 @@ void UBorn2FlapUIRenderer::ApplyCompositeProps(UBorn2FlapComposite* C, const FPr
             const int32 Index = (int32)Props.at("value").AsNumber(0);
             C->State.Add(TEXT("selected"), FString::FromInt(Index));
             ApplySelectSelection(C, Index);
+        }
+    }
+    else if (Type == TEXT("Dropdown"))
+    {
+        UTextBlock* Label = Cast<UTextBlock>(C->Part(TEXT("label")));
+        if (Props.count("label") && Label) SetText(Label, Props.at("label"));
+        if (Props.count("options"))
+            RebuildDropdownOptions(C, Props.at("options"));
+        if (Props.count("value"))
+        {
+            const int32 Index = (int32)Props.at("value").AsNumber(-1);
+            C->State.Add(TEXT("selected"), FString::FromInt(Index));
+            ApplyDropdownSelection(C, Index);
+        }
+    }
+    else if (Type == TEXT("Segment"))
+    {
+        if (Props.count("options"))
+            RebuildSegmentOptions(C, Props.at("options"));
+        if (Props.count("value"))
+        {
+            const int32 Index = (int32)Props.at("value").AsNumber(0);
+            C->State.Add(TEXT("selected"), FString::FromInt(Index));
+            ApplySegmentSelection(C, Index);
+        }
+        if (Props.count("disabled"))
+        {
+            UHorizontalBox* Track = Cast<UHorizontalBox>(C->Part(TEXT("options")));
+            if (Track)
+                for (int32 i = 0; i < Track->GetChildrenCount(); ++i)
+                    if (UButton* B = Cast<UButton>(Track->GetChildAt(i)))
+                        B->SetIsEnabled(!Props.at("disabled").AsBool(false));
         }
     }
     else if (Type == TEXT("NumberBox"))
@@ -1336,6 +1487,116 @@ void UBorn2FlapUIRenderer::ApplySelectSelection(UBorn2FlapComposite* C, int32 In
         if(B && C->State.FindRef(TEXT("weather"))==TEXT("1")) WeatherButton(B,i==Index);
         else ArtButton(B,i == Index,true);
         if (L) L->SetColorAndOpacity(FSlateColor::UseForeground());
+    }
+}
+
+// Rebuild a Dropdown's option list. The head (a single button showing the
+// current selection) toggles this list open/closed; each option is a button
+// that reports its own index through the shared relay.
+void UBorn2FlapUIRenderer::RebuildDropdownOptions(UBorn2FlapComposite* C, const FValue& Options)
+{
+    if (!C)
+        return;
+    UVerticalBox* List = Cast<UVerticalBox>(C->Part(TEXT("list")));
+    if (!List)
+        return;
+    List->ClearChildren();
+
+    TArray<FString> Labels;
+    if (Options.kind == FValue::Kind::Array)
+        for (const FValue& O : Options.arr)
+            Labels.Add(Str(O));
+    else if (Options.kind == FValue::Kind::String)
+        Labels.Add(Str(Options));
+
+    for (int32 i = 0; i < Labels.Num(); ++i)
+    {
+        UButton* B = NewObject<UButton>(this);
+        B->SetBackgroundColor(theme::BG_SOLID());
+        UTextBlock* L = NewObject<UTextBlock>(this);
+        L->SetFont(theme::Font(TEXT("s"), 12));
+        L->SetColorAndOpacity(FSlateColor(theme::FG_DIM()));
+        L->SetText(FText::FromString(Labels[i]));
+        B->SetContent(L);
+        ArtButton(B, false, false);
+        List->AddChildToVerticalBox(B);
+        B->SetToolTipText(FText::FromString(Labels[i]));
+        BindButton(B, C, i);
+    }
+}
+
+void UBorn2FlapUIRenderer::ApplyDropdownSelection(UBorn2FlapComposite* C, int32 Index)
+{
+    if (!C)
+        return;
+    if (UTextBlock* Head = Cast<UTextBlock>(C->Part(TEXT("headlabel"))))
+    {
+        FString HeadText = TEXT("CUSTOM / manual");
+        if (UVerticalBox* List = Cast<UVerticalBox>(C->Part(TEXT("list"))))
+            if (Index >= 0 && Index < List->GetChildrenCount())
+                if (UButton* B = Cast<UButton>(List->GetChildAt(Index)))
+                    if (UTextBlock* L = Cast<UTextBlock>(B->GetContent()))
+                        HeadText = L->GetText().ToString();
+        Head->SetText(FText::FromString(HeadText));
+    }
+    if (UVerticalBox* List = Cast<UVerticalBox>(C->Part(TEXT("list"))))
+        List->SetVisibility(ESlateVisibility::Collapsed);
+    C->State.Add(TEXT("open"), TEXT("0"));
+}
+
+// Rebuild a Segment's cells from a semantic `options` array. Unlike Select
+// (spaced tab buttons), the cells are connected: equal-width fills inside one
+// rounded track, with only the first/last outer corners rounded.
+void UBorn2FlapUIRenderer::RebuildSegmentOptions(UBorn2FlapComposite* C, const FValue& Options)
+{
+    if (!C)
+        return;
+    UHorizontalBox* Track = Cast<UHorizontalBox>(C->Part(TEXT("options")));
+    if (!Track)
+        return;
+
+    Track->ClearChildren();
+
+    TArray<FString> Labels;
+    if (Options.kind == FValue::Kind::Array)
+        for (const FValue& O : Options.arr)
+            Labels.Add(Str(O));
+    else if (Options.kind == FValue::Kind::String)
+        Labels.Add(Str(Options));
+
+    for (int32 i = 0; i < Labels.Num(); ++i)
+    {
+        UButton* B = NewObject<UButton>(this);
+        B->SetBackgroundColor(FLinearColor::White);
+        UTextBlock* L = NewObject<UTextBlock>(this);
+        L->SetFont(theme::Font(TEXT("s"), 12));
+        L->SetJustification(ETextJustify::Center);
+        L->SetText(FText::FromString(Labels[i]));
+        B->SetContent(L);
+        UHorizontalBoxSlot* Slot = Track->AddChildToHorizontalBox(B);
+        Slot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+        Slot->SetHorizontalAlignment(HAlign_Fill);
+        B->SetToolTipText(FText::FromString(Labels[i]));
+        BindButton(B, C, i);
+    }
+
+    // Re-apply the stored selection so a fresh build reflects it immediately
+    // (an explicit `value` in this update corrects it right after).
+    ApplySegmentSelection(C, FCString::Atoi(*C->State.FindRef(TEXT("selected"))));
+}
+
+void UBorn2FlapUIRenderer::ApplySegmentSelection(UBorn2FlapComposite* C, int32 Index)
+{
+    if (!C)
+        return;
+    UHorizontalBox* Track = Cast<UHorizontalBox>(C->Part(TEXT("options")));
+    if (!Track)
+        return;
+    const int32 N = Track->GetChildrenCount();
+    for (int32 i = 0; i < N; ++i)
+    {
+        UButton* B = Cast<UButton>(Track->GetChildAt(i));
+        ArtSegment(B, i == Index, i, N);
     }
 }
 

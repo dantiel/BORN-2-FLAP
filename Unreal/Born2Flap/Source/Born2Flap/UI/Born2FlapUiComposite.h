@@ -18,8 +18,8 @@ class BORN2FLAP_API UBorn2FlapComposite : public UBorder
 
 public:
     // Semantic component kind ("Panel", "Value", "Stat", "Gauge", "Banner",
-    // "Button", "Slider", "Toggle", "Select", "NumberBox", "Field", "Section",
-    // "Divider").
+    // "Button", "Slider", "Toggle", "Select", "Segment", "NumberBox", "Field",
+    // "Section", "Divider").
     UPROPERTY() FString SemanticType;
 
     // Semantic event key. When a component is interactive (Slider/Toggle/

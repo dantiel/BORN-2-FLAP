@@ -26,6 +26,7 @@ module Born2Flap
         number:   { umg: "NumberBox",      html: ["input", nil],      rn: "TextInput" },
         toggle:   { umg: "Toggle",         html: ["button", nil],     rn: "Switch" },
         select:   { umg: "Select",         html: ["select", nil],     rn: "View" },
+        segment:  { umg: "Segment",        html: ["div", "segment"],  rn: "View" },
         field:    { umg: "Field",          html: ["div", "field"],    rn: "View" },
         section:  { umg: "Section",        html: ["section", nil],    rn: "View" },
         progress: { umg: "ProgressBar",    html: ["progress", nil],   rn: "ProgressBar" },

@@ -52,4 +52,5 @@ def import_texture(src_name, dest_path, dest_name):
 
 splash = import_texture('born2flap-splash-new.png', '/Game/Splash', 'born2flap-splash-new')
 back = import_texture('born2flap-background.png', '/Game/Splash', 'born2flap-background')
+logo = import_texture('born2flap-logo.png', '/Game/Splash', 'born2flap-logo')
 u.log('UI_IMPORT_READY')

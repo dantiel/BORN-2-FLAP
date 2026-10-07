@@ -23,7 +23,7 @@ struct FShardMesh
     FVector2D Map(FVector P) const
     {
         if (Mode == EMode::Tail)
-            return FVector2D((P.X+112.f)/51.f, (P.Y+22.f)/44.f); // tail: root->tip, left->right
+            return FVector2D((P.X+51.f)/51.f, (P.Y+22.f)/44.f); // tail: root->tip, left->right (re-based at root)
         return FVector2D((P.X+63.f)/133.f, (P.Z+12.f)/33.f);      // body: aft->nose, belly->back
     }
     void Tri(FVector A, FVector B, FVector D, FLinearColor Colour)
@@ -93,6 +93,7 @@ constexpr float KestrelTailRootX = -38.f;
 // the fuselage overlaps the fan more.
 constexpr float KestrelTailTipX = -77.5f;
 constexpr float KestrelTailYScale = 1.15425f;   // 5% narrower than 1.215
+constexpr float RavenTailRootX = -61.f;         // raven/crow tail base (where the fan meets the body)
 FVector KestrelTailPosition(FVector P)
 {
     const float T = (P.X - KestrelTailAuthoredRootX) / (KestrelTailAuthoredTipX - KestrelTailAuthoredRootX);
@@ -125,7 +126,9 @@ void BuildKestrelTail(AActor* Owner, USceneComponent* Parent)
     TArray<FLinearColor> C;
     for (int32 I = 0; I < 8; ++I)
     {
-        V.Add(KestrelTailPosition(KestrelTailPts[I])); UV.Add(KestrelTailUV[I]);
+        FVector Pt = KestrelTailPosition(KestrelTailPts[I]);
+        Pt.X -= KestrelTailRootX;   // hinge at the base (pivot sits at the root)
+        V.Add(Pt); UV.Add(KestrelTailUV[I]);
         N.Add(FVector(0, 0, 1)); C.Add(FLinearColor::White);
     }
     for (int32 I = 1; I < 7; ++I) T.Append({0, I, I + 1});  // front fan from root centre
@@ -146,11 +149,12 @@ void BuildKestrelTail(AActor* Owner, USceneComponent* Parent)
 
 USceneComponent* Born2FlapRaven::Build(AActor* Owner, USceneComponent* Parent,
                                         TObjectPtr<USceneComponent>& OutLeftShoulder,
-                                        TObjectPtr<USceneComponent>& OutRightShoulder, int32 Design)
+                                        TObjectPtr<USceneComponent>& OutRightShoulder,
+                                        TObjectPtr<USceneComponent>& OutTailPivot, int32 Design)
 {
     if (!Owner || !Parent)
         return nullptr;
-    OutLeftShoulder = OutRightShoulder = nullptr;
+    OutLeftShoulder = OutRightShoulder = OutTailPivot = nullptr;
     auto Node = [&](FName Name,USceneComponent* P,FVector Position)
     {
         auto* C = NewObject<USceneComponent>(Owner,*FString::Printf(TEXT("%s_%d"),*Name.ToString(),Design));
@@ -158,6 +162,13 @@ USceneComponent* Born2FlapRaven::Build(AActor* Owner, USceneComponent* Parent,
         return C;
     };
     auto* RavenRoot = Node(TEXT("RavenCrow"),Parent,FVector::ZeroVector);
+    // Tail fan pivot: the tail elevator trim pitches this node so the angle is
+    // visible in the rendered bird. The pivot sits exactly at the tail's base
+    // (where the fan meets the body) so it hinges there instead of swinging the
+    // whole fan around the body origin and floating above/below the bird.
+    const float TailRootX = (Design == 2) ? KestrelTailRootX : RavenTailRootX;
+    auto* TailPivot = Node(TEXT("TailPivot"), RavenRoot, FVector(TailRootX, 0.f, 0.f));
+    OutTailPivot = TailPivot;
     if (Design == 2)
     {
         // Kestrel (falcon): the authored fuselage mesh + textured tail membrane.
@@ -177,7 +188,7 @@ USceneComponent* Born2FlapRaven::Build(AActor* Owner, USceneComponent* Parent,
             Fuselage->SetMaterial(0, FusMat);
         Fuselage->RegisterComponent();
 
-        BuildKestrelTail(Owner, RavenRoot);
+        BuildKestrelTail(Owner, TailPivot);
 
         // Shoulder distance is 1 cm per side (matching the physics wsShoulderM):
         // the wing root sits 1 cm outboard of the body centreline, so the two
@@ -220,10 +231,10 @@ USceneComponent* Born2FlapRaven::Build(AActor* Owner, USceneComponent* Parent,
         Tail.MaterialPath = TEXT("/Game/Birds/M_RavenShard");
         // Fanned delta tail: shallow anhedral, spread to a wide trailing edge,
         // so the tail reads as a fan rather than a single backward spike.
-        auto TP = [Side](double X,double Y) { return FVector(X,Side*Y,1-Y*FMath::Tan(FMath::DegreesToRadians(12.))); };
+        auto TP = [Side](double X,double Y) { return FVector(X - RavenTailRootX,Side*Y,1-Y*FMath::Tan(FMath::DegreesToRadians(12.))); };
         Tail.Tri(TP(-61,0),TP(-112,22),TP(-112,0),Slate);
         Tail.Tri(TP(-64,0),TP(-107,17),TP(-107,0),Ink);
-        Tail.Install(Owner,RavenRoot,*FString::Printf(TEXT("RavenTail%d_%d"),Side,Design));
+        Tail.Install(Owner,TailPivot,*FString::Printf(TEXT("RavenTail%d_%d"),Side,Design));
         auto* Shoulder=Node(*FString::Printf(TEXT("RavenShoulder%d"),Side),RavenRoot,FVector(3,Side*11,10));
         if (Side<0) OutLeftShoulder=Shoulder; else OutRightShoulder=Shoulder;
         auto* Wing=NewObject<UBorn2FlapWingMesh>(Owner,*FString::Printf(TEXT("RavenWing%d_%d"),Side,Design));
@@ -238,8 +249,8 @@ USceneComponent* Born2FlapRaven::Build(AActor* Owner, USceneComponent* Parent,
 
 void ABorn2FlapFlightPawn::BuildRavenCrow()
 {
-    RavenRoot = Born2FlapRaven::Build(this, VisualRoot, RavenLeftShoulder, RavenRightShoulder);
-    MembraneRoot = Born2FlapRaven::Build(this, VisualRoot, MembraneLeftShoulder, MembraneRightShoulder,2);
+    RavenRoot = Born2FlapRaven::Build(this, VisualRoot, RavenLeftShoulder, RavenRightShoulder, RavenTailPivot);
+    MembraneRoot = Born2FlapRaven::Build(this, VisualRoot, MembraneLeftShoulder, MembraneRightShoulder, MembraneTailPivot,2);
 }
 
 void ABorn2FlapFlightPawn::SelectBirdModel(int32 Index)

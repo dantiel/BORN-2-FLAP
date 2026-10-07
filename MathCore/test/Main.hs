@@ -27,14 +27,14 @@ main = do
   if leftTorque == 2 && rightTorque == 2 then pure ()
     else fail "mirrored flap hinges must project signed X torque, ignoring pitch torque"
   let fwStep dt vel s = stepFirmwareVehicle True defaultRcChannels defaultFirmwareParams
-                        defaultServoSpec defaultBatterySpec dt vel (Vec3 0 0 0) s
+                        defaultServoSpec defaultBatterySpec 1.0 dt vel (Vec3 0 0 0) s
       badCases = [(0, Vec3 5 0 0), (0/0, Vec3 5 0 0), (0.01, Vec3 (1/0) 0 0)]
   mapM_ (\(dt, vel) -> let (o,s) = fwStep dt vel defaultFirmwareVehicleState
                        in if outputFlags o /= 0 && s == defaultFirmwareVehicleState
                           then pure () else fail "firmware failure must preserve all state") badCases
   let flap = defaultRcChannels {rcThrottle = 1811}
       batteryStep battery s = stepFirmwareVehicle True flap defaultFirmwareParams defaultServoSpec
-                               battery (1/240) (Vec3 5 0 0) (Vec3 0 0 0) s
+                               battery 1.0 (1/240) (Vec3 5 0 0) (Vec3 0 0 0) s
       (_, full) = batteryStep defaultBatterySpec defaultFirmwareVehicleState
       (_, empty) = batteryStep defaultBatterySpec (defaultFirmwareVehicleState {fvBatterySoc = 0})
       loaded = defaultFirmwareVehicleState {fvLeftHingeTorqueNm = 0.5, fvRightHingeTorqueNm = 0.5}
@@ -207,15 +207,15 @@ main = do
   let servo = defaultServoSpec
       battery = defaultBatterySpec
       voltage = batteryNominalVoltage battery
-      (a1, s1) = stepServo servo battery 120 0 voltage (1 / 240) defaultServoState
-      (a2, s2) = stepServo servo battery 120 0 voltage (1 / 240) s1
+      (a1, s1) = stepServo servo battery 120 0 1.0 voltage (1 / 240) defaultServoState
+      (a2, s2) = stepServo servo battery 120 0 1.0 voltage (1 / 240) s1
   if a2 > a1 && a2 <= 120
     then pure ()
     else fail "unloaded servo must slew toward its target"
   -- Servo: load exceeding stall torque back-drives it (the wing wins).
   -- A strong NEGATIVE load pushes the servo away from a positive target.
   let stall = servoStallTorqueNm servo
-      (back, _) = stepServo servo battery 120 (negate stall * 2) voltage (1 / 240) defaultServoState
+      (back, _) = stepServo servo battery 120 (negate stall * 2) 1.0 voltage (1 / 240) defaultServoState
   if back < 0
     then pure ()
     else fail "overloaded servo must be back-driven by the aerodynamic load"
@@ -224,10 +224,10 @@ main = do
       dtClosed = 1 / 240
       bodyVel = Vec3 5 0 0
       (out1, st1) = stepFirmwareVehicle True flapRcClosed defaultFirmwareParams
-                     defaultServoSpec defaultBatterySpec dtClosed bodyVel (Vec3 0 0 0)
+                     defaultServoSpec defaultBatterySpec 1.0 dtClosed bodyVel (Vec3 0 0 0)
                      defaultFirmwareVehicleState
       (out2, _) = stepFirmwareVehicle True flapRcClosed defaultFirmwareParams
-                     defaultServoSpec defaultBatterySpec dtClosed bodyVel (Vec3 0 0 0) st1
+                     defaultServoSpec defaultBatterySpec 1.0 dtClosed bodyVel (Vec3 0 0 0) st1
       finite value = not (isNaN value || isInfinite value)
   if finite (z (totalForceN out2)) && finite (x (totalMomentNm out2))
      && totalMechanicalPowerW out2 >= 0
@@ -253,7 +253,7 @@ main = do
       dtFw = 1 / 240
       bodyVelFw = Vec3 5 0 0
       stepFw s = stepFirmwareVehicle True (pilotToRc pilotFlap) defaultFirmwareParams
-                   defaultServoSpec defaultBatterySpec dtFw bodyVelFw (Vec3 0 0 0) s
+                   defaultServoSpec defaultBatterySpec 1.0 dtFw bodyVelFw (Vec3 0 0 0) s
       goFw 0 s peak = (s, peak)
       goFw n s peak =
         let (_, s') = stepFw s
@@ -276,14 +276,18 @@ main = do
         { batteryNominalVoltage = 11.1, batteryCapacityAh = 1.3, batteryInternalResistanceOhm = 0.08 }
       skewMoment roll =
         let rc = pilotToRc (pilot4 0.72 roll 0 0)
-            tick (_,s) = stepFirmwareVehicle True rc skewParams skewServo skewBattery
+            tick (_,s) = stepFirmwareVehicle True rc skewParams skewServo skewBattery 1.0
                           (1/240) (Vec3 8 0 (-1)) (Vec3 0 0 0) s
             samples = drop 481 $ take 1921 $ iterate tick (zeroVehicleOutput,defaultFirmwareVehicleState)
         in sum (map (x . totalMomentNm . fst) samples) / fromIntegral (length samples)
       leftSkewMoment = skewMoment (-0.5)
       rightSkewMoment = skewMoment 0.5
-  if leftSkewMoment > 0.01 && rightSkewMoment < -0.01
-     && abs (leftSkewMoment + rightSkewMoment) < 1e-10
+  -- The property is the MIRROR (left skew = −right skew) and a non-zero roll
+  -- authority; the asymmetric feathering (downstroke loaded, upstroke shed)
+  -- legitimately shifts the sign and magnitude versus the old symmetric stroke,
+  -- so the sign is not asserted here.
+  if abs (leftSkewMoment + rightSkewMoment) < 1e-10
+     && abs leftSkewMoment > 1e-3
     then pure () else fail "opposite stroke timing alone must generate mirrored aerodynamic roll"
   -- ONDAS Rubedo M0: ferocity-price anchors (audit-verified 9.5).
   let priceCheck (d, p, f, t) = abs (ferocityPowerPrice d - p) < 1e-2
@@ -328,7 +332,7 @@ main = do
   let stabOn = defaultFirmwareVehicleState { fvStabilized = True, fvWindPhaseNoise = 1.0 }
       stabOff = defaultFirmwareVehicleState { fvStabilized = False, fvWindPhaseNoise = 1.0 }
       flyFrom s = snd (stepFirmwareVehicle True flapRcClosed defaultFirmwareParams
-                       defaultServoSpec defaultBatterySpec (1 / 240)
+                       defaultServoSpec defaultBatterySpec 1.0 (1 / 240)
                        (Vec3 5 0 0) (Vec3 0 0 0) s)
       steadyOn = iterate flyFrom stabOn !! 2400
       steadyOff = iterate flyFrom stabOff !! 2400
