@@ -9,11 +9,13 @@ normally (roughness 0.65, two-sided, default lit). The only light-through
 effect is an additive emissive that fires ONLY when the sun is behind the
 membrane (backlit), tinted by the paint colour.
 
-  transmission = saturate(-dot(N, surface->sun) * dot(N, surface->camera))^2
+  transmission = saturate(-dot(CameraVectorWS, AtmosphericLightVector))
 
-using AtmosphericLightVector (sun -> scene) and CameraVectorWS (camera ->
-surface), so the product is positive only when light and camera sit on
-opposite sides of the membrane.
+AtmosphericLightVector points TOWARD the sun (surface -> sun; the renderer
+fills ResolvedView.AtmosphereLightDirection with -SunLight->Proxy->
+GetDirection(), the reverse of the light's travel direction). CameraVectorWS
+points toward the camera, so -dot(...) is positive only when light and camera
+sit on opposite sides of the membrane.
 
 Run once via the editor commandlet (close any running game/editor first):
 
@@ -58,24 +60,19 @@ def wire_vertex(vertex, dst, pin):
 def add_backlit_glow(m, tint):
     """Emissive = brightened tint * WingGlow * transmission.
 
-    transmission = saturate(-dot(Np, L))^2, where Np = PixelNormalWS (the
-    two-sided normal, already flipped to face the camera) and L =
-    AtmosphericLightVector (direction TOWARD the sun — verified against the
-    engine's sun-disk code: the disk appears where WorldDir · L > threshold).
+    transmission = saturate(-dot(CameraVectorWS, AtmosphericLightVector)).
 
-    When the sun is behind the membrane, L points away from the camera-facing
-    normal, so -dot(Np,L) > 0 and the wing glows church-window style. On the
-    lit side L points toward the camera-facing normal, so the term is 0 and the
-    wing stays a normal opaque reflective surface. Built from native nodes (no
-    Custom HLSL) so the graph survives UE 5.8's Python API.
+    AtmosphericLightVector is the direction TOWARD the sun (surface -> sun):
+    it compiles to ResolvedView.AtmosphereLightDirection, which the renderer
+    fills with -SunLight->Proxy->GetDirection() (the reverse of the
+    directional light's travel direction). CameraVectorWS is the "surface ->
+    camera" direction. When the sun is BEHIND the membrane the camera and the
+    sun sit on opposite sides, so the two vectors point away from each other
+    and -dot(cam, sun) > 0 — the wing glows church-window style. On the lit
+    side they point together and the term is 0. Using the camera vector (not
+    the pixel normal) sidesteps two-sided normal flipping. Built from native
+    nodes (no Custom HLSL) so the graph survives UE 5.8's Python API.
     """
-    # CameraVectorWS is the "surface -> camera" direction; AtmosphericLightVector
-    # is the light direction (sun -> scene). When the sun is BEHIND the membrane
-    # the light travels through the wing toward the camera, so the two point in
-    # the SAME direction and +dot(cam, sun) > 0 — the wing glows church-window
-    # style. Using the camera vector (not the pixel normal) is robust against
-    # two-sided normal flipping, which is why the earlier PixelNormalWS / negated
-    # versions never lit up when backlit.
     cam = node(m, "CameraVectorWS")
     sun = node(m, "AtmosphericLightVector")
 
@@ -83,8 +80,14 @@ def add_backlit_glow(m, tint):
     wire(cam, d, "A")
     wire(sun, d, "B")
 
+    # Negate: -dot(cam, sun). Backlit => cam and sun point apart => > 0.
+    neg_one = node(m, "Constant", r=-1.0)
+    dneg = node(m, "Multiply")
+    wire(d, dneg, "A")
+    wire(neg_one, dneg, "B")
+
     sat = node(m, "Saturate")
-    wire(d, sat, "")
+    wire(dneg, sat, "")
 
     glow = node(m, "ScalarParameter", parameter_name="WingGlow", default_value=12.0)
     scaled = node(m, "Multiply")
