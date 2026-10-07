@@ -25,7 +25,7 @@ Konfigurationen aus dem OrniFlight Configurator sollen optional importiert werde
 - C/C++ für Unreal, Chaos, Plattformanbindung, FFI und den vorläufigen getesteten Physik-Fallback
 - segmentiertes dreidimensionales Flügelmodell mit dynamischem partiellem Stall und spannweitem Crossflow
 - experimentelle Strömungsbeobachtungen des Projektautors als primäre Grundlage des reduzierten Echtzeitmodells
-- PteraSoftware ausschließlich als sekundärer Offline-Vergleich in geeigneten Potentialströmungsfällen
+- [PteraSoftware](https://dantiel.github.io/PteronautOS/) ausschließlich als sekundärer Offline-Vergleich in geeigneten Potentialströmungsfällen
 - versioniertes JSON-Austauschformat zwischen Configurator, Werkzeugen und Spiel
 
 ## Dokumentation

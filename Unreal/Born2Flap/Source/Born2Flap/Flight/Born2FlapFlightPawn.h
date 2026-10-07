@@ -103,6 +103,8 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     void SetSpeedModifier(float Value) { if (FMath::IsFinite(Value)) Desktop.speedModifier = FMath::Clamp((double)Value, 0.0, 1.0); }
     float GetFpvCameraAngle() const { return FpvCameraAngleDeg; }
     void SetFpvCameraAngle(float Deg) { if (FMath::IsFinite(Deg)) FpvCameraAngleDeg = FMath::Clamp(Deg, -45.f, 45.f); }
+    bool GetFreeLookInvert() const { return bFreeLookInvert; }
+    void SetFreeLookInvert(bool bOn) { bFreeLookInvert = bOn; }
     // Airframe mass (kg) and longitudinal centre-of-gravity offset (mm, + = aft).
     // These are physical body properties, not firmware knobs: weight drives
     // Chaos' body mass, CG shifts the centre of mass fore/aft. The usable CG
@@ -183,6 +185,17 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     // camera from its auto-aim so the pilot can look away from the bird.
     float ChaseOrbitYaw = 0.f, ChaseOrbitPitch = -12.f;
     float GroundLookYaw = 0.f, GroundLookPitch = 0.f;
+    // Scroll-wheel zoom (MMB held). GroundZoom scales the ground lens FOV;
+    // ChaseArmLength dollies the chase spring arm (auto-FPV when close enough).
+    float GroundZoom = 1.f;
+    float ChaseArmLength = 480.f;
+    // True while the MMB walk/look mode is active — including in flight, where
+    // the chase camera honours the orbit offsets instead of the fixed follow.
+    bool bWalkLookActive = false;
+    // Invert the ground free-look mouse (an accessibility/comfort option in the
+    // GENERAL SETTINGS). Only the detached ground-perspective free-look honours
+    // it — chase orbit and flight controls keep their own conventions.
+    bool bFreeLookInvert = false;
     // Fixed FPV camera angle (degrees, pitch offset from the body). Adjustable
     // in flight (Q/E) and persisted; the FPV lens stays at this fixed tilt.
     float FpvCameraAngleDeg = 0.f;

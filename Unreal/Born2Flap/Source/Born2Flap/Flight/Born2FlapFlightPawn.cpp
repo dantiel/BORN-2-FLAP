@@ -25,6 +25,7 @@
 #include "PhysicalMaterials/PhysicalMaterial.h"
 #include "UObject/ConstructorHelpers.h"
 #include "Input/Born2FlapRcController.h"
+#include "Input/Born2FlapKeybinds.h"
 #include "Game/Born2FlapGameMode.h"
 #include "World/Born2FlapValley.h"
 #include "World/Born2FlapWind.h"
@@ -50,8 +51,8 @@ public:
     virtual bool HandleKeyDownEvent(FSlateApplication& SlateApp, const FKeyEvent& InKeyEvent) override
     {
         if (InKeyEvent.IsRepeat()) return false;
-        if (InKeyEvent.GetKey() == EKeys::F8) bF8Pressed = true;
-        else if (InKeyEvent.GetKey() == EKeys::Escape) bEscPressed = true;
+        if (InKeyEvent.GetKey() == born2flap::keybinds::Get(TEXT("TogglePoi"))) bF8Pressed = true;
+        else if (InKeyEvent.GetKey() == born2flap::keybinds::Get(TEXT("ClosePanel"))) bEscPressed = true;
         return false;
     }
     bool ConsumeF8()  { const bool v = bF8Pressed;  bF8Pressed  = false; return v; }
@@ -495,6 +496,7 @@ void ABorn2FlapFlightPawn::ResetFlight(bool bSafety)
     GroundSettleTime = 0;
     ChaseOrbitYaw = 0.f; ChaseOrbitPitch = -12.f;
     GroundLookYaw = 0.f; GroundLookPitch = 0.f;
+    GroundZoom = 1.f; ChaseArmLength = 480.f;
     RememberLanding(Body->GetComponentLocation());
     UE_LOG(LogTemp, Display, TEXT("FlightReset safety=%d backend=%d"), bSafety, bHealthy);
 }
@@ -645,6 +647,7 @@ void ABorn2FlapFlightPawn::LaunchFlight()
     FRotator Heading(0, Body->GetComponentRotation().Yaw, 0);
     ChaseOrbitYaw = 0.f; ChaseOrbitPitch = -12.f;
     GroundLookYaw = 0.f; GroundLookPitch = 0.f;
+    GroundZoom = 1.f; ChaseArmLength = 480.f;
     RememberLanding(Body->GetComponentLocation());
     bCameraGrounded = false;
     GroundSettleTime = 0;
@@ -870,8 +873,8 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     // Query PlayerInput directly too, so the panel can never become un-closable.
     if (APlayerController* PanelPC = Cast<APlayerController>(GetController()))
     {
-        bF8Pressed = bF8Pressed || PanelPC->WasInputKeyJustPressed(EKeys::F8);
-        bEscPressed = bEscPressed || PanelPC->WasInputKeyJustPressed(EKeys::Escape);
+        bF8Pressed = bF8Pressed || PanelPC->WasInputKeyJustPressed(born2flap::keybinds::Get(TEXT("TogglePoi")));
+        bEscPressed = bEscPressed || PanelPC->WasInputKeyJustPressed(born2flap::keybinds::Get(TEXT("ClosePanel")));
     }
     // The main menu (F10) is modal and owned by the GameMode. While it is open,
     // F8/Esc must not open or close the settings panel / POI overlay here.
@@ -915,17 +918,18 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     bool Launch = false, Reset = false;
     if (auto *PC = Cast<APlayerController>(GetController()))
     {
-        if (PC->WasInputKeyJustPressed(EKeys::F6)) ToggleGroundView();
-        if (PC->WasInputKeyJustPressed(EKeys::V)) ToggleFpvView();
+        using namespace born2flap::keybinds;
+        if (PC->WasInputKeyJustPressed(Get(TEXT("GroundView")))) ToggleGroundView();
+        if (PC->WasInputKeyJustPressed(Get(TEXT("FpvView")))) ToggleFpvView();
         if (bFpvAirView)
         {
-            if (PC->WasInputKeyJustPressed(EKeys::Q)) FpvCameraAngleDeg = FMath::Clamp(FpvCameraAngleDeg - 5.f, -45.f, 45.f);
-            if (PC->WasInputKeyJustPressed(EKeys::E)) FpvCameraAngleDeg = FMath::Clamp(FpvCameraAngleDeg + 5.f, -45.f, 45.f);
+            if (PC->WasInputKeyJustPressed(Get(TEXT("FpvAngleDown")))) FpvCameraAngleDeg = FMath::Clamp(FpvCameraAngleDeg - 5.f, -45.f, 45.f);
+            if (PC->WasInputKeyJustPressed(Get(TEXT("FpvAngleUp")))) FpvCameraAngleDeg = FMath::Clamp(FpvCameraAngleDeg + 5.f, -45.f, 45.f);
         }
         if (RcController)
             RcController->Tick(PC, Dt);
-        WDown = PC->IsInputKeyDown(EKeys::W);
-        MmbDown = PC->IsInputKeyDown(EKeys::MiddleMouseButton);
+        WDown = PC->IsInputKeyDown(Get(TEXT("Throttle")));
+        MmbDown = PC->IsInputKeyDown(Get(TEXT("FreeCamera")));
         Effort = born2flap::DesktopInput::KeyboardThrottle(
             WDown, PC->IsInputKeyDown(EKeys::LeftControl) || PC->IsInputKeyDown(EKeys::RightControl),
             PC->IsInputKeyDown(EKeys::LeftShift) || PC->IsInputKeyDown(EKeys::RightShift));
@@ -946,24 +950,24 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
             MouseX = MouseY = Wheel = 0;
             MuteMouseYaw = MuteMouseRoll = true;
         }
-        Steer = (PC->IsInputKeyDown(EKeys::D) ? 1.f : 0.f) - (PC->IsInputKeyDown(EKeys::A) ? 1.f : 0.f);
-        Roll = (PC->IsInputKeyDown(EKeys::Right) ? 1.f : 0.f) - (PC->IsInputKeyDown(EKeys::Left) ? 1.f : 0.f);
-        Pitch = (PC->IsInputKeyDown(EKeys::Up) ? 1.f : 0.f) -
-                (PC->IsInputKeyDown(EKeys::Down) || PC->IsInputKeyDown(EKeys::S) ? 1.f : 0.f);
-        Launch = PC->WasInputKeyJustPressed(EKeys::SpaceBar);
-        Reset = PC->WasInputKeyJustPressed(EKeys::R);
+        Steer = (PC->IsInputKeyDown(Get(TEXT("YawRight"))) ? 1.f : 0.f) - (PC->IsInputKeyDown(Get(TEXT("YawLeft"))) ? 1.f : 0.f);
+        Roll = (PC->IsInputKeyDown(Get(TEXT("RollRight"))) ? 1.f : 0.f) - (PC->IsInputKeyDown(Get(TEXT("RollLeft"))) ? 1.f : 0.f);
+        Pitch = (PC->IsInputKeyDown(Get(TEXT("PitchUp"))) ? 1.f : 0.f) -
+                (PC->IsInputKeyDown(Get(TEXT("PitchDown"))) || PC->IsInputKeyDown(Get(TEXT("PitchDownAlt"))) ? 1.f : 0.f);
+        Launch = PC->WasInputKeyJustPressed(Get(TEXT("Launch")));
+        Reset = PC->WasInputKeyJustPressed(Get(TEXT("Reset")));
         if (RcController)
         {
             Launch = (Launch || RcController->LaunchPressed()) && !RcController->IsPanelOpen();
             Reset |= RcController->ResetPressed();
         }
-        if (PC->WasInputKeyJustPressed(EKeys::F1))
+        if (PC->WasInputKeyJustPressed(Get(TEXT("ToggleVectors"))))
             bVectors = !bVectors;
-        if (PC->WasInputKeyJustPressed(EKeys::F5))
+        if (PC->WasInputKeyJustPressed(Get(TEXT("ToggleBlind"))))
             SetBlindFlight(!bBlind);
-        if (PC->WasInputKeyJustPressed(EKeys::F7))
+        if (PC->WasInputKeyJustPressed(Get(TEXT("ToggleUi"))))
             ToggleUIHidden();
-        if (PC->WasInputKeyJustPressed(EKeys::T))
+        if (PC->WasInputKeyJustPressed(Get(TEXT("ThrottleMode"))))
             ToggleThrottleMode();
     }
     // Ground interaction: while the bird is grounded, holding the middle mouse
@@ -972,26 +976,34 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     // the camera — orbiting the bird in chase view, free-looking in ground view.
     // Releasing MMB returns to flight inputs, where W flaps the wings to creep
     // the bird into position for the next throw.
-    const bool bGroundWalk = !bFlying && MmbDown && !bMenuOpen;
+    // Walk/look mode also works in flight (cinematic ground-level shots while
+    // the bird is still airborne). The bird is never carried along — it stays
+    // put and only the pilot (ground observer) walks.
+    const bool bGroundWalk = MmbDown && !bMenuOpen;
+    bWalkLookActive = bGroundWalk;
     if (bGroundWalk)
     {
         if (auto* PC = Cast<APlayerController>(GetController()))
         {
+            using namespace born2flap::keybinds;
             const float WalkFwd = FMath::Clamp(
-                (PC->IsInputKeyDown(EKeys::W) ? 1.f : 0.f) - (PC->IsInputKeyDown(EKeys::S) ? 1.f : 0.f) +
-                (PC->IsInputKeyDown(EKeys::Up) ? 1.f : 0.f) - (PC->IsInputKeyDown(EKeys::Down) ? 1.f : 0.f),
+                (PC->IsInputKeyDown(Get(TEXT("Throttle"))) ? 1.f : 0.f) - (PC->IsInputKeyDown(Get(TEXT("PitchDown"))) ? 1.f : 0.f) +
+                (PC->IsInputKeyDown(Get(TEXT("PitchUp"))) ? 1.f : 0.f) - (PC->IsInputKeyDown(Get(TEXT("PitchDownAlt"))) ? 1.f : 0.f),
                 -1.f, 1.f);
             const float WalkStr = FMath::Clamp(
-                (PC->IsInputKeyDown(EKeys::D) ? 1.f : 0.f) - (PC->IsInputKeyDown(EKeys::A) ? 1.f : 0.f) +
-                (PC->IsInputKeyDown(EKeys::Right) ? 1.f : 0.f) - (PC->IsInputKeyDown(EKeys::Left) ? 1.f : 0.f),
+                (PC->IsInputKeyDown(Get(TEXT("YawRight"))) ? 1.f : 0.f) - (PC->IsInputKeyDown(Get(TEXT("YawLeft"))) ? 1.f : 0.f) +
+                (PC->IsInputKeyDown(Get(TEXT("RollRight"))) ? 1.f : 0.f) - (PC->IsInputKeyDown(Get(TEXT("RollLeft"))) ? 1.f : 0.f),
                 -1.f, 1.f);
             const float LookSens = 0.22f;   // degrees per raw mouse count
             const float WalkSpeed = 220.f;  // cm/s
             if (bGroundView)
             {
                 // Ground perspective: free-look (can turn away from the bird).
-                GroundLookYaw -= MouseX * LookSens;
-                GroundLookPitch -= MouseY * LookSens;
+                // The invert flag mirrors the existing chase-orbit convention so
+                // a single option can flip this free-look without touching flight.
+                const float Inv = bFreeLookInvert ? -1.f : 1.f;
+                GroundLookYaw -= Inv * MouseX * LookSens;
+                GroundLookPitch -= Inv * MouseY * LookSens;
                 GroundLookPitch = FMath::Clamp(GroundLookPitch, -80.f, 80.f);
                 const float FwdYaw = float(GroundGaze.Yaw + GroundLookYaw);
                 FVector Dir = FRotator(0.f, FwdYaw, 0.f).Vector() * WalkFwd +
@@ -1010,6 +1022,36 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
                               FRotator(0.f, FwdYaw + 90.f, 0.f).Vector() * WalkStr;
                 if (!Dir.IsNearlyZero())
                     MoveWalker(Dir.GetSafeNormal() * (WalkSpeed * Dt));
+            }
+            // Scroll-wheel zoom (MMB held). Ground view: lens zoom to keep a far
+            // bird readable or inspect it up close. Chase view: dolly the spring
+            // arm — zooming in far enough switches to the onboard FPV lens, and
+            // scrolling out leaves it again.
+            if (!FMath::IsNearlyZero(Wheel))
+            {
+                const float Scroll = FMath::Clamp(Wheel, -1.f, 1.f);
+                if (bGroundView)
+                {
+                    GroundZoom = FMath::Clamp(GroundZoom - Scroll * 0.12f, 0.3f, 3.5f);
+                }
+                else if (bFpvAirView)
+                {
+                    if (Scroll > 0.f)
+                    {
+                        bFpvAirView = false;
+                        if (PC->PlayerCameraManager) PC->PlayerCameraManager->SetGameCameraCutThisFrame();
+                    }
+                }
+                else
+                {
+                    ChaseArmLength = FMath::Clamp(ChaseArmLength - Scroll * 60.f, 60.f, 2000.f);
+                    if (ChaseArmLength <= 90.f)
+                    {
+                        ChaseArmLength = 90.f;
+                        bFpvAirView = true;
+                        if (PC->PlayerCameraManager) PC->PlayerCameraManager->SetGameCameraCutThisFrame();
+                    }
+                }
             }
         }
         // Neutralise the bird's own control surfaces while the pilot is walking.

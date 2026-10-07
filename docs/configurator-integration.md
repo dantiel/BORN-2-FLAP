@@ -1,5 +1,7 @@
 # Configurator-Integration
 
+> [OrniFlight](https://dantiel.github.io/OrniFlight/) — der Configurator, um den es hier geht.
+
 ## Ausgangspunkt
 
 Der vorhandene Configurator enthält bereits Anordnungen mit einem bis vier Flügelpaaren, Schwerpunkt und Montagepositionen, Schlagfrequenz und -amplitude, Servogeschwindigkeit, ONDAS-Modulation, Mixer, PID, Stick-Feedforward und Stabilisierungslogik.

@@ -12,12 +12,17 @@
 #include "Flight/Born2FlapFlightPawn.h"
 #include "Flight/Born2FlapTuning.h"
 #include "Input/Born2FlapRcController.h"
+#include "Input/Born2FlapKeybinds.h"
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
 #include "Containers/Ticker.h"
 #include "UnrealClient.h"
+#include "Framework/Application/SlateApplication.h"
+#include "Framework/Application/IInputProcessor.h"
+#include "Input/Events.h"
+#include "InputCoreTypes.h"
 
 using namespace born2flap::ui;
 
@@ -110,6 +115,31 @@ static const FLanguageDef Languages[] = {
 };
 constexpr int32 LanguageCount = (int32)(sizeof(Languages) / sizeof(Languages[0]));
 
+// Captures the next key while a KEY BINDINGS row is armed for rebinding. The
+// menu runs in UIOnly mode, so keyboard never reaches PlayerInput — a Slate
+// pre-processor is the one place that still sees every key-down. Escape cancels
+// the listen; any other (non-repeat) key is applied to the armed action.
+class FMenuKeyCaptureProcessor : public IInputProcessor
+{
+public:
+    ABorn2FlapMenu* Menu = nullptr;
+
+    virtual void Tick(const float DeltaTime, FSlateApplication& SlateApp, TSharedRef<ICursor> Cursor) override {}
+    virtual bool HandleKeyDownEvent(FSlateApplication& SlateApp, const FKeyEvent& InKeyEvent) override
+    {
+        if (!Menu || !Menu->IsListeningForKeybind())
+            return false;
+        if (InKeyEvent.IsRepeat())
+            return true;  // swallow auto-repeat while listening
+        const FKey K = InKeyEvent.GetKey();
+        if (K == EKeys::Escape)
+            Menu->CancelKeybindListen();
+        else
+            Menu->ApplyCapturedKeybind(K);
+        return true;      // consume: the rebind owns this key
+    }
+};
+
 }  // namespace
 
 ABorn2FlapMenu::ABorn2FlapMenu()
@@ -128,6 +158,14 @@ void ABorn2FlapMenu::Tick(float DeltaSeconds)
     {
         APlayerController* PC = UGameplayStatics::GetPlayerController(this, 0);
         RcFallback->Tick(PC, DeltaSeconds);
+    }
+    // The key-capture pre-processor applies/cancels rebinds mid-input; the
+    // actual widget rebuild is deferred here so it never mutates the UMG tree
+    // while Slate is still routing the key event.
+    if (bKeybindRebuildPending)
+    {
+        bKeybindRebuildPending = false;
+        Build();
     }
 }
 
@@ -180,6 +218,15 @@ void ABorn2FlapMenu::BeginPlay()
     Renderer->ViewportZOrder = 90; // under the splash (100), above the cockpit (0)
     Renderer->OnComponentAction.AddDynamic(this, &ABorn2FlapMenu::OnAction);
     born2flap::MenuSettingsLoad(Settings);
+    // Key-capture pre-processor for the KEY BINDINGS page (UIOnly input mode
+    // routes keyboard away from PlayerInput while the menu is open).
+    {
+        auto* Proc = new FMenuKeyCaptureProcessor();
+        Proc->Menu = this;
+        KeyCaptureProcessor = MakeShareable(Proc);
+        if (FSlateApplication::IsInitialized())
+            FSlateApplication::Get().RegisterInputPreProcessor(KeyCaptureProcessor);
+    }
     // Apply the persisted language before the first Build() so every localized
     // string (nav rail, pane titles, HUD/status via the shared locale) is right.
     Born2Flap::I18n::SetLocale(Settings.Language);
@@ -309,7 +356,7 @@ void ABorn2FlapMenu::Build()
         PaneChildren.push_back(Nd("TextBlock", P({ {"text", S("TRAVEL TO")}, {"size", S("xs")}, {"tone", S("dim")} })));
         PaneChildren.push_back(Nd("SizeBox", P({ {"height", N(150)} }),
         {
-            Nd("ScrollBox", P({}),
+            Nd("ScrollBlur", P({}),
             {
                 Nd("VerticalBox", P({}), std::move(PoiButtons))
             })
@@ -587,15 +634,15 @@ void ABorn2FlapMenu::BuildFlightDesk(std::vector<FNode>& Out)
     Rows.back().props["visible"]=B(false);
 
     Out.push_back(std::move(Tabs));
-    Out.push_back(Nd("ScrollBox", P({}), { Nd("VerticalBox", P({ {"spacing", N(12)} }), std::move(Rows)) }));
+    Out.push_back(Nd("ScrollBlur", P({}), { Nd("VerticalBox", P({ { "spacing", N(12)} }), std::move(Rows)) }));
     Out.push_back(std::move(Footer));
 }
 
 void ABorn2FlapMenu::BuildPreferences(std::vector<FNode>& Out)
 {
     FValue Pages; Pages.kind = FValue::Kind::Array;
-    for (const char* Pg : { "CONTROL SETTINGS", "GENERAL SETTINGS" }) Pages.arr.push_back(S(Pg));
-    Out.push_back(Nd("Select", P({ {"options", Pages}, {"value", N(PrefsPage)}, {"action", S("prefs.page")}, {"tooltip", S("Configure the RC transmitter, or browse general game options.")} })));
+    for (const char* Pg : { "CONTROL SETTINGS", "GENERAL SETTINGS", "KEY BINDINGS" }) Pages.arr.push_back(S(Pg));
+    Out.push_back(Nd("Select", P({ {"options", Pages}, {"value", N(PrefsPage)}, {"action", S("prefs.page")}, {"tooltip", S("Configure the RC transmitter, browse general game options, or rebind keys.")} })));
 
     if (PrefsPage == 0)
     {
@@ -643,7 +690,7 @@ void ABorn2FlapMenu::BuildPreferences(std::vector<FNode>& Out)
                 Out.push_back(Nd("TextBlock", P({ {"text", S(Rc->GetButtons())}, {"tone", S("dim")}, {"size", S("xs")} })));
             }
     }
-    else
+    else if (PrefsPage == 1)
     {
         // ---- GENERAL SETTINGS: camera, audio, input and replay, grouped ----
         {
@@ -701,6 +748,18 @@ void ABorn2FlapMenu::BuildPreferences(std::vector<FNode>& Out)
                 Props["step"] = N(1);
                 Props["unit"] = S(FString(TEXT("°")));
                 Rows.push_back(Nd("Slider", std::move(Props)));
+            }
+            {
+                // FREE-LOOK MOUSE: invert the detached ground-perspective free
+                // camera (MMB look-away). Flight and chase orbit stay untouched.
+                FProps Props;
+                Props["action"] = S("camera.freelook.invert");
+                Props["label"] = S("INVERT FREE-LOOK MOUSE");
+                Props["tooltip"] = S("Flips the ground-perspective free-look (MMB held, ground view) so mouse-up looks up or down. Does not affect flight steering or the chase orbit.");
+                Props["on"] = S("INVERTED  /  click for normal");
+                Props["off"] = S("NORMAL  /  click to invert");
+                Props["value"] = B(Settings.bFreeLookInvert);
+                Rows.push_back(Nd("Toggle", std::move(Props)));
             }
 
             // AUDIO
@@ -807,8 +866,42 @@ void ABorn2FlapMenu::BuildPreferences(std::vector<FNode>& Out)
                 Rows.push_back(Nd("Button", std::move(Props)));
             }
 
-            Out.push_back(Nd("ScrollBox", P({}), { Nd("VerticalBox", P({ {"spacing", N(12)} }), std::move(Rows)) }));
+            Out.push_back(Nd("ScrollBlur", P({}), { Nd("VerticalBox", P({ { "spacing", N(12)} }), std::move(Rows)) }));
         }
+    }
+    else
+    {
+        // ---- KEY BINDINGS: rebind every hotkey, grouped by category ----
+        std::vector<FNode> Rows;
+        Rows.push_back(Nd("TextBlock", P({ {"text", S("KEY BINDINGS")}, {"tone", S("accent")}, {"size", S("l")} })));
+        Rows.push_back(Nd("TextBlock", P({ {"text", S(FString(TEXT("Click a key to rebind it, then press the new key. Escape cancels. Movement keys (W/A/S/D + arrows) also steer the bird in flight.")))}, {"tone", S("dim")}, {"size", S("xs")}, {"wrap", B(true)} })));
+
+        const auto& Cat = born2flap::keybinds::Catalog();
+        FString CurrentCategory;
+        for (const auto& A : Cat)
+        {
+            if (FCString::Strcmp(A.Category, *CurrentCategory) != 0)
+            {
+                CurrentCategory = A.Category;
+                Rows.push_back(Nd("TextBlock", P({ {"text", S(FString(A.Category))}, {"tone", S("accent")}, {"size", S("m")} })));
+            }
+            const bool bArmed = ListeningKeybind == A.Id;
+            FString KeyLabel = bArmed ? TEXT("press a key…") : born2flap::keybinds::DisplayName(born2flap::keybinds::Get(A.Id));
+            FProps Props;
+            Props["action"] = S(FString::Printf(TEXT("keybind.%s"), A.Id));
+            Props["label"] = S(FString::Printf(TEXT("%s  —  %s"), A.Label, *KeyLabel));
+            Props["tone"] = S(bArmed ? "good" : "accent");
+            Props["tooltip"] = S(FString(TEXT("Rebind this key.")));
+            Rows.push_back(Nd("Button", std::move(Props)));
+        }
+        {
+            FProps Props;
+            Props["action"] = S("keybind.reset");
+            Props["label"] = S("Reset all keys to default");
+            Props["tone"] = S("danger");
+            Rows.push_back(Nd("Button", std::move(Props)));
+        }
+        Out.push_back(Nd("ScrollBlur", P({}), { Nd("VerticalBox", P({ { "spacing", N(10)} }), std::move(Rows)) }));
     }
 }
 
@@ -838,15 +931,39 @@ void ABorn2FlapMenu::Close()
     // Persist whatever the menu edited — on the home screen there is no bird to
     // save, so the settings store writes Config/FlightPreferences.ini directly.
     PersistSettings();
+    if (KeyCaptureProcessor.IsValid() && FSlateApplication::IsInitialized())
+        FSlateApplication::Get().UnregisterInputPreProcessor(KeyCaptureProcessor);
+    KeyCaptureProcessor.Reset();
     if (Renderer)
         Renderer->Close();
+}
+
+void ABorn2FlapMenu::CancelKeybindListen()
+{
+    ListeningKeybind.Empty();
+    bKeybindRebuildPending = true;  // deferred: we're inside Slate input routing
+}
+
+void ABorn2FlapMenu::ApplyCapturedKeybind(FKey Key)
+{
+    if (ListeningKeybind.IsEmpty())
+        return;
+    // Ignore bare modifier presses — they can't be a binding on their own.
+    if (Key == EKeys::LeftShift || Key == EKeys::RightShift ||
+        Key == EKeys::LeftControl || Key == EKeys::RightControl ||
+        Key == EKeys::LeftAlt || Key == EKeys::RightAlt ||
+        Key == EKeys::LeftCommand || Key == EKeys::RightCommand)
+        return;
+    born2flap::keybinds::Set(*ListeningKeybind, Key);
+    ListeningKeybind.Empty();
+    bKeybindRebuildPending = true;  // deferred: we're inside Slate input routing
 }
 
 void ABorn2FlapMenu::RestoreView(int32 Nav, int32 SettingsSub, int32 PrefsSub)
 {
     const int32 N = FMath::Clamp(Nav, 0, 2);
     const int32 S = FMath::Clamp(SettingsSub, 0, 3);
-    const int32 P = FMath::Clamp(PrefsSub, 0, 1);
+    const int32 P = FMath::Clamp(PrefsSub, 0, 2);
     if (N != NavPage || S != SettingsPage || P != PrefsPage)
     {
         NavPage = N;
@@ -879,7 +996,7 @@ void ABorn2FlapMenu::OnAction(const FString& Action, float Value, const FString&
     if (Action == TEXT("menu.play"))         { NavPage = 0; Build(); return; }
     if (Action == TEXT("menu.settings"))     { NavPage = 1; Build(); return; }
     if (Action == TEXT("menu.preferences"))  { NavPage = 2; PrefsPage = 0; Build(); return; }
-    if (Action == TEXT("prefs.page"))        { PrefsPage = FMath::Clamp(FMath::RoundToInt(Value), 0, 1); Build(); return; }
+    if (Action == TEXT("prefs.page"))        { PrefsPage = FMath::Clamp(FMath::RoundToInt(Value), 0, 2); Build(); return; }
     if (Action == TEXT("settings.page"))     { SettingsPage = FMath::Clamp(FMath::RoundToInt(Value), 0, 3); Build(); return; }
     // OPEN WORLDS sub-page: LOCATION / WEATHER & TIME / ROUTE (segmented).
     if (Action == TEXT("menu.page"))         { SelectedPage = FMath::Clamp(FMath::RoundToInt(Value), 0, 2); Build(); return; }
@@ -1009,6 +1126,23 @@ void ABorn2FlapMenu::OnAction(const FString& Action, float Value, const FString&
     }
     if (Action == TEXT("camera.fpv")) { Settings.bFpvAirView = !Settings.bFpvAirView; if (Bird.IsValid()) Bird->ToggleFpvView(); return; }
     if (Action == TEXT("camera.angle")) { Settings.FpvCameraAngleDeg = FMath::Clamp(Value, -45.f, 45.f); if (Bird.IsValid()) Bird->SetFpvCameraAngle(Settings.FpvCameraAngleDeg); return; }
+    if (Action == TEXT("camera.freelook.invert")) { Settings.bFreeLookInvert = !Settings.bFreeLookInvert; if (Bird.IsValid()) Bird->SetFreeLookInvert(Settings.bFreeLookInvert); return; }
+    // ---- KEY BINDINGS: arm a row for rebinding, or reset the whole table ----
+    if (Action.StartsWith(TEXT("keybind.")))
+    {
+        const FString Id = Action.Mid(8);
+        if (Id == TEXT("reset"))
+        {
+            born2flap::keybinds::ResetAll();
+            ListeningKeybind.Empty();
+        }
+        else
+        {
+            ListeningKeybind = Id;
+        }
+        Build();
+        return;
+    }
     if (Action == TEXT("replay.spirits")) { Settings.bReplaySpirits = Value > 0.5f; if (Bird.IsValid()) Bird->SetReplaySpiritsEnabled(Settings.bReplaySpirits); return; }
     if (Action == TEXT("replay.delete")) { if (Bird.IsValid()) Bird->DeleteReplaySpirits(); return; }
     if (Action == TEXT("language.set"))

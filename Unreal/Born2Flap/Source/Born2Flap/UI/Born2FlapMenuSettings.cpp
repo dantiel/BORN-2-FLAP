@@ -98,6 +98,7 @@ void MenuSettingsLoad(FMenuSettings& Out)
     float Cam = Out.FpvCameraAngleDeg;
     Config.GetFloat(TEXT("Flight"), TEXT("FpvCameraAngle"), Cam);
     Out.FpvCameraAngleDeg = FMath::IsFinite(Cam) ? FMath::Clamp(Cam, -45.f, 45.f) : 0.f;
+    Config.GetBool(TEXT("Flight"), TEXT("FreeLookInvert"), Out.bFreeLookInvert);
     Config.GetBool(TEXT("Flight"), TEXT("CoupledThrottle"), Out.bCoupledThrottle);
 
     float Mass = Out.BodyMassKg;
@@ -159,6 +160,7 @@ void MenuSettingsSave(const FMenuSettings& In)
     Config.SetFloat(TEXT("Controls"), TEXT("Expo"), In.ControlExpo);
     Config.SetBool(TEXT("Flight"), TEXT("FpvAirView"), In.bFpvAirView);
     Config.SetFloat(TEXT("Flight"), TEXT("FpvCameraAngle"), In.FpvCameraAngleDeg);
+    Config.SetBool(TEXT("Flight"), TEXT("FreeLookInvert"), In.bFreeLookInvert);
     Config.SetBool(TEXT("Flight"), TEXT("CoupledThrottle"), In.bCoupledThrottle);
     Config.SetFloat(TEXT("Flight"), TEXT("BodyMassKg"), In.BodyMassKg);
     Config.SetFloat(TEXT("Flight"), TEXT("CgOffsetMm"), In.CgOffsetMm);
@@ -192,6 +194,7 @@ void MenuSettingsFromPawn(const ABorn2FlapFlightPawn* Pawn, FMenuSettings& Out)
     Out.bCoupledThrottle = Pawn->IsThrottleCoupled();
     Out.bFpvAirView = Pawn->IsFpvAirView();
     Out.FpvCameraAngleDeg = Pawn->GetFpvCameraAngle();
+    Out.bFreeLookInvert = Pawn->GetFreeLookInvert();
     Out.MouseGains = Pawn->GetMouseGains();
     Out.ControlExpo = Pawn->GetControlExpo();
     Out.SpeedModifier = Pawn->GetSpeedModifier();
@@ -216,6 +219,7 @@ void MenuSettingsToPawn(const FMenuSettings& In, ABorn2FlapFlightPawn* Pawn)
     if (In.bFpvAirView != Pawn->IsFpvAirView())
         Pawn->ToggleFpvView();
     Pawn->SetFpvCameraAngle(In.FpvCameraAngleDeg);
+    Pawn->SetFreeLookInvert(In.bFreeLookInvert);
     for (int32 Axis = 0; Axis < 3; ++Axis)
         Pawn->SetMouseGain(Axis, In.MouseGains[Axis]);
     Pawn->SetControlExpo(In.ControlExpo);

@@ -38,6 +38,7 @@
 #include "Framework/Application/IInputProcessor.h"
 #include "Input/Events.h"
 #include "InputCoreTypes.h"
+#include "Input/Born2FlapKeybinds.h"
 #include "Blueprint/UserWidget.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
@@ -71,10 +72,10 @@ public:
             return false;
         if (InKeyEvent.IsRepeat())
             return false;
-        if (InKeyEvent.GetKey() == EKeys::F10)
+        if (InKeyEvent.GetKey() == born2flap::keybinds::Get(TEXT("ToggleMenu")))
         {
             bF10Pressed = true;
-            return true;  // consume: the menu closes on this F10, nothing else sees it
+            return true;  // consume: the menu closes on this key, nothing else sees it
         }
         return false;
     }
@@ -485,10 +486,31 @@ void ABorn2FlapGameMode::AddPoi(const FString& Key, double X, double Y, float Cl
     P.Key = Key;
     double Ground = GroundHeight(X, Y);
     // A defensive floor: never leave a reset point below the waterline (e.g. a
-    // shore lookout whose camera sits at the tideline). Float it just above the
-    // surface instead of dropping the bird into the sea.
+    // shore lookout whose camera sits at the tideline). On the coast the sea is
+    // +Y and dry beach is -Y, so walk inland until solid sand is found instead
+    // of dropping the bird into the surf (the "Basalt cove" scenic camera floats
+    // offshore). Non-coast levels keep the old float-at-surface fallback.
     if (Ground < WaterHeight())
-        Ground = WaterHeight();
+    {
+        if (bCoastLevel)
+        {
+            for (int32 Step = 1; Step <= 80; ++Step)
+            {
+                const double YTry = Y - Step * 250.0;
+                const double G = GroundHeight(X, YTry);
+                if (G >= WaterHeight() + 30.0)
+                {
+                    Y = YTry;
+                    Ground = G;
+                    break;
+                }
+            }
+        }
+        else
+        {
+            Ground = WaterHeight();
+        }
+    }
     P.Position = FVector(X, Y, Ground + Clearance);
     POIs.Add(P);
 }
@@ -622,17 +644,17 @@ void ABorn2FlapGameMode::Tick(float DeltaSeconds)
     {
         if (APlayerController* PC = UGameplayStatics::GetPlayerController(this, 0))
         {
-            if (PC->WasInputKeyJustPressed(EKeys::F10))
+            if (PC->WasInputKeyJustPressed(born2flap::keybinds::Get(TEXT("ToggleMenu"))))
             {
                 if (ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
                     if (Bird->IsPoiOverlayOpen())
                         Bird->ClosePoiOverlay();
                 ShowMainMenu(true);
             }
-            // F3 opens the same fullscreen menu, landing on SETTINGS → CONTROL
-            // SETTINGS (the RC transmitter panel now lives inside the menu).
-            // Guarded so the Brain-authored path keeps its own F3 handling.
-            if (!IsBrainActive() && PC->WasInputKeyJustPressed(EKeys::F3))
+            // The RC settings key opens the same fullscreen menu, landing on
+            // SETTINGS → CONTROL SETTINGS (the RC transmitter panel now lives
+            // inside the menu). Guarded so the Brain-authored path keeps its own.
+            if (!IsBrainActive() && PC->WasInputKeyJustPressed(born2flap::keybinds::Get(TEXT("ToggleRc"))))
             {
                 MenuNavPage = 2;
                 MenuSettingsPage = 0;
@@ -758,9 +780,9 @@ void ABorn2FlapGameMode::Tick(float DeltaSeconds)
         RadioStation->Tick(DeltaSeconds);
         if (auto* PC = UGameplayStatics::GetPlayerController(this, 0))
         {
-            if (PC->WasInputKeyJustPressed(EKeys::M)) RadioStation->ToggleMute();
-            if (PC->WasInputKeyJustPressed(EKeys::LeftBracket)) RadioStation->AdjustVolume(-.08f);
-            if (PC->WasInputKeyJustPressed(EKeys::RightBracket)) RadioStation->AdjustVolume(+.08f);
+            if (PC->WasInputKeyJustPressed(born2flap::keybinds::Get(TEXT("RadioMute")))) RadioStation->ToggleMute();
+            if (PC->WasInputKeyJustPressed(born2flap::keybinds::Get(TEXT("RadioVolDown")))) RadioStation->AdjustVolume(-.08f);
+            if (PC->WasInputKeyJustPressed(born2flap::keybinds::Get(TEXT("RadioVolUp")))) RadioStation->AdjustVolume(+.08f);
         }
     }
 

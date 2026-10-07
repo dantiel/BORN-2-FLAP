@@ -1052,13 +1052,14 @@ lib.recompile_material(cloud)
 ela.save_asset('/Game/Shiomori/Materials/M_Cloud')
 mats['Cloud'] = cloud
 
-# Milky cloud-glass canopy: a soft, unobtrusive translucent roof that reads as
-# cloud density rather than textured glass. A barely-perceptible multi-octave
-# value-noise normal (subtle organic, "regularly irregular" — not coarse) keeps
-# the surface from reading as perfectly flat plastic, and no Fresnel sheen keeps
-# it matte. High opacity + frosted roughness give the blur;
-# bCastDynamicShadowAsMasked makes the slabs cast a real (soft) shadow instead
-# of floating as pure light.
+# Milky cloud-glass canopy: a soft, blurred, half-transparent translucent roof
+# that reads as cloud density rather than textured sheet glass. A barely-
+# perceptible multi-octave value-noise normal (subtle organic, "regularly
+# irregular" — not coarse) keeps the surface from reading as perfectly flat
+# plastic; a Fresnel edge sheen and a gentle refractive bend give it a glassy
+# rim. Soft, opacity-weighted translucent shadows (not a hard masked shadow)
+# make the overlapping slabs cast half-transparent shadows that deepen where
+# they overlap.
 glass = u.load_asset('/Game/Shiomori/Materials/M_Glass') if ela.does_asset_exist('/Game/Shiomori/Materials/M_Glass') else assets.create_asset(
     'M_Glass', '/Game/Shiomori/Materials', u.Material, u.MaterialFactoryNew())
 glass.set_editor_property('blend_mode', u.BlendMode.BLEND_TRANSLUCENT)
@@ -1071,9 +1072,11 @@ try:
     glass.set_editor_property('refraction_method', u.RefractionMode.RM_INDEX_OF_REFRACTION)
 except Exception:
     pass
+# Cast a soft, opacity-weighted translucent shadow (via the sun's
+# cast_translucent_shadows flag) rather than a hard masked one.
 for prop in ('b_cast_dynamic_shadow_as_masked', 'cast_dynamic_shadow_as_masked'):
     try:
-        glass.set_editor_property(prop, True)
+        glass.set_editor_property(prop, False)
         break
     except Exception:
         pass
@@ -1096,12 +1099,24 @@ float n = noise.vnoise(P.xy * 0.05) * 0.50
 float g = (n - 0.5) * 0.12;
 return normalize(float3(-g, 0.0, 1.0));''', {'P': wp}, 3)
 output(n, 'NORMAL')
-output(node(glass, 'Constant3Vector', constant=u.LinearColor(0.93, 0.94, 0.95)), 'BASE_COLOR')
-output(node(glass, 'Constant', r=1.0), 'REFRACTION')
-output(node(glass, 'Constant', r=0.9), 'OPACITY')
-output(node(glass, 'Constant', r=0.85), 'ROUGHNESS')
-output(node(glass, 'Constant', r=0.2), 'SPECULAR')
-for prop, val in (('translucency_shadow_density_scale', 1.0), ('translucency_self_shadow_density_scale', 0.6)):
+output(node(glass, 'Constant3Vector', constant=u.LinearColor(0.94, 0.95, 0.96)), 'BASE_COLOR')
+# A gentle refractive bend: IOR 1.0 is no bend, ~1.2 reads as glass.
+output(node(glass, 'Constant', r=1.2), 'REFRACTION')
+output(node(glass, 'Constant', r=0.85), 'OPACITY')
+output(node(glass, 'Constant', r=0.55), 'ROUGHNESS')
+# Fresnel edge sheen -> specular: matte on-axis, mirror-like at grazing angles.
+fres = node(glass, 'Fresnel')
+fres.set_editor_property('exponent', 3.0)
+fres.set_editor_property('base_reflect_fraction', 0.04)
+spec_base = node(glass, 'Constant', r=0.2)
+spec_boost = node(glass, 'Multiply')
+spec_boost.set_editor_property('const_b', 0.8)
+wire(fres, spec_boost, 'A')
+spec = node(glass, 'Add')
+wire(spec_base, spec, 'A')
+wire(spec_boost, spec, 'B')
+output(spec, 'SPECULAR')
+for prop, val in (('translucency_shadow_density_scale', 0.6), ('translucency_self_shadow_density_scale', 0.4)):
     try:
         glass.set_editor_property(prop, val)
     except Exception:
@@ -1561,6 +1576,28 @@ def part(label, p, size, mat='Concrete', shape='Cube', rot=(0, 0, 0), collision=
     return a
 
 
+def invisible_block(label, p, size):
+    # A pure collision volume: BlockAll so the ornithopter body (PhysicsActor)
+    # and the wing leading-edge sweeps (ECC_WorldStatic) both stop against it,
+    # but with no visible mesh. The volleyball net uses one so it blocks the
+    # upper band while the space under it stays clear for gliding through.
+    global count
+    a = u.EditorLevelLibrary.spawn_actor_from_class(u.StaticMeshActor, u.Vector(*p),
+                                                    u.Rotator(pitch=0, yaw=0, roll=0))
+    a.set_actor_label(label)
+    a.set_editor_property('tags', [label])
+    c = a.static_mesh_component
+    c.set_static_mesh(meshes['Cube'])
+    c.set_collision_profile_name('BlockAll')
+    c.set_visibility(False)
+    a.set_actor_hidden_in_game(True)
+    bounds = meshes['Cube'].get_bounds().box_extent
+    a.set_actor_scale3d(u.Vector(size[0] / (2 * bounds.x), size[1] / (2 * bounds.y),
+                                 size[2] / (2 * bounds.z) if bounds.z > .001 else 1))
+    count += 1
+    return a
+
+
 def foliage(label, p, mesh, height, rot=(0, 0, 0), ground_z=None):
     global count
     if mesh is None:
@@ -1798,6 +1835,10 @@ shiomori_volcanic.install(globals())
 for x in (11550, 12450):
     part('Volleyball post', (x, 4500, 130), (12, 12, 260), 'Teal', 'Cylinder')
 part('Volleyball top tape', (12000, 4500, 243), (900, 5, 7), 'Ivory', collision=False)
+# Invisible collision band over the net face (z 140..248): the ornithopter and
+# wings bounce off the net, but the clear strip beneath z~140 stays open so a
+# bird can glide through under it.
+invisible_block('Volleyball net collision', (12000, 4500, 194), (900, 16, 108))
 for z in range(145, 245, 20):
     part('Volleyball mesh horizontal', (12000, 4500, z), (900, 2, 2), 'Window', collision=False)
 for x in range(11550, 12451, 15):
@@ -1865,7 +1906,8 @@ for name, p, target in [('Sun horizon', (0, -6000, 400), (0, 13226, 5912)),
                         ('Basalt cove', (-22000, 12000, 5000), (-37000, 26000, 500)),
                         ('Shoreline', (0, 7900, 220), (3500, 12500, -50)),
                         ('East vegetation', (38700, 3000, 320), (43700, 4800, 240)),
-                        ('West vegetation', (-38500, 2800, 380), (-43800, 4800, 220))]:
+                        ('West vegetation', (-38500, 2800, 380), (-43800, 4800, 220)),
+                        ('East shoal', (45200, 18200, 3600), (45200, 23200, 120))]:
     a = u.EditorLevelLibrary.spawn_actor_from_class(u.CameraActor, u.Vector(*p),
                                                     u.MathLibrary.find_look_at_rotation(u.Vector(*p), u.Vector(*target)))
     a.set_actor_label(name)

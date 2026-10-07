@@ -62,3 +62,5 @@ Unreal/Born2Flap/Tools/_inspect_parhelion.py
 # Scratch analysis scripts
 _analyze*.py
 _analyze_shot.py
+# Build logs
+*.log

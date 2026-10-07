@@ -3,7 +3,6 @@
   "dir": "ltr",
   "title": "BORN2FLAP — Simulador de vuelo de ornitópteros",
   "meta_desc": "BORN2FLAP es un simulador de vuelo de ornitópteros en tiempo real: alas segmentadas, entrada en pérdida dinámica y flexión aeroelástica. Cada aleteo cuenta.",
-
   "asset_prefix": "..",
   "lang_href_en": "../",
   "lang_href_de": "../de/",
@@ -21,7 +20,6 @@
   "lang_class_ja": "",
   "lang_class_ko": "",
   "lang_class_ru": "",
-
   "nav_home": "BORN2FLAP",
   "nav_essence": "Esencia",
   "nav_flight": "El Ala",
@@ -30,7 +28,6 @@
   "nav_open": "Código abierto",
   "nav_tutorials": "Tutoriales",
   "nav_documentation": "Documentación",
-
   "hero_kicker": "UN SIMULADOR DE VUELO DE ORNITÓPTEROS",
   "hero_title_a": "BORN",
   "hero_title_b": "2",
@@ -42,7 +39,6 @@
   "hero_cta_epic": "Consíguelo en Epic",
   "hero_cta_source": "Lee el código",
   "hero_version": "Unreal Engine 5 · Haskell MathCore · Licencia MIT",
-
   "essence_num": "01",
   "essence_title": "Esencia",
   "essence_lead": "Un ornitóptero no es un dron. Es un ala que late.",
@@ -53,7 +49,6 @@
   "essence_p2_body": "Radio CRSF, mezcladores ONDAS, PID y kernels de servos portados de firmware real. Vuela con un emisor real.",
   "essence_p3_title": "Consecuencia real",
   "essence_p3_body": "Flecha, lavado, comba y rigidez cambian cómo vuela. Constrúyelo, y luego sobrevívelo.",
-
   "flight_num": "02",
   "flight_title": "El Ala",
   "flight_lead": "Aeroelástica, honesta, viva.",
@@ -74,7 +69,6 @@
   "flight_spec_wave_val": "dwell asimétrico / punteada, sincronizada",
   "flight_spec_step_label": "Paso de tiempo",
   "flight_spec_step_val": "fijo 240 Hz",
-
   "arch_num": "03",
   "arch_title": "Arquitectura",
   "arch_lead": "Tres lenguajes, un corazón que late.",
@@ -87,7 +81,6 @@
   "arch_ruby_title": "Cerebro Ruby",
   "arch_ruby_desc": "Estado de la app, menús, reglas y orquestación — la mente lenta tras las matemáticas rápidas.",
   "arch_pipeline": "RC / Gamepad  ──►  Firmware (CRSF · mezclador · PID)\n                         │\n                         ▼\n              Haskell MathCore (fijo 240 Hz)\n                         │\n                         ▼\n              C / C++ FFI  ──►  Unreal / Chaos",
-
   "game_num": "04",
   "game_title": "Jugabilidad",
   "game_lead": "Fácil de empezar, difícil de dominar.",
@@ -103,13 +96,11 @@
   "game_landing_desc": "Aterrizajes en un punto con viento — la disciplina más antigua, la más dura.",
   "game_bench_title": "Banco de pruebas",
   "game_bench_desc": "Vista de túnel de viento: vectores de fuerza, mapas de pérdida, deformación del ala en vivo.",
-
   "open_num": "05",
   "open_title": "Código abierto",
   "open_lead": "Comercial y libre a la vez.",
   "open_body": "BORN2FLAP llega a Steam y a Epic Games Store, y su propio código se publica bajo la <strong>licencia MIT</strong>. El núcleo de física, el puente, el cerebro — abiertos. Vuela el juego, toma el ala y construye la tuya. Unreal Engine y los assets de terceros conservan sus propias licencias.",
   "open_license": "Licencia MIT",
-
   "footer_github": "GitHub",
   "footer_docs": "Documentación",
   "footer_tutorials": "Tutoriales",
@@ -117,44 +108,58 @@
   "footer_epic": "Epic Games",
   "footer_hermetic": "Escrito en el éter por corazones feroces.",
   "footer_credit": "BORN2FLAP ·",
-
   "subnav_scroll": "Volver arriba",
   "subnav_home": "Volver a BORN2FLAP",
-
   "doc_title": "Documentación — BORN2FLAP",
   "doc_h1": "Documentación",
   "doc_lead": "El ala, las matemáticas y la máquina — explicadas.",
   "doc_h2_articles": "Artículos",
-
   "ph_title": "Física — BORN2FLAP",
   "ph_h1": "Física",
   "ph_lead": "El modelo reducido en tiempo real.",
-
   "wing_title": "El Ala — BORN2FLAP",
   "wing_h1": "El Ala",
   "wing_lead": "Planta, perfil, estructura.",
-
   "wave_title": "Forma de onda — BORN2FLAP",
   "wave_h1": "Forma de onda",
   "wave_lead": "Oscilación sincronizada.",
-
   "ctl_title": "Controles — BORN2FLAP",
   "ctl_h1": "Controles",
   "ctl_lead": "CRSF, mezclador, firmware.",
-
   "tut_title": "Tutoriales — BORN2FLAP",
   "tut_h1": "Tutoriales",
   "tut_lead": "Del primer aleteo al afinado manual.",
-
   "ff_title": "Primer vuelo — BORN2FLAP",
   "ff_h1": "Primer vuelo",
   "ff_lead": "Despega, mantente en el aire.",
-
   "wd_title": "Diseño del ala — BORN2FLAP",
   "wd_h1": "Diseño del ala",
   "wd_lead": "La geometría es destino.",
-
   "tune_title": "Afinado — BORN2FLAP",
   "tune_h1": "Afinado",
-  "tune_lead": "Ajusta el ala a tus manos."
+  "tune_lead": "Ajusta el ala a tus manos.",
+  "game_video_title": "Míralo volar",
+  "game_video_caption": "Observa al pájaro alzar el vuelo.",
+  "code_h1": "Código y modding",
+  "code_lead": "Cada archivo, símbolo y el mapa de modding: sumérgete en el código.",
+  "nav_support": "Apoyo",
+  "support_num": "06",
+  "support_title": "Apoya a la bandada",
+  "support_lead": "Libre como el aire, sostenido en alto por corazones.",
+  "support_body": "BORN2FLAP es gratuito y de código abierto, y sigue siéndolo gracias a personas como tú. Cada propina y cada patrocinio alimenta el siguiente modelo, el siguiente refinamiento de la física, la siguiente versión.",
+  "support_kofi": "Dona en Ko-fi",
+  "support_sponsors": "Hazte patrocinador",
+  "footer_kofi": "Ko-fi",
+  "footer_sponsors": "Patrocinadores",
+  "game_valley_title": "Valle natural",
+  "game_valley_desc": "Un valle boscoso con un río serpenteante, abetos, hierba y musgo: terreno y troncos con los que puedes chocar de verdad.",
+  "game_rc_title": "Emisora RC real",
+  "game_rc_desc": "Conecta tu propio emisor USB y vuela con mandos reales, sin controladores ni capa de traducción. F3 abre la calibración.",
+  "ph_markdown": "La simulación resuelve un vehículo completo a un **paso de tiempo fijo de 240 Hz**: dos alas, un cuerpo y una cola.\n\n## Marcos de referencia\n\n- **Cuerpo**: +x hacia delante, +y a la derecha, +z arriba (distribución zurda de Unreal).\n- **Ala local**: x a lo largo de la cuerda hacia el borde de salida, y raíz→punta, z normal del ala.\n\nTodas las unidades son SI internamente; la frontera de Unreal convierte metros ↔ centímetros.\n\n## Discretización\n\n- 16 franjas de envergadura por ala (Haskell simula ambas alas; C++ OrniCore simula un ala aislada como referencia de investigación).\n- El ángulo de ataque local, el número de Reynolds y el estado de separación se calculan **por franja**.\n\n## Fuerzas\n\n- **Sustentación**: perpendicular al flujo planar local.\n- **Resistencia**: se opone al flujo planar local; disipativa.\n- **Separación**: un estado continuo por elemento de 0 (adherido) a 1 (separado), que da pérdida parcial.\n- **Masa añadida**: la reacción del aire que el ala acelera.\n- **LEV**: sustentación del vórtice de borde de ataque capturada en el modelo de pérdida.\n- **Flujo cruzado**: transporte en envergadura impulsado por la flecha, controlado por la fase de aleteo.\n\nLos signos y las constantes tienen una única fuente en `docs/physics-convention.md` y se verifican mediante tests de regresión.",
+  "wing_markdown": "La geometría del ala es una **única fuente de verdad**: un contorno arbitrario, no escalares específicos de cada pájaro.\n\n## Planta\n\nUna `WingShape` es una semienvergadura más una lista ordenada de estaciones de envergadura. Cada estación lleva posición del borde de ataque, cuerda, torsión y diedro. **La flecha es implícita** (la pendiente de la polilínea del borde de ataque), nunca un parámetro almacenado.\n\n## Sección\n\nCada estación lleva un `SectionProfile`: comba en reposo, reflexión del borde de salida y flexibilidad de la membrana. La respuesta de perfil delgado desplaza el ángulo de sustentación nula con la comba y acopla comba + reflexión en un momento de cabeceo seccional.\n\n## Estructura\n\nCada estación lleva un `StructureProfile`: rigidez a flexión **EI**, rigidez torsional **GJ** y tiempos de relajación. Un paso de viga en voladizo con raíz empotrada convierte la fuerza vertical en momento flector → deflexión/pendiente, y el momento de cabeceo seccional en par → torsión. Un brazo rígido y una mano flexible producen un lavado realista inducido por la carga.\n\n## Bucle aeroelástico\n\nLa deformación no es cosmética. La torsión aeroelástica se suma a la incidencia; la flexión se suma a la posición de aleteo. El ala realimenta sus propias cargas en su forma: el ala que late es una estructura, no una imagen.",
+  "wave_markdown": "La forma de onda de aleteo es un port fiel del oscilador de [PteronautOS](https://dantiel.github.io/PteronautOS/), no un seno.\n\n## El oscilador\n\nUn `OscillatorState` avanza una fase de péndulo de deuda cuyo `phaseOffset` es atraído hacia batidos completos mediante `-ω0² · sin(φ)`. Se sincroniza con ciclos de aleteo completos, de modo que la cadencia y el faseado permanecen coherentes bajo carga.\n\n## La forma\n\n`shapeWave` produce una **onda asimétrica de dwell/punteada**: la ferocidad por mitad (0…8) define cuánto de cada medio batido es dwell frente a empuje. Un parámetro de sesgo central desplaza el punto de inversión. El resultado es el batido descendente duro y la recuperación suave de un aleteo real.\n\n## Ferocidad\n\nLa ferocidad es la textura del batido: valores bajos son lánguidos y elásticos, valores altos son agudos y brutales. Ajústala para igualar al animal que estás construyendo.",
+  "ctl_markdown": "El control recorre el mismo camino que el firmware real.\n\n## Canales\n\nLos canales CRSF llegan en crudo (172…1811). Alerón, elevador, acelerador, timón, armado, frecuencia y perfil se normalizan y se alimentan al mezclador.\n\n## Histéresis de aleteo\n\nEl aleteo se activa cuando el acelerador supera el umbral y se libera solo después de caer por una banda de histéresis, de modo que el ala no titubea en el borde del ralentí.\n\n## Dirección\n\nEl mando de alerón se convierte en un batido asimétrico; el elevador en deflexión de cola; el timón desplaza la amplitud de aleteo izquierda frente a derecha. El planeo conserva toda la autoridad del ala.\n\n## Mezclador y PID\n\nEl mezclador de servos ONDAS y los bucles PID se portan desde el firmware, de modo que el comportamiento en el simulador sigue al hardware que refleja.",
+  "ff_markdown": "Un ornitóptero quiere caer. Tu trabajo es convencerlo de lo contrario.\n\n## Lanzamiento\n\nDescansa en el suelo, mantén **Espacio** para un lanzamiento manual: 8,5 m/s hacia delante, un toque hacia arriba. El lanzamiento no puede repetirse en el aire; comprométete.\n\n## Aletea y planea\n\nMantén **W** para un aleteo continuo a esfuerzo de crucero. **Mayús + W** exige el batido completo. Suelta para planear: la velocidad y la altura se gastan, nunca son gratis.\n\n## Gira y asciende\n\n**A / D** te inclinan. **Arriba / Abajo** suben y bajan el morro: tirar hacia arriba cuesta velocidad, así que cambia velocidad por altura como el ala que estás volando.\n\n## Aterriza\n\nFrena, mantén el morro arriba y deja que el suelo te encuentre con suavidad. **R** reinicia el estado del cuerpo y del firmware.",
+  "wd_markdown": "Cada número que cambias es una decisión que el aire juzgará.\n\n## Cuerda\n\nUna cuerda larga en el brazo y una mano afilada dan sustentación en el interior y agilidad en el exterior. Aplana la punta y pierdes autoridad de alabeo; engórdala y arrastras.\n\n## Flecha y lavado\n\nLa flecha es la pendiente del borde de ataque: dirige el flujo cruzado hacia la punta. El lavado (incidencia descendente hacia la punta) mantiene la punta volando después de que la raíz entra en pérdida. Ambos son emergentes, no decorativos.\n\n## Comba y reflexión\n\nLa comba compra sustentación y desplaza el ángulo de sustentación nula. La reflexión del borde de salida desplaza el momento de cabeceo: una cola que compensa sin cola.\n\n## Rigidez\n\nUn brazo rígido y una mano flexible se doblan bajo carga hasta el lavado. Demasiado rígido y es una tabla; demasiado blando y se pliega. La estructura es un parámetro de vuelo, no un detalle.",
+  "tune_markdown": "El ajuste es el arte marcial del simulador: movimientos pequeños, consecuencias sentidas.\n\n## Cadencia\n\nEl acelerador se mapea a la cadencia de batido (0,5…3,2 Hz) a través del oscilador sincronizado. Encuentra la cadencia en la que el ala deja de luchar contra sí misma.\n\n## Ferocidad\n\nSube la ferocidad por mitad para un batido más agudo y brutal; bájala para uno lánguido y elástico. El carácter del ala cambia antes de que lo haga su sustentación.\n\n## Mezclador y PID\n\nEl mezclador dirige el alerón hacia la asimetría del batido y el elevador hacia la deflexión de cola. El PID mantiene la actitud, pero cada ganancia es un compromiso. Las asistencias son controladores, siempre visibles, siempre desconectables.\n\n## Estructura\n\nLa flexión y la torsión se relajan hacia sus formas cargadas. Ajusta EI y GJ hasta que el ala lleve su propio lavado. La máquina debe sentirse viva bajo tus pulgares, no atornillada."
 }
