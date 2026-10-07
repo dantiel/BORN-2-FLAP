@@ -63,7 +63,7 @@ b2f_math_get_wing_shape contextPointer capacity leftPointer rightPointer
     failure :: SomeException -> IO Int32
     failure _ = pure 0
 b2f_math_abi_version :: IO Word32
-b2f_math_abi_version = pure 6
+b2f_math_abi_version = pure 8
 
 b2f_math_runtime_init :: IO Int32
 b2f_math_runtime_init = pure 1
@@ -128,10 +128,11 @@ pokeOutput pointer output = do
 -- | Mutable firmware-vehicle context: fixed component selection (servo +
 -- battery + mixer params) around a mutable loop state.
 data FwContext = FwContext
-  { fwcParams  :: !FirmwareParams
-  , fwcServo   :: !ServoSpec
-  , fwcBattery :: !BatterySpec
-  , fwcState   :: !FirmwareVehicleState
+  { fwcParams     :: !FirmwareParams
+  , fwcServo      :: !ServoSpec
+  , fwcBattery    :: !BatterySpec
+  , fwcState      :: !FirmwareVehicleState
+  , fwcWingScale  :: !Double  -- ^ planform scale (sized to body mass)
   }
 
 -- | Raw component-selection config (6 doubles, 0 = use default).
@@ -160,6 +161,8 @@ data TuningConfig = TuningConfig
   , tgStrokeFerocity    :: !Double  -- ^ downstroke ferocity [0..100]
   , tgAileronScale      :: !Double  -- ^ aileron mix [0..100]
   , tgElevatorScale     :: !Double  -- ^ elevator mix [0..100]
+  , tgMountAngleDeg     :: !Double  -- ^ wing mount incidence (common flap/glide trim) [deg]
+  , tgBodyMassKg        :: !Double  -- ^ airframe mass [kg], scales the wing planform
   }
 
 b2f_math_create_firmware_vehicle :: Ptr () -> IO (Ptr ())
@@ -189,7 +192,7 @@ b2f_math_create_firmware_vehicle configPointer = do
             , profRudderAmplitudeDiff = 35, profRudderFerocityRange = 20
             , profAileronScale = 60, profElevatorScale = 55 }
         }
-      context = FwContext flightParams servo battery defaultFirmwareVehicleState
+      context = FwContext flightParams servo battery defaultFirmwareVehicleState 1.0
   castStablePtrToPtr <$> (newIORef context >>= newStablePtr)
 
 b2f_math_destroy_firmware_vehicle :: Ptr () -> IO ()
@@ -237,10 +240,10 @@ b2f_math_reconfigure_firmware_vehicle contextPointer tuningPointer
 
 peekTuning :: Ptr () -> IO TuningConfig
 peekTuning pointer = do
-  values <- mapM (peekElemOff (castPtr pointer :: Ptr CDouble)) [0 .. 11]
+  values <- mapM (peekElemOff (castPtr pointer :: Ptr CDouble)) [0 .. 13]
   case map (\(CDouble value) -> value) values of
-    [speed, stall, backdrive, voltage, resistance, capacity, freq, tailElev, glide, ferocity, aileron, elevator] ->
-      pure (TuningConfig speed stall backdrive voltage resistance capacity freq tailElev glide ferocity aileron elevator)
+    [speed, stall, backdrive, voltage, resistance, capacity, freq, tailElev, glide, ferocity, aileron, elevator, mount, mass] ->
+      pure (TuningConfig speed stall backdrive voltage resistance capacity freq tailElev glide ferocity aileron elevator mount mass)
     _ -> error "unreachable tuning layout"
 
 applyTuning :: TuningConfig -> FwContext -> FwContext
@@ -262,12 +265,34 @@ applyTuning t ctx =
         , profAileronScale = clampRange 0 100 (tgAileronScale t)
         , profElevatorScale = clampRange 0 100 (tgElevatorScale t)
         }
+      -- Size the wing to the bird. Reference: 450 g → scale 1.0 (the default
+      -- 1.44 m-span bird). A MILDER m^(1/4) scaling keeps a 10–25 g micro bird
+      -- at ≥0.4× span (area ≥0.16×) instead of collapsing to 0.25× — so its
+      -- wings still generate real lift/thrust, while the hinge torque
+      -- (∝ wingScale³) still drops enough for a real micro-servo to drive them.
+      wingScale = clampRange 0.4 1.8 (((max 0.01 (tgBodyMassKg t)) / 0.45) ** (1 / 4))
+      -- Flapping frequency rises for lighter birds (f ∝ m^(-1/4) = 1/wingScale,
+      -- the bird-like allometric trend). But it must be CAPPED by the servo's
+      -- no-load speed: a servo sweeping at ω₀ can only flap a stroke of
+      -- amplitude A at cadence f ≤ ω₀/(2π·A). Demanding the full 55° geometric
+      -- stroke at a light bird's natural cadence collapsed the actuator — a
+      -- 667°/s servo at 5.57 Hz tracked only 6° of the commanded stroke and
+      -- produced NEGATIVE cruise thrust (measured). We cap the cadence so the
+      -- servo always sweeps a USEFUL stroke (35°); a faster servo then earns a
+      -- faster flap, which is exactly the "servo power matters" behaviour.
+      freqScale = 1 / wingScale
+      servoSpeedDegS = max 1 (servoNoLoadSpeedDegPerSec servo)
+      usefulStrokeDeg = 35
+      freqCapHz = servoSpeedDegS / (2 * pi * usefulStrokeDeg)
+      flapBaseFreqDh = clampRange 10 200 (min (tgFlapBaseFreqDh t * freqScale)
+                                             (freqCapHz * 10))
       params = (fwcParams ctx)
-        { fwServoSpeedMs = 60000 / servoNoLoadSpeedDegPerSec servo
-        , fwFlapBaseFreqDh = clampRange 10 200 (tgFlapBaseFreqDh t)
+        { fwServoSpeedMs = 60000 / servoSpeedDegS
+        , fwFlapBaseFreqDh = flapBaseFreqDh
+        , fwMountIncidenceDeg = clampRange (-15) 15 (tgMountAngleDeg t)
         , fwProfile = profile
         }
-  in ctx { fwcServo = servo, fwcBattery = battery, fwcParams = params }
+  in ctx { fwcServo = servo, fwcBattery = battery, fwcParams = params, fwcWingScale = wingScale }
 
 clampRange :: Double -> Double -> Double -> Double
 clampRange lo hi = max lo . min hi
@@ -288,8 +313,8 @@ b2f_math_step_firmware_vehicle contextPointer pilotPointer bodyPointer outputPoi
         then pure () else ioError (userError "nonfinite pilot input")
       let rc = pilotToRc pilot
           (output, nextState) = stepFirmwareVehicle (piCoupled pilot) rc (fwcParams context)
-                                  (fwcServo context) (fwcBattery context) (bodyDelta body)
-                                  (bodyVel body) (bodyRates body) (fwcState context)
+                                  (fwcServo context) (fwcBattery context) (fwcWingScale context)
+                                  (bodyDelta body) (bodyVel body) (bodyRates body) (fwcState context)
       if outputFlags output /= 0
         then pure 0
         else do

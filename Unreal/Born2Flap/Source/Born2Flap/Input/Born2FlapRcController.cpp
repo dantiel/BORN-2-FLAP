@@ -7,6 +7,7 @@
 #include "Misc/ConfigCacheIni.h"
 #include "Misc/Paths.h"
 #include "HAL/FileManager.h"
+#include "HAL/PlatformProcess.h"
 #include "Widgets/SWindow.h"
 #if PLATFORM_WINDOWS
 #include "Windows/WindowsHWrapper.h"
@@ -30,8 +31,25 @@ const TCHAR *ChannelNames[] = {TEXT("GAS"), TEXT("ROLL"), TEXT("PITCH"), TEXT("Y
 FBorn2FlapRcController::FBorn2FlapRcController()
 {
     Platform = MakeUnique<FBorn2FlapRcPlatform>();
-    ConfigPath = FPaths::ProjectSavedDir() / TEXT("Config/RcControllers.ini");
-    IFileManager::Get().MakeDirectory(*FPaths::GetPath(ConfigPath), true);
+
+    // Per-user settings live OUTSIDE the project tree so they survive editor
+    // recompiles and, in a packaged Steam build, Steam updates. UE's
+    // ProjectSavedDir() maps to <project>/Saved/ in development (wiped by a
+    // clean rebuild) but resolves into the per-user %LOCALAPPDATA%/<game>/Saved/
+    // when packaged. To be robust in BOTH, we write to the user-settings dir
+    // now and keep the old project-Saved location as a one-time read fallback
+    // (migration), so nobody has to recalibrate after this change.
+    FString UserRoot = FPlatformProcess::UserSettingsDir();
+    if (UserRoot.IsEmpty())
+        UserRoot = FPaths::ProjectSavedDir();
+    ConfigPath = UserRoot / TEXT("Born2Flap") / TEXT("Config") / TEXT("RcControllers.ini");
+    const FString LegacyPath = FPaths::ProjectSavedDir() / TEXT("Config") / TEXT("RcControllers.ini");
+
+    IFileManager& FM = IFileManager::Get();
+    FM.MakeDirectory(*FPaths::GetPath(ConfigPath), true);
+    if (!FM.FileExists(*ConfigPath) && FM.FileExists(*LegacyPath))
+        FM.Copy(*ConfigPath, *LegacyPath);
+
     GConfig->GetString(TEXT("Selection"), TEXT("Device"), DeviceId, ConfigPath);
     GConfig->GetBool(TEXT("Selection"), TEXT("Enabled"), bEnabled, ConfigPath);
     LoadCalibration();
@@ -170,6 +188,82 @@ void FBorn2FlapRcController::AdvanceCalibration()
         }
     }
 }
+void FBorn2FlapRcController::TogglePanel()
+{
+    bPanel = !bPanel;
+    Gate.armed = false;
+}
+void FBorn2FlapRcController::OpenPanel()
+{
+    bPanel = true;
+    Gate.armed = false;
+}
+void FBorn2FlapRcController::ClosePanel()
+{
+    bPanel = false;
+}
+void FBorn2FlapRcController::NextDevice()
+{
+#if PLATFORM_WINDOWS
+    auto &D = Platform->Devices;
+    if (D.devices.empty())
+        return;
+    int32 Next = 0;
+    for (int32 I = 0; I < int32(D.devices.size()); ++I)
+        if (DeviceId == D.devices[I].id.c_str())
+            Next = (I + 1) % int32(D.devices.size());
+    bEnabled = false;
+    SelectDevice(Next);
+    Notice.Empty();
+#endif
+}
+void FBorn2FlapRcController::StartCalibration()
+{
+    if (!bConnected)
+    {
+        Notice = TEXT("Kein Sender verbunden.");
+        return;
+    }
+    Stage = 0;
+    Calibration = {};
+    Gate.armed = false;
+    LearnButton = 0;
+    Notice.Empty();
+}
+void FBorn2FlapRcController::CancelCalibration()
+{
+    Stage = -1;
+    LearnButton = 0;
+    LoadCalibration();
+    Notice.Empty();
+}
+void FBorn2FlapRcController::ToggleEnabled()
+{
+    if (Calibration.Valid())
+    {
+        bEnabled = !bEnabled;
+        SaveCalibration();
+    }
+    else
+        Notice = TEXT("Zuerst mit START die Kanaele kalibrieren.");
+}
+void FBorn2FlapRcController::LearnLaunch()
+{
+    LearnButton = 1;
+}
+void FBorn2FlapRcController::LearnReset()
+{
+    LearnButton = 2;
+}
+TArray<FString> FBorn2FlapRcController::GetDeviceNames() const
+{
+    TArray<FString> Out;
+#if PLATFORM_WINDOWS
+    for (const auto &D : Platform->Devices.devices)
+        Out.Add(FString(D.name.c_str()));
+#endif
+    return Out;
+}
 void FBorn2FlapRcController::Tick(APlayerController *Player, float Dt)
 {
     bLaunch = bReset = false;
@@ -206,49 +300,22 @@ void FBorn2FlapRcController::Tick(APlayerController *Player, float Dt)
     }
     if (bPanel)
     {
-        if (Player->WasInputKeyJustPressed(EKeys::Tab) && !D.devices.empty())
-        {
-            int32 Next = 0;
-            for (int32 I = 0; I < int32(D.devices.size()); ++I)
-                if (DeviceId == D.devices[I].id.c_str())
-                    Next = (I + 1) % int32(D.devices.size());
-            bEnabled = false;
-            SelectDevice(Next);
-            Notice.Empty();
-        }
-        if (Player->WasInputKeyJustPressed(EKeys::C) && bConnected)
-        {
-            Stage = 0;
-            Calibration = {};
-            Gate.armed = false;
-            LearnButton = 0;
-            Notice.Empty();
-        }
+        if (Player->WasInputKeyJustPressed(EKeys::Tab))
+            NextDevice();
+        if (Player->WasInputKeyJustPressed(EKeys::C))
+            StartCalibration();
         if (Player->WasInputKeyJustPressed(EKeys::X))
-        {
-            Stage = -1;
-            LearnButton = 0;
-            LoadCalibration();
-            Notice.Empty();
-        }
+            CancelCalibration();
         if (Player->WasInputKeyJustPressed(EKeys::Enter))
             AdvanceCalibration();
         if (Player->WasInputKeyJustPressed(EKeys::G) && Stage < 0)
-        {
-            if (Calibration.Valid())
-            {
-                bEnabled = !bEnabled;
-                SaveCalibration();
-            }
-            else
-                Notice = TEXT("Zuerst mit C die vier Kanaele kalibrieren.");
-        }
+            ToggleEnabled();
         if (Stage < 0 && Calibration.Valid())
         {
             if (Player->WasInputKeyJustPressed(EKeys::L))
-                LearnButton = 1;
+                LearnLaunch();
             if (Player->WasInputKeyJustPressed(EKeys::K))
-                LearnButton = 2;
+                LearnReset();
         }
     }
     if (Stage == 1 && bConnected)

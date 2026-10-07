@@ -30,7 +30,7 @@ import Born2Flap.Math.Types
 import Born2Flap.Math.Simulation
 import Born2Flap.Math.Wing (crossflowBaseline, relaxSeparation)
 import Born2Flap.Math.Planform
-  ( WingShape(..), defaultBirdWing, shapeChord
+  ( WingShape(..), defaultBirdWing, scaleWing, shapeChord
   , shapeSweepRad, shapeTwistRad, shapeDihedralRad, shapeAspectRatio, shapeSection, shapeStructure )
 import Born2Flap.Math.Section
   ( SectionProfile(..), zeroLiftAngle, sectionPitchMomentCoeff
@@ -178,18 +178,19 @@ stepWing side pulse pulseRate throttle rollMix input states =
   let amplitude = radians (12 + 38 * throttle) * clamp 0.55 1.35 (1 - side * 0.22 * rollMix)
       stroke = amplitude * pulse
       strokeRate = amplitude * pulseRate
-  in stepWingWithStroke True side stroke strokeRate input states
+  in stepWingWithStroke True side stroke strokeRate input 1.0 0 states
 
 -- | Step one wing given the *actual* flap angle [rad] and flap rate [rad/s],
 -- independent of how they were produced (firmware mixer + servo, or the
 -- legacy throttle drive). This is the primitive the firmware-emulation loop
 -- uses to close the aero→servo-load feedback.
-stepWingWithStroke :: Bool -> Double -> Double -> Double -> VehicleInput -> [StripState]
+stepWingWithStroke :: Bool -> Double -> Double -> Double -> VehicleInput -> Double -> Double -> [StripState]
                    -> ([StripResult], [StripState])
-stepWingWithStroke flapping side stroke strokeRate input states =
-  let raw = zipWith (stepStrip flapping side stroke strokeRate input) [0 ..] states
-      transported = transportSeparation side input raw
-      deformed = applyStructure input transported
+stepWingWithStroke flapping side stroke strokeRate input wingScale incidenceRad states =
+  let wp = scaleWing wingScale defaultBirdWing
+      raw = zipWith (stepStrip flapping side stroke strokeRate input incidenceRad wp) [0 ..] states
+      transported = transportSeparation side input wp raw
+      deformed = applyStructure wingScale wp input transported
   in (deformed, map resultState deformed)
 
 -- High wing / low centre of mass. The side-force lever contributes natural
@@ -197,10 +198,9 @@ stepWingWithStroke flapping side stroke strokeRate input states =
 wingRootHeight :: Double
 wingRootHeight = 0.10
 
-stepStrip :: Bool -> Double -> Double -> Double -> VehicleInput -> Int -> StripState -> StripResult
-stepStrip flapping side stroke strokeRate input index old =
+stepStrip :: Bool -> Double -> Double -> Double -> VehicleInput -> Double -> WingShape -> Int -> StripState -> StripResult
+stepStrip flapping side stroke strokeRate input incidenceRad wp index old =
   let dt = stepSeconds input
-      wp = defaultBirdWing
       fraction = (fromIntegral index + 0.5) / fromIntegral stripCount
       spanM = wsSpanM wp
       dr = spanM / fromIntegral stripCount
@@ -209,7 +209,7 @@ stepStrip flapping side stroke strokeRate input index old =
       -- span runs root→tip.
       radius = wsShoulderM wp + dr * (fromIntegral index + 0.5)
       chord = shapeChord wp fraction
-      twist = shapeTwistRad wp fraction
+      twist = shapeTwistRad wp fraction + incidenceRad
       dihedral = stroke + shapeDihedralRad wp fraction
       profile = shapeSection wp fraction
       camberPrev = stripCamber old
@@ -244,11 +244,17 @@ stepStrip flapping side stroke strokeRate input index old =
       safeSpeed = max 1.0e-6 planarSpeed
       -- Aeroelastic twist adds to the geometric incidence: a load-induced washout
       -- reduces the local angle of attack, closing the bending→aerodynamics loop.
-      -- Provisional passive feathering of the flexible wing during a stroke.
-      -- Pitch follows a fraction of the flap-induced inflow (more compliant
-      -- toward the handwing), instead of driving a rigid plate deep into stall.
+      -- Asymmetric passive feathering of the flexible wing during a stroke.
+      -- The upstroke feathers fully (sheds nearly all aerodynamic load, like a
+      -- real bird recovering the wing) while the downstroke feathers only
+      -- enough to hold the section at its stall onset — maximum lift without
+      -- the rigid-plate 90° stall that used to kill both thrust and lift.
       -- No flap motion means no feathering; body sink still changes incidence.
-      feather = if flapping then (0.55 + 0.20 * fraction) * atan2 (radius * strokeRate) (max 1.5 (abs chordVelocity)) else 0
+      feather = if flapping
+          then let inflow = atan2 (radius * strokeRate) (max 1.5 (abs chordVelocity))
+                   k = if strokeRate > 0 then 1.0 else 0.85
+               in k * inflow
+          else 0
       -- A 2-servo ornithopter has one actuator per wing: the flap hinge. Pitch
       -- and roll reach the wing through the flap angle (stroke-centre shift and
       -- differential), never through a separate incidence twist. Angle of attack
@@ -292,7 +298,21 @@ stepStrip flapping side stroke strokeRate input index old =
       chordForce = scaleVec (-drag * flowX - lift * flowZ) chordAxis
       normalForce = scaleVec (-drag * flowZ + lift * flowX) normal
       spanDrag = scaleVec (-0.5 * 1.225 * area * sideCd * abs spanVelocity * spanVelocity) spanAxis
-      force = addVec chordForce (addVec normalForce spanDrag)
+      -- Flapping thrust (momentum theory): the downstroke sheds a backward jet,
+      -- so the wing receives a forward reaction proportional to the flap-induced
+      -- dynamic pressure and the strip area. Only on the downstroke (strokeRate
+      -- < 0 = wing descending); the upstroke is feathered and contributes none.
+      -- This is what turns the otherwise drag-dominated flap into net propulsion.
+      -- The jet coefficient (2.5) is the momentum-jet thrust factor for a
+      -- flapping wing at its own planform area: the downstroke accelerates a
+      -- column of air comparable to the wing chord, so C_T ≈ 2 is typical —
+      -- 0.70 left a 49 g kestrel with NEGATIVE cruise thrust (measured -0.23 N
+      -- at 6 m/s) and it could never accelerate to flying speed.
+      flapThrust = if flapping && strokeRate < 0
+                      then 0.5 * 1.225 * area * (radius * strokeRate) * (radius * strokeRate) * 2.5
+                      else 0
+      thrustForce = Vec3 flapThrust 0 0
+      force = addVec (addVec chordForce (addVec normalForce spanDrag)) thrustForce
       -- Explicit differencing of BODY acceleration as an added-mass force
       -- creates a delayed feedback loop at contacts. Omit this term until an
       -- implicit fluid/body inertia solve is available; do not clamp it into
@@ -308,16 +328,16 @@ stepStrip flapping side stroke strokeRate input index old =
                (stripBendSlope old) aeroTwist
   in StripResult next force moment power sectionPitchMoment
 
-transportSeparation :: Double -> VehicleInput -> [StripResult] -> [StripResult]
-transportSeparation _side input results = zipWith update [0 ..] results
+transportSeparation :: Double -> VehicleInput -> WingShape -> [StripResult] -> [StripResult]
+transportSeparation _side input wp results = zipWith update [0 ..] results
   where
     dt = stepSeconds input
-    dr = wsSpanM defaultBirdWing / fromIntegral stripCount
+    dr = wsSpanM wp / fromIntegral stripCount
     count = length results
     separationAt i = stripSeparation . resultState $ results !! clampInt 0 (count - 1) i
     update i result =
       let fraction = (fromIntegral i + 0.5) / fromIntegral stripCount
-          sweep = shapeSweepRad defaultBirdWing fraction
+          sweep = shapeSweepRad wp fraction
           speed = max 0.05 (magnitude (bodyVelocityMS input))
           -- Strip indices always run root-to-tip, on both wings. Signed sweep therefore
           -- determines transport direction without an additional world-side sign.
@@ -336,10 +356,9 @@ transportSeparation _side input results = zipWith update [0 ..] results
 -- the just-computed aerodynamic loads, relax the strip deformation state toward
 -- it, and (implicitly, via the state) feed the deformed shape into the next
 -- aero step. Root is clamped; the tip is free.
-applyStructure :: VehicleInput -> [StripResult] -> [StripResult]
-applyStructure input results =
+applyStructure :: Double -> WingShape -> VehicleInput -> [StripResult] -> [StripResult]
+applyStructure wingScale wp input results =
   let dt = stepSeconds input
-      wp = defaultBirdWing
       count = length results
       spanM = wsSpanM wp
       dr = spanM / fromIntegral stripCount
@@ -348,8 +367,9 @@ applyStructure input results =
       -- Spanwise spar stiffness (2 mm inner → 1.2 mm outer hand; braces inboard)
       -- replaces the interpolated station structure for EI/GJ. The station
       -- structure still supplies the relaxation time constants below.
-      bendingEIs = map (sparBendEISpanwise spanM) fracs
-      twistGJs   = map (sparTwistGJSpanwise spanM) fracs
+      s4 = wingScale * wingScale * wingScale * wingScale
+      bendingEIs = map ((* s4) . sparBendEISpanwise spanM) fracs
+      twistGJs   = map ((* s4) . sparTwistGJSpanwise spanM) fracs
       forces = map (vz . resultForce) results
       sectionMoments = map resultSectionMoment results
       (targetBend, targetSlope) = integrateFlapBeam forces bendingEIs dr

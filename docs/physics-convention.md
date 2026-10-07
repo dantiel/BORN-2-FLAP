@@ -161,7 +161,7 @@ aileron stroke/return timing. It is a simulator extension of the firmware port.
 See [RC controls](rc-controls.md) for mappings, tests and limits;
 the [wing-powered flight report](wing-powered-flight.md) describes the earlier
 attitude-assisted revision, and
-the [earlier stability report](flight-stability-2026-09-24.md) records the
+the earlier stability report (intern: flight-stability-2026-09-24.md) records the
 superseded altitude-assisted trainer.
 
 Section pitching moment uses the conventional positive-nose-up sign; its body

@@ -109,6 +109,11 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     int32 MenuWorldIndex = 0;
     int32 MenuPage = 0;
     int32 SettingsPage = 0;
+    // Native-menu view persistence: F10 re-opens on the page (and FLIGHT DESK
+    // sub-tab) the player last had open. The menu actor is destroyed on close,
+    // so its NavPage / SettingsPage survive here across open/close.
+    int32 MenuNavPage = 0;
+    int32 MenuSettingsPage = 0;
     TMap<FString, FBorn2FlapConditions> MenuLevelConditions;
     TMap<FString, int32> MenuSelectedPoi;
     bool bMenuInLevel = false;
@@ -125,6 +130,11 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     TObjectPtr<ABorn2FlapMenu> MenuWidget;
     bool bSkipMenu = false;
     bool bMenuOpen = false;
+
+    // True when a plain interactive boot lands on the minimal Entry map (the
+    // home screen). No world geometry or bird is built — a real level only
+    // loads when the player selects a world and clicks FLY (OpenLevel).
+    bool bMenuMode = false;
 
     // Slate pre-processor: captures F10 while the menu is open (UIOnly input
     // mode routes the key away from PlayerInput). Registered in BeginPlay.

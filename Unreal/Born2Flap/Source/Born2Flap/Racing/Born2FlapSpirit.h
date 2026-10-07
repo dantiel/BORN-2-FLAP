@@ -19,6 +19,7 @@ class BORN2FLAP_API ABorn2FlapSpirit : public AActor
     UPROPERTY() TObjectPtr<USceneComponent> RavenRoot;
     UPROPERTY() TObjectPtr<USceneComponent> LeftShoulder;
     UPROPERTY() TObjectPtr<USceneComponent> RightShoulder;
+    UPROPERTY() TObjectPtr<USceneComponent> TailPivot;
     FB2FSpiritRecording Recording;
     bool bChampion = false;
     bool bReady = false;

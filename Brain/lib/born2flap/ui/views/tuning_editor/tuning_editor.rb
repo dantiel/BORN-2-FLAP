@@ -100,7 +100,7 @@ module Born2Flap
           out = []
           out << %(%Overlay{ align: "center", valign: "center" })
           out << %(  %Panel{ title: "FLIGHT DESK", padding: 24 })
-          out << %(    %Select{ options: #{TABS.inspect}, value: #{page}, action: "settings.page", tooltip: "Choose a workbench page." })
+          out << %(    %Segment{ options: #{TABS.inspect}, value: #{page}, action: "settings.page", tooltip: "Choose a workbench page." })
           out << %(    %Banner{ text: "#{I18n.t('hangar.title', lang: lang)}", tone: "accent" })
 
           # 0 — CRAFT
@@ -108,7 +108,7 @@ module Born2Flap
           out << field(I18n.t('hangar.bird', lang: lang))
           out << %(        %Select{ value: #{intv(locals[:bird_model])}, options: #{bird_options(lang)}, action: "bird.select" })
           out << field(I18n.t('hangar.flight_profile', lang: lang))
-          out << %(        %Select{ value: #{profile_index(locals)}, options: #{profile_options(lang)}, action: "profile.select" })
+          out << %(        %Segment{ value: #{profile_index(locals)}, options: #{profile_options(lang)}, action: "profile.select" })
           out << toggle("AIRBORNE CAMERA", locals[:camera_fpv], "camera.fpv", "FPV / click for chase", "CHASE / click for FPV")
 
           # 1 — BIRD (further bird tuning)

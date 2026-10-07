@@ -265,16 +265,25 @@ void ABorn2FlapWeather::CheckExperienceTest()
         UAudioMixerBlueprintLibrary::StartRecordingOutput(this,18);
     }
     // Let temporal history settle after the close-up camera move before capture.
+    if(ExperienceCamera && FParse::Param(FCommandLine::Get(),TEXT("B2FVolcanicTest")))
+    {
+        const int32 View=Elapsed<6 ? 0 : Elapsed<10 ? 1 : Elapsed<14 ? 2 : Elapsed<18 ? 3 : 4;
+        const FVector RockViews[]={FVector(-20500,11000,4700),FVector(-32500,19300,350),FVector(26700,6800,1300),FVector(16000,-10500,4800),FVector(0,-13000,21000)};
+        const FVector Targets[]={FVector(-38200,26700,650),FVector(-36600,21000,100),FVector(36500,16500,450),FVector(12000,-36000,1800),FVector(0,22000,0)};
+        ExperienceCamera->SetActorLocation(RockViews[View]);
+        ExperienceCamera->SetActorRotation((Targets[View]-RockViews[View]).Rotation());
+    }
     if(FParse::Param(FCommandLine::Get(),TEXT("B2FBirdWaterTest")) && ExperienceCapture==2 && Elapsed>12)
     {
         const FVector Position=UGameplayStatics::GetPlayerPawn(this,0)->GetActorLocation();
         ExperienceCamera->SetActorLocation(Position+FVector(-150,20,160));
         ExperienceCamera->SetActorRotation((Position+FVector(-40,0,0)-ExperienceCamera->GetActorLocation()).Rotation());
     }
-    if(ExperienceCapture<3 && Elapsed>5+ExperienceCapture*4)
+    if(ExperienceCapture<(FParse::Param(FCommandLine::Get(),TEXT("B2FVolcanicTest"))?5:3) && Elapsed>5+ExperienceCapture*4)
     {
         const bool BirdView=FParse::Param(FCommandLine::Get(),TEXT("B2FBirdWaterTest"));
-        FScreenshotRequest::RequestScreenshot(FString::Printf(TEXT("%s_%s_%s_%d.png"),BirdView ? TEXT("BIRD_WATER") : TEXT("EXPERIENCE"),*Level,*Conditions.Weather,ExperienceCapture),false,false);
+        const bool Volcanic=FParse::Param(FCommandLine::Get(),TEXT("B2FVolcanicTest"));
+        FScreenshotRequest::RequestScreenshot(FString::Printf(TEXT("%s_%s_%s_%d.png"),Volcanic ? TEXT("VOLCANIC") : BirdView ? TEXT("BIRD_WATER") : TEXT("EXPERIENCE"),*Level,*Conditions.Weather,ExperienceCapture),false,false);
         ++ExperienceCapture;
     }
     if(Elapsed>15 && !bTestDone)
@@ -306,7 +315,7 @@ void ABorn2FlapWeather::CheckExperienceTest()
         UE_LOG(LogTemp,Display,TEXT("WeatherExperienceTest %s: surf geometry, sound playback, surface response, roof shelter; wet=%.2f snow=%.2f"),Pass ? TEXT("PASS") : TEXT("FAIL"),Wetness,SnowCoverage);
         bTestDone=true;
     }
-    if(Elapsed>18) FPlatformMisc::RequestExit(false);
+    if(Elapsed>(FParse::Param(FCommandLine::Get(),TEXT("B2FVolcanicTest"))?25:18)) FPlatformMisc::RequestExit(false);
 }
 void ABorn2FlapWeather::CheckTest()
 {

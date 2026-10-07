@@ -1,7 +1,7 @@
 %Overlay{ align: "center", valign: "center" }
   %SizeBox{ width: 960 }
     %Panel{ title: "#{world_title}", padding: 28 }
-      %Select{ options: ["LOCATION", "WEATHER & TIME"], value: #{page}, action: "menu.page", tooltip: "Browse a world, then choose the conditions for your flight." }
+      %Segment{ options: ["LOCATION", "WEATHER & TIME"], value: #{page}, action: "menu.page", tooltip: "Browse a world, then choose the conditions for your flight." }
       %VBox{ visible: #{page == 0}, spacing: 14 }
         %SizeBox{ width: 350, height: 190 }
           %Image{ texture: "/Game/UI/Elements/#{artwork}.#{artwork}" }

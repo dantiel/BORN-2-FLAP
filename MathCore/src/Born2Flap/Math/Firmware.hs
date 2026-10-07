@@ -182,6 +182,7 @@ data FirmwareParams = FirmwareParams
   { fwProfile       :: !FlightProfile
   , fwServoSpeedMs  :: !Double  -- ^ ms per 60° stroke (25..250); servo selection
   , fwFlapBaseFreqDh:: !Double  -- ^ deci-Hz (10..200), CH6 frequency ceiling
+  , fwMountIncidenceDeg :: !Double  -- ^ wing mount incidence added to wing alpha [deg]
   , fwRudderYawWeight :: !Double  -- 0..100
   , fwRudderRollWeight:: !Double  -- 0..100
   , fwAnchorGain      :: !Double  -- 0..100 beat-locking stiffness
@@ -193,6 +194,7 @@ defaultFirmwareParams = FirmwareParams
   { fwProfile = defaultFlightProfiles !! 1
   , fwServoSpeedMs = servoSpeedMsDefault
   , fwFlapBaseFreqDh = 50
+  , fwMountIncidenceDeg = 0
   , fwRudderYawWeight = 65
   , fwRudderRollWeight = 35
   , fwAnchorGain = anchorGainDefault
@@ -366,10 +368,18 @@ flappingBranch coupled prof aileronNorm elevatorNorm rc params state dt =
       freqHz = freqMinHz + freq01 * (freqMax - freqMinHz)
       cadenceTarget = freqHz * 6.283185307
 
-      -- Amplitude = throttle % of the servo-speed-limited max at this freq.
-      degPerSec = 60 / (fwServoSpeedMs params * 0.001)
-      ampMaxHz = min ampMaxDeg (degPerSec / (2 * freqHz))
-      amplitude = throttlePct * ampMaxHz
+      -- Amplitude is the geometric stroke, but it is SOFT-capped by the servo's
+      -- no-load speed so the commanded stroke is one the actuator can actually
+      -- track. A real linkage sets a fixed stroke; but if the cadence demands a
+      -- peak rate beyond the servo's no-load speed the servo simply cannot reach
+      -- the stroke — it collapses to a tiny oscillation (measured: 667°/s servo
+      -- at 5.57 Hz tracked only 7° of the commanded 55°). Capping the COMMAND at
+      -- ω₀/(2π·f) keeps the stroke achievable; the torque back-drive in
+      -- stepServo then still limits the ACHIEVED stroke under load, so torque
+      -- remains relevant — a stronger servo holds a bigger fraction of the cap.
+      servoSpeedDegS = 60000 / max 1 (fwServoSpeedMs params)
+      amplitudeSpeedCap = servoSpeedDegS / (2 * pi * max freqMinHz freqHz)
+      amplitude = throttlePct * min ampMaxDeg amplitudeSpeedCap
 
       -- Steering commands (deg).
       -- Powered roll comes from differential stroke timing/skew. A static

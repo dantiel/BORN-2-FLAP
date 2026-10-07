@@ -36,11 +36,16 @@ void ABorn2FlapFlightPawn::LoadFlightPreferences()
     Config.GetBool(TEXT("Flight"),TEXT("FpvAirView"),bFpvAirView);
     Config.GetFloat(TEXT("Flight"),TEXT("FpvCameraAngle"),FpvCameraAngleDeg);
     FpvCameraAngleDeg = FMath::IsFinite(FpvCameraAngleDeg) ? FMath::Clamp(FpvCameraAngleDeg,-45.f,45.f) : 0.f;
-    Config.GetBool(TEXT("Flight"),TEXT("RollWingTwist"),bRollWingTwist);
     Config.GetBool(TEXT("Flight"),TEXT("CoupledThrottle"),bCoupledThrottle);
+    Config.GetFloat(TEXT("Flight"),TEXT("BodyMassKg"),BodyMassKg);
+    BodyMassKg=FMath::IsFinite(BodyMassKg) ? FMath::Clamp(BodyMassKg,0.1f,2.0f) : 0.45f;
+    Config.GetFloat(TEXT("Flight"),TEXT("CgOffsetMm"),CgOffsetMm);
+    CgOffsetMm=FMath::IsFinite(CgOffsetMm) ? FMath::Clamp(CgOffsetMm,-30.f,30.f) : 0.f;
     Config.GetBool(TEXT("Flight"),TEXT("ReplaySpirits"),bReplaySpirits);
     Config.GetFloat(TEXT("Flight"),TEXT("Safety"),FlightSafety);
     FlightSafety=FMath::IsFinite(FlightSafety) ? FMath::Clamp(FlightSafety,0.f,2.f) : 1.f;
+    Config.GetFloat(TEXT("Audio"),TEXT("WingbeatVolume"),WingbeatVolume);
+    WingbeatVolume=FMath::IsFinite(WingbeatVolume) ? FMath::Clamp(WingbeatVolume,0.f,2.f) : 1.f;
     double SpeedMod = Desktop.speedModifier;
     Config.GetDouble(TEXT("Controls"),TEXT("SpeedModifier"),SpeedMod);
     Desktop.speedModifier = FMath::IsFinite(SpeedMod) ? FMath::Clamp(SpeedMod,0.0,1.0) : 0.5;
@@ -66,10 +71,12 @@ void ABorn2FlapFlightPawn::SaveFlightPreferences()
     Config.SetFloat(TEXT("Controls"),TEXT("Expo"),ControlExpo);
     Config.SetBool(TEXT("Flight"),TEXT("FpvAirView"),bFpvAirView);
     Config.SetFloat(TEXT("Flight"),TEXT("FpvCameraAngle"),FpvCameraAngleDeg);
-    Config.SetBool(TEXT("Flight"),TEXT("RollWingTwist"),bRollWingTwist);
     Config.SetBool(TEXT("Flight"),TEXT("CoupledThrottle"),bCoupledThrottle);
+    Config.SetFloat(TEXT("Flight"),TEXT("BodyMassKg"),BodyMassKg);
+    Config.SetFloat(TEXT("Flight"),TEXT("CgOffsetMm"),CgOffsetMm);
     Config.SetBool(TEXT("Flight"),TEXT("ReplaySpirits"),bReplaySpirits);
     Config.SetFloat(TEXT("Flight"),TEXT("Safety"),FlightSafety);
+    Config.SetFloat(TEXT("Audio"),TEXT("WingbeatVolume"),WingbeatVolume);
     Config.SetDouble(TEXT("Controls"),TEXT("SpeedModifier"),Desktop.speedModifier);
     for(int32 Axis=0;Axis<3;++Axis)
         Config.SetDouble(TEXT("Mouse"),*FString::Printf(TEXT("Gain%d"),Axis),MouseGains[Axis]);

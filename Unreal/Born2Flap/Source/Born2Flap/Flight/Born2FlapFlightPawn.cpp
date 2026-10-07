@@ -146,6 +146,7 @@ ABorn2FlapFlightPawn::ABorn2FlapFlightPawn()
     Tuning.stroke_ferocity = 50;
     Tuning.aileron_scale = 60;
     Tuning.elevator_scale = 55;
+    Tuning.mount_angle_deg = 0;
 }
 ABorn2FlapFlightPawn::~ABorn2FlapFlightPawn() = default;
 namespace
@@ -155,7 +156,7 @@ float TuningClamp(ETuningField Field, float Value)
     switch (Field)
     {
     case ETuningField::ServoSpeed:        return FMath::Clamp(Value, 100.f, 2400.f);
-    case ETuningField::StallTorque:       return FMath::Clamp(Value, 0.5f, 20.f);
+    case ETuningField::StallTorque:       return FMath::Clamp(Value, 0.05f, 20.f);
     case ETuningField::Backdrive:         return FMath::Clamp(Value, 0.f, 100.f);
     case ETuningField::BatteryVoltage:    return FMath::Clamp(Value, 3.7f, 22.2f);
     case ETuningField::BatteryResistance: return FMath::Clamp(Value, 0.01f, 0.5f);
@@ -166,6 +167,7 @@ float TuningClamp(ETuningField Field, float Value)
     case ETuningField::StrokeFerocity:    return FMath::Clamp(Value, 0.f, 100.f);
     case ETuningField::AileronScale:      return FMath::Clamp(Value, 0.f, 100.f);
     case ETuningField::ElevatorScale:     return FMath::Clamp(Value, 0.f, 100.f);
+    case ETuningField::MountAngle:        return FMath::Clamp(Value, -15.f, 15.f);
     default: return 0.f;
     }
 }
@@ -186,6 +188,7 @@ float ABorn2FlapFlightPawn::GetTuning(ETuningField Field) const
     case ETuningField::StrokeFerocity:    return float(Tuning.stroke_ferocity);
     case ETuningField::AileronScale:      return float(Tuning.aileron_scale);
     case ETuningField::ElevatorScale:     return float(Tuning.elevator_scale);
+    case ETuningField::MountAngle:        return float(Tuning.mount_angle_deg);
     default: return 0.f;
     }
 }
@@ -206,14 +209,27 @@ void ABorn2FlapFlightPawn::SetTuning(ETuningField Field, float Value)
     case ETuningField::StrokeFerocity:    Tuning.stroke_ferocity = Value; break;
     case ETuningField::AileronScale:      Tuning.aileron_scale = Value; break;
     case ETuningField::ElevatorScale:     Tuning.elevator_scale = Value; break;
+    case ETuningField::MountAngle:        Tuning.mount_angle_deg = Value; break;
     default: return;
     }
     ApplyTuning();
 }
 void ABorn2FlapFlightPawn::ApplyTuning()
 {
+    // The airframe mass drives the physics wing scale (small bird → small wing,
+    // so a micro servo's torque is enough to flap it).
+    Tuning.body_mass_kg = BodyMassKg;
     if (MathBridge && MathBridge->IsReady())
         MathBridge->Reconfigure(Tuning);
+}
+void ABorn2FlapFlightPawn::ApplyBodyMass()
+{
+    if (!Body)
+        return;
+    Body->SetMassOverrideInKg(NAME_None, BodyMassKg, true);
+    // CG slider is millimetres; Chaos' centre-of-mass offset is centimetres.
+    Body->SetCenterOfMass(FVector(CgOffsetMm * 0.1f, 0.f, 0.f));
+    ApplyTuning();
 }
 void ABorn2FlapFlightPawn::BuildGeometry()
 {
@@ -284,7 +300,7 @@ void ABorn2FlapFlightPawn::BeginPlay()
     PanelKeyProcessor = MakeShared<FPanelKeyInputProcessor>();
     if (FSlateApplication::IsInitialized())
         FSlateApplication::Get().RegisterInputPreProcessor(PanelKeyProcessor);
-    Body->SetMassOverrideInKg(NAME_None, .45f, true);
+    ApplyBodyMass();
     UE_LOG(LogTemp, Display, TEXT("FlightBody massKg=%.4f inertiaKgM2=%s"), Body->GetMass(),
            *(Body->GetInertiaTensor() / 10000.0).ToString());
     // Weather owns sky optics and exposure for all cameras in the world.
@@ -455,7 +471,7 @@ void ABorn2FlapFlightPawn::OnBodyHit(UPrimitiveComponent *HitComponent, AActor *
                *GetNameSafe(OtherActor), *GetNameSafe(OtherComponent), *NormalImpulse.ToString(),
                *Hit.ImpactPoint.ToString());
 }
-void ABorn2FlapFlightPawn::SweepWingColliders()
+void ABorn2FlapFlightPawn::SweepWingColliders(float Dt)
 {
     // Compute a leading-edge contact capsule for every VISIBLE wing each frame,
     // directly in world space from the wing component's own (already-flapped)
@@ -485,6 +501,8 @@ void ABorn2FlapFlightPawn::SweepWingColliders()
     }
 
     bool bTouched = false;
+    FVector ContactPoint = FVector::ZeroVector;
+    FVector ContactNormal = FVector::UpVector;
     for (UBorn2FlapWingMesh* Wing : Wings)
     {
         const FTransform T = Wing->GetComponentTransform();
@@ -501,6 +519,8 @@ void ABorn2FlapFlightPawn::SweepWingColliders()
         {
             bTouched = true;
             LastWingTouchTime = World->GetTimeSeconds();
+            ContactPoint = Tip;
+            ContactNormal = FVector::UpVector;
             UE_LOG(LogTemp, Display, TEXT("WingTouch ground-contact at %s"), *Mid.ToString());
         }
 
@@ -512,6 +532,8 @@ void ABorn2FlapFlightPawn::SweepWingColliders()
             {
                 bTouched = true;
                 LastWingTouchTime = World->GetTimeSeconds();
+                ContactPoint = Hit.ImpactPoint;
+                ContactNormal = Hit.ImpactNormal;
                 UE_LOG(LogTemp, Display, TEXT("WingSweepTouch other=%s component=%s point=%s"),
                        *GetNameSafe(Hit.GetActor()), *GetNameSafe(Hit.GetComponent()), *Hit.ImpactPoint.ToString());
             }
@@ -519,14 +541,50 @@ void ABorn2FlapFlightPawn::SweepWingColliders()
         WingSweepPrev.FindOrAdd(Wing) = Mid;
     }
 
-    // Visible cue for streamers / verification: one brief on-screen flash per
-    // fresh contact edge (rising edge only, so it does not spam while resting).
-    if (bTouched && !bWingTouching)
-    {
-        if (GEngine)
-            GEngine->AddOnScreenDebugMessage(42, 0.6f, FColor(255, 92, 64), TEXT("WING HIT"));
-    }
-    bWingTouching = bTouched;
+        // Wingtip ground contact is a planted PIVOT, not a bouncy spring. Two parts:
+        // (1) Resolve the contact point's inward velocity (restitution ~0.15) so the
+        //     tip settles onto the surface instead of rebounding; applied AT the tip,
+        //     the impulse makes the body lever around it.
+        // (2) While the wing is being driven DOWNWARD into the ground (a deliberate
+        //     downstroke — even a slow, elevator-driven one), add a ground-reaction
+        //     impulse at the contact point proportional to the downstroke rate.
+        //     Because the tip is aft of the centre of mass, that reaction lifts the
+        //     bird AND pitches the nose up, letting it stand on its wingtips like a
+        //     real bird. No spar-bend model is needed: the rigid lever arm between
+        //     the contact point and the CoM already produces the pitch.
+        if (bTouched && !bWingTouching)
+        {
+            if (GEngine)
+                GEngine->AddOnScreenDebugMessage(42, 0.6f, FColor(255, 92, 64), TEXT("WING HIT"));
+        }
+        if (bTouched)
+        {
+            // (1) Plant: softly cancel inward velocity (no overshoot, hard-capped).
+            const FVector ContactVel = Body->GetPhysicsLinearVelocityAtPoint(ContactPoint);
+            const float   Approach   = FVector::DotProduct(ContactVel, ContactNormal); // - = into surface
+            if (Approach < 0.f)
+            {
+                const float Kill = FMath::Min(-Approach * 0.85f, 60.f);
+                Body->AddImpulseAtLocation(ContactNormal * (Body->GetMass() * Kill), ContactPoint);
+            }
+    
+            // (2) Downstroke lever: reaction force scales with the flap-down rate.
+            const float FlapDelta = LeftFlap - PrevLeftFlap;                 // deg this frame
+            const float DownRate  = Dt > 0.f ? FMath::Max(0.f, -FlapDelta) / Dt : 0.f; // °/s downstroke
+            const FVector V  = Body->GetPhysicsLinearVelocity();
+            const float   Vn = FVector::DotProduct(V, ContactNormal);        // + = leaving surface
+            if (DownRate > 8.f && Vn < 25.f &&
+                World->GetTimeSeconds() - LastWingPushTime > 0.12)
+            {
+                // Slow deliberate stroke (~40°/s) → ~2.4 cm/s lever; a hard flap
+                // (~600°/s) → ~36 cm/s shove. Applied AT the contact point, the
+                // impulse rotates the body (nose up) rather than just translating.
+                const float Push = FMath::Clamp(DownRate * 0.06f, 0.f, 36.f);
+                Body->AddImpulseAtLocation(ContactNormal * (Body->GetMass() * Push), ContactPoint);
+                LastWingPushTime = World->GetTimeSeconds();
+            }
+        }
+        bWingTouching = bTouched;
 }
 void ABorn2FlapFlightPawn::LaunchFlight()
 {
@@ -695,7 +753,10 @@ void ABorn2FlapFlightPawn::UpdateAeroAudio(float Dt)
     const double CameraGain=bGroundView ? 1.0 : (bFpvAirView ? .40 : .50);
     for (int32 I = 0; I < 5; ++I)
     {
-        const double Gain=born2flap::aeroaudio::GetNum(Voices[I],"gain");
+        double Gain=born2flap::aeroaudio::GetNum(Voices[I],"gain");
+        // Voice 1 is "wing" — the wingbeat. Scale it alone so the flap can be
+        // heard over wind/surf/music without touching the rest of the mix.
+        if (I == 1) Gain *= WingbeatVolume;
         born2flap::aeroaudio::SetNum(Voices[I],"gain",Gain*CameraGain);
         AudioSynth->SetVoiceParams(Names[I], Voices[I]);
     }
@@ -940,15 +1001,27 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     // A 2-servo ornithopter has one actuator per wing: the flap hinge. The wing
     // rotates around that single axis; pitch and roll are already encoded in
     // LeftFlap/RightFlap (stroke-centre shift / differential), so there is no
-    // separate shoulder-pitch (incidence) term. Roll twist stays an optional,
-    // off-by-default visual flourish (see bRollWingTwist).
-    const float RollTwist = bRollWingTwist ? 18.f * RollInput : 0.f;
-    if (RavenLeftShoulder) RavenLeftShoulder->SetRelativeRotation(FRotator(RollTwist, 0, LeftFlap + 16));
-    if (RavenRightShoulder) RavenRightShoulder->SetRelativeRotation(FRotator(-RollTwist, 0, -RightFlap - 16));
-    LeftShoulder->SetRelativeRotation(FRotator(RollTwist, 0, LeftFlap + 16));
-    RightShoulder->SetRelativeRotation(FRotator(-RollTwist, 0, -RightFlap - 16));
+    // separate shoulder-pitch (incidence) term.
+    // Grounded anti-sink: hold the wings near the +16° neutral dihedral so a
+    // residual flap cannot dip the tips below the body plane and into the sand.
+    // The clamp only bites once the bird is settled (not while flying), so it
+    // never fights the aeroelastic stroke during a landing approach.
+    float FlapL = LeftFlap, FlapR = RightFlap;
+    if (!bFlying)
+    {
+        FlapL = FMath::Clamp(LeftFlap, -12.f, 12.f);
+        FlapR = FMath::Clamp(RightFlap, -12.f, 12.f);
+    }
+    if (RavenLeftShoulder) RavenLeftShoulder->SetRelativeRotation(FRotator(0, 0, FlapL + 16));
+    if (RavenRightShoulder) RavenRightShoulder->SetRelativeRotation(FRotator(0, 0, -FlapR - 16));
+    LeftShoulder->SetRelativeRotation(FRotator(0, 0, FlapL + 16));
+    RightShoulder->SetRelativeRotation(FRotator(0, 0, -FlapR - 16));
     if(MembraneLeftShoulder) MembraneLeftShoulder->SetRelativeRotation(LeftShoulder->GetRelativeRotation());
     if(MembraneRightShoulder) MembraneRightShoulder->SetRelativeRotation(RightShoulder->GetRelativeRotation());
+    // Tail-elevator trim, visible in the rendered bird: pitch the tail fan.
+    const float TailPitch = Tuning.tail_elevator_angle_deg;
+    if (RavenTailPivot) RavenTailPivot->SetRelativeRotation(FRotator(TailPitch, 0, 0));
+    if (MembraneTailPivot) MembraneTailPivot->SetRelativeRotation(FRotator(TailPitch, 0, 0));
     B2F_WingSection LeftShape[B2F_WING_STATIONS], RightShape[B2F_WING_STATIONS];
     if(MathBridge && MathBridge->ReadWingShape(LeftShape,RightShape))
     {
@@ -958,7 +1031,7 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
                     if(auto* Wing=Cast<UBorn2FlapWingMesh>(Child))
                         Wing->ApplyShape((Shoulder==LeftShoulder || Shoulder==RavenLeftShoulder || Shoulder==MembraneLeftShoulder) ? LeftShape : RightShape);
     }
-    SweepWingColliders();
+    SweepWingColliders(Dt);
     UpdateAeroAudio(Dt);
     if (bVectors)
     {

@@ -89,9 +89,9 @@ defaultServoState = ServoState 0 0
 -- When the load exceeds the available torque the servo is back-driven by the
 -- excess (the wing wins), otherwise it tracks the target at the load-reduced
 -- speed. This is the physical "struggle".
-stepServo :: ServoSpec -> BatterySpec -> Double -> Double -> Double -> Double
+stepServo :: ServoSpec -> BatterySpec -> Double -> Double -> Double -> Double -> Double
           -> ServoState -> (Double, ServoState)
-stepServo servo battery targetDeg loadTorqueNm voltage dt state
+stepServo servo battery targetDeg loadTorqueNm wingScale voltage dt state
   | dt <= 0 = (servoAngleDeg state, state)
   | otherwise =
       let voltFactor = clampRate 0 1 (voltage / max 0.01 (batteryNominalVoltage battery))
@@ -116,7 +116,29 @@ stepServo servo battery targetDeg loadTorqueNm voltage dt state
                 in rate
           -- Finite actuator response plus linkage end stops. Backdrive must
           -- never integrate an unlimited angle/speed into the aero loop.
-          smoothRate = servoRateDegPerSec state + (requestedRate - servoRateDegPerSec state) * (1 - exp (-dt / 0.025))
+          -- The servo accelerates its *rate* toward the requested rate, but
+          -- that acceleration is limited by the torque still available after
+          -- the aerodynamic hinge load is overcome: α_max = (stallT − load)/I.
+          -- A wing's moment of inertia about the flap hinge scales as I ∝ m·L²
+          -- = wingScale⁵; a heavier wing does NOT make the servo respond more
+          -- slowly in time — it demands MORE TORQUE to reach the same angular
+          -- acceleration. So a strong (high-torque) servo flings a heavy wing
+          -- just as fast as a weak servo flings a light one, and servo power
+          -- genuinely shows up in how quickly the stroke reverses.
+          wingInertia = 0.0016 * (wingScale ** 5)   -- reference wing ≈0.0016 kg·m² at hinge
+          servoInertia = 0.0016                     -- rotor+geartrain reflected to the flap hinge
+          inertia = servoInertia + wingInertia
+          -- The torque available to accelerate the rate. When tracking, the
+          -- servo's spare torque (stallT − load) drives it; when overpowered,
+          -- the aerodynamic load's EXCESS torque (load − stallT) is what back-
+          -- drives the wing, so |stallT − load| is the right driving torque in
+          -- both regimes. Without the absolute value a back-driven servo would
+          -- be clamped to zero acceleration and never actually move.
+          accelTorque = abs (stallT - abs loadTorqueNm)
+          alphaMaxDeg = (accelTorque / inertia) * (180 / pi)   -- deg/s²
+          rateStep = clampRate (negate (alphaMaxDeg * dt)) (alphaMaxDeg * dt)
+                               (requestedRate - servoRateDegPerSec state)
+          smoothRate = servoRateDegPerSec state + rateStep
           limitedRate = clampRate (negate (servoNoLoadSpeedDegPerSec servo))
                                   (servoNoLoadSpeedDegPerSec servo) smoothRate
           angle = clampRate (-80) 80 (servoAngleDeg state + limitedRate * dt)

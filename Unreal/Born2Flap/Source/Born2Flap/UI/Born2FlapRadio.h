@@ -31,6 +31,9 @@ struct FBorn2FlapLevelRadio
     UPROPERTY(EditAnywhere, Config, Category = "Radio") FString LevelName;
     UPROPERTY(EditAnywhere, Config, Category = "Radio") FString StationName;
     UPROPERTY(EditAnywhere, Config, Category = "Radio") TArray<FString> Tracks;
+    // Per-track cover art (asset ref, index-aligned with Tracks). Empty = auto-detect
+    // from the track's folder/name; if nothing is found a placeholder is shown.
+    UPROPERTY(EditAnywhere, Config, Category = "Radio") TArray<FString> Covers;
     UPROPERTY(EditAnywhere, Config, Category = "Radio") float Volume = 0.5f;
     UPROPERTY(EditAnywhere, Config, Category = "Radio") float CrossfadeSeconds = 2.0f;
 };
@@ -71,15 +74,20 @@ public:
     float GetVolume() const { return Volume; }
     FString GetStationName() const { return StationName; }
     FString GetTrackName() const;
+    FString GetCoverPath() const;
 
 private:
     void StartTrack(int32 Index, float StartVolume);
+    FString AutoDetectCover(const FString& TrackPath) const;
+    static bool CoverExists(const FString& AssetRef);
 
     UPROPERTY(Transient) TObjectPtr<UAudioComponent> Active = nullptr;
     UPROPERTY(Transient) TObjectPtr<UAudioComponent> Fader = nullptr;
     // UPROPERTY keeps the SoundWaves referenced so the GC does not collect them
     // (they are only loaded via LoadObject, which returns non-rooted pointers).
     UPROPERTY(Transient) TArray<TObjectPtr<USoundWave>> Playlist;
+    // Resolved cover-art asset refs, index-aligned with Playlist (empty = none).
+    UPROPERTY(Transient) TArray<FString> TrackCovers;
     FString StationName = TEXT("FIELD RADIO");
     int32 TrackIndex = 0;
     bool bPlaying = true;
@@ -113,6 +121,7 @@ private:
     UPROPERTY() TObjectPtr<UBorn2FlapUIRenderer> Renderer;
     UPROPERTY() TObjectPtr<UBorn2FlapRadioStation> Station;
     ABorn2FlapFlightPawn* CachedBird = nullptr;
+    FString LastCoverPath;
     FString LastTrackLine;
     int32 LastVolumePct = -1;
     bool bLastHidden = true;

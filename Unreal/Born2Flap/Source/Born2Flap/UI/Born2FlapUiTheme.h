@@ -40,6 +40,8 @@ FORCEINLINE FLinearColor Tone(const FString& Tone, FLinearColor Default)
     if (Tone == TEXT("warn"))   return WARN();
     if (Tone == TEXT("danger")) return DANGER();
     if (Tone == TEXT("info"))   return INFO();
+    if (Tone == TEXT("ghost"))        return FG();
+    if (Tone == TEXT("ghost-active")) return ACCENT();
     return Default;
 }
 

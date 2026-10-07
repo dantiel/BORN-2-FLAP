@@ -26,6 +26,25 @@ class FBorn2FlapRcController
     FString GetInstruction() const;
     FString GetMapping(int32 Channel) const;
     FString GetButtons() const;
+    FString GetNotice() const { return Notice; }
+    int32 GetStage() const { return Stage; }
+    TArray<FString> GetDeviceNames() const;
+
+    // --- Semantic (Brain/umghaml) action surface ---------------------------
+    // Mirrors the keyboard driver (TAB/C/ENTER/X/G/L/K) so the RC panel can be
+    // driven by buttons in the UMGHAML control-settings panel too. One code
+    // path serves both the native fallback and the Brain-authored panel.
+    void TogglePanel();
+    void OpenPanel();
+    void ClosePanel();
+    void NextDevice();
+    void StartCalibration();
+    void AdvanceCalibration();
+    void CancelCalibration();
+    void ToggleEnabled();
+    void LearnLaunch();
+    void LearnReset();
+
     FString Notice;
 
   private:
@@ -43,5 +62,4 @@ class FBorn2FlapRcController
     void SelectDevice(int32 Index);
     void LoadCalibration();
     void SaveCalibration();
-    void AdvanceCalibration();
 };

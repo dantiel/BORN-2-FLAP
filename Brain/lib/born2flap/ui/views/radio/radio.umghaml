@@ -1,8 +1,11 @@
 %Overlay{ align: "left", valign: "bottom" }
   %Panel{ bg: "solid", padding: 14 }
-    %VBox{ spacing: 4 }
-      %Banner{ text: "#{radio_station}", tone: "accent", size: "s" }
-      %TextBlock{ text: "#{radio_track}", tone: "dim", size: "xs" }
-      %HBox{ spacing: 8 }
-        %TextBlock{ text: "#{play_icon}", tone: "info", size: "xs" }
-        %Gauge{ label: "VOL", value: #{radio_volume}, min: 0, max: 1, tone: "info" }
+    %HBox{ spacing: 12 }
+      %SizeBox{ width: 72, height: 72 }
+        %Image{ texture: "#{radio_cover}" }
+      %VBox{ spacing: 4 }
+        %Banner{ text: "#{radio_station}", tone: "accent", size: "s" }
+        %TextBlock{ text: "#{radio_track}", tone: "dim", size: "xs" }
+        %HBox{ spacing: 8 }
+          %TextBlock{ text: "#{play_icon}", tone: "info", size: "xs" }
+          %Gauge{ label: "VOL", value: #{radio_volume}, min: 0, max: 1, tone: "info" }

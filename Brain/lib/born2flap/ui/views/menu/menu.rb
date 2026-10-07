@@ -40,7 +40,8 @@ module Born2Flap
 
           [
             %(      %Button{ label: "RESUME", action: "menu.resume", tone: "good" }),
-            %(      %Button{ label: "FLIGHT DESK", action: "menu.settings" })
+            %(      %Button{ label: "FLIGHT DESK", action: "menu.settings" }),
+            %(      %Button{ label: "CONTROLS", action: "menu.controls" })
           ].join("\n")
         end
       end

@@ -10,7 +10,9 @@ for path in ['/Game/Birds/M_FalconWing','/Game/Birds/M_KestrelTail','/Game/Shiom
     # Screen-space refraction samples foreground scene colour and displaces the
     # bird even when water itself passes the depth test. Surface normals,
     # reflection, wave geometry and foam provide the moving water detail.
-    m.set_editor_property('refraction_method',u.RefractionMode.RM_NONE)
+    # The ocean now uses its own pre-translucency Single Layer Water pass.
+    if not path.endswith(('M_Water','M_Shallows')):
+        m.set_editor_property('refraction_method',u.RefractionMode.RM_NONE)
     if path.startswith('/Game/Birds/'):
         m.set_editor_property('translucency_lighting_mode',u.TranslucencyLightingMode.TLM_SURFACE_PER_PIXEL_LIGHTING)
     lib.recompile_material(m);assert ela.save_loaded_asset(m)

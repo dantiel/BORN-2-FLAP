@@ -82,6 +82,9 @@ def load_texture(subdir, stem, name, normal=False, srgb=True):
 
 def radio():
     """Import the two user-supplied beach songs as SoundWave assets."""
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import mp3_cover
     ela.make_directory('/Game/Shiomori/Audio')
     for source_name, asset_name in [('Shiomori Bay I', 'SHIOMORI_BAY_I'),
                                     ('Shiomori Bay II', 'SHIOMORI_BAY_II')]:
@@ -107,6 +110,9 @@ def radio():
         wave.set_editor_property('volume', 0.55)
         assert ela.save_asset(path), 'Failed to save ' + path
         u.log('SHIOMORI_RADIO track=' + asset_name + ' duration=' + str(wave.duration))
+        # Recover the song's embedded cover art (ID3 APIC) and import it next to
+        # the track under the "<Track>_Cover" name the radio auto-detect finds.
+        mp3_cover.extract_mp3_cover(source, '/Game/Shiomori/Audio', asset_name + '_Cover')
 
 
 def sample_tex(m, tex, tiling=None, normal=False):
@@ -198,6 +204,140 @@ def pbr_material(name, color=None, diffuse=None, normal=None, rough=0.8,
     return m
 
 
+def concrete_material(name, diffuse, normal, rough_tex, scale_cm=300.0,
+                      normal_strength=0.5):
+    """Triplanar world-space concrete. The old X/Y world projection left the
+    vertical riser faces sampling a single texel line (stretched); triplanar
+    blends X/Y, X/Z and Y/Z projections by the world normal so both treads and
+    risers wrap at true world scale. A pow(abs(N),4) blend hides the seams."""
+    path = '/Game/Shiomori/Materials/M_' + name
+    m = u.load_asset(path) if ela.does_asset_exist(path) else assets.create_asset(
+        'M_' + name, '/Game/Shiomori/Materials', u.Material, u.MaterialFactoryNew())
+    lib.delete_all_material_expressions(m)
+    m.set_editor_property('tangent_space_normal', False)
+    pos = node(m, 'WorldPosition')
+    norm = node(m, 'VertexNormalWS')
+    sc = node(m, 'Constant', r=scale_cm)
+    weights = ('float3 w=pow(abs(N),4); w/=max(dot(w,1),0.001); float3 p=P/S; ')
+    args = {'P': pos, 'N': norm, 'S': sc}
+
+    dtex = node(m, 'TextureObject', texture=diffuse)
+    dcode = (weights + 'float3 c=Texture2DSample(T,TSampler,p.yz).rgb*w.x'
+             '+Texture2DSample(T,TSampler,p.xz).rgb*w.y'
+             '+Texture2DSample(T,TSampler,p.xy).rgb*w.z; return c;')
+    bc = custom(m, dcode, dict(args, T=dtex), 3)
+    # Large, soft world-noise mottle breaks up the long-run repetition.
+    wp2 = node(m, 'WorldPosition')
+    sc2 = node(m, 'Multiply')
+    sc2.set_editor_property('const_b', 0.004)
+    wire(wp2, sc2, 'A')
+    nz = node(m, 'Noise', levels=2, output_min=0.9, output_max=1.0)
+    wire(sc2, nz, '')
+    nm = node(m, 'Multiply')
+    wire(bc, nm, 'A')
+    wire(nz, nm, 'B')
+    output(nm, 'BASE_COLOR')
+
+    rtex = node(m, 'TextureObject', texture=rough_tex)
+    rcode = (weights + 'float3 c=Texture2DSample(T,TSampler,p.yz).rgb*w.x'
+             '+Texture2DSample(T,TSampler,p.xz).rgb*w.y'
+             '+Texture2DSample(T,TSampler,p.xy).rgb*w.z; return c.r;')
+    output(custom(m, rcode, dict(args, T=rtex), 1), 'ROUGHNESS')
+
+    ntex = node(m, 'TextureObject', texture=normal)
+    ncode = (weights + 'float3 a=Texture2DSample(T,TSampler,p.yz).rgb*2-1;'
+             'float3 b=Texture2DSample(T,TSampler,p.xz).rgb*2-1;'
+             'float3 c=Texture2DSample(T,TSampler,p.xy).rgb*2-1;'
+             'float3 detail=float3(0,a.x,a.y)*w.x+float3(b.x,0,b.y)*w.y+float3(c.x,c.y,0)*w.z;'
+             'return normalize(N+detail*%f);' % normal_strength)
+    output(custom(m, ncode, dict(args, T=ntex), 3), 'NORMAL')
+
+    output(node(m, 'Constant', r=0.5), 'SPECULAR')
+    material_usage_flags(m)
+    lib.recompile_material(m)
+    assert ela.save_asset(path), 'Failed to save ' + path
+    return m
+
+
+def coastal_terrain_material(name, sand, grass, rock, scale_cm=240.0, normal_strength=0.55):
+    """World-space triplanar coastal terrain for the enclosing headlands: sand
+    near the waterline, grassy slopes inland, exposed basalt on the steepest
+    faces. Value-noise wanders the sand/grass seam and a world-normal-driven
+    triplanar projection textures every slope without the flat, repeating X/Y
+    look or the coarse vertex-colour checker of the old valley material."""
+    path = '/Game/Shiomori/Materials/M_' + name
+    m = u.load_asset(path) if ela.does_asset_exist(path) else assets.create_asset(
+        'M_' + name, '/Game/Shiomori/Materials', u.Material, u.MaterialFactoryNew())
+    lib.delete_all_material_expressions(m)
+    m.set_editor_property('tangent_space_normal', False)
+    m.set_editor_property('two_sided', True)
+    pos = node(m, 'WorldPosition')
+    norm = node(m, 'VertexNormalWS')
+    sc = node(m, 'Constant', r=scale_cm)
+    weights = 'float3 w=pow(abs(N),4); w/=max(dot(w,1),0.001); float3 p=P/S; '
+    args = {'P': pos, 'N': norm, 'S': sc}
+
+    sd, sn, sr = sand
+    gd, gn, gr = grass
+    rd, rn, rr = rock
+
+    def tri_color(tex):
+        t = node(m, 'TextureObject', texture=tex)
+        code = (weights + 'float3 c=Texture2DSample(T,TSampler,p.yz).rgb*w.x'
+                '+Texture2DSample(T,TSampler,p.xz).rgb*w.y'
+                '+Texture2DSample(T,TSampler,p.xy).rgb*w.z; return c;')
+        return custom(m, code, dict(args, T=t), 3)
+
+    def tri_scalar(tex):
+        t = node(m, 'TextureObject', texture=tex)
+        code = (weights + 'float3 c=Texture2DSample(T,TSampler,p.yz).rgb*w.x'
+                '+Texture2DSample(T,TSampler,p.xz).rgb*w.y'
+                '+Texture2DSample(T,TSampler,p.xy).rgb*w.z; return c.r;')
+        return custom(m, code, dict(args, T=t), 1)
+
+    def tri_normal(tex):
+        t = node(m, 'TextureObject', texture=tex)
+        code = (weights + 'float3 a=Texture2DSample(T,TSampler,p.yz).rgb*2-1;'
+                'float3 b=Texture2DSample(T,TSampler,p.xz).rgb*2-1;'
+                'float3 c=Texture2DSample(T,TSampler,p.xy).rgb*2-1;'
+                'float3 detail=float3(0,a.x,a.y)*w.x+float3(b.x,0,b.y)*w.y+float3(c.x,c.y,0)*w.z;'
+                'return normalize(N+detail*%f);' % normal_strength)
+        return custom(m, code, dict(args, T=t), 3)
+
+    s_c = tri_color(sd); g_c = tri_color(gd); r_c = tri_color(rd)
+    s_n = tri_normal(sn); g_n = tri_normal(gn); r_n = tri_normal(rn)
+    s_r = tri_scalar(sr); g_r = tri_scalar(gr); r_r = tri_scalar(rr)
+
+    # Large-scale noise wanders the sand/grass boundary and enlivens the rock
+    # factor so the terrain never reads as straight elevation bands.
+    vpos = node(m, 'Multiply'); vpos.set_editor_property('const_b', 0.0006); wire(pos, vpos, 'A')
+    vnz = node(m, 'Noise', levels=2, output_min=-1.0, output_max=1.0); wire(vpos, vnz, '')
+
+    # Shared blend weights (s=shallow sand, g=grass, r=rock) as a float3.
+    wgts = custom(m, '''float veg=smoothstep(40.0+V*45.0, 260.0+V*60.0, P.z);
+  float steep=1.0-N.z;
+  float rock=smoothstep(0.30, 0.60, steep);
+  float s=1.0-veg;
+  float g=veg*(1.0-rock);
+  float r=veg*rock;
+  return float3(s,g,r);''', {'P': pos, 'N': norm, 'V': vnz}, 3)
+
+    bc = custom(m, 'return SD.rgb*W.x+GD.rgb*W.y+RD.rgb*W.z;',
+                {'SD': s_c, 'GD': g_c, 'RD': r_c, 'W': wgts}, 3)
+    output(bc, 'BASE_COLOR')
+    nb = custom(m, 'return normalize(SD*W.x+GD*W.y+RD*W.z);',
+                {'SD': s_n, 'GD': g_n, 'RD': r_n, 'W': wgts}, 3)
+    output(nb, 'NORMAL')
+    rb = custom(m, 'return SR*W.x+GR*W.y+RR*W.z;',
+                {'SR': s_r, 'GR': g_r, 'RR': r_r, 'W': wgts}, 1)
+    output(rb, 'ROUGHNESS')
+    output(node(m, 'Constant', r=0.5), 'SPECULAR')
+    material_usage_flags(m)
+    lib.recompile_material(m)
+    assert ela.save_asset(path), 'Failed to save ' + path
+    return m
+
+
 def make_water_mpc():
     """Create/load the global ocean Material Parameter Collection.
 
@@ -232,94 +372,40 @@ def make_water_mpc():
 
 
 def water_material(name, color, rough=0.08, specular=0.6, shore_color=(0.03, 0.22, 0.25), waves=None):
-    """Translucent ocean with depth-graded colour/opacity, Fresnel sky reflection,
-    vertex-displaced parallel swells, and animated
-    foam (breaking surf line at the shoreline + white crests on the swells).
+    """Physical water volume: reflection, absorption and refraction before translucency.
 
-    Depth is SceneDepth - PixelDepth (the water-column thickness above the opaque
-    seabed), so the shallow turquoise grades smoothly into deep ocean following the
-    seabed slope — no hard distance banding. Shallow water is transparent (the sand
-    shows through) and deep water is opaque. Single Layer Water cannot take WPO, so
-    this is a standard translucent material — robust and clearly visible.
+    The existing Gerstner displacement remains connected; the separate runtime
+    breaking-surf mesh adds curling crests and foam above this liquid surface.
     """
     mpc = make_water_mpc()
     path = '/Game/Shiomori/Materials/M_' + name
     m = u.load_asset(path) if ela.does_asset_exist(path) else assets.create_asset(
         'M_' + name, '/Game/Shiomori/Materials', u.Material, u.MaterialFactoryNew())
     lib.delete_all_material_expressions(m)
-    # A Single Layer Water output node survives delete_all_material_expressions
-    # (it is bound to the shading model); remove it so this is a plain translucent
-    # surface — the SLW pass cannot take WorldPositionOffset, which hid the sea.
-    for e in list(lib.get_material_expressions(m)):
-        if type(e).__name__ == 'MaterialExpressionSingleLayerWaterMaterialOutput':
-            lib.delete_material_expression(m, e)
-    try:
-        m.set_editor_property('shading_model', u.MaterialShadingModel.MSM_DEFAULT_LIT)
-    except Exception:
-        pass
-    m.set_editor_property('blend_mode', u.BlendMode.BLEND_TRANSLUCENT)
-    m.set_editor_property('disable_depth_test', False)
-    m.set_editor_property('translucency_pass', u.MaterialTranslucencyPass.MTP_BEFORE_DOF)
-    m.set_editor_property('two_sided', True)
-    m.set_editor_property('refraction_method', u.RefractionMode.RM_NONE)
-    # Screen-space refraction can displace foreground wings through the ocean.
-    output(node(m, 'Constant', r=1.33), 'REFRACTION')
-    p = node(m, 'WorldPosition')
-    t = node(m, 'Time')
-    sd = node(m, 'SceneDepth')
-    pd = node(m, 'PixelDepth')
-    fn = node(m, 'Fresnel')
-    # Animated foam: coarse world-space value noise drifting shoreward over time.
-    wp = node(m, 'WorldPosition')
-    sc = node(m, 'Multiply'); sc.set_editor_property('const_b', 0.0016); wire(wp, sc, 'A')
-    tm = node(m, 'Multiply'); tm.set_editor_property('const_b', 8.0); wire(t, tm, 'A')
-    z0 = node(m, 'Constant', r=0.0)
-    t2 = node(m, 'AppendVector'); wire(tm, t2, 'A'); wire(z0, t2, 'B')
-    t3 = node(m, 'AppendVector'); wire(t2, t3, 'A'); wire(z0, t3, 'B')
-    add = node(m, 'Add'); wire(sc, add, 'A'); wire(t3, add, 'B')
-    nz = node(m, 'Noise', levels=3, output_min=0.0, output_max=1.0); wire(add, nz, '')
-    # Base colour: Beer-Lambert depth absorption + Fresnel sky + surf/crest foam.
-    # Tuned for the shallow lagoon (floor -300 cm): near shore the turquoise is
-    # bright and sand shows through; at 3 m it settles into a rich teal rather
-    # than a navy abyss. Fresnel reflection is stronger so the sky dominates at
-    # grazing angles like real water.
-    bc = custom(m, '''float d=max(SceneDepth-PixelDepth,0.0);
- float3 shallow=float3(%.6g,%.6g,%.6g);
- float3 deep=float3(%.6g,%.6g,%.6g);
- float3 water=deep+(shallow-deep)*exp(-d/250.0);
- float3 sky=float3(0.30,0.52,0.74);
- float3 col=lerp(water, sky, saturate(Fresnel*0.85));
- float h=0.0; // The runtime surf mesh supplies synchronized breaking crests.
- float surf=smoothstep(26.0,6.0,d)*Foam;
- float crest=smoothstep(26.0,80.0,h)*Foam*Foam;
- return lerp(col, float3(0.96,0.97,0.96), saturate(surf+crest));''' % (
-        shore_color[0], shore_color[1], shore_color[2], color[0], color[1], color[2]),
-        {'SceneDepth': sd, 'PixelDepth': pd, 'Fresnel': fn, 'P': p, 'T': t, 'Foam': nz})
-    output(bc, 'BASE_COLOR')
-    output(node(m, 'Constant', r=rough), 'ROUGHNESS')
-    output(node(m, 'Constant', r=specular), 'SPECULAR')
-    op = custom(m, '''float d=max(SceneDepth-PixelDepth,0.0);
-return 1.0-exp(-d/90.0);''', {'SceneDepth': sd, 'PixelDepth': pd}, 1)
-    output(op, 'OPACITY')
-    # Travelling normal: long swell, chop, and fine glitter ripple.
-    n = custom(m, '''float2 q=P.xy*0.004;
- float2 n=float2(sin(q.x*0.7+q.y*1.1+T*0.9),cos(q.y*1.3-q.x*0.4-T*0.7))*0.55;
- n+=float2(sin(q.x*2.6+q.y*3.1-T*1.6),cos(q.y*2.9-q.x*2.3+T*1.4))*0.26;
- float2 r=P.xy*0.03;
- n+=float2(sin(r.x*1.7+r.y*1.1+T*3.4),cos(r.y*2.1-r.x*0.8-T*3.0))*0.10;
- float2 s=P.xy*0.12;
- n+=float2(sin(s.x*2.3+s.y*1.7-T*6.0),cos(s.y*2.9-s.x*1.3+T*5.0))*0.05;
- return normalize(float3(n,1.0));''', {'P': p, 'T': t})
-    if waves is not None:
-        uv = node(m, 'TextureCoordinate')
-        rep = node(m, 'Multiply'); rep.set_editor_property('const_b', 300.0); wire(uv, rep, 'A')
-        pw = node(m, 'Panner', speed_x=0.0, speed_y=-0.06); wire(rep, pw, 'Coordinate')
-        sw = node(m, 'TextureSample', texture=waves)
-        sw.set_editor_property('sampler_type', u.MaterialSamplerType.SAMPLERTYPE_NORMAL)
-        wire(pw, sw, 'UVs')
-        bw = node(m, 'LinearInterpolate', const_alpha=0.45); wire(n, bw, 'A'); wire(sw, bw, 'B', 'RGB')
-        n = bw
-    output(n, 'NORMAL')
+    m.set_editor_property('shading_model',u.MaterialShadingModel.MSM_SINGLE_LAYER_WATER)
+    m.set_editor_property('blend_mode',u.BlendMode.BLEND_OPAQUE)
+    m.set_editor_property('two_sided',True)
+    m.set_editor_property('disable_depth_test',False)
+    m.set_editor_property('refraction_method',u.RefractionMode.RM_PIXEL_NORMAL_OFFSET)
+    m.set_editor_property('refraction_depth_bias',80.)
+    output(node(m,'Constant',r=1.08),'REFRACTION')
+    output(node(m,'Constant3Vector',constant=u.LinearColor(.005,.014,.018)),'BASE_COLOR')
+    output(node(m,'Constant',r=.025),'ROUGHNESS')
+    output(node(m,'Constant',r=.5),'SPECULAR')
+    output(node(m,'Constant',r=0.),'OPACITY')
+    volume=node(m,'SingleLayerWaterMaterialOutput')
+    wire(node(m,'Constant3Vector',constant=u.LinearColor(.00008,.00024,.00029)),volume,'ScatteringCoefficients')
+    wire(node(m,'Constant3Vector',constant=u.LinearColor(.0016,.00045,.00022)),volume,'AbsorptionCoefficients')
+    wire(node(m,'Constant',r=.15),volume,'PhaseG')
+    wire(node(m,'Constant3Vector',constant=u.LinearColor(1,1,1)),volume,'ColorScaleBehindWater')
+    p=node(m,'WorldPosition');t=node(m,'Time')
+    n=custom(m,'''float2 q=P.xy*.003;
+float2 n=float2(sin(q.x*.7+q.y*1.1+T*.9),cos(q.y*1.3-q.x*.4-T*.7))*.095;
+n+=float2(sin(q.x*2.6+q.y*3.1-T*1.6),cos(q.y*2.9-q.x*2.3+T*1.4))*.035;
+float2 r=P.xy*.025;
+n+=float2(sin(r.x*1.7+r.y*1.1+T*3.4),cos(r.y*2.1-r.x*.8-T*3.0))*.014;
+return normalize(float3(n,1.0));''',{'P':p,'T':t})
+    output(n,'NORMAL')
     # Deterministic Gerstner spectrum (8 components: 1 swell + 3 wind + 4 detail)
     # driven entirely by the global ocean MPC, so the rendered surface stays in
     # lock-step with AShiomoriWaterDirector / Born2FlapWater.cpp SampleWaveHeight.
@@ -373,20 +459,20 @@ def sand_material(name, diffuse, normal, rough=0.8, rough_tex=None, tiling_cm=30
         wire(t, mul, 'B')
         bc = mul
     if caustic:
-        # Underwater light caustics: crossed sine layers refract into the
-        # bright, slowly drifting cell patterns seen on a sunlit sea floor.
-        # They only modulate base colour, so the sandy albedo still shades
-        # naturally while the light seems to dance across the bay floor.
+        # Underwater light caustics: a soft, slow shimmer that brightens the
+        # seabed around 1x instead of a hard-edged cell mask. The old
+        # smoothstep(0.12,1,..) threshold clipped most cells to black and read
+        # as a coarse near-black checkerboard through the water.
         cp = node(m, 'WorldPosition')
         ct = node(m, 'Time')
-        caus = custom(m, '''float2 q=P.xy*0.015;
- float t=T*0.8;
- float c=sin(q.x*3.7+t)*sin(q.y*2.9-t*1.2)
-       +sin(q.x*5.3-t*0.7)*sin(q.y*4.1+t*0.5)
-       +sin((q.x+q.y)*2.6+t*0.4)*sin((q.x-q.y)*3.1-t*0.6);
- return smoothstep(0.12,1.0,c/3.0);''', {'P': cp, 'T': ct}, 1)
-        sc = node(m, 'Multiply'); sc.set_editor_property('const_b', 0.65); wire(caus, sc, 'A')
-        one = node(m, 'Constant', r=1.0)
+        caus = custom(m, '''float2 q=P.xy*0.02;
+  float t=T*0.6;
+  float c=sin(q.x*3.7+t)*sin(q.y*2.9-t*1.2)
+        +sin(q.x*5.3-t*0.7)*sin(q.y*4.1+t*0.5)
+        +sin((q.x+q.y)*2.6+t*0.4)*sin((q.x-q.y)*3.1-t*0.6);
+  return 0.5+0.5*c/3.0;''', {'P': cp, 'T': ct}, 1)
+        sc = node(m, 'Multiply'); sc.set_editor_property('const_b', 0.28); wire(caus, sc, 'A')
+        one = node(m, 'Constant', r=0.9)
         add = node(m, 'Add'); wire(one, add, 'A'); wire(sc, add, 'B')
         mul2 = node(m, 'Multiply'); wire(bc, mul2, 'A'); wire(add, mul2, 'B')
         bc = mul2
@@ -774,6 +860,9 @@ sand_r = load_texture('sand_02', 'Rough', 'T_Sand_Rough', srgb=False)
 concrete_d = load_texture('concrete_floor_02', 'Diffuse', 'T_Concrete_Diffuse')
 concrete_n = load_texture('concrete_floor_02', 'nor_dx', 'T_Concrete_Normal', normal=True, srgb=False)
 concrete_r = load_texture('concrete_floor_02', 'Rough', 'T_Concrete_Rough', srgb=False)
+worn_d = load_texture('concrete_worn', 'Diffuse', 'T_ConcreteWorn_Diffuse')
+worn_n = load_texture('concrete_worn', 'nor_dx', 'T_ConcreteWorn_Normal', normal=True, srgb=False)
+worn_r = load_texture('concrete_worn', 'Rough', 'T_ConcreteWorn_Rough', srgb=False)
 basalt_d = load_texture('aerial_rocks_02', 'Diffuse', 'T_Basalt_Diffuse')
 basalt_n = load_texture('aerial_rocks_02', 'nor_dx', 'T_Basalt_Normal', normal=True, srgb=False)
 basalt_r = load_texture('aerial_rocks_02', 'Rough', 'T_Basalt_Rough', srgb=False)
@@ -805,10 +894,9 @@ mats = {}
 mats['Sand'] = sand_material('Sand', sand_d, sand_n, rough_tex=sand_r, tiling_cm=300.0,
                              normal_strength=0.65)
 mats['WetSand'] = sand_material('WetSand', sand_d, sand_n, rough=0.35, tiling_cm=300.0,
-                                normal_strength=0.5, tint=(0.52, 0.47, 0.4), caustic=True)
-mats['Concrete'] = pbr_material('Concrete', diffuse=concrete_d, normal=concrete_n,
-                                rough_tex=concrete_r, tiling=('world', 120.0),
-                                normal_strength=0.6, noise_var=0.0015)
+                                normal_strength=0.5, tint=(0.74, 0.68, 0.56), caustic=True)
+mats['Concrete'] = concrete_material('Concrete', worn_d, worn_n, worn_r,
+                                     scale_cm=300.0, normal_strength=0.5)
 mats['Basalt'] = pbr_material('Basalt', diffuse=basalt_d, normal=basalt_n, rough=0.92,
                               tiling=('uv', 2.0), normal_strength=0.9,
                               tint=(0.52, 0.52, 0.55))
@@ -834,9 +922,28 @@ mats['Window'] = pbr_material('Window', color=(0.04, 0.1, 0.13), rough=0.12,
                               metallic=0.85, specular=1.0)
 mats['Bush'] = pbr_material('Bush', color=(0.09, 0.24, 0.13), rough=0.85, specular=0.4)
 mats['Crop'] = pbr_material('Crop', color=(0.16, 0.40, 0.13), rough=0.9, specular=0.3, noise_var=0.06)
+# Sweet potato canopy: the sprawling, tilted heart-leaves must shade on both
+# sides (two-sided foliage) so no leaf ever reads as a black backface from above.
+crop = mats['Crop']
+crop.set_editor_property('two_sided', True)
+crop.set_editor_property('shading_model', u.MaterialShadingModel.MSM_TWO_SIDED_FOLIAGE)
+output(node(crop, 'Constant3Vector', constant=u.LinearColor(0.09, 0.16, 0.05)), 'SUBSURFACE_COLOR')
+lib.recompile_material(crop)
+assert ela.save_asset('/Game/Shiomori/Materials/M_Crop')
 mats['Earth'] = pbr_material('Earth', diffuse=sand_d, normal=sand_n, rough_tex=sand_r,
                              tiling=('world', 260.0), normal_strength=0.6,
                              tint=(0.44, 0.46, 0.37))
+# Coastal headland terrain: world-space sand/grass/basalt blend that replaces
+# the coarse vertex-coloured valley material on the enclosing land tongues. It
+# transitions naturally into the beach sand at the waterline and breaks the
+# flat, repetitive look with value-noise-wandered seams.
+grass_d = u.load_asset('/Game/Nature/Textures/T_aerial_grass_rock_Diffuse')
+grass_n = u.load_asset('/Game/Nature/Textures/T_aerial_grass_rock_nor_dx')
+grass_r = u.load_asset('/Game/Nature/Textures/T_aerial_grass_rock_Rough')
+mats['Headland'] = (coastal_terrain_material(
+    'Headland', (sand_d, sand_n, sand_r), (grass_d, grass_n, grass_r),
+    (basalt_d, basalt_n, basalt_r), scale_cm=240.0)
+    if grass_d and grass_n and grass_r else mats['Earth'])
 mats['Water'] = water_material('Water', (0.008, 0.09, 0.16), rough=0.05, specular=0.8,
                              shore_color=(0.05, 0.36, 0.32), waves=wave_n)
 mats['Foam'] = pbr_material('Foam', color=(0.9, 0.94, 0.93), rough=0.35, specular=0.3)
@@ -900,10 +1007,13 @@ lib.recompile_material(cloud)
 ela.save_asset('/Game/Shiomori/Materials/M_Cloud')
 mats['Cloud'] = cloud
 
-# Hammered-glass canopy: a translucent, screen-space-refracting roof that casts
-# a dimmed translucent shadow. The normal is a two-octave world-space hammered
-# bump (strong enough to visibly distort the sky), and a Fresnel term brightens
-# the grazing edges so the slabs read as glass rather than frosted plastic.
+# Milky cloud-glass canopy: a soft, unobtrusive translucent roof that reads as
+# cloud density rather than textured glass. A barely-perceptible multi-octave
+# value-noise normal (subtle organic, "regularly irregular" — not coarse) keeps
+# the surface from reading as perfectly flat plastic, and no Fresnel sheen keeps
+# it matte. High opacity + frosted roughness give the blur;
+# bCastDynamicShadowAsMasked makes the slabs cast a real (soft) shadow instead
+# of floating as pure light.
 glass = u.load_asset('/Game/Shiomori/Materials/M_Glass') if ela.does_asset_exist('/Game/Shiomori/Materials/M_Glass') else assets.create_asset(
     'M_Glass', '/Game/Shiomori/Materials', u.Material, u.MaterialFactoryNew())
 glass.set_editor_property('blend_mode', u.BlendMode.BLEND_TRANSLUCENT)
@@ -916,22 +1026,36 @@ try:
     glass.set_editor_property('refraction_method', u.RefractionMode.RM_INDEX_OF_REFRACTION)
 except Exception:
     pass
+for prop in ('b_cast_dynamic_shadow_as_masked', 'cast_dynamic_shadow_as_masked'):
+    try:
+        glass.set_editor_property(prop, True)
+        break
+    except Exception:
+        pass
 lib.delete_all_material_expressions(glass)
 wp = node(glass, 'WorldPosition')
-fn = node(glass, 'Fresnel')
-n = custom(glass, '''float2 p = P.xy * 0.16;
-float2 a = float2(sin(p.x*3.1 + p.y*2.7), cos(p.y*3.7 - p.x*2.3)) * 0.9;
-float2 b = float2(sin(p.x*9.7 - p.y*7.1), cos(p.y*11.3 + p.x*8.9)) * 0.35;
-return normalize(float3(a + b, 1.0));''', {'P': wp}, 3)
+n = custom(glass, '''struct GlassNoise { float vnoise(float2 p){
+    float2 i = floor(p);
+    float2 f = frac(p);
+    float2 u = f * f * (3.0 - 2.0 * f);
+    float a = frac(sin(dot(i,                float2(127.1, 311.7))) * 43758.5453);
+    float b = frac(sin(dot(i + float2(1, 0), float2(127.1, 311.7))) * 43758.5453);
+    float c = frac(sin(dot(i + float2(0, 1), float2(127.1, 311.7))) * 43758.5453);
+    float d = frac(sin(dot(i + float2(1, 1), float2(127.1, 311.7))) * 43758.5453);
+    return lerp(lerp(a, b, u.x), lerp(c, d, u.x), u.y);
+}
+}; GlassNoise noise;
+float n = noise.vnoise(P.xy * 0.05) * 0.50
+        + noise.vnoise(P.xy * 0.15) * 0.30
+        + noise.vnoise(P.xy * 0.40) * 0.20;
+float g = (n - 0.5) * 0.12;
+return normalize(float3(-g, 0.0, 1.0));''', {'P': wp}, 3)
 output(n, 'NORMAL')
-bc = custom(glass, '''float3 tint = float3(0.72, 0.84, 0.86);
-float3 edge = float3(0.97, 0.99, 1.0);
-return lerp(tint, edge, saturate(Fresnel * 1.2));''', {'Fresnel': fn}, 3)
-output(bc, 'BASE_COLOR')
-output(node(glass, 'Constant', r=1.45), 'REFRACTION')
-output(node(glass, 'Constant', r=0.32), 'OPACITY')
-output(node(glass, 'Constant', r=0.10), 'ROUGHNESS')
-output(node(glass, 'Constant', r=0.9), 'SPECULAR')
+output(node(glass, 'Constant3Vector', constant=u.LinearColor(0.93, 0.94, 0.95)), 'BASE_COLOR')
+output(node(glass, 'Constant', r=1.0), 'REFRACTION')
+output(node(glass, 'Constant', r=0.9), 'OPACITY')
+output(node(glass, 'Constant', r=0.85), 'ROUGHNESS')
+output(node(glass, 'Constant', r=0.2), 'SPECULAR')
 for prop, val in (('translucency_shadow_density_scale', 1.0), ('translucency_self_shadow_density_scale', 0.6)):
     try:
         glass.set_editor_property(prop, val)
@@ -1116,6 +1240,22 @@ def beach_height(x, y):
     return max(-300.0, -50.0 - 0.04 * d)
 
 
+def sand_ripple(x, y):
+    # Parallel ripple marks on the permanently submerged foreshore. The swash
+    # zone (where waves land) stays flat; seaward of it the wave-worked sand
+    # carries gentle parallel ridges that fade out toward the deeper bay floor.
+    # Visual only — beach_height() stays smooth for collision and the coast test.
+    d = y - waterline(x)
+    if d < 900.0:
+        return 0.0
+    grow = min(1.0, (d - 900.0) / 500.0)
+    fade = 1.0 - min(1.0, max(0.0, d - 2000.0) / 500.0)
+    env = grow * fade
+    # Crests run parallel to shore: cross-shore wavelength ~2.5 m with a slow
+    # along-shore phase drift so the ridges meander like real wave ripples.
+    return env * 15.0 * math.sin(d * 0.025 + x * 0.00035 + 0.4)
+
+
 def beach_visual_height(x, y):
     # Cosmetic only: ramp the dry sand's inland edge down to the first tidewalk
     # tread top (Z=25) and butt it against that tread's seaward face (y=-1200) so
@@ -1127,7 +1267,7 @@ def beach_visual_height(x, y):
     if d_inland < blend:
         t = max(0.0, d_inland) / blend
         z = 25.0 + (z - 25.0) * t
-    return z
+    return z + sand_ripple(x, y)
 
 
 def make_beach():
@@ -1280,13 +1420,74 @@ def make_furrow(name, length, width, height, seed):
     return build_mesh(name, verts, tris, None)
 
 
+def _heart_outline(n=48, length=50.0, width=42.0):
+    """CCW heart-shaped leaf outline: pointed tip at -Y, cleft notch at +Y.
+
+    The classic heart trace (x=16 sin^3 t, y=13 cos t - 5 cos 2t - 2 cos 3t -
+    cos 4t) runs clockwise, so it is reversed here to match the counter-clockwise
+    winding the other generators emit (build_mesh flips it to +Z normals).  The
+    leaf spans `length` cm tip-to-notch and `width` cm across the lobes.
+    """
+    pts = []
+    for i in range(n):
+        t = 2.0 * math.pi * i / n
+        x = 16.0 * math.sin(t) ** 3
+        y = 13.0 * math.cos(t) - 5.0 * math.cos(2 * t) - 2.0 * math.cos(3 * t) - math.cos(4 * t)
+        pts.append((x, y))
+    pts = pts[::-1]
+    ymin = min(p[1] for p in pts)
+    yspan = max(p[1] for p in pts) - ymin
+    return [(x * width / 32.0, (y - ymin) * length / yspan - length / 2.0) for (x, y) in pts]
+
+
+def make_sweet_potato_plant(name, seed):
+    """A low sprawling sweet-potato (satsumaimo) plant: a ring of cupped
+    heart-shaped leaves radiating from a central crown, baked into one mesh so a
+    whole field is many cheap instances rather than thousands of tiny leaves."""
+    rng = random.Random(seed)
+    verts = []
+    tris = []
+    leaves = 10
+    for li in range(leaves):
+        a = 2.0 * math.pi * li / leaves + rng.uniform(-0.16, 0.16)
+        rad = rng.uniform(52.0, 96.0)
+        length = rng.uniform(40.0, 58.0)
+        width = rng.uniform(32.0, 48.0)
+        lift = rng.uniform(8.0, 18.0)
+        roll = math.radians(rng.uniform(-14.0, 14.0))
+        yaw = a + math.pi / 2.0
+        cy, sy = math.cos(yaw), math.sin(yaw)
+        cr, sr = math.cos(roll), math.sin(roll)
+        ox, oy = rad * math.cos(a), rad * math.sin(a)
+        outline = _heart_outline(length=length, width=width)
+        n_pts = len(outline)
+        base = len(verts)
+        for (x, y) in outline:
+            z = lift * (0.5 - y / length)
+            xr = x * cr - z * sr
+            zr = x * sr + z * cr
+            verts.append((ox + xr * cy - y * sy, oy + xr * sy + y * cy, zr))
+        seg = verts[base:base + n_pts]
+        cx = sum(v[0] for v in seg) / n_pts
+        cyc = sum(v[1] for v in seg) / n_pts
+        cz = sum(v[2] for v in seg) / n_pts
+        ci = len(verts)
+        verts.append((cx, cyc, cz))
+        for i in range(n_pts):
+            tris.append((ci, base + i, base + (i + 1) % n_pts))
+    return build_mesh(name, verts, tris, None)
+
+
 ocean_mesh = build_mesh('OceanGrid', *make_ocean_grid())
 beach_mesh = build_mesh('ContinuousBeach', *make_beach())
 seabed_mesh = build_mesh('Seabed', *make_seabed())
 mountains_behind = make_ridge('MountainsBehind', (-85000, -62000), (85000, -62000), 11000, -300, 26000, 991011)
 mountains_east = make_ridge('MountainsEast', (62000, -50000), (74000, 30000), 8500, -300, 14000, 991012)
 mountains_west = make_ridge('MountainsWest', (-62000, -50000), (-74000, 30000), 8500, -300, 14000, 991013)
-crop_furrow = make_furrow('CropFurrow', 83000.0, 300.0, 75.0, 7)
+sweet_potato_plant = make_sweet_potato_plant('SweetPotatoPlant', 414141)
+sweet_potato_plant.set_material(0, mats['Crop'])
+ela.save_asset('/Game/Shiomori/Meshes/SM_SweetPotatoPlant')
+sp_ridge = make_furrow('SweetPotatoRidge', 84000.0, 240.0, 42.0, 11)
 beach_mesh.get_editor_property('body_setup').set_editor_property('collision_trace_flag', u.CollisionTraceFlag.CTF_USE_COMPLEX_AS_SIMPLE)
 ela.save_loaded_asset(beach_mesh)
 
@@ -1455,25 +1656,35 @@ for i in range(180):
     mesh = _pick_mesh(foliage_meshes[kind], rng)
     h = rng.uniform(60, 260) if kind == 'Grass' else rng.uniform(120, 320) if kind == 'Fir' else rng.uniform(50, 160)
     foliage('Backshore scrub', (x, y, 150), mesh, h, rot=(0, rng.uniform(0, 360), 0), ground_z=150)
-# Lush satsumaimo (sweet potato) fields behind the promenade: long raised
-# furrows of low sprawling vine in neat east-west rows, hemmed by a broadleaf
-# hedgerow and a fern understory so the plots read as cultivated land seen from
-# above. Trees ring the field, never scattered inside it. Seeded RNG keeps
-# landmark placement stable.
+# Lush satsumaimo (sweet potato) fields behind the warehouses: tilled-earth
+# ridges running east-west, each crested with sprawling heart-leafed vines so the
+# plots read as a real cultivated field from above. The old smooth white furrows
+# read as plastic sheeting; the ridges now carry the tilled Earth material and are
+# densely planted with procedural sweet potato plants. Seeded RNG keeps landmark
+# placement stable.
 srng = random.Random(909071)
-for row in range(6):
-    y = -13300 - row * 950
-    foliage('Satsumaimo furrow %02d' % row, (0, y, 150), crop_furrow, 75,
-            rot=(0, 0, 0), ground_z=150)
+FIELD_ROWS = 10
+FIELD_Y0 = -13300.0
+FIELD_SPACING = 620.0
+for row in range(FIELD_ROWS):
+    y = FIELD_Y0 - row * FIELD_SPACING
+    place_mesh('Sweet potato ridge %02d' % row, (0, y, 150), sp_ridge, mats['Earth'], collision=False)
+for i in range(3000):
+    row = srng.randint(0, FIELD_ROWS - 1)
+    y = FIELD_Y0 - row * FIELD_SPACING + srng.uniform(-110, 110)
+    x = srng.uniform(-44000, 44000)
+    foliage('Sweet potato plant', (x, y, 192),
+            sweet_potato_plant, srng.uniform(14, 24),
+            rot=(0, srng.uniform(0, 360), 0), ground_z=192)
 for i in range(160):
     fx = srng.uniform(-44500, 44500)
-    fy = srng.choice((-12750, -19550)) + srng.uniform(-400, 400)
+    fy = srng.choice((-12750, -19450)) + srng.uniform(-400, 400)
     foliage('Field fern', (fx, fy, 150),
             _pick_mesh(foliage_meshes['Fern'], srng), srng.uniform(120, 300),
             rot=(0, srng.uniform(0, 360), 0), ground_z=150)
 for i in range(130):
     tx = srng.uniform(-44000, 44000)
-    ty = srng.choice((-12900, -18900)) + srng.uniform(-500, 500)
+    ty = srng.choice((-12900, -19150)) + srng.uniform(-500, 500)
     foliage('Field hedgerow', (tx, ty, 150),
             _pick_mesh(foliage_meshes['Tree'], srng), srng.uniform(700, 1300),
             rot=(0, srng.uniform(0, 360), 0), ground_z=150)
@@ -1533,20 +1744,11 @@ for i in range(2600):
         continue
     foliage('Beach dune grass', (x, y, 0), _pick_mesh(foliage_meshes['Grass'], grng),
             grng.uniform(45, 115), rot=(0, grng.uniform(0, 360), 0), ground_z=h)
-# Volcanic island, to the left, curves around the bay.
-part('Basalt island foundation', (-37000, 26000, -600), (17000, 27000, 4400), 'Basalt', 'Sphere')
-for i in range(60):
-    a = rng.uniform(0, math.tau)
-    r = math.sqrt(rng.random())
-    x = -37000 + 7600 * r * math.cos(a)
-    y = 26000 + 12300 * r * math.sin(a)
-    z = -600 + 2200 * math.sqrt(max(0, 1 - r * r))
-    part('Volcanic outcrop', (x, y, z + 100), (rng.uniform(500, 1500), rng.uniform(450, 1200), rng.uniform(500, 1600)),
-         'Basalt', 'Rock' + str(i % 4), rot=(rng.uniform(-16, 16), rng.uniform(0, 360), rng.uniform(-16, 16)))
-for i in range(25):
-    a = i * math.tau / 25
-    part('Island shore rock', (-37000 + 8000 * math.cos(a), 26000 + 12900 * math.sin(a), -60),
-         (600, 850, 450), 'Basalt', 'Rock' + str(i % 4), rot=(0, i * 37, 0))
+# Fractured basalt shelves, flank rocks and sparse island vegetation.
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import shiomori_volcanic
+shiomori_volcanic.install(globals())
 # Volleyball court: two poles, sparse dark mesh and white top tape.
 for x in (11550, 12450):
     part('Volleyball post', (x, 4500, 130), (12, 12, 260), 'Teal', 'Cylinder')

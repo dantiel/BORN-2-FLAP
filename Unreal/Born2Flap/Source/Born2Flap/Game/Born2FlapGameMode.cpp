@@ -1,4 +1,5 @@
 #include "Game/Born2FlapGameMode.h"
+#include "World/Born2FlapBayTerrain.h"
 #include "Game/Born2FlapHUD.h"
 #include "Flight/Born2FlapFlightPawn.h"
 #include "Flight/Born2FlapTuning.h"
@@ -126,9 +127,25 @@ void ABorn2FlapGameMode::InitGame(const FString &MapName, const FString &Options
                    !FParse::Param(FCommandLine::Get(), TEXT("B2FFlightTest")) &&
                    !FParse::Param(FCommandLine::Get(), TEXT("B2FSoakTest")) &&
                    !FParse::Param(FCommandLine::Get(), TEXT("B2FHandlingTest"));
+    // Menu mode: a plain interactive boot into the minimal Entry map (no
+    // explicit level) is the home screen, NOT a playable level. Nothing is
+    // built and no bird spawns behind the menu — a real level only loads when
+    // the player selects a world and clicks FLY (which travels with ?Level=
+    // and ?SkipMenu=1). Automated/test runs are always -unattended, so they
+    // never trip this and keep booting straight into their test map.
+    bMenuMode = Level.IsEmpty() &&
+                MapName.Contains(TEXT("Entry"), ESearchCase::IgnoreCase) &&
+                !FApp::IsUnattended();
+    if (bMenuMode)
+    {
+        bCoastLevel = false;
+        bNatureLevel = false;
+        DefaultPawnClass = nullptr;
+        HUDClass = nullptr;
+    }
     // The main menu only appears on a plain boot (no explicit level, no test
-    // mode). An explicit level request — ?Level= / -B2FLevel= (play.ps1 always
-    // passes one), ?SkipMenu=1 (set by the menu itself) or -B2FNoMenu — keeps
+    // mode). An explicit level request — ?Level= / -B2FLevel= (play.ps1 passes
+    // one for a -Level boot), ?SkipMenu=1 (set by the menu itself) or -B2FNoMenu — keeps
     // it hidden so the player lands directly in a playable map. Inside a level
     // the Escape shortcut re-opens it on demand.
     bSkipMenu = FParse::Param(FCommandLine::Get(), TEXT("B2FNoMenu")) ||
@@ -170,8 +187,17 @@ double ABorn2FlapGameMode::GroundHeight(double X, double Y) const
 {
     if(bCoastLevel)
     {
-        const double Island=FMath::Square((X+37000)/8500.)+FMath::Square((Y-26000)/13500.);
-        if(Island<1) return -600+2200*FMath::Sqrt(1-Island);
+        // Photoscans have cavities and tidal gaps: use their actual surface.
+        if((X>-49500 && X<-28000 && Y>12000 && Y<40000) ||
+           (FMath::Abs(X)>28000 && FMath::Abs(X)<36500 && Y>7000 && Y<14500))
+        {
+            FHitResult Hit;
+            FCollisionQueryParams Query(SCENE_QUERY_STAT(LavaGround),true);
+            if(GetWorld()->LineTraceSingleByObjectType(Hit,FVector(X,Y,6500),FVector(X,Y,-2200),
+                FCollisionObjectQueryParams(ECC_WorldStatic),Query) && Hit.GetActor() &&
+                Hit.GetActor()->ActorHasTag(TEXT("ShiomoriVolcanic"))) return Hit.ImpactPoint.Z;
+        }
+        if(Born2FlapBay::Contains(X,Y)) return Born2FlapBay::Height(X,Y);
         if(FMath::Abs(X)<=75000 && Y>=-51000 && Y<=-3000) return 150;
         if(FMath::Abs(X)>45000 || Y<-3500) return -1750;
         if(Y>=-1200)
@@ -215,8 +241,9 @@ void ABorn2FlapGameMode::BeginPlay()
     }
     // Points of interest are level-specific and only need the level flags
     // (set in InitGame) plus the saved-map camera actors, so they can be built
-    // before the level geometry branches below.
-    PopulatePOIs();
+    // before the level geometry branches below. Menu mode has no level.
+    if (!bMenuMode)
+        PopulatePOIs();
 
     // Menu world-select state (for the Brain-authored menu; the native
     // ABorn2FlapMenu keeps its own copy when the Brain is offline).
@@ -232,24 +259,15 @@ void ABorn2FlapGameMode::BeginPlay()
     }
     const bool bBrain = IsBrainActive();
 
-    // Startup splash screen: show the artwork + loading bar on real launches.
-    // Automated runs (tests) pass -nosplash/-unattended and skip it entirely.
-    // Spawned here (not on the first Tick) so it is already in the viewport for
-    // the very first rendered frame — otherwise the freshly loaded world shows
-    // for a beat before the splash covers it. The renderer only needs GetWorld(),
-    // no player controller, so BeginPlay is safe.
-    if (!FParse::Param(FCommandLine::Get(), TEXT("nosplash")) && !FApp::IsUnattended())
-    {
-        // Splash timing drives both the native actor and (in the Brain path)
-        // the Ruby splash overlay via BuildBrainTelemetry().
-        SplashElapsed = 0.f;
-        if (!bBrain)
-        {
-            FActorSpawnParameters SplashParams;
-            SplashParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-            SplashWidget = GetWorld()->SpawnActor<ABorn2FlapSplash>(FVector::ZeroVector, FRotator::ZeroRotator, SplashParams);
-        }
-    }
+    // No in-app startup splash — the only pre-UI splash is the native Windows
+    // splash (Content/Splash/Splash.png, WindowsApplication.ShowSplash) shown
+    // while the engine boots before the main window appears. SplashElapsed stays
+    // at its -1 default, so the menu opens on the very first Tick.
+    // Menu mode is the home screen: nothing to build behind it. Return now —
+    // the first real level only loads when the player clicks FLY. No bird,
+    // radio, weather or world geometry here.
+    if (bMenuMode)
+        return;
     UWorld *World = GetWorld();
     World->GetWorldSettings()->bForceNoPrecomputedLighting = true;
     // The glass cockpit is authored natively in C++ (ABorn2FlapFlightHUD) only
@@ -288,7 +306,11 @@ void ABorn2FlapGameMode::BeginPlay()
     WeatherActor=World->SpawnActor<ABorn2FlapWeather>(FVector::ZeroVector,FRotator::ZeroRotator,Params);
     WeatherActor->Configure(GetLevelId(),Conditions);
     World->SpawnActor<ABorn2FlapSoundscape>();
-    if(bCoastLevel) World->SpawnActor<ABorn2FlapSurf>();
+    if(bCoastLevel)
+    {
+        World->SpawnActor<ABorn2FlapBayTerrain>();
+        World->SpawnActor<ABorn2FlapSurf>();
+    }
     if(bCoastLevel)
     {
         // Saved coastal map supplies geometry and atmosphere. The water
@@ -648,8 +670,12 @@ void ABorn2FlapGameMode::Tick(float DeltaSeconds)
         }
         if(CoastTestTime>27)
         {
-            bool Pass=!IsWater(0,0) && IsWater(0,20000) && !IsWater(-37000,26000) && IsWater(-37000,11200);
-            Pass &= WindAt(FVector(0,-1400,350),0).Z>.3 && WindAt(FVector(0,6000,350),0).Z<.01;
+            const bool MaskCenter=!IsWater(0,0),MaskSea=IsWater(0,20000),MaskRock=!IsWater(-39500,28500),MaskNear=IsWater(-37000,11200);
+            UE_LOG(LogTemp,Display,TEXT("Water mask: center=%d sea=%d rock=%d near=%d"),MaskCenter,MaskSea,MaskRock,MaskNear);
+            const double WindNear=WindAt(FVector(0,-1400,350),0).Z,WindOff=WindAt(FVector(0,6000,350),0).Z;
+            UE_LOG(LogTemp,Display,TEXT("Wind at probes: near=%.3f offshore=%.3f"),WindNear,WindOff);
+            bool Pass=MaskCenter && MaskSea && MaskRock && MaskNear;
+            Pass &= WindNear>.3 && WindOff<.01;
             {
                 FHitResult Hit;
                 bool HitGround=GetWorld()->LineTraceSingleByChannel(Hit,FVector(2000,3000,700),FVector(2000,3000,-700),ECC_Visibility);
@@ -677,11 +703,37 @@ void ABorn2FlapGameMode::Tick(float DeltaSeconds)
                     Previous=Z;
                 }
             }
+            Pass &= IsWater(-35000,22500); // An intentional tidal channel between scanned outcrops.
+            for(const FVector& P : {FVector(-39500,28500,0),FVector(-36800,24800,0),FVector(-42000,31600,0)})
+            {
+                FHitResult Hit;
+                const bool Found=GetWorld()->LineTraceSingleByChannel(Hit,P+FVector(0,0,3500),P-FVector(0,0,500),ECC_Visibility);
+                const double Error=Found?FMath::Abs(Hit.ImpactPoint.Z-GroundHeight(P.X,P.Y)):9999.;
+                Pass &= Found && Error<180;
+                UE_LOG(LogTemp,Display,TEXT("Volcanic collision: hit=%d heightErrorCm=%.1f"),Found,Error);
+            }
+            for(const FVector& P : {FVector(60000,22000,0),FVector(48000,-28000,0),FVector(0,-58000,0),FVector(-80000,-80000,0)})
+            {
+                FHitResult Hit;
+                const double H=Born2FlapBay::Height(P.X,P.Y);
+                const bool Found=GetWorld()->LineTraceSingleByChannel(Hit,P+FVector(0,0,H+1500),P+FVector(0,0,H-1500),ECC_Visibility);
+                Pass &= Found && FMath::Abs(Hit.ImpactPoint.Z-H)<120;
+                UE_LOG(LogTemp,Display,TEXT("BayLand collision: hit=%d heightErrorCm=%.1f"),Found,Found?FMath::Abs(Hit.ImpactPoint.Z-H):9999.);
+            }
+            const double Sheltered=Born2FlapBay::WindExposure(FVector(34000,20000,400),FVector(-1,0,0));
+            const double Open=Born2FlapBay::WindExposure(FVector(0,65000,400),FVector(-1,0,0));
+            const double Above=Born2FlapBay::WindExposure(FVector(34000,20000,15000),FVector(-1,0,0));
+            Pass &= Sheltered<Open-.05 && Above>Sheltered+.05;
+            UE_LOG(LogTemp,Display,TEXT("Bay wind exposure: sheltered=%.2f open=%.2f above=%.2f"),Sheltered,Open,Above);
             int32 West=0,East=0;
-            int32 Shelters=0,Posts=0,Rocks=0;
+            int32 Shelters=0,Posts=0,Rocks=0,RockWest=0,RockEast=0,IslandGrass=0,IslandTrees=0;
             for(TActorIterator<AStaticMeshActor> It(GetWorld());It;++It)
-            { West+=It->ActorHasTag(TEXT("Coastal grass west")); East+=It->ActorHasTag(TEXT("Coastal grass east")); Shelters+=It->ActorHasTag(TEXT("Shelter floating roof")); Posts+=It->ActorHasTag(TEXT("Volleyball post")); Rocks+=It->ActorHasTag(TEXT("Volcanic outcrop")); }
-            Pass &= Shelters==9 && Posts==2 && Rocks==60 && West>500 && East>500;
+            { West+=It->ActorHasTag(TEXT("Coastal grass west")); East+=It->ActorHasTag(TEXT("Coastal grass east")); Shelters+=It->ActorHasTag(TEXT("Shelter floating roof")); Posts+=It->ActorHasTag(TEXT("Volleyball post")); Rocks+=It->ActorHasTag(TEXT("Volcanic outcrop"));
+              RockWest+=It->ActorHasTag(TEXT("Volcanic beach west")); RockEast+=It->ActorHasTag(TEXT("Volcanic beach east"));
+              IslandGrass+=It->ActorHasTag(TEXT("Island grass pocket")); IslandTrees+=It->ActorHasTag(TEXT("Island small tree")); }
+            Pass &= Shelters==9 && Posts==2 && Rocks>=12 && West>500 && East>500;
+            Pass &= RockWest==12 && RockEast==12;
+            UE_LOG(LogTemp,Display,TEXT("Volcanic scenery: west=%d east=%d grass=%d trees=%d"),RockWest,RockEast,IslandGrass,IslandTrees);
             UE_LOG(LogTemp,Display,TEXT("ShiomoriTest %s: sand/stair/promenade collision, bay/island water mask, stair lift, shelters=%d posts=%d volcanic rocks=%d"),Pass?TEXT("PASS"):TEXT("FAIL"),Shelters,Posts,Rocks);
             FPlatformMisc::RequestExitWithStatus(false,Pass?0:1);
         }
@@ -785,7 +837,12 @@ void ABorn2FlapGameMode::ShowMainMenu(bool bInLevel)
     Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
     MenuWidget = GetWorld()->SpawnActor<ABorn2FlapMenu>(FVector::ZeroVector, FRotator::ZeroRotator, Params);
     if (MenuWidget)
+    {
         MenuWidget->SetInLevel(bInLevel);
+        // Re-open on the last view the player had open. Only in-level — the
+        // home screen has no live bird, so FLIGHT DESK is unreachable there.
+        MenuWidget->RestoreView(bInLevel ? MenuNavPage : 0, bInLevel ? MenuSettingsPage : 0);
+    }
 }
 
 void ABorn2FlapGameMode::CloseMainMenu()
@@ -802,6 +859,8 @@ void ABorn2FlapGameMode::CloseMainMenu()
     // is already null (the Ruby Brain hides the menu from the telemetry flag).
     if (MenuWidget)
     {
+        MenuNavPage = MenuWidget->GetNavPage();
+        MenuSettingsPage = MenuWidget->GetSettingsPage();
         MenuWidget->Close();
         MenuWidget->Destroy();
         MenuWidget = nullptr;
@@ -868,6 +927,74 @@ void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, c
             Bird->OpenFlightSettings();
         return;
     }
+    if (Action == TEXT("menu.controls"))
+    {
+        // Open the RC control-settings panel from the fullscreen main menu.
+        CloseMainMenu();
+        if (ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
+            if (FBorn2FlapRcController* Rc = Bird->GetRcControllerMutable())
+                Rc->OpenPanel();
+        return;
+    }
+
+    // RC transmitter control-settings panel (semantic action surface — mirrors
+    // the native keyboard driver TAB/C/ENTER/X/G/L/K in Born2FlapRcController).
+    if (Action == TEXT("rc.close"))
+    {
+        if (ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
+            if (FBorn2FlapRcController* Rc = Bird->GetRcControllerMutable())
+                Rc->ClosePanel();
+        return;
+    }
+    if (Action == TEXT("rc.device.next"))
+    {
+        if (ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
+            if (FBorn2FlapRcController* Rc = Bird->GetRcControllerMutable())
+                Rc->NextDevice();
+        return;
+    }
+    if (Action == TEXT("rc.calibrate.start"))
+    {
+        if (ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
+            if (FBorn2FlapRcController* Rc = Bird->GetRcControllerMutable())
+                Rc->StartCalibration();
+        return;
+    }
+    if (Action == TEXT("rc.calibrate.advance"))
+    {
+        if (ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
+            if (FBorn2FlapRcController* Rc = Bird->GetRcControllerMutable())
+                Rc->AdvanceCalibration();
+        return;
+    }
+    if (Action == TEXT("rc.calibrate.cancel"))
+    {
+        if (ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
+            if (FBorn2FlapRcController* Rc = Bird->GetRcControllerMutable())
+                Rc->CancelCalibration();
+        return;
+    }
+    if (Action == TEXT("rc.enable.toggle"))
+    {
+        if (ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
+            if (FBorn2FlapRcController* Rc = Bird->GetRcControllerMutable())
+                Rc->ToggleEnabled();
+        return;
+    }
+    if (Action == TEXT("rc.learn.launch"))
+    {
+        if (ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
+            if (FBorn2FlapRcController* Rc = Bird->GetRcControllerMutable())
+                Rc->LearnLaunch();
+        return;
+    }
+    if (Action == TEXT("rc.learn.reset"))
+    {
+        if (ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
+            if (FBorn2FlapRcController* Rc = Bird->GetRcControllerMutable())
+                Rc->LearnReset();
+        return;
+    }
     if (Action == TEXT("menu.page")) { MenuPage=FMath::Clamp(FMath::RoundToInt(Value),0,1); return; }
     if (Action == TEXT("settings.page")) { SettingsPage=FMath::Clamp(FMath::RoundToInt(Value),0,4); return; }
     if (Action == TEXT("settings.close") || Action == TEXT("editor.close"))
@@ -897,10 +1024,16 @@ void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, c
             Bird->SetFpvCameraAngle(Value);
         return;
     }
-    if (Action == TEXT("bird.rolltwist"))
+    if (Action == TEXT("bird.weight"))
     {
         if (ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
-            Bird->SetRollWingTwist(Value > 0.5f);
+            Bird->SetBodyMassKg(Value);
+        return;
+    }
+    if (Action == TEXT("bird.cg"))
+    {
+        if (ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
+            Bird->SetCgOffsetMm(Value);
         return;
     }
     if (Action == TEXT("bird.coupled"))
@@ -1021,7 +1154,8 @@ FString ABorn2FlapGameMode::BuildBrainTelemetry() const
         Root->SetNumberField(TEXT("bird_model"), Bird->GetBirdModel());
         Root->SetBoolField(TEXT("camera_fpv"), Bird->IsFpvAirView());
         Root->SetNumberField(TEXT("fpv_angle"), Bird->GetFpvCameraAngle());
-        Root->SetBoolField(TEXT("roll_twist"), Bird->IsRollWingTwist());
+        Root->SetNumberField(TEXT("body_mass_kg"), Bird->GetBodyMassKg());
+        Root->SetNumberField(TEXT("cg_offset_mm"), Bird->GetCgOffsetMm());
         Root->SetBoolField(TEXT("coupled_throttle"), Bird->IsThrottleCoupled());
         Root->SetNumberField(TEXT("speed_modifier"), Bird->GetSpeedModifier());
         Root->SetNumberField(TEXT("flight_safety"), Bird->GetFlightSafety());
@@ -1065,6 +1199,9 @@ FString ABorn2FlapGameMode::BuildBrainTelemetry() const
         Root->SetBoolField(TEXT("rc_connected"), Rc && Rc->IsConnected());
         Root->SetBoolField(TEXT("rc_armed"), Rc && Rc->IsArmed());
         Root->SetStringField(TEXT("rc_buttons"), Rc ? Rc->GetButtons() : TEXT(""));
+        Root->SetBoolField(TEXT("rc_enabled"), Rc && Rc->IsEnabled());
+        Root->SetNumberField(TEXT("rc_stage"), Rc ? Rc->GetStage() : -1);
+        Root->SetStringField(TEXT("rc_notice"), Rc ? Rc->GetNotice() : TEXT(""));
         static const TCHAR* ChannelNames[] = { TEXT("GAS"), TEXT("ROLL"), TEXT("PITCH"), TEXT("YAW"), TEXT("SPEED") };
         TArray<TSharedPtr<FJsonValue>> ChArr;
         if (Rc)
@@ -1079,6 +1216,32 @@ FString ABorn2FlapGameMode::BuildBrainTelemetry() const
             }
         }
         Root->SetArrayField(TEXT("rc_channels"), ChArr);
+
+        // Enumerated devices (for the dropdown / next-device readout).
+        TArray<TSharedPtr<FJsonValue>> DevArr;
+        if (Rc)
+            for (const FString& N : Rc->GetDeviceNames())
+                DevArr.Add(MakeShareable(new FJsonValueString(N)));
+        Root->SetArrayField(TEXT("rc_devices"), DevArr);
+
+        // Live axes (8) for the meter readout.
+        TArray<TSharedPtr<FJsonValue>> AxArr;
+        if (Rc)
+            for (int32 I = 0; I < 8; ++I)
+            {
+                TSharedPtr<FJsonObject> A = MakeShareable(new FJsonObject());
+                A->SetNumberField(TEXT("value"), (double)FMath::Clamp(float(Rc->GetRawAxes()[I]), 0.f, 1.f));
+                A->SetBoolField(TEXT("available"), Rc->GetAvailableAxes()[I] && Rc->IsConnected());
+                AxArr.Add(MakeShareable(new FJsonValueObject(A)));
+            }
+        Root->SetArrayField(TEXT("rc_axes"), AxArr);
+
+        // Channel mappings (5 strings) for the readout.
+        TArray<TSharedPtr<FJsonValue>> MapArr;
+        if (Rc)
+            for (int32 I = 0; I < 5; ++I)
+                MapArr.Add(MakeShareable(new FJsonValueString(Rc->GetMapping(I))));
+        Root->SetArrayField(TEXT("rc_mappings"), MapArr);
     }
 
     // Menu / level selector.
@@ -1134,6 +1297,7 @@ FString ABorn2FlapGameMode::BuildBrainTelemetry() const
     Root->SetStringField(TEXT("radio_track"), RadioStation ? RadioStation->GetTrackName() : TEXT(""));
     Root->SetBoolField(TEXT("radio_playing"), RadioStation && RadioStation->IsPlaying());
     Root->SetNumberField(TEXT("radio_volume"), RadioStation ? RadioStation->GetVolume() : 0.5);
+    Root->SetStringField(TEXT("radio_cover"), RadioStation ? RadioStation->GetCoverPath() : TEXT(""));
 
     // Channels (F2) — the Ruby path folds this into the RC readout for now.
     Root->SetBoolField(TEXT("channels"), false);

@@ -2,8 +2,9 @@
 // Born2FlapSplash.h — the startup splash, rebuilt on the view framework.
 //
 // Replaces the old hand-built UUserWidget with an actor that drives
-// UBorn2FlapUIRenderer (full-bleed Image + a bottom-anchored loading readout),
-// so every on-screen surface now uses the same react-native-umg grammar.
+// UBorn2FlapUIRenderer (a centred logo Image + a bottom-anchored loading
+// readout), so every on-screen surface now uses the same react-native-umg
+// grammar. The full-bleed surface is the level-loading screen (FBorn2FlapModule).
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
