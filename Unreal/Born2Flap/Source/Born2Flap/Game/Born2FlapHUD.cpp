@@ -3,6 +3,7 @@
 #include "Game/Born2FlapGameMode.h"
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
+#include "Engine/Texture2D.h"
 #include "Input/Born2FlapRcController.h"
 #include "Input/Born2FlapKeybinds.h"
 #include "World/Born2FlapValley.h"
@@ -14,6 +15,19 @@
 #include "Kismet/GameplayStatics.h"
 #include "UI/Born2FlapFlightHUD.h"
 #include "UI/Born2FlapI18n.h"
+
+namespace
+{
+// The brand logo shared with the main-menu sidebar (Born2FlapMenu.cpp), drawn in
+// place of the old "BORN 2 FLAP" text so the imperative overlay matches the menu.
+UTexture2D* BrandLogo()
+{
+    static TStrongObjectPtr<UTexture2D> Logo(
+        LoadObject<UTexture2D>(nullptr, TEXT("/Game/Splash/born2flap-logo.born2flap-logo")));
+    return Logo.Get();
+}
+}  // namespace
+
 void ABorn2FlapHUD::DrawHUD()
 {
     Super::DrawHUD();
@@ -87,20 +101,23 @@ void ABorn2FlapHUD::DrawHUD()
     }
     if (!bSemanticHUD)
     {
-        DrawRect(FLinearColor(.015f, .035f, .045f, .82f), 20, 20, 445, 232);
-        DrawText(TEXT("BORN 2 FLAP"), Cream, 38, 30, GEngine->GetLargeFont(), 1.7f);
-        DrawText(TEXT("RC STICKS  /  AERODYNAMIC FLIGHT"), Gold, 40, 65, GEngine->GetSmallFont(), 1.1f);
-        DrawText(Bird->GetFlightStatus(), Cream, 40, 93, GEngine->GetSmallFont(), 1.05f);
+        DrawRect(FLinearColor(.015f, .035f, .045f, .82f), 20, 20, 445, 250);
+        if (UTexture2D* Logo = BrandLogo())
+        {
+            Canvas->DrawTile(Logo, 38, 20, 260, 80, 0, 0, Logo->GetSizeX(), Logo->GetSizeY());
+        }
+        DrawText(TEXT("RC STICKS  /  AERODYNAMIC FLIGHT"), Gold, 40, 108, GEngine->GetSmallFont(), 1.1f);
+        DrawText(Bird->GetFlightStatus(), Cream, 40, 136, GEngine->GetSmallFont(), 1.05f);
         DrawText(FString::Printf(TEXT("HEIGHT  %4.1f m     SPEED  %4.1f m/s"), Bird->GetAltitude(), Bird->GetSpeed()),
-                 Cream, 40, 123, GEngine->GetMediumFont(), 1.f);
+                 Cream, 40, 166, GEngine->GetMediumFont(), 1.f);
         DrawText(FString::Printf(TEXT("CLIMB  %+.1f m/s    EFFORT  %.0f%%    BATTERY  %.0f%%"), Bird->GetClimbRate(),
                                  Bird->GetEffort() * 100, Bird->GetBattery() * 100),
-                 Cream, 40, 156, GEngine->GetSmallFont(), 1.f);
+                 Cream, 40, 199, GEngine->GetSmallFont(), 1.f);
         const FVector Sticks = Bird->GetRcSticks();
         const FVector2D Wings = Bird->GetWingAngles();
         DrawText(FString::Printf(TEXT("RC  YAW %+.2f    ROLL %+.2f    PITCH %+.2f"), Sticks.Z, Sticks.X, Sticks.Y), Gold,
-                 40, 184, GEngine->GetSmallFont(), 1.f);
-        DrawText(FString::Printf(TEXT("WINGS  L %+.1f deg    R %+.1f deg"), Wings.X, Wings.Y), Muted, 40, 212,
+                 40, 227, GEngine->GetSmallFont(), 1.f);
+        DrawText(FString::Printf(TEXT("WINGS  L %+.1f deg    R %+.1f deg"), Wings.X, Wings.Y), Muted, 40, 255,
                  GEngine->GetSmallFont(), 1.f);
     }
     if (auto *Mode = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode()))

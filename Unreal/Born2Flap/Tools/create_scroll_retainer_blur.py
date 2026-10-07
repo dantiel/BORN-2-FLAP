@@ -70,9 +70,9 @@ float s = max(RefractScale, 0.001);
 float n1 = sin(p.y*s*3.7 + sin(p.x*s*2.3)) * cos(p.x*s*2.9 + p.y*s*1.7);
 float n2 = sin(p.y*s*8.1 + p.x*s*5.3);
 float noise = 0.5 + 0.5*(n1*0.6 + n2*0.4);
-float warp = (noise - 0.5) * Refract * 0.08;
 float band = max(saturate(1.0 - p.y/e), saturate(1.0 - (1.0-p.y)/e));
 float blur = smoothstep(0.0, 1.0, saturate((band - (1.0-Amount)) / max(Amount, 0.001)));
+float warp = (noise - 0.5) * Refract * 0.08 * blur;
 float alpha = 1.0 - blur * Void;
 return float4(blur, alpha, warp, 0.0);
 ''', output_type=u.CustomMaterialOutputType.CMOT_FLOAT4)
