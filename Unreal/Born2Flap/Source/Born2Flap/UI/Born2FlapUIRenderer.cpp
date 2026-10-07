@@ -27,6 +27,7 @@
 #include "Components/PanelWidget.h"
 #include "Components/ScrollBox.h"
 #include "Components/SizeBox.h"
+#include "Components/RetainerBox.h"
 #include "Engine/Texture2D.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
@@ -36,6 +37,7 @@
 #include "UObject/StrongObjectPtr.h"
 #include "UObject/UObjectGlobals.h"
 #include "UI/Born2FlapWindArrow.h"
+#include "Framework/Application/SlateApplication.h"
 
 using namespace born2flap::ui;
 
@@ -132,6 +134,24 @@ FString ToneOf(const FProps& Props)
 {
     auto it = Props.find("tone");
     return it == Props.end() ? FString() : Str(it->second);
+}
+
+// The "safe-area bar" band, normalized to the primary display height. Used as
+// the default progressive-blur edge so the dissolve respects the notch /
+// home-indicator inset instead of hiding the interaction surface behind glass.
+float AutoSafeAreaEdge()
+{
+    float Edge = 0.14f;
+    if (FSlateApplication::IsInitialized())
+    {
+        FDisplayMetrics Metrics;
+        FSlateApplication::Get().GetDisplayMetrics(Metrics);
+        const float H = Metrics.PrimaryDisplayHeight > 0.f ? Metrics.PrimaryDisplayHeight : 1080.f;
+        const float Inset = Metrics.TitleSafePaddingSize.Y;
+        if (Inset > 0.f)
+            Edge = FMath::Clamp(Inset / H, 0.02f, 0.5f);
+    }
+    return Edge;
 }
 
 // ---- semantic value formatting (the "prowess" of numeric components) ------
@@ -507,7 +527,7 @@ UWidget* UBorn2FlapUIRenderer::CreateInstance(const std::string& Type)
         T == TEXT("Slider") || T == TEXT("Toggle") || T == TEXT("Select") ||
         T == TEXT("Segment") || T == TEXT("Dropdown") || T == TEXT("NumberBox") || T == TEXT("Field") ||
         T == TEXT("Section") ||
-        T == TEXT("Divider"))
+        T == TEXT("Divider") || T == TEXT("ScrollBlur"))
     {
         return BuildComponent(T);
     }
@@ -1018,6 +1038,41 @@ UBorn2FlapComposite* UBorn2FlapUIRenderer::BuildComponent(const FString& Type)
         C->Parts.Add(TEXT("spacer"), Sp);
         return C;
     }
+    if (Type == TEXT("ScrollBlur"))
+    {
+        // A ScrollBox wrapped in a URetainerBox so the *content* is genuinely
+        // post-processed: the retainer effect material (M_ScrollRetainerBlur)
+        // samples the rendered content and progressively blurs + dissolves it
+        // toward the top/bottom edges (safe zone stays sharp, then frosted
+        // glass refraction, then void). Unlike the old overlay veil this blurs
+        // the actual scroll content, not just a frosted tint on top of it.
+        UBorn2FlapComposite* C = NewComposite(this, TEXT("ScrollBlur"));
+        C->SetPadding(FMargin(0.f));
+
+        UScrollBox* Scroll = NewObject<UScrollBox>(this);
+
+        URetainerBox* Retainer = NewObject<URetainerBox>(this);
+        static TStrongObjectPtr<UMaterialInterface> ScrollRetainerMat(
+            LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/UI/M_ScrollRetainerBlur.M_ScrollRetainerBlur")));
+        if (ScrollRetainerMat.IsValid())
+        {
+            UMaterialInstanceDynamic* MID = UMaterialInstanceDynamic::Create(ScrollRetainerMat.Get(), this);
+            Retainer->SetEffectMaterial(MID);
+            // Cache the dynamic instance so per-prop scalar updates reach it
+            // (the retainer only exposes GetEffectMaterial once built).
+            MaterialCache.Add(Retainer, MID);
+        }
+        // "Texture" matches the material's TextureSampleParameter2D name; the
+        // retainer binds its render target to it every frame.
+        Retainer->SetTextureParameter(TEXT("Texture"));
+        Retainer->SetContent(Scroll);
+        C->SetContent(Retainer);
+
+        C->Parts.Add(TEXT("scroll"), Scroll);
+        C->Parts.Add(TEXT("retainer"), Retainer);
+        C->Content = Scroll;   // declared children scroll inside the ScrollBox
+        return C;
+    }
 
     return NewComposite(this, TEXT("Panel"));
 }
@@ -1080,6 +1135,47 @@ void UBorn2FlapUIRenderer::ApplyCompositeProps(UBorn2FlapComposite* C, const FPr
         }
         if (C->ContentPanel())
             StoreContainerLayout(C->ContentPanel(), Props);
+    }
+    else if (Type == TEXT("ScrollBlur"))
+    {
+        // Progressive content blur via the retainer effect material. `edge` is
+        // the safe zone as a normalized half-band (0..0.5); "auto" (or absent)
+        // derives it from the platform safe-area inset so the dissolve never
+        // hides the notch / home-indicator surface. `blur` is the max blur
+        // radius in UV units; `amount` widens the blur falloff; `refract` /
+        // `refractScale` tune the hammered-glass warp; `void` sets the dissolve.
+        URetainerBox* Retainer = Cast<URetainerBox>(C->Part(TEXT("retainer")));
+        if (Retainer)
+        {
+            float Edge = AutoSafeAreaEdge();
+            if (Props.count("edge"))
+            {
+                const FValue& E = Props.at("edge");
+                if (E.kind != FValue::Kind::String)
+                    Edge = FMath::Clamp((float)E.AsNumber(Edge), 0.0f, 0.5f);
+                // "auto" keeps the safe-area-derived default.
+            }
+
+            auto PropFloat = [&](const char* Key, float Dflt) -> float
+            {
+                auto it = Props.find(Key);
+                return it == Props.end() ? Dflt : (float)it->second.AsNumber(Dflt);
+            };
+
+            FProps Params;
+            auto SParam = [&Params](const char* Name, float Value)
+            {
+                FValue V; V.kind = FValue::Kind::Number; V.num = Value;
+                Params[Name] = V;
+            };
+            SParam("EdgeSize",     Edge);
+            SParam("Amount",       PropFloat("amount", 0.65f));
+            SParam("BlurRadius",   PropFloat("blur", 0.02f));
+            SParam("Refract",      PropFloat("refract", 0.35f));
+            SParam("RefractScale", PropFloat("refractScale", 6.0f));
+            SParam("Void",         PropFloat("void", 0.9f));
+            SetMaterialParams(Retainer, Params);
+        }
     }
     else if (Type == TEXT("Value") || Type == TEXT("Stat"))
     {
@@ -1670,10 +1766,13 @@ void UBorn2FlapUIRenderer::ApplyStoredLayoutToChild(UPanelWidget* Panel, int32 I
         return;
     const int32 N = Panel->GetChildrenCount();
 
-    // A ScrollBox placed in a linear box slot defaults to "Automatic" sizing,
-    // so it reports its full content height and overflows its panel instead of
-    // scrolling. Pin it to the remaining space so it clips and scrolls.
-    if (Cast<UScrollBox>(Child))
+    // A ScrollBox — or a ScrollBlur composite wrapping one — placed in a linear
+    // box slot defaults to "Automatic" sizing, so it reports its full content
+    // height and overflows its panel instead of scrolling. Pin it to the
+    // remaining space so it clips and scrolls.
+    const bool bScrollBlur = Child->IsA<UBorn2FlapComposite>() &&
+        Cast<UBorn2FlapComposite>(Child)->SemanticType == TEXT("ScrollBlur");
+    if (Cast<UScrollBox>(Child) || bScrollBlur)
     {
         if (UVerticalBoxSlot* VSlot = Cast<UVerticalBoxSlot>(Child->Slot))
         {

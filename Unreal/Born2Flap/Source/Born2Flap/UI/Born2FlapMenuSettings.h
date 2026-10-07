@@ -27,6 +27,7 @@ struct FMenuSettings
     bool bCoupledThrottle = true;
     bool bFpvAirView = false;
     float FpvCameraAngleDeg = 0.f;
+    bool bFreeLookInvert = false;
     FVector MouseGains = FVector(1.f, -1.f, 1.f);
     float ControlExpo = 0.65f;
     float SpeedModifier = 0.5f;

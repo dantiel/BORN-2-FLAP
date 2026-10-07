@@ -51,6 +51,8 @@ void ABorn2FlapFlightPawn::MoveWalker(const FVector& Delta)
         Ground = GHit.ImpactPoint.Z;
     To.Z = Ground + 180.0;   // eye height (1.8 m)
     GroundAnchor = To;
+    // The pilot walks alone: the bird stays exactly where it landed so the
+    // player can circle and inspect it (e.g. where it came down at the sea).
 }
 void ABorn2FlapFlightPawn::UpdateLandingCamera(float Dt)
 {
@@ -104,8 +106,8 @@ void ABorn2FlapFlightPawn::CalcCamera(float Dt,FMinimalViewInfo& Out)
         const FRotator Gaze=GroundGaze+FRotator(GroundLookPitch,GroundLookYaw,0);
         GroundCamera->SetWorldLocationAndRotation(GroundAnchor+Drift,Gaze+Tremor);
         const float Distance=FVector::Distance(BirdPosition,GroundAnchor);
-        const float Fov=FMath::Clamp(75.f/(1.f+Distance/5000.f),28.f,75.f);
-        GroundCamera->SetFieldOfView(FMath::FInterpTo(GroundCamera->FieldOfView,Fov,Dt,2.f));
+        const float Fov=FMath::Clamp(75.f/(1.f+Distance/5000.f),28.f,75.f) * GroundZoom;
+        GroundCamera->SetFieldOfView(FMath::FInterpTo(GroundCamera->FieldOfView,FMath::Clamp(Fov,6.f,120.f),Dt,2.f));
         GroundCamera->GetCameraView(Dt,Out);
     }
     else if(bFpvAirView)
@@ -124,7 +126,14 @@ void ABorn2FlapFlightPawn::CalcCamera(float Dt,FMinimalViewInfo& Out)
         // to its neutral follow orientation; automated tests keep their own
         // configured arm and are left untouched.
         if (!bFlightTest && !bDesktopInputTest)
-            CameraBoom->SetRelativeRotation(bFlying ? FRotator(-12,0,0) : FRotator(ChaseOrbitPitch,ChaseOrbitYaw,0));
+        {
+            // Chase orbit while grounded, or whenever the MMB walk/look mode is
+            // held (so the camera can orbit the bird mid-flight for cinematic
+            // shots); otherwise the arm returns to its neutral follow.
+            const bool bOrbit = !bFlying || bWalkLookActive;
+            CameraBoom->SetRelativeRotation(bOrbit ? FRotator(ChaseOrbitPitch,ChaseOrbitYaw,0) : FRotator(-12,0,0));
+            CameraBoom->TargetArmLength = ChaseArmLength;
+        }
         Camera->GetCameraView(Dt,Out);
     }
 }

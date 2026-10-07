@@ -1,5 +1,7 @@
 # PteraSoftware-Strategie
 
+> [PteronautOS](https://dantiel.github.io/PteronautOS/) — das Projekt hinter PteraSoftware.
+
 ## Rolle
 
 PteraSoftware ist ein sekundärer wissenschaftlicher Offline-Vergleich, keine Laufzeitabhängigkeit und keine primäre Quelle des Strömungsmodells. Die langjährigen experimentellen Beobachtungen des Projektautors haben Vorrang, insbesondere bei Crossflow, partiellem Stall, Ablösung und stark instationären Schlagflügelzuständen.

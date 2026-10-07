@@ -381,7 +381,7 @@ void ABorn2FlapFlightSettings::BuildTree()
             Nd("Panel", P({ {"title",S("FLIGHT DESK")}, {"bg", S("solid")}, {"padding", N(24)}, {"spacing",N(12)} }),
             {
                 std::move(Tabs),
-                Nd("ScrollBox", {}, { Nd("VerticalBox", P({ {"spacing", N(12)} }), std::move(Rows)) }),
+                Nd("ScrollBlur", {}, { Nd("VerticalBox", P({ { "spacing", N(12)} }), std::move(Rows)) }),
                 std::move(Footer)
             })
         })

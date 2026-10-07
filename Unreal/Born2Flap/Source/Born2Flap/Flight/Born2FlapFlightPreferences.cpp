@@ -35,6 +35,7 @@ void ABorn2FlapFlightPawn::LoadFlightPreferences()
     ControlExpo=FMath::IsFinite(ControlExpo) ? FMath::Clamp(ControlExpo,0.f,1.f) : .65f;
     Config.GetBool(TEXT("Flight"),TEXT("FpvAirView"),bFpvAirView);
     Config.GetFloat(TEXT("Flight"),TEXT("FpvCameraAngle"),FpvCameraAngleDeg);
+    Config.GetBool(TEXT("Flight"),TEXT("FreeLookInvert"),bFreeLookInvert);
     FpvCameraAngleDeg = FMath::IsFinite(FpvCameraAngleDeg) ? FMath::Clamp(FpvCameraAngleDeg,-45.f,45.f) : 0.f;
     Config.GetBool(TEXT("Flight"),TEXT("CoupledThrottle"),bCoupledThrottle);
     Config.GetFloat(TEXT("Flight"),TEXT("BodyMassKg"),BodyMassKg);
@@ -78,6 +79,7 @@ void ABorn2FlapFlightPawn::SaveFlightPreferences()
     Config.SetFloat(TEXT("Controls"),TEXT("Expo"),ControlExpo);
     Config.SetBool(TEXT("Flight"),TEXT("FpvAirView"),bFpvAirView);
     Config.SetFloat(TEXT("Flight"),TEXT("FpvCameraAngle"),FpvCameraAngleDeg);
+    Config.SetBool(TEXT("Flight"),TEXT("FreeLookInvert"),bFreeLookInvert);
     Config.SetBool(TEXT("Flight"),TEXT("CoupledThrottle"),bCoupledThrottle);
     Config.SetFloat(TEXT("Flight"),TEXT("BodyMassKg"),BodyMassKg);
     Config.SetFloat(TEXT("Flight"),TEXT("CgOffsetMm"),CgOffsetMm);

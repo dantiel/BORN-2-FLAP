@@ -13,6 +13,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "InputCoreTypes.h"
 #include "World/Born2FlapWeather.h"
 #include "UI/Born2FlapUiOps.h"
 #include "UI/Born2FlapMenuSettings.h"
@@ -21,6 +22,7 @@
 class UBorn2FlapUIRenderer;
 class ABorn2FlapFlightPawn;
 class FBorn2FlapRcController;
+class IInputProcessor;
 
 UCLASS()
 class BORN2FLAP_API ABorn2FlapMenu : public AActor
@@ -52,6 +54,12 @@ public:
     int32 GetNavPage() const { return NavPage; }
     int32 GetSettingsPage() const { return SettingsPage; }
     int32 GetPrefsPage() const { return PrefsPage; }
+
+    // KEY BINDINGS capture: while ListeningKeybind is non-empty, the menu's
+    // Slate pre-processor routes the next key-down here (Escape cancels).
+    bool IsListeningForKeybind() const { return !ListeningKeybind.IsEmpty(); }
+    void CancelKeybindListen();
+    void ApplyCapturedKeybind(FKey Key);
 
 private:
     void Build();
@@ -124,4 +132,13 @@ private:
 
     // true = opened from inside a level (F10): offer FLIGHT DESK + RESUME.
     bool bInLevel = false;
+
+    // KEY BINDINGS capture state: the action id awaiting a new key (empty = idle).
+    FString ListeningKeybind;
+    // Set when the key-capture pre-processor applied/cancelled a rebind during
+    // Slate input processing; Tick defers the Build() to stay out of that path.
+    bool bKeybindRebuildPending = false;
+    // Slate pre-processor that captures the next key while ListeningKeybind is
+    // armed (registered in BeginPlay, removed in Close/EndPlay).
+    TSharedPtr<IInputProcessor> KeyCaptureProcessor;
 };

@@ -4,6 +4,7 @@
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
 #include "Input/Born2FlapRcController.h"
+#include "Input/Born2FlapKeybinds.h"
 #include "World/Born2FlapValley.h"
 #include "EngineUtils.h"
 #include "GameFramework/PlayerController.h"
@@ -26,7 +27,7 @@ void ABorn2FlapHUD::DrawHUD()
     // control-input direction (not the cursor position). Drawn before the Brain
     // early-return so it also shows while the Ruby Brain authors the panels.
     if (auto* PC = GetOwningPlayerController())
-        if (PC->WasInputKeyJustPressed(EKeys::F9))
+        if (PC->WasInputKeyJustPressed(born2flap::keybinds::Get(TEXT("ToggleMouseInd"))))
             bShowMouseIndicator = !bShowMouseIndicator;
     if (bShowMouseIndicator && !Bird->IsUIHidden())
         DrawMouseIndicator(*Bird);
@@ -37,7 +38,7 @@ void ABorn2FlapHUD::DrawHUD()
             return;
     if (Bird->IsFlightSettingsOpen()) return;
     auto* PC = GetOwningPlayerController();
-    if (PC->WasInputKeyJustPressed(EKeys::F2)) bShowChannels = !bShowChannels;
+    if (PC->WasInputKeyJustPressed(born2flap::keybinds::Get(TEXT("ToggleChannels")))) bShowChannels = !bShowChannels;
     if (Bird->IsUIHidden()) return;  // F7 (owned by FlightPawn) removes ALL UI
     const auto* Controller = Bird->GetRcController();
     if (Controller && Controller->IsPanelOpen()) { DrawRcPanel(*Controller); return; }

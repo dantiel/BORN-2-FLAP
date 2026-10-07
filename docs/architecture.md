@@ -49,7 +49,7 @@ OrniCore soll ohne Unreal in Unit Tests, Kommandozeilenwerkzeugen und Benchmarks
 ### Offline-Aerodynamik
 
 - Import derselben OrniConfig-Dateien
-- Erzeugung von PteraSoftware-Studien
+- Erzeugung von [PteraSoftware](https://dantiel.github.io/PteronautOS/)-Studien
 - Parameter-Sweeps und Konvergenzanalysen
 - Export von Referenzkräften und Korrekturtabellen
 - Vergleich mit Prüfstand und realen Fluglogs
@@ -71,3 +71,8 @@ Innerhalb von OrniCore und Dateien werden ausschließlich SI-Einheiten verwendet
 ## Determinismus und Replays
 
 Ein Replay speichert mindestens Konfigurationshash, Physikversion, Eingaben, Anfangszustand und Zufallsseed. Vollständiger Plattformdeterminismus ist kein Muss für den ersten Prototyp; reproduzierbare lokale Regressionen sind es.
+
+## Verwandte Projekte
+
+- [OrniFlight](https://dantiel.github.io/OrniFlight/) — der Configurator, aus dem Konfigurationen importiert werden.
+- [PteronautOS](https://dantiel.github.io/PteronautOS/) — das offene Firmware-/OS-Projekt (PteraSoftware).

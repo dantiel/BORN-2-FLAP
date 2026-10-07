@@ -40,6 +40,18 @@ PAGES = %w[
   tutorials/tuning
 ]
 
+# Code-reference pages — English-only, rendered from markdown sources
+# (hand-written guides + auto-generated symbol indexes in _code_ref/).
+CODE_PAGES = {
+  "documentation/code"          => { title: "Code Overview", lead: "The four layers and how they fit together.", md: ["documentation/code/overview.md"] },
+  "documentation/code/mathcore" => { title: "Haskell MathCore", lead: "The canonical physics core.", md: ["documentation/code/mathcore.md", "_code_ref/mathcore.md"] },
+  "documentation/code/unreal"   => { title: "Unreal Engine C++", lead: "The game, pawn, menu and audio.", md: ["documentation/code/unreal.md", "_code_ref/unreal.md"] },
+  "documentation/code/native"   => { title: "Native C/C++", lead: "The ABI and RC shims.", md: ["documentation/code/native.md", "_code_ref/native.md"] },
+  "documentation/code/brain"    => { title: "Brain (Ruby)", lead: "The UMGHAML view framework.", md: ["documentation/code/brain.md", "_code_ref/brain.md"] },
+  "documentation/code/modding"  => { title: "Modding", lead: "Change the game to your own ideas.", md: ["documentation/code/modding.md"] },
+  "documentation/code/api"      => { title: "API index", lead: "Every file and symbol, auto-generated.", md: ["_code_ref/api.md"] },
+}
+
 # English is canonical; other languages fall back to it for untranslated keys.
 def load_lang(lang)
   base = JSON.parse(File.read("_lang/en.json", encoding: "UTF-8"))
@@ -56,6 +68,7 @@ CLOBBER.include(
   *SUBFOLDERS.map { |d| "#{d}/index.html" },
   *PAGES.map { |p| "#{p}/index.html" },
   *SUBFOLDERS.flat_map { |d| PAGES.map { |p| "#{d}/#{p}/index.html" } },
+  *CODE_PAGES.keys.map { |p| "#{p}/index.html" },
   "assets/css/style.css"
 )
 
@@ -104,6 +117,39 @@ def build_page(name, lang)
   puts "  Built #{out_path} (#{lang.upcase})"
 end
 
+def build_code_page(name, meta)
+  vars = load_vars("en")
+  md = meta[:md].map { |f| File.read(f, encoding: "UTF-8") }.join("\n\n---\n\n")
+  vars["page_title"] = meta[:title]
+  vars["page_lead"] = meta[:lead]
+  vars["content_html"] = MarkdownMini.render(md)
+  vars["back_to_docs"] = "Documentation"
+  template = File.read("_code_page.haml", encoding: "UTF-8")
+  engine = Haml::Template.new { template }
+
+  out_path = "#{name}/index.html"
+  depth = out_path.split("/").length - 1
+  asset_prefix = "../" * depth
+  vars["asset_prefix"] = asset_prefix
+  vars["lang_dir"] = ""
+
+  LANGS.each do |l|
+    ldir = l == "en" ? "" : "#{l}/"
+    vars["sub_lang_href_#{l}"] = asset_prefix + ldir
+    vars["sub_lang_class_#{l}"] = (l == "en") ? "active" : ""
+  end
+
+  output = engine.render(Object.new, vars)
+  FileUtils.mkdir_p(File.dirname(out_path))
+  File.write(out_path, output, encoding: "UTF-8")
+  puts "  Built #{out_path} (code)"
+end
+
+desc "Build code-reference pages (English-only)"
+task :coderef do
+  CODE_PAGES.each { |name, meta| build_code_page(name, meta) }
+end
+
 desc "Build standalone sub-pages (Documentation + Tutorials)"
 task :pages do
   PAGES.each do |name|
@@ -119,7 +165,7 @@ task :sass do
 end
 
 desc "Build all"
-task build: [:haml, :sass, :pages]
+task build: [:haml, :sass, :pages, :coderef]
 
 desc "Clean and build"
 task rebuild: [:clobber, :build]

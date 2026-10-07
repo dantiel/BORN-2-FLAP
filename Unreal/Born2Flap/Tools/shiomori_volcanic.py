@@ -76,6 +76,41 @@ def install(scope):
         angle=rng.uniform(0,math.tau);r=rng.uniform(3000,4400)
         x=ix+math.cos(angle)*r;y=iy+math.sin(angle)*r
         rock(x,y,-rng.uniform(300,460),rng.uniform(150,420),'Island shore rock',rng.uniform(-45,45),rng.uniform(-30,30))
+    # The bay's eastern shoal: a low, flat counterpart to the western islet.
+    # The west rises into a proud sea-stack; the east stays a broad wind-scrubbed
+    # ledge — scattered low slabs, half-submerged rocks and sparse vegetation —
+    # so the outer bay's east side no longer reads as bare water.
+    eshoal=(45200,18200)
+    sx,sy=eshoal
+    east_ledges=[]
+    def erock(ang,rad,size,top,pitch=0.0,roll=0.0,anchor=False):
+        a=math.radians(ang)
+        x=sx+math.cos(a)*rad;y=sy+math.sin(a)*rad
+        rock(x,y,top-size*0.5,size,'Volcanic shoal east',pitch,roll)
+        if anchor:east_ledges.append((x,y))
+    # Broad central flat slabs: the calm, flat heart the sparse grass clings to.
+    erock(0,300,1600,260,rng.uniform(-4,4),rng.uniform(-4,4),anchor=True)
+    erock(180,350,1400,230,rng.uniform(-5,5),rng.uniform(-4,4),anchor=True)
+    erock(300,700,1200,215,rng.uniform(-5,5),rng.uniform(-4,4),anchor=True)
+    # Low broken ring — no stack tops ~2.5 m, keeping the shoal flat.
+    for ang,rad,size,top in ((20,2500,700,160),(70,2500,850,180),
+                             (120,2450,750,165),(160,2550,800,175),
+                             (210,2500,650,150),(250,2500,820,185),
+                             (330,2500,700,155)):
+        erock(ang,rad,size,top,rng.uniform(-8,8),rng.uniform(-8,8))
+    # Satellites trailing seaward, echoing the western chain but far lower.
+    for i in range(6):
+        t=rng.random()
+        x=47000+t*(36800-47000);y=15000+t*(26500-15000)
+        x+=rng.uniform(-700,700);y+=rng.uniform(-700,700)
+        rock(x,y,-rng.uniform(220,340),rng.uniform(150,320),'Volcanic shoal east',
+             rng.uniform(-30,30),rng.uniform(-25,25))
+    # Shallow submerged ledges ring the shoal for the refraction to reveal.
+    for i in range(14):
+        ang=rng.uniform(0,math.tau);r=rng.uniform(2600,3800)
+        x=sx+math.cos(ang)*r;y=sy+math.sin(ang)*r
+        rock(x,y,-rng.uniform(260,400),rng.uniform(120,320),'Volcanic shoal east',
+             rng.uniform(-35,35),rng.uniform(-25,25))
     def height(x,y):
         hit=u.SystemLibrary.line_trace_single(world,u.Vector(x,y,5000),u.Vector(x,y,-1000),
             u.TraceTypeQuery.TRACE_TYPE_QUERY1,True,[],u.DrawDebugTrace.NONE,True)
@@ -118,4 +153,30 @@ def install(scope):
     for gx,gy in ((ix-205,iy+564),(ix-300,iy+300),(ix+200,iy+100),
                   (ix-417,iy-1900),(ix-860,iy-1229),(ix+513,iy-1410)):
         plant_grass(gx,gy)
+    # Sparse eastern-shoal vegetation anchored to the flat slabs above, so the
+    # plants root on rock instead of vanishing into the swell.
+    def plant_shoal_tree(x,y,hgt):
+        nonlocal trees
+        z=height(x,y)
+        if z is None or z<=-40:return
+        mesh=rng.choice(scope['foliage_meshes']['Fir'])
+        if mesh is None:return
+        a=scope['foliage']('Shoal tree',(x,y,0),mesh,hgt,rot=(0,rng.uniform(0,360),0),ground_z=z-6)
+        a.set_editor_property('tags',['ShiomoriVolcanic','Shoal tree'])
+        trees+=1
+    def plant_shoal_grass(x,y):
+        nonlocal grass
+        h=height(x,y)
+        if h is None or h<=-40:return
+        mesh=rng.choice(scope['foliage_meshes']['Grass'])
+        if mesh is None:return
+        a=scope['foliage']('Shoal grass pocket',(x,y,0),mesh,rng.uniform(35,60),
+                           rot=(0,rng.uniform(0,360),0),ground_z=h-2)
+        a.set_editor_property('tags',['ShiomoriVolcanic','Shoal grass pocket'])
+        grass+=1
+    for gx,gy in east_ledges:
+        plant_shoal_grass(gx,gy)
+    if len(east_ledges)>1:
+        plant_shoal_tree(east_ledges[0][0],east_ledges[0][1]+60,260)
+        plant_shoal_tree(east_ledges[2][0]-40,east_ledges[2][1],210)
     u.log('LAVA_REEFS_READY rocks=%d grass=%d trees=%d'%(len(rocks),grass,trees))
