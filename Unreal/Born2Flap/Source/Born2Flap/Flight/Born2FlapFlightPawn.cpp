@@ -5,6 +5,7 @@
 #include "Components/SphereComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/InstancedStaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/OverlapResult.h"
 #include "DrawDebugHelpers.h"
@@ -119,6 +120,15 @@ ABorn2FlapFlightPawn::ABorn2FlapFlightPawn()
     SkyDome->SetupAttachment(Camera);
     SkyDome->SetCollisionEnabled(ECollisionEnabled::NoCollision);
     SkyDome->SetCastShadow(false);
+    // Wind motes live in WORLD space (absolute transform), anchored around the
+    // camera each tick. Attaching to the moving body and marking the component
+    // absolute keeps instance transforms == world transforms.
+    WindMotes = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("WindMotes"));
+    WindMotes->SetupAttachment(Body);
+    WindMotes->SetAbsolute(true, true, true);
+    WindMotes->SetMobility(EComponentMobility::Movable);
+    WindMotes->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    WindMotes->SetCastShadow(false);
     // Negative X scale flips the sphere's winding so the camera (which sits at
     // the sphere's centre, i.e. INSIDE it) sees FRONT faces even if the
     // additive material's two-sided flag is not honoured in the translucency
@@ -144,7 +154,7 @@ ABorn2FlapFlightPawn::ABorn2FlapFlightPawn()
     Tuning.tail_elevator_angle_deg = 0;
     Tuning.glide_angle_deg = -4;
     Tuning.stroke_ferocity = 50;
-    Tuning.aileron_scale = 60;
+    Tuning.aileron_scale = 10;
     Tuning.elevator_scale = 55;
     Tuning.mount_angle_deg = 0;
 }
@@ -226,9 +236,13 @@ void ABorn2FlapFlightPawn::ApplyBodyMass()
 {
     if (!Body)
         return;
+    // Re-clamp to the current craft's CG travel (model-dependent) so a length
+    // change on model switch never leaves a stale, out-of-range offset.
+    CgOffsetMm = FMath::Clamp(CgOffsetMm, -GetCgRangeMm(), GetCgRangeMm());
     Body->SetMassOverrideInKg(NAME_None, BodyMassKg, true);
-    // CG slider is millimetres; Chaos' centre-of-mass offset is centimetres.
-    Body->SetCenterOfMass(FVector(CgOffsetMm * 0.1f, 0.f, 0.f));
+    // CG is millimetres; Chaos' centre-of-mass offset is centimetres. + = aft in
+    // the UI, and the body's +X points forward, so aft is -X.
+    Body->SetCenterOfMass(FVector(-CgOffsetMm * 0.1f, 0.f, 0.f));
     ApplyTuning();
 }
 void ABorn2FlapFlightPawn::BuildGeometry()
@@ -373,8 +387,42 @@ void ABorn2FlapFlightPawn::BeginPlay()
                 Wing->SetPaintTexture(Membrane);
     }
     LoadFlightPreferences();
-    BirdModel = DefaultBirdModel();
-    SelectBirdModel(BirdModel);
+    if (BirdModel < 0)
+        BirdModel = DefaultBirdModel();   // no explicit menu choice yet → level default
+    SelectBirdModel(BirdModel);   // applies the loaded mass + CG for this model
+    // Sparse wind motes: a few tiny specks advected by the atmospheric field so
+    // the invisible current becomes perceivable. World-space instanced spheres,
+    // kept as a loose cloud around the camera and recycled as they drift out.
+    if (WindMotes)
+    {
+        if (UStaticMesh* MoteSphere = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Sphere.Sphere")))
+        {
+            WindMotes->SetStaticMesh(MoteSphere);
+            if (UMaterialInterface* MoteMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Weather/M_Snow")))
+            {
+                WindMotes->SetMaterial(0, MoteMat);
+                constexpr int32 MoteCount = 28;
+                MotePositions.SetNum(MoteCount);
+                MoteScales.SetNum(MoteCount);
+                MoteSpeed.SetNum(MoteCount);
+                const FVector Cam = Camera->GetComponentLocation();
+                const FVector Fwd = Camera->GetForwardVector();
+                for (int32 I = 0; I < MoteCount; ++I)
+                {
+                    MotePositions[I] = Cam + Fwd * MoteRandom.FRandRange(150.f, 1800.f) +
+                        FVector(MoteRandom.FRandRange(-2000.f, 2000.f), MoteRandom.FRandRange(-2000.f, 2000.f),
+                                MoteRandom.FRandRange(-400.f, 900.f));
+                    MoteScales[I] = MoteRandom.FRandRange(0.012f, 0.028f);
+                    MoteSpeed[I] = MoteRandom.FRandRange(0.55f, 1.4f);
+                    WindMotes->AddInstance(FTransform(FQuat::Identity, MotePositions[I], FVector(MoteScales[I])));
+                }
+            }
+            else
+            {
+                UE_LOG(LogTemp, Warning, TEXT("WindMotes: /Game/Weather/M_Snow not found — wind motes disabled"));
+            }
+        }
+    }
     // Points of interest: the GameMode populated them during its own BeginPlay
     // (before the pawn spawned). Fall back to the origin if none arrived.
     if (auto* Mode = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode()))
@@ -445,6 +493,8 @@ void ABorn2FlapFlightPawn::ResetFlight(bool bSafety)
     Body->WakeAllRigidBodies();
     bCameraGrounded = false;
     GroundSettleTime = 0;
+    ChaseOrbitYaw = 0.f; ChaseOrbitPitch = -12.f;
+    GroundLookYaw = 0.f; GroundLookPitch = 0.f;
     RememberLanding(Body->GetComponentLocation());
     UE_LOG(LogTemp, Display, TEXT("FlightReset safety=%d backend=%d"), bSafety, bHealthy);
 }
@@ -593,6 +643,8 @@ void ABorn2FlapFlightPawn::LaunchFlight()
     // One explicit hand launch supplies initial momentum; it cannot repeat in
     // the air. Every subsequent acceleration comes from aero forces/gravity.
     FRotator Heading(0, Body->GetComponentRotation().Yaw, 0);
+    ChaseOrbitYaw = 0.f; ChaseOrbitPitch = -12.f;
+    GroundLookYaw = 0.f; GroundLookPitch = 0.f;
     RememberLanding(Body->GetComponentLocation());
     bCameraGrounded = false;
     GroundSettleTime = 0;
@@ -669,7 +721,13 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
         bool Valid = MathBridge->Step(Pilot, State, O);
         const FVector F(O.force_n[0], O.force_n[1], O.force_n[2]);
         const FVector M(O.moment_n_m[0], O.moment_n_m[1], O.moment_n_m[2]);
-        Valid = Valid && Finite(F) && Finite(M) && F.Size() < 100 && M.Size() < 50 &&
+        // CG authority: the firmware resolves the aerodynamic moment about the
+        // body origin. Shift it to the actual centre of mass so a fore/aft CG
+        // offset produces a real pitching moment (M_cg = M - r_cg x F). The CG
+        // is + = aft, and aft is -X in the body frame, so r_cg = (-cg, 0, 0).
+        const double CgM = double(CgOffsetMm) / 1000.0;   // metres
+        const FVector Mcg(M.X, M.Y - CgM * F.Z, M.Z + CgM * F.Y);
+        Valid = Valid && Finite(F) && Finite(M) && Finite(Mcg) && F.Size() < 100 && M.Size() < 50 &&
                 FMath::IsFinite(O.left_flap_deg) && FMath::IsFinite(O.right_flap_deg) &&
                 FMath::Abs(O.left_flap_deg) <= 85 && FMath::Abs(O.right_flap_deg) <= 85;
         if (!Valid)
@@ -682,7 +740,7 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
             return false;
         }
         const FVector WorldForce = Rotation.RotateVector(F);
-        const FVector WorldMoment = Rotation.RotateVector(M);
+        const FVector WorldMoment = Rotation.RotateVector(Mcg);
         ForceSum += WorldForce;
         MomentSum += WorldMoment;
         LeftFlap = O.left_flap_deg;
@@ -724,13 +782,35 @@ void ABorn2FlapFlightPawn::UpdateAeroAudio(float Dt)
 
     born2flap::aeroaudio::FTelemetry Tel;
     Tel.airspeed = AirVel.Size();
-    Tel.wingbeat_hz = 2.0 + 5.0 * Throttle;
     Tel.altitude = GetAltitude();
     Tel.thermal_strength = FMath::Clamp((double)Wind.Z / 6.0, 0.0, 1.0);
     const double Load = FMath::Clamp(LastMechanicalPower / 50.0, 0.0, 1.0);
     Tel.servo_load_l = Load;
     Tel.servo_load_r = Load;
-    Tel.sweep_rate = Dt > 0.f ? FMath::Abs((double)(LeftFlap - PrevLeftFlap)) / Dt : 0.0;
+    const float FlapDelta = LeftFlap - PrevLeftFlap;                     // deg this tick; + = wing rising
+    Tel.sweep_rate = Dt > 0.f ? FMath::Abs((double)FlapDelta) / Dt : 0.0;
+    // Lock the audio beat to the REAL stroke instead of a 2+5·throttle guess
+    // (which drifted from the servo-driven flap and sounded laggy/desynced).
+    // Detect the top of the stroke where the flap velocity flips rising→falling
+    // and measure the period. Falls back to the throttle estimate while gliding.
+    const bool bFlapRisingNow = FlapDelta > 0.f;
+    if (bFlapRising && !bFlapRisingNow)
+    {
+        const double Now = WorldTime;
+        if (LastStrokeTopTime >= 0.0)
+        {
+            const double Period = Now - LastStrokeTopTime;
+            if (Period > 0.03 && Period < 2.0)               // 0.5..33 Hz sanity window
+                MeasuredWingbeatHz = 1.0 / Period;
+        }
+        LastStrokeTopTime = Now;
+    }
+    bFlapRising = bFlapRisingNow;
+    // No stroke top for a while means the wings have stopped flapping: drop the
+    // measured rate so the throttle estimate takes over again.
+    if (LastStrokeTopTime >= 0.0 && (WorldTime - LastStrokeTopTime) > 1.5)
+        MeasuredWingbeatHz = 0.0;
+    Tel.wingbeat_hz = MeasuredWingbeatHz > 0.5 ? MeasuredWingbeatHz : (2.0 + 5.0 * Throttle);
     Tel.phase_error_rad = LastPhaseError;
     Tel.k_gain_mod = LastKGainMod;
     Tel.stall_margin = FMath::Clamp((Tel.airspeed - 3.5) / 6.0, 0.0, 1.0);
@@ -755,9 +835,13 @@ void ABorn2FlapFlightPawn::UpdateAeroAudio(float Dt)
     {
         double Gain=born2flap::aeroaudio::GetNum(Voices[I],"gain");
         // Voice 1 is "wing" — the wingbeat. Scale it alone so the flap can be
-        // heard over wind/surf/music without touching the rest of the mix.
+        // heard over wind/surf/music without touching the rest of the mix. The
+        // wing is exempt from the onboard headroom cut (CameraGain) so it stays
+        // prominent when the camera rides at the bird — that cut was what made
+        // the wingbeat almost inaudible in FPV/chase.
         if (I == 1) Gain *= WingbeatVolume;
-        born2flap::aeroaudio::SetNum(Voices[I],"gain",Gain*CameraGain);
+        else        Gain *= CameraGain;
+        born2flap::aeroaudio::SetNum(Voices[I],"gain",Gain);
         AudioSynth->SetVoiceParams(Names[I], Voices[I]);
     }
 
@@ -826,7 +910,7 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     }
     float Effort = 0, Steer = 0, Pitch = 0, Roll = 0;
     float MouseX = 0, MouseY = 0, Wheel = 0;
-    bool WDown = false, MuteMouseYaw = false, MuteMouseRoll = false;
+    bool WDown = false, MuteMouseYaw = false, MuteMouseRoll = false, MmbDown = false;
     bool ResetMouse = false;
     bool Launch = false, Reset = false;
     if (auto *PC = Cast<APlayerController>(GetController()))
@@ -841,6 +925,7 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         if (RcController)
             RcController->Tick(PC, Dt);
         WDown = PC->IsInputKeyDown(EKeys::W);
+        MmbDown = PC->IsInputKeyDown(EKeys::MiddleMouseButton);
         Effort = born2flap::DesktopInput::KeyboardThrottle(
             WDown, PC->IsInputKeyDown(EKeys::LeftControl) || PC->IsInputKeyDown(EKeys::RightControl),
             PC->IsInputKeyDown(EKeys::LeftShift) || PC->IsInputKeyDown(EKeys::RightShift));
@@ -880,6 +965,58 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
             ToggleUIHidden();
         if (PC->WasInputKeyJustPressed(EKeys::T))
             ToggleThrottleMode();
+    }
+    // Ground interaction: while the bird is grounded, holding the middle mouse
+    // button puts the player in walk/look mode. WASD/arrows move the ground
+    // observer (the future pilot) around the ornithopter and the mouse rotates
+    // the camera — orbiting the bird in chase view, free-looking in ground view.
+    // Releasing MMB returns to flight inputs, where W flaps the wings to creep
+    // the bird into position for the next throw.
+    const bool bGroundWalk = !bFlying && MmbDown && !bMenuOpen;
+    if (bGroundWalk)
+    {
+        if (auto* PC = Cast<APlayerController>(GetController()))
+        {
+            const float WalkFwd = FMath::Clamp(
+                (PC->IsInputKeyDown(EKeys::W) ? 1.f : 0.f) - (PC->IsInputKeyDown(EKeys::S) ? 1.f : 0.f) +
+                (PC->IsInputKeyDown(EKeys::Up) ? 1.f : 0.f) - (PC->IsInputKeyDown(EKeys::Down) ? 1.f : 0.f),
+                -1.f, 1.f);
+            const float WalkStr = FMath::Clamp(
+                (PC->IsInputKeyDown(EKeys::D) ? 1.f : 0.f) - (PC->IsInputKeyDown(EKeys::A) ? 1.f : 0.f) +
+                (PC->IsInputKeyDown(EKeys::Right) ? 1.f : 0.f) - (PC->IsInputKeyDown(EKeys::Left) ? 1.f : 0.f),
+                -1.f, 1.f);
+            const float LookSens = 0.22f;   // degrees per raw mouse count
+            const float WalkSpeed = 220.f;  // cm/s
+            if (bGroundView)
+            {
+                // Ground perspective: free-look (can turn away from the bird).
+                GroundLookYaw -= MouseX * LookSens;
+                GroundLookPitch -= MouseY * LookSens;
+                GroundLookPitch = FMath::Clamp(GroundLookPitch, -80.f, 80.f);
+                const float FwdYaw = float(GroundGaze.Yaw + GroundLookYaw);
+                FVector Dir = FRotator(0.f, FwdYaw, 0.f).Vector() * WalkFwd +
+                              FRotator(0.f, FwdYaw + 90.f, 0.f).Vector() * WalkStr;
+                if (!Dir.IsNearlyZero())
+                    MoveWalker(Dir.GetSafeNormal() * (WalkSpeed * Dt));
+            }
+            else if (!bFpvAirView)
+            {
+                // Third-bird (chase) perspective: orbit the camera around the bird.
+                ChaseOrbitYaw -= MouseX * LookSens;
+                ChaseOrbitPitch -= MouseY * LookSens;
+                ChaseOrbitPitch = FMath::Clamp(ChaseOrbitPitch, -80.f, 10.f);
+                const float FwdYaw = float(Body->GetComponentRotation().Yaw + ChaseOrbitYaw);
+                FVector Dir = FRotator(0.f, FwdYaw, 0.f).Vector() * WalkFwd +
+                              FRotator(0.f, FwdYaw + 90.f, 0.f).Vector() * WalkStr;
+                if (!Dir.IsNearlyZero())
+                    MoveWalker(Dir.GetSafeNormal() * (WalkSpeed * Dt));
+            }
+        }
+        // Neutralise the bird's own control surfaces while the pilot is walking.
+        MouseX = MouseY = Wheel = 0.f;
+        Effort = 0.f; Roll = Pitch = Steer = 0.f;
+        WDown = false;
+        Launch = Reset = false;
     }
     if (bFlightTest)
     {
@@ -997,6 +1134,20 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         Body->AddForce(AeroForce * 100.0);
         Body->AddTorqueInRadians(AeroMoment * 10000.0);
     }
+    // Ground repositioning: a deliberate downstroke shoves the grounded bird
+    // forward along its heading so the wings can creep it into place for the
+    // next throw (complementing the wing-tip lever in SweepWingColliders).
+    if (!bFlying && Throttle > 0.05f)
+    {
+        const float FlapDelta = LeftFlap - PrevLeftFlap;   // deg this frame, + = rising
+        const float DownRate = Dt > 0.f ? FMath::Max(0.f, -FlapDelta) / Dt : 0.f;
+        if (DownRate > 8.f)
+        {
+            const FVector Heading = FRotator(0.f, float(Body->GetComponentRotation().Yaw), 0.f).Vector();
+            const float Push = FMath::Clamp(DownRate * 0.06f, 0.f, 45.f);
+            Body->AddImpulse(Heading * (Body->GetMass() * Push));
+        }
+    }
     VisualRoot->SetRelativeRotation(FRotator::ZeroRotator);
     // A 2-servo ornithopter has one actuator per wing: the flap hinge. The wing
     // rotates around that single axis; pitch and roll are already encoded in
@@ -1007,8 +1158,11 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     // The clamp only bites once the bird is settled (not while flying), so it
     // never fights the aeroelastic stroke during a landing approach.
     float FlapL = LeftFlap, FlapR = RightFlap;
-    if (!bFlying)
+    if (!bFlying && Throttle < 0.05f)
     {
+        // At rest, hold the wings near the +16° neutral dihedral so a residual
+        // flap cannot dip the tips below the body plane and into the sand. When
+        // throttling on the ground (repositioning), let the full stroke show.
         FlapL = FMath::Clamp(LeftFlap, -12.f, 12.f);
         FlapR = FMath::Clamp(RightFlap, -12.f, 12.f);
     }
@@ -1033,6 +1187,7 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     }
     SweepWingColliders(Dt);
     UpdateAeroAudio(Dt);
+    UpdateWindMotes(Dt);
     if (bVectors)
     {
         DrawDebugDirectionalArrow(GetWorld(), P, P + AeroForce * 25, 15, FColor::Cyan, false, 0, 0, 2);
@@ -1057,6 +1212,34 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         CheckFlightTest();
     if (bDesktopInputTest)
         CheckDesktopInputTest(DeltaSeconds);
+}
+
+void ABorn2FlapFlightPawn::UpdateWindMotes(float DeltaSeconds)
+{
+    if (!WindMotes || MotePositions.Num() == 0)
+        return;
+    const auto* Mode = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode());
+    const FVector Cam = Camera ? Camera->GetComponentLocation() : Body->GetComponentLocation();
+    const FVector Fwd = Camera ? Camera->GetForwardVector() : FVector::ForwardVector;
+    for (int32 I = 0; I < MotePositions.Num(); ++I)
+    {
+        FVector P = MotePositions[I];
+        FVector Wind = Mode ? Mode->WindAt(P, WorldTime) : Born2FlapWind::Sample(P, WorldTime);
+        Wind.Z = 0.0; // motes ride the horizontal stream, not thermals/lift
+        P += Wind * 100.0 * MoteSpeed[I] * DeltaSeconds;
+        // Recycle strays: keep a loose cloud around the camera so the stream is
+        // continuous without ever clumping in one spot.
+        if (!Finite(P) || FVector(P - Cam).Size() > 2600.0)
+        {
+            P = Cam + Fwd * MoteRandom.FRandRange(150.f, 1900.f) +
+                FVector(MoteRandom.FRandRange(-2100.f, 2100.f), MoteRandom.FRandRange(-2100.f, 2100.f),
+                        MoteRandom.FRandRange(-500.f, 1000.f));
+            MoteScales[I] = MoteRandom.FRandRange(0.012f, 0.028f);
+        }
+        MotePositions[I] = P;
+        WindMotes->UpdateInstanceTransform(I, FTransform(FQuat::Identity, P, FVector(MoteScales[I])), false, false, false);
+    }
+    WindMotes->MarkRenderStateDirty();
 }
 
 void ABorn2FlapFlightPawn::CheckFlightTest()

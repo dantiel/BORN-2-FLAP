@@ -43,6 +43,8 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     const FBorn2FlapConditions& GetConditions() const { return Conditions; }
     double GroundHeight(double X, double Y) const;
     bool HasRadioTrack() const;
+    // Radio station (owned here) — the menu reads/writes its user volume.
+    UBorn2FlapRadioStation* GetRadioStation() const { return RadioStation; }
     // Points of interest: named reset/launch points per level. The start point
     // is chosen in the level-select menu (?PoiKey=/?PoiNum=) and resolved here.
     const TArray<FBorn2FlapPoi>& GetPOIs() const { return POIs; }
@@ -114,6 +116,7 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     // so its NavPage / SettingsPage survive here across open/close.
     int32 MenuNavPage = 0;
     int32 MenuSettingsPage = 0;
+    int32 MenuPrefsPage = 0;
     TMap<FString, FBorn2FlapConditions> MenuLevelConditions;
     TMap<FString, int32> MenuSelectedPoi;
     bool bMenuInLevel = false;

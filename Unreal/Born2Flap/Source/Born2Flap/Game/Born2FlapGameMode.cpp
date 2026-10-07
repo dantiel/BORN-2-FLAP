@@ -621,6 +621,7 @@ void ABorn2FlapGameMode::Tick(float DeltaSeconds)
     if (!bMenuOpen && bSkipMenu && !MenuWidget)
     {
         if (APlayerController* PC = UGameplayStatics::GetPlayerController(this, 0))
+        {
             if (PC->WasInputKeyJustPressed(EKeys::F10))
             {
                 if (ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
@@ -628,6 +629,17 @@ void ABorn2FlapGameMode::Tick(float DeltaSeconds)
                         Bird->ClosePoiOverlay();
                 ShowMainMenu(true);
             }
+            // F3 opens the same fullscreen menu, landing on SETTINGS → CONTROL
+            // SETTINGS (the RC transmitter panel now lives inside the menu).
+            // Guarded so the Brain-authored path keeps its own F3 handling.
+            if (!IsBrainActive() && PC->WasInputKeyJustPressed(EKeys::F3))
+            {
+                MenuNavPage = 2;
+                MenuSettingsPage = 0;
+                MenuPrefsPage = 0;
+                ShowMainMenu(true);
+            }
+        }
     }
     else if (bMenuOpen)
     {
@@ -746,7 +758,7 @@ void ABorn2FlapGameMode::Tick(float DeltaSeconds)
         RadioStation->Tick(DeltaSeconds);
         if (auto* PC = UGameplayStatics::GetPlayerController(this, 0))
         {
-            if (PC->WasInputKeyJustPressed(EKeys::M)) RadioStation->TogglePlayPause();
+            if (PC->WasInputKeyJustPressed(EKeys::M)) RadioStation->ToggleMute();
             if (PC->WasInputKeyJustPressed(EKeys::LeftBracket)) RadioStation->AdjustVolume(-.08f);
             if (PC->WasInputKeyJustPressed(EKeys::RightBracket)) RadioStation->AdjustVolume(+.08f);
         }
@@ -841,7 +853,7 @@ void ABorn2FlapGameMode::ShowMainMenu(bool bInLevel)
         MenuWidget->SetInLevel(bInLevel);
         // Re-open on the last view the player had open. Only in-level — the
         // home screen has no live bird, so FLIGHT DESK is unreachable there.
-        MenuWidget->RestoreView(bInLevel ? MenuNavPage : 0, bInLevel ? MenuSettingsPage : 0);
+        MenuWidget->RestoreView(bInLevel ? MenuNavPage : 0, bInLevel ? MenuSettingsPage : 0, bInLevel ? MenuPrefsPage : 0);
     }
 }
 
@@ -861,6 +873,7 @@ void ABorn2FlapGameMode::CloseMainMenu()
     {
         MenuNavPage = MenuWidget->GetNavPage();
         MenuSettingsPage = MenuWidget->GetSettingsPage();
+        MenuPrefsPage = MenuWidget->GetPrefsPage();
         MenuWidget->Close();
         MenuWidget->Destroy();
         MenuWidget = nullptr;

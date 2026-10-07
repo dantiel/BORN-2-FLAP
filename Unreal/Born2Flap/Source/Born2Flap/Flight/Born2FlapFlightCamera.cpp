@@ -3,7 +3,9 @@
 #include "Camera/PlayerCameraManager.h"
 #include "Components/BoxComponent.h"
 #include "GameFramework/PlayerController.h"
+#include "GameFramework/SpringArmComponent.h"
 #include "Game/Born2FlapGameMode.h"
+#include "CollisionShape.h"
 
 void ABorn2FlapFlightPawn::RememberLanding(FVector Position)
 {
@@ -22,6 +24,33 @@ void ABorn2FlapFlightPawn::RememberLanding(FVector Position)
         if(auto* PC=Cast<APlayerController>(GetController()); PC && PC->PlayerCameraManager)
             PC->PlayerCameraManager->SetGameCameraCutThisFrame();
     UE_LOG(LogTemp,Display,TEXT("FlightCamera landing=%s groundAnchor=%s"),*Position.ToString(),*GroundAnchor.ToString());
+}
+void ABorn2FlapFlightPawn::MoveWalker(const FVector& Delta)
+{
+    if (Delta.IsNearlyZero())
+        return;
+    UWorld* World = GetWorld();
+    if (!World)
+        return;
+    const auto* Mode = Cast<ABorn2FlapGameMode>(World->GetAuthGameMode());
+    // Horizontal capsule sweep so the pilot cannot walk through rocks/terrain.
+    const FVector From = GroundAnchor;
+    FVector To = GroundAnchor + Delta;
+    FCollisionQueryParams Query(SCENE_QUERY_STAT(GroundWalker), false, this);
+    Query.AddIgnoredActor(this);
+    const FCollisionShape Capsule = FCollisionShape::MakeCapsule(30.f, 90.f);
+    FHitResult Hit;
+    if (World->SweepSingleByChannel(Hit, From, To, FQuat::Identity, ECC_Visibility, Capsule, Query))
+        To = From + Delta.GetSafeNormal() * FMath::Max(0.f, Hit.Distance - 1.f);
+    // Snap to the terrain surface (mirrors RememberLanding's ground probe).
+    double Ground = Mode ? Mode->GroundHeight(To.X, To.Y) : 0.0;
+    FHitResult GHit;
+    FCollisionQueryParams GQuery(SCENE_QUERY_STAT(GroundWalkerSnap), false, this);
+    GQuery.AddIgnoredActor(this);
+    if (World->LineTraceSingleByChannel(GHit, To + FVector(0, 0, 400), To - FVector(0, 0, 5000), ECC_Visibility, GQuery))
+        Ground = GHit.ImpactPoint.Z;
+    To.Z = Ground + 180.0;   // eye height (1.8 m)
+    GroundAnchor = To;
 }
 void ABorn2FlapFlightPawn::UpdateLandingCamera(float Dt)
 {
@@ -72,7 +101,8 @@ void ABorn2FlapFlightPawn::CalcCamera(float Dt,FMinimalViewInfo& Out)
         auto Noise=[this](float Rate,float Seed) { return FMath::PerlinNoise1D(float(CameraTime)*Rate+Seed); };
         const FVector Drift(Noise(.8f,31)*1.1,Noise(.6f,93)*1.1,Noise(1.3f,17)*.5);
         const FRotator Tremor(Noise(2.2f,51)*.22,Noise(1.8f,12)*.28,Noise(.7f,85)*.15);
-        GroundCamera->SetWorldLocationAndRotation(GroundAnchor+Drift,GroundGaze+Tremor);
+        const FRotator Gaze=GroundGaze+FRotator(GroundLookPitch,GroundLookYaw,0);
+        GroundCamera->SetWorldLocationAndRotation(GroundAnchor+Drift,Gaze+Tremor);
         const float Distance=FVector::Distance(BirdPosition,GroundAnchor);
         const float Fov=FMath::Clamp(75.f/(1.f+Distance/5000.f),28.f,75.f);
         GroundCamera->SetFieldOfView(FMath::FInterpTo(GroundCamera->FieldOfView,Fov,Dt,2.f));
@@ -87,7 +117,16 @@ void ABorn2FlapFlightPawn::CalcCamera(float Dt,FMinimalViewInfo& Out)
         FpvCamera->SetRelativeRotation(FRotator(FpvCameraAngleDeg + (LeftFlap+RightFlap)*.004, 0, (LeftFlap-RightFlap)*.005));
         FpvCamera->GetCameraView(Dt,Out);
     }
-    else Camera->GetCameraView(Dt,Out);
+    else
+    {
+        // Grounded chase orbit: rotate the spring arm around the bird (yaw
+        // inherits the body, pitch/roll are fixed). In flight the arm returns
+        // to its neutral follow orientation; automated tests keep their own
+        // configured arm and are left untouched.
+        if (!bFlightTest && !bDesktopInputTest)
+            CameraBoom->SetRelativeRotation(bFlying ? FRotator(-12,0,0) : FRotator(ChaseOrbitPitch,ChaseOrbitYaw,0));
+        Camera->GetCameraView(Dt,Out);
+    }
 }
 
 bool ABorn2FlapFlightPawn::CheckFlightCameras()

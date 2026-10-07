@@ -9,11 +9,25 @@
 #include "Kismet/GameplayStatics.h"
 #include "Engine/World.h"
 #include "Engine/Texture2D.h"
+#include "Misc/ConfigCacheIni.h"
+#include "Misc/Paths.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
 
 using namespace born2flap::ui;
 
 // ---- compact wire-model builders (mirrors Born2FlapFlightHUD.cpp) ----------
 namespace {
+
+// The radio volume lives in the same file the flight pawn uses, so wingbeat and
+// radio settings sit side by side under [Audio].
+FString RadioPrefsPath()
+{
+    return FPaths::ProjectSavedDir() /
+        (FParse::Param(FCommandLine::Get(), TEXT("B2FDesktopInputTest"))
+            ? TEXT("Automation/FlightPreferences.ini")
+            : TEXT("Config/FlightPreferences.ini"));
+}
 
 FValue S(const char* v) { FValue x; x.kind = FValue::Kind::String; x.str = v; return x; }
 FValue N(double v) { FValue x; x.kind = FValue::Kind::Number; x.num = v; return x; }
@@ -90,6 +104,7 @@ void UBorn2FlapRadioStation::Initialize(UWorld* World, const FString& LevelName)
     StationName = Found->StationName.IsEmpty() ? Born2Flap::I18n::T("radio.default") : Found->StationName;
     Volume = Found->Volume;
     Crossfade = Found->CrossfadeSeconds;
+    LoadSavedVolume();
 
     for (const FString& Path : Found->Tracks)
     {
@@ -221,11 +236,62 @@ void UBorn2FlapRadioStation::SetPaused(bool bPaused)
 
 void UBorn2FlapRadioStation::AdjustVolume(float Delta)
 {
-    Volume = FMath::Clamp(Volume + Delta, 0.0f, 1.0f);
+    SetVolume(Volume + Delta);
+}
+
+void UBorn2FlapRadioStation::SetVolume(float NewVolume)
+{
+    Volume = FMath::Clamp(NewVolume, 0.0f, 1.0f);
+    bMuted = false;
+    SavedVolume = Volume;
     if (Active)
         Active->SetVolumeMultiplier(Volume);
     if (bCrossfading && Fader)
         Fader->SetVolumeMultiplier(FMath::Clamp(CrossfadeElapsed / FMath::Max(Crossfade, 0.01f), 0.0f, 1.0f) * Volume);
+    SaveSavedVolume();
+}
+
+void UBorn2FlapRadioStation::ToggleMute()
+{
+    if (!Active)
+        return;
+    if (!bMuted)
+    {
+        SavedVolume = FMath::Max(Volume, 0.001f);
+        bMuted = true;
+        Volume = 0.0f;
+    }
+    else
+    {
+        bMuted = false;
+        Volume = SavedVolume;
+    }
+    Active->SetVolumeMultiplier(Volume);
+    if (bCrossfading && Fader)
+        Fader->SetVolumeMultiplier(FMath::Clamp(CrossfadeElapsed / FMath::Max(Crossfade, 0.01f), 0.0f, 1.0f) * Volume);
+    SaveSavedVolume();
+}
+
+void UBorn2FlapRadioStation::LoadSavedVolume()
+{
+    FConfigFile Config;
+    Config.Read(RadioPrefsPath());
+    float V = Volume;
+    Config.GetFloat(TEXT("Audio"), TEXT("RadioVolume"), V);
+    if (FMath::IsFinite(V))
+    {
+        Volume = FMath::Clamp(V, 0.0f, 1.0f);
+        SavedVolume = Volume;
+    }
+}
+
+void UBorn2FlapRadioStation::SaveSavedVolume()
+{
+    const FString Path = RadioPrefsPath();
+    FConfigFile Config;
+    Config.Read(Path);
+    Config.SetFloat(TEXT("Audio"), TEXT("RadioVolume"), SavedVolume);
+    Config.Write(Path);
 }
 
 FString UBorn2FlapRadioStation::GetTrackName() const

@@ -190,7 +190,7 @@ b2f_math_create_firmware_vehicle configPointer = do
         , fwProfile = (fwProfile defaultFirmwareParams)
             { profThrottleFrequencyMix = 100, profAileronSkewMix = 100
             , profRudderAmplitudeDiff = 35, profRudderFerocityRange = 20
-            , profAileronScale = 60, profElevatorScale = 55 }
+            , profAileronScale = 10, profElevatorScale = 55 }
         }
       context = FwContext flightParams servo battery defaultFirmwareVehicleState 1.0
   castStablePtrToPtr <$> (newIORef context >>= newStablePtr)

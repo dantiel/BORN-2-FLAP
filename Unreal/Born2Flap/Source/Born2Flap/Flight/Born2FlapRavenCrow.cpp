@@ -259,4 +259,7 @@ void ABorn2FlapFlightPawn::SelectBirdModel(int32 Index)
     if (PrototypeRoot) PrototypeRoot->SetVisibility(!bBlind && BirdModel == 1, true);
     if (RavenRoot) RavenRoot->SetVisibility(!bBlind && BirdModel == 0, true);
     if (MembraneRoot) MembraneRoot->SetVisibility(!bBlind && BirdModel == 2, true);
+    // The CG travel is length-dependent, so switching silhouettes must re-clamp
+    // the centre of mass and re-apply the body mass (idempotent).
+    ApplyBodyMass();
 }

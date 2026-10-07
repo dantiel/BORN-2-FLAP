@@ -15,10 +15,12 @@
 #include "GameFramework/Actor.h"
 #include "World/Born2FlapWeather.h"
 #include "UI/Born2FlapUiOps.h"
+#include "UI/Born2FlapMenuSettings.h"
 #include "Born2FlapMenu.generated.h"
 
 class UBorn2FlapUIRenderer;
 class ABorn2FlapFlightPawn;
+class FBorn2FlapRcController;
 
 UCLASS()
 class BORN2FLAP_API ABorn2FlapMenu : public AActor
@@ -27,8 +29,10 @@ class BORN2FLAP_API ABorn2FlapMenu : public AActor
 
 public:
     ABorn2FlapMenu();
+    virtual ~ABorn2FlapMenu() override;
 
     virtual void BeginPlay() override;
+    virtual void Tick(float DeltaSeconds) override;
 
     // Fade the whole menu (root opacity).
     void SetOpacity(float Opacity);
@@ -44,9 +48,10 @@ public:
 
     // Re-open on the page (and FLIGHT DESK sub-tab) the player last saw, so F10
     // always returns to the view that was open when the menu closed.
-    void RestoreView(int32 Nav, int32 SettingsSub);
+    void RestoreView(int32 Nav, int32 SettingsSub, int32 PrefsSub = 0);
     int32 GetNavPage() const { return NavPage; }
     int32 GetSettingsPage() const { return SettingsPage; }
+    int32 GetPrefsPage() const { return PrefsPage; }
 
 private:
     void Build();
@@ -56,11 +61,30 @@ private:
     // the Panel children: [0] tabs Select, [1] ScrollBox→VBox rows, [2] footer.
     void BuildFlightDesk(std::vector<born2flap::ui::FNode>& Out);
 
+    // Build the SETTINGS page: sub-tabs CONTROL SETTINGS (embedded RC panel) and
+    // GENERAL SETTINGS (global options placeholder). Mirrors BuildFlightDesk's
+    // Panel-children contract.
+    void BuildPreferences(std::vector<born2flap::ui::FNode>& Out);
+
     // Re-drive targets whose displayed state can change without a drag on the
     // exact widget (model selection, "reset mouse response", servo CUSTOM).
-    void RefreshModelButtons();
     void RefreshMouseGains();
     void MarkServoCustom();
+
+    // Settings-store helpers (see Born2FlapMenuSettings.h). The menu edits the
+    // store directly and mirrors edits into the live bird when one exists.
+    void SyncSettingsFromBird();
+    void ApplySettingsToBird();
+    void PersistSettings();
+    float TuningValue(ETuningField Field) const;
+    void SetTuningValue(ETuningField Field, float Value);
+    int32 CurBirdModel() const;
+    FBorn2FlapRcController* ActiveRc();
+    // Craft length + CG travel (mirrors ABorn2FlapFlightPawn's model-dependent
+    // values) so the FLIGHT DESK CG slider has the right range on the home screen.
+    float CraftLengthCm() const { return CurBirdModel() == 2 ? 106.f : CurBirdModel() == 1 ? 144.f : 182.f; }
+    float CgRangeCm() const { return FMath::Max(1.f, FMath::RoundToFloat(CraftLengthCm() * 0.10f)); }
+    float CgRangeMm() const { return CgRangeCm() * 10.f; }
 
     // Semantic action from a button ("menu.play" / "menu.settings" / "menu.quit"
     // / "settings.page" / "bird.model.0" / "tuning.ServoSpeed" / ...).
@@ -70,10 +94,13 @@ private:
     UPROPERTY() TObjectPtr<UBorn2FlapUIRenderer> Renderer;
 
     // Top-level page: 0 = OPEN WORLDS (level selector), 1 = FLIGHT DESK
-    // (integrated tuning panel — reachable only from inside a level).
+    // (integrated tuning panel — reachable only from inside a level), 2 =
+    // SETTINGS (CONTROL SETTINGS / GENERAL SETTINGS sub-tabs).
     int32 NavPage = 0;
-    // FLIGHT DESK sub-tab (0 CRAFT / 1 BIRD / 2 CONTROLS / 3 ASSIST / 4 TUNING).
+    // FLIGHT DESK sub-tab (0 CRAFT / 1 BIRD / 2 SERVO / 3 FLIGHT).
     int32 SettingsPage = 0;
+    // SETTINGS sub-tab (0 CONTROL SETTINGS / 1 GENERAL SETTINGS).
+    int32 PrefsPage = 0;
     // Which open world the browser is currently showing (0..WorldCount-1).
     int32 SelectedWorld = 0;
     // Which world-browser sub-page is shown (0 LOCATION / 1 WEATHER / 2 ROUTE).
@@ -84,9 +111,12 @@ private:
 
     // The live bird (only valid when opened from inside a level via F10).
     TWeakObjectPtr<ABorn2FlapFlightPawn> Bird;
+    // Pawn-independent settings mirror (persists to FlightPreferences.ini).
+    born2flap::FMenuSettings Settings;
+    // RC transmitter fallback for the home screen (the bird owns one in-level).
+    TUniquePtr<FBorn2FlapRcController> RcFallback;
     // Paths (child indices from the root) for controls whose displayed state can
     // change without a direct drag on that exact widget.
-    TArray<TArray<int32>> ModelButtons;
     TArray<TArray<int32>> MouseGainSliders;
     TArray<int32> ServoSelectPath;
     TArray<int32> ServoStatusPath;

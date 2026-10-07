@@ -143,27 +143,40 @@ void ABorn2FlapHUD::DrawHUD()
 }
 void ABorn2FlapHUD::DrawMouseIndicator(const ABorn2FlapFlightPawn& Bird)
 {
+    // Dropped below the screen centre so it stays clear of the centred bird.
     const float CX = Canvas->SizeX * 0.5f;
-    const float CY = Canvas->SizeY * 0.5f;
-    const float Radius = 90.f;
+    const float CY = Canvas->SizeY * 0.62f;
+    const float MaxRadius = 90.f;
     const FVector2D Input = Bird.GetMouseControl();
     const FLinearColor Line(0.42f, 0.85f, 0.9f, 0.55f);
-    const FLinearColor Ring(0.42f, 0.85f, 0.9f, 0.20f);
-    // Faint reference ring marking the full stick-deflection boundary.
+
+    // Centre dot + the mouse control-input direction line (a soft under-glow
+    // pass first, then the crisp stroke, for a smoother edge).
+    DrawRect(Line, CX - 1.f, CY - 1.f, 2.f, 2.f);
+    const float DX = Input.X * MaxRadius;
+    const float DY = Input.Y * MaxRadius;
+    DrawLine(CX, CY, CX + DX, CY + DY, FLinearColor(Line.R, Line.G, Line.B, Line.A * 0.35f), 3.2f);
+    DrawLine(CX, CY, CX + DX, CY + DY, Line, 1.6f);
+
+    // The outer arc radius follows the inner line length: the halo always sits
+    // at the line's tip, collapsing to a tight ring at rest.
+    const float Radius = FMath::Max(16.f, Input.Size() * MaxRadius);
+    const FLinearColor Ring(0.42f, 0.85f, 0.9f, 0.32f);
+    const float TouchAngle = FMath::Atan2(Input.Y, Input.X);
+    const float HalfSpan = FMath::DegreesToRadians(55.f);
     const int32 Segments = 48;
     for (int32 I = 0; I < Segments; ++I)
     {
-        const float A0 = (2.f * PI * I) / Segments;
-        const float A1 = (2.f * PI * (I + 1)) / Segments;
-        DrawLine(CX + FMath::Cos(A0) * Radius, CY + FMath::Sin(A0) * Radius,
-                 CX + FMath::Cos(A1) * Radius, CY + FMath::Sin(A1) * Radius, Ring, 1.f);
+        const float A0 = -HalfSpan + (2.f * HalfSpan * I) / Segments;
+        const float A1 = -HalfSpan + (2.f * HalfSpan * (I + 1)) / Segments;
+        // Cosine falloff sampled at both endpoints so the arc dissolves cleanly
+        // to nothing at its two ends (no hard clip).
+        const float Alpha = 0.5f * (FMath::Cos(FMath::Clamp(A0 / HalfSpan, -1.f, 1.f) * HALF_PI)
+                                  + FMath::Cos(FMath::Clamp(A1 / HalfSpan, -1.f, 1.f) * HALF_PI));
+        const FLinearColor Arc(Ring.R, Ring.G, Ring.B, Ring.A * Alpha);
+        DrawLine(CX + FMath::Cos(TouchAngle + A0) * Radius, CY + FMath::Sin(TouchAngle + A0) * Radius,
+                 CX + FMath::Cos(TouchAngle + A1) * Radius, CY + FMath::Sin(TouchAngle + A1) * Radius, Arc, 1.f);
     }
-    // Centre dot + the mouse control-input direction line.
-    DrawRect(Line, CX - 1.f, CY - 1.f, 2.f, 2.f);
-    const float DX = Input.X * Radius;
-    const float DY = Input.Y * Radius;
-    DrawLine(CX, CY, CX + DX, CY + DY, Line, 1.6f);
-    DrawRect(Line, CX + DX - 2.f, CY + DY - 2.f, 4.f, 4.f);
     DrawText(TEXT("MOUSE"), Line, CX + 6.f, CY - 20.f, GEngine->GetSmallFont(), .7f);
 }
 void ABorn2FlapHUD::DrawChannels(const ABorn2FlapFlightPawn& Bird)

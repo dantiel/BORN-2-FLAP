@@ -269,11 +269,9 @@ void FBorn2FlapRcController::Tick(APlayerController *Player, float Dt)
     bLaunch = bReset = false;
     if (!Player)
         return;
-    if (Player->WasInputKeyJustPressed(EKeys::F3))
-    {
-        bPanel = !bPanel;
-        Gate.armed = false;
-    }
+    // F3 is now owned by ABorn2FlapGameMode (it opens the fullscreen menu on
+    // SETTINGS → CONTROL SETTINGS). The standalone bPanel toggle is retired so
+    // the RC panel is not drawn twice.
 #if PLATFORM_WINDOWS
     auto &D = Platform->Devices;
     const bool WasConnected = bConnected;
