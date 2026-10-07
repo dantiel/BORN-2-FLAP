@@ -31,6 +31,7 @@ Konfigurationen aus dem OrniFlight Configurator sollen optional importiert werde
 ## Dokumentation
 
 - [Produktvision](docs/product-vision.md)
+- [Expansionspläne](docs/expansion-plans.md)
 - [Systemarchitektur](docs/architecture.md)
 - [Physikkonzept](docs/physics.md)
 - [Experimentelles Aerodynamikmodell](docs/experimental-aerodynamics.md)

@@ -24,6 +24,9 @@ struct FB2FSpiritRecording
     double Distance = 0;   // metres travelled
     float MaxSpeed = 0, MaxAltitude = 0;
     int32 GatesPassed = 0;
+    // Which bird silhouette was flown (0 = RavenCrow, 1 = Prototype, 2 = Kestrel).
+    // Stored so a replay ghost rebuilds the original model, not always the crow.
+    int32 BirdModel = 0;
     // Absolute path of the .b2fs file this round was (or will be) saved to.
     // Not serialized — it lives only in memory to allow culling the worst file.
     FString SourceFile;

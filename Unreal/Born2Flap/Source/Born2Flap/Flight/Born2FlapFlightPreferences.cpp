@@ -38,14 +38,16 @@ void ABorn2FlapFlightPawn::LoadFlightPreferences()
     FpvCameraAngleDeg = FMath::IsFinite(FpvCameraAngleDeg) ? FMath::Clamp(FpvCameraAngleDeg,-45.f,45.f) : 0.f;
     Config.GetBool(TEXT("Flight"),TEXT("CoupledThrottle"),bCoupledThrottle);
     Config.GetFloat(TEXT("Flight"),TEXT("BodyMassKg"),BodyMassKg);
-    BodyMassKg=FMath::IsFinite(BodyMassKg) ? FMath::Clamp(BodyMassKg,0.1f,2.0f) : 0.45f;
+    BodyMassKg=FMath::IsFinite(BodyMassKg) ? FMath::Clamp(BodyMassKg,0.01f,2.0f) : 0.45f;
     Config.GetFloat(TEXT("Flight"),TEXT("CgOffsetMm"),CgOffsetMm);
-    CgOffsetMm=FMath::IsFinite(CgOffsetMm) ? FMath::Clamp(CgOffsetMm,-30.f,30.f) : 0.f;
+    // Broad sanity bound only; ApplyBodyMass re-clamps to the model's
+    // length-derived range once the silhouette is selected.
+    CgOffsetMm=FMath::IsFinite(CgOffsetMm) ? FMath::Clamp(CgOffsetMm,-300.f,300.f) : 0.f;
     Config.GetBool(TEXT("Flight"),TEXT("ReplaySpirits"),bReplaySpirits);
     Config.GetFloat(TEXT("Flight"),TEXT("Safety"),FlightSafety);
     FlightSafety=FMath::IsFinite(FlightSafety) ? FMath::Clamp(FlightSafety,0.f,2.f) : 1.f;
     Config.GetFloat(TEXT("Audio"),TEXT("WingbeatVolume"),WingbeatVolume);
-    WingbeatVolume=FMath::IsFinite(WingbeatVolume) ? FMath::Clamp(WingbeatVolume,0.f,2.f) : 1.f;
+    WingbeatVolume=FMath::IsFinite(WingbeatVolume) ? FMath::Clamp(WingbeatVolume,0.f,4.f) : 1.f;
     double SpeedMod = Desktop.speedModifier;
     Config.GetDouble(TEXT("Controls"),TEXT("SpeedModifier"),SpeedMod);
     Desktop.speedModifier = FMath::IsFinite(SpeedMod) ? FMath::Clamp(SpeedMod,0.0,1.0) : 0.5;
@@ -62,6 +64,11 @@ void ABorn2FlapFlightPawn::LoadFlightPreferences()
         Config.GetFloat(TEXT("Tuning"),born2flap::tuning::Key(Field),Value);
         SetTuning(Field,Value);
     }
+    // Bird silhouette: only an explicit menu choice persists; -1 means "use the
+    // level's default silhouette" (BeginPlay falls back on DefaultBirdModel()).
+    int32 SavedModel = -1;
+    Config.GetInt(TEXT("Flight"),TEXT("BirdModel"),SavedModel);
+    BirdModel = (SavedModel >= 0 && SavedModel <= 2) ? SavedModel : -1;
 }
 void ABorn2FlapFlightPawn::SaveFlightPreferences()
 {
@@ -74,6 +81,7 @@ void ABorn2FlapFlightPawn::SaveFlightPreferences()
     Config.SetBool(TEXT("Flight"),TEXT("CoupledThrottle"),bCoupledThrottle);
     Config.SetFloat(TEXT("Flight"),TEXT("BodyMassKg"),BodyMassKg);
     Config.SetFloat(TEXT("Flight"),TEXT("CgOffsetMm"),CgOffsetMm);
+    Config.SetInt64(TEXT("Flight"),TEXT("BirdModel"),BirdModel);
     Config.SetBool(TEXT("Flight"),TEXT("ReplaySpirits"),bReplaySpirits);
     Config.SetFloat(TEXT("Flight"),TEXT("Safety"),FlightSafety);
     Config.SetFloat(TEXT("Audio"),TEXT("WingbeatVolume"),WingbeatVolume);

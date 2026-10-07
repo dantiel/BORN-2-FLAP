@@ -68,6 +68,14 @@ public:
     void TogglePlayPause();
     void SetPaused(bool bPaused);
     void AdjustVolume(float Delta);
+    // Absolute volume (0..1) — also persists as the user's radio level, so the
+    // GENERAL SETTINGS slider and [ / ] keys share one setting.
+    void SetVolume(float NewVolume);
+    // M toggles mute: volume → 0, or back to the user's saved level.
+    void ToggleMute();
+    bool IsMuted() const { return bMuted; }
+    // The user's intended level (saved while muted; == Volume otherwise).
+    float GetUserVolume() const { return bMuted ? SavedVolume : Volume; }
 
     bool HasTrack() const { return Playlist.Num() > 0; }
     bool IsPlaying() const { return bPlaying; }
@@ -80,6 +88,8 @@ private:
     void StartTrack(int32 Index, float StartVolume);
     FString AutoDetectCover(const FString& TrackPath) const;
     static bool CoverExists(const FString& AssetRef);
+    void LoadSavedVolume();
+    void SaveSavedVolume();
 
     UPROPERTY(Transient) TObjectPtr<UAudioComponent> Active = nullptr;
     UPROPERTY(Transient) TObjectPtr<UAudioComponent> Fader = nullptr;
@@ -92,6 +102,11 @@ private:
     int32 TrackIndex = 0;
     bool bPlaying = true;
     float Volume = 0.5f;
+    // User's saved radio level (restore target while muted). Loaded from / saved
+    // to FlightPreferences.ini [Audio] RadioVolume — the same file the flight
+    // pawn uses, so radio volume lives beside wingbeat volume.
+    float SavedVolume = 0.5f;
+    bool bMuted = false;
     float Crossfade = 2.0f;
     float TrackStartTime = 0.0f;
     float TrackDuration = 0.0f;

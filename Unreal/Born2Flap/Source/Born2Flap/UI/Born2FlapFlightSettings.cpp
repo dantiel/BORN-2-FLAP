@@ -181,6 +181,7 @@ void ABorn2FlapFlightSettings::BuildTree()
         FProps Props;
         Props["action"] = S("camera.angle");
         Props["label"] = S("FPV CAMERA ANGLE");
+        Props["tooltip"] = S("Fixed pitch of the onboard FPV lens. Negative = look down; positive = look up.");
         Props["value"] = N(Bird->GetFpvCameraAngle());
         Props["min"] = N(-45);
         Props["max"] = N(45);
@@ -230,6 +231,7 @@ void ABorn2FlapFlightSettings::BuildTree()
         FProps Props;
         Props["action"] = S("control.expo");
         Props["label"] = S("EXPO");
+        Props["tooltip"] = S("Softens stick/mouse response around centre. Low = linear/direct; high = very gentle centre, more throw near the edges.");
         Props["value"] = N(Bird->GetControlExpo() * 100.0);
         Props["min"] = N(0);
         Props["max"] = N(100);
@@ -243,6 +245,7 @@ void ABorn2FlapFlightSettings::BuildTree()
         FProps Props;
         Props["action"] = S("mouse.speed");
         Props["label"] = S("MOUSE SPEED");
+        Props["tooltip"] = S("Mouse-to-flap speed mapping. Low = slow/gentle; high = fast and direct.");
         Props["value"] = N(Bird->GetSpeedModifier());
         Props["min"] = N(0);
         Props["max"] = N(1);
@@ -325,6 +328,7 @@ void ABorn2FlapFlightSettings::BuildTree()
         Props["max"] = N(Row.Max);
         Props["step"] = N(FMath::Pow(10.0f, (float)-Row.Decimals));
         Props["unit"] = Sv(FString(Row.Unit));
+        Props["tooltip"] = Sv(FString(Row.Help));
         Rows.push_back(Nd("Slider", std::move(Props)));
     }
     // Airframe mass + centre of gravity: physical body properties, not firmware
@@ -333,6 +337,7 @@ void ABorn2FlapFlightSettings::BuildTree()
         FProps Props;
         Props["action"] = S("bird.weight");
         Props["label"] = S("BIRD WEIGHT");
+        Props["tooltip"] = S("Airframe mass. Light = smaller wing, faster flap, twitchy; heavy = larger wing, slower, more inertia.");
         Props["value"] = N(Bird->GetBodyMassKg() * 1000.f);
         Props["min"] = N(100);
         Props["max"] = N(2000);
@@ -341,14 +346,16 @@ void ABorn2FlapFlightSettings::BuildTree()
         Rows.push_back(Nd("Slider", std::move(Props)));
     }
     {
+        const float CgRangeCm = Bird->GetCgRangeCm();
         FProps Props;
         Props["action"] = S("bird.cg");
         Props["label"] = S("CENTRE OF GRAVITY");
-        Props["value"] = N(Bird->GetCgOffsetMm());
-        Props["min"] = N(-30);
-        Props["max"] = N(30);
-        Props["step"] = N(1);
-        Props["unit"] = S("mm");
+        Props["tooltip"] = S("Longitudinal balance along the body (0 = centred). Negative = forward/nose-heavy (stable, resists pitch-up); positive = aft/tail-heavy (nervous, wants to climb). Range scales with the craft's length.");
+        Props["value"] = N(Bird->GetCgOffsetMm() / 10.f);
+        Props["min"] = N(-CgRangeCm);
+        Props["max"] = N(CgRangeCm);
+        Props["step"] = N(0.1);
+        Props["unit"] = S("cm");
         Rows.push_back(Nd("Slider", std::move(Props)));
     }
 
@@ -435,7 +442,8 @@ void ABorn2FlapFlightSettings::HandleAction(const FString& Action, float Value, 
     {
         const int32 Model = FCString::Atoi(*Action.RightChop(FCString::Strlen(TEXT("bird.model."))));
         Bird->SelectBirdModel(Model);
-        RefreshModelButtons();
+        // Rebuild: the CG slider's min/max scale with the new craft's length.
+        BuildTree();
         return;
     }
 
@@ -445,7 +453,7 @@ void ABorn2FlapFlightSettings::HandleAction(const FString& Action, float Value, 
     if (Action == TEXT("bird.coupled")) { Bird->SetThrottleCoupled(Value > 0.5f); return; }
     if (Action == TEXT("mouse.speed")) { Bird->SetSpeedModifier(Value); return; }
     if (Action == TEXT("bird.weight")) { Bird->SetBodyMassKg(Value / 1000.f); return; }
-    if (Action == TEXT("bird.cg")) { Bird->SetCgOffsetMm(Value); return; }
+    if (Action == TEXT("bird.cg")) { Bird->SetCgOffsetMm(Value * 10.f); return; }   // slider is in cm
 
     if (Action == TEXT("servo.preset"))
     {

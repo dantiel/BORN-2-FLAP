@@ -104,5 +104,10 @@
   "race.best": "BEST",
   "menu.play": "FLY",
   "menu.quit": "QUIT",
-  "menu.back": "BACK"
+  "menu.back": "BACK",
+  "menu.open_worlds": "OPEN WORLDS",
+  "menu.flight_desk": "FLIGHT DESK",
+  "menu.settings": "SETTINGS",
+  "settings.language": "LANGUAGE",
+  "settings.language_hint": "Interface language - takes effect immediately."
 }

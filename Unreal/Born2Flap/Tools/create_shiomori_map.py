@@ -260,11 +260,12 @@ def concrete_material(name, diffuse, normal, rough_tex, scale_cm=300.0,
 
 
 def coastal_terrain_material(name, sand, grass, rock, scale_cm=240.0, normal_strength=0.55):
-    """World-space triplanar coastal terrain for the enclosing headlands: sand
-    near the waterline, grassy slopes inland, exposed basalt on the steepest
-    faces. Value-noise wanders the sand/grass seam and a world-normal-driven
-    triplanar projection textures every slope without the flat, repeating X/Y
-    look or the coarse vertex-colour checker of the old valley material."""
+    """World-space coastal terrain for the enclosing headlands. The beach-facing
+    sand is sampled exactly like the main M_Sand beach material (same world-XY
+    tiling, same grain normal + wind/sea relief) so the east/west beach ends read
+    as one continuous strand, not a foreign sand patch. Grass and basalt blend in
+    smoothly on the inland slopes and steep seaward faces through wide, soft
+    elevation/slope ramps -- no noisy, hard-edged patches."""
     path = '/Game/Shiomori/Materials/M_' + name
     m = u.load_asset(path) if ela.does_asset_exist(path) else assets.create_asset(
         'M_' + name, '/Game/Shiomori/Materials', u.Material, u.MaterialFactoryNew())
@@ -304,17 +305,61 @@ def coastal_terrain_material(name, sand, grass, rock, scale_cm=240.0, normal_str
                 'return normalize(N+detail*%f);' % normal_strength)
         return custom(m, code, dict(args, T=t), 3)
 
-    s_c = tri_color(sd); g_c = tri_color(gd); r_c = tri_color(rd)
-    s_n = tri_normal(sn); g_n = tri_normal(gn); r_n = tri_normal(rn)
-    s_r = tri_scalar(sr); g_r = tri_scalar(gr); r_r = tri_scalar(rr)
+    # Beach-matched sand: world-XY planar at the same 300 cm tiling as M_Sand.
+    # TextureObject + Texture2DSample avoids TextureSample output-pin ambiguity.
+    def sand_color(tex):
+        t = node(m, 'TextureObject', texture=tex)
+        return custom(m, 'return Texture2DSample(T,TSampler,P.xy/300.0).rgb;',
+                      {'P': pos, 'T': t}, 3)
 
-    # Large-scale noise wanders the sand/grass boundary and enlivens the rock
-    # factor so the terrain never reads as straight elevation bands.
+    def sand_scalar(tex):
+        t = node(m, 'TextureObject', texture=tex)
+        return custom(m, 'return Texture2DSample(T,TSampler,P.xy/300.0).r;',
+                      {'P': pos, 'T': t}, 1)
+
+    def sand_grain(tex):
+        t = node(m, 'TextureObject', texture=tex)
+        code = ('float3 tn=Texture2DSample(T,TSampler,P.xy/300.0).rgb;'
+                'return normalize(float3(tn.x*2.0-1.0, tn.y*2.0-1.0, saturate(tn.z*2.0-1.0)+0.25));')
+        return custom(m, code, {'P': pos, 'T': t}, 3)
+
+    s_c = sand_color(sd)
+    s_r = sand_scalar(sr)
+
+    # Identical irregular relief + wind streaks to M_Sand (grain normal perturbed
+    # by two decorrelated value noises and a shore-elongated wind noise).
+    relief_scale = 0.02
+    relief_strength = 0.6
+    ns_strength = 0.65
+    gx = node(m, 'Multiply'); wire(pos, gx, 'A'); gx.set_editor_property('const_b', relief_scale)
+    nz_gx = node(m, 'Noise', levels=2, output_min=-1.0, output_max=1.0); wire(gx, nz_gx, '')
+    gy = node(m, 'Multiply'); wire(pos, gy, 'A'); gy.set_editor_property('const_b', relief_scale * 1.7)
+    nz_gy = node(m, 'Noise', levels=2, output_min=-1.0, output_max=1.0); wire(gy, nz_gy, '')
+    wv = node(m, 'Constant3Vector', constant=u.LinearColor(0.0009, 0.006, 0.006))
+    ws = node(m, 'Multiply'); wire(pos, ws, 'A'); wire(wv, ws, 'B')
+    nz_w = node(m, 'Noise', levels=2, output_min=-1.0, output_max=1.0); wire(ws, nz_w, '')
+    relief = custom(m, '''float rx=NX*%.6g + W*0.2;
+  float ry=NY*%.6g + W*0.55;
+  float3 r=normalize(float3(TN.x+rx, TN.y+ry, 1.0));
+  return normalize(float3(lerp(0.0, r.x, %.6g), lerp(0.0, r.y, %.6g), 1.0));
+''' % (relief_strength, relief_strength, ns_strength, ns_strength),
+                    {'NX': nz_gx, 'NY': nz_gy, 'W': nz_w, 'TN': sand_grain(sn)}, 3)
+    s_n = relief
+
+    # Grass and rock stay triplanar (they cover the sloped inland/seaward faces).
+    g_c = tri_color(gd); g_n = tri_normal(gn); g_r = tri_scalar(gr)
+    r_c = tri_color(rd); r_n = tri_normal(rn); r_r = tri_scalar(rr)
+
+    # A gentle value-noise only softens the sand/grass line; it no longer swings
+    # a whole elevation band (the old +-45..60 cm wander read as disconnected sand
+    # patches across the headland toe).
     vpos = node(m, 'Multiply'); vpos.set_editor_property('const_b', 0.0006); wire(pos, vpos, 'A')
     vnz = node(m, 'Noise', levels=2, output_min=-1.0, output_max=1.0); wire(vpos, vnz, '')
 
-    # Shared blend weights (s=shallow sand, g=grass, r=rock) as a float3.
-    wgts = custom(m, '''float veg=smoothstep(40.0+V*45.0, 260.0+V*60.0, P.z);
+    # Shared blend weights (s=sand, g=grass, r=rock). The sand band now reaches
+    # the dune line before grass takes over, with a wide, soft ramp so the beach
+    # strand flows onto the headland with no hard patch edge.
+    wgts = custom(m, '''float veg=smoothstep(140.0+V*18.0, 360.0+V*30.0, P.z);
   float steep=1.0-N.z;
   float rock=smoothstep(0.30, 0.60, steep);
   float s=1.0-veg;

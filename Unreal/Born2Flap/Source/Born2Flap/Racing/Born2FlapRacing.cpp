@@ -15,7 +15,7 @@
 namespace
 {
 constexpr uint32 SpiritMagic = 0x32534642u; // "BFS2"
-constexpr uint32 SpiritVersion = 1;
+constexpr uint32 SpiritVersion = 2;
 constexpr int32 MaxSpirits = 12;            // keep every round playable, bounded
 constexpr double MinRoundSeconds = 1.0;
 } // namespace
@@ -59,6 +59,7 @@ bool SaveSpiritRecording(FB2FSpiritRecording &Recording, const FString &Path)
     Ar << Recording.MaxSpeed;
     Ar << Recording.MaxAltitude;
     Ar << Recording.GatesPassed;
+    Ar << Recording.BirdModel;
     int32 Count = Recording.Frames.Num();
     Ar << Count;
     for (FB2FSpiritFrame &F : Recording.Frames)
@@ -84,7 +85,7 @@ bool LoadSpiritRecording(const FString &Path, FB2FSpiritRecording &Recording)
     if (Magic != SpiritMagic)
         return false;
     Ar << Version;
-    if (Version != SpiritVersion)
+    if (Version < 1 || Version > SpiritVersion)
         return false;
     Ar << Recording.Name;
     Ar << Recording.Duration;
@@ -92,6 +93,10 @@ bool LoadSpiritRecording(const FString &Path, FB2FSpiritRecording &Recording)
     Ar << Recording.MaxSpeed;
     Ar << Recording.MaxAltitude;
     Ar << Recording.GatesPassed;
+    if (Version >= 2)
+        Ar << Recording.BirdModel;
+    else
+        Recording.BirdModel = 0;
     int32 Count = 0;
     Ar << Count;
     if (Count < 0 || Count > 1000000)
@@ -215,6 +220,7 @@ void ABorn2FlapRacingManager::BeginRound()
 {
     ActiveRecording = FB2FSpiritRecording{};
     ActiveRecording.Name = FString::Printf(TEXT("Runde %02d"), LoadedSpirits.Num() + 1);
+    ActiveRecording.BirdModel = Bird->GetBirdModel();
     RoundTime = 0;
     LastPosition = Bird->GetActorLocation();
     bRecording = true;

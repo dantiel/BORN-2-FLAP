@@ -12,6 +12,7 @@ class USphereComponent;
 class UCapsuleComponent;
 class UBorn2FlapWingMesh;
 class UStaticMeshComponent;
+class UInstancedStaticMeshComponent;
 class USceneComponent;
 class USpringArmComponent;
 class UCameraComponent;
@@ -58,10 +59,10 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     // Flight-safety reset amount: 0 = off, 1 = very low (acro-friendly), 2 = normal.
     float GetFlightSafety() const { return FlightSafety; }
     void SetFlightSafety(float Value) { if(FMath::IsFinite(Value)) FlightSafety=FMath::Clamp(Value,0.f,2.f); }
-    // Wingbeat-only audio level (0..2, default 1). Scales just the "wing" voice
+    // Wingbeat-only audio level (0..4, default 1). Scales just the "wing" voice
     // of the aero-audio synth so the flap can cut through wind/surf/music.
     float GetWingbeatVolume() const { return WingbeatVolume; }
-    void SetWingbeatVolume(float Value) { if(FMath::IsFinite(Value)) WingbeatVolume=FMath::Clamp(Value,0.f,2.f); }
+    void SetWingbeatVolume(float Value) { if(FMath::IsFinite(Value)) WingbeatVolume=FMath::Clamp(Value,0.f,4.f); }
     // Replay shadow-doppelgängers: show past rounds flying alongside (default on).
     bool GetReplaySpiritsEnabled() const { return bReplaySpirits; }
     void SetReplaySpiritsEnabled(bool bOn);
@@ -104,11 +105,25 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     void SetFpvCameraAngle(float Deg) { if (FMath::IsFinite(Deg)) FpvCameraAngleDeg = FMath::Clamp(Deg, -45.f, 45.f); }
     // Airframe mass (kg) and longitudinal centre-of-gravity offset (mm, + = aft).
     // These are physical body properties, not firmware knobs: weight drives
-    // Chaos' body mass, CG shifts the centre of mass fore/aft.
+    // Chaos' body mass, CG shifts the centre of mass fore/aft. The usable CG
+    // travel scales with the craft's total length (rounded to whole cm).
     float GetBodyMassKg() const { return BodyMassKg; }
     void SetBodyMassKg(float Kg) { if (FMath::IsFinite(Kg)) { BodyMassKg = FMath::Clamp(Kg, 0.01f, 2.0f); ApplyBodyMass(); } }
+    // Total nose-to-tail length of the current silhouette (cm).
+    float GetCraftLengthCm() const
+    {
+        switch (BirdModel)
+        {
+        case 2:  return 106.f;   // common kestrel (falcon): nose +28.5 -> tail -77.5
+        case 1:  return 144.f;   // prototype: beak +59 -> tail plate -85
+        default: return 182.f;   // ravencrow: beak +70 -> tail tip -112
+        }
+    }
+    // Half-range of the CG slider in cm — ±10% of the craft length, whole cm.
+    float GetCgRangeCm() const { return FMath::Max(1.f, FMath::RoundToFloat(GetCraftLengthCm() * 0.10f)); }
+    float GetCgRangeMm() const { return GetCgRangeCm() * 10.f; }
     float GetCgOffsetMm() const { return CgOffsetMm; }
-    void SetCgOffsetMm(float Mm) { if (FMath::IsFinite(Mm)) { CgOffsetMm = FMath::Clamp(Mm, -30.f, 30.f); ApplyBodyMass(); } }
+    void SetCgOffsetMm(float Mm) { if (FMath::IsFinite(Mm)) { CgOffsetMm = FMath::Clamp(Mm, -GetCgRangeMm(), GetCgRangeMm()); ApplyBodyMass(); } }
     // Persist the current flight/tuning preferences to Config (called by the
     // integrated FLIGHT DESK page when the menu closes).
     void SaveFlightPreferences();
@@ -148,6 +163,13 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     UPROPERTY(VisibleAnywhere) TObjectPtr<USpringArmComponent> CameraBoom;
     UPROPERTY(VisibleAnywhere) TObjectPtr<UCameraComponent> Camera;
     UPROPERTY() TObjectPtr<UStaticMeshComponent> SkyDome;
+    // Sparse wind motes: a few tiny particles advected by the atmospheric wind so
+    // the invisible current becomes perceivable as drifting specks in the air.
+    UPROPERTY() TObjectPtr<UInstancedStaticMeshComponent> WindMotes;
+    TArray<FVector> MotePositions;
+    TArray<float> MoteScales;
+    TArray<float> MoteSpeed;
+    FRandomStream MoteRandom{13011};
     UPROPERTY(VisibleAnywhere) TObjectPtr<UBorn2FlapAudioSynth> AudioSynth;
     UPROPERTY() TObjectPtr<UCameraComponent> GroundCamera;
     UPROPERTY() TObjectPtr<UCameraComponent> FpvCamera;
@@ -155,20 +177,31 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     FRotator GroundGaze = FRotator::ZeroRotator;
     bool bGroundView = false, bFpvAirView = false, bCameraGrounded = false, bGroundGazeReady = false;
     double CameraTime = 0, GroundSettleTime = 0;
+    // Ground interaction (pilot walk + look), active while the middle mouse
+    // button is held and the bird is grounded. Chase-orbit offsets rotate the
+    // spring arm around the bird; ground free-look offsets detach the ground
+    // camera from its auto-aim so the pilot can look away from the bird.
+    float ChaseOrbitYaw = 0.f, ChaseOrbitPitch = -12.f;
+    float GroundLookYaw = 0.f, GroundLookPitch = 0.f;
     // Fixed FPV camera angle (degrees, pitch offset from the body). Adjustable
     // in flight (Q/E) and persisted; the FPV lens stays at this fixed tilt.
     float FpvCameraAngleDeg = 0.f;
     void RememberLanding(FVector Position);
     void UpdateLandingCamera(float Dt);
+    // Move the ground observer (pilot) across the terrain, blocked by geometry.
+    void MoveWalker(const FVector& Delta);
     bool CheckFlightCameras();
     TUniquePtr<FBorn2FlapMathBridge> MathBridge;
     TUniquePtr<FBorn2FlapRcController> RcController;
     double Accumulator = 0, LogTime = 0, WorldTime = 0;
     double LastMechanicalPower = 0, LastPhaseError = 0, LastKGainMod = 1;
     float PrevLeftFlap = 0;
+    bool bFlapRising = false;        // flap velocity sign for top-of-stroke detection
+    double LastStrokeTopTime = -1.0; // world-time of last flap top (period measurement)
+    double MeasuredWingbeatHz = 0.0; // actual flap frequency measured from the servo
     born2flap::DesktopInput Desktop;
     float ControlExpo=.65f;
-    float WingbeatVolume=1.0f;   // wingbeat-only voice volume (0..2)
+    float WingbeatVolume=1.0f;   // wingbeat-only voice volume (0..4)
     float FlightSafety=1.0f;  // 0 off · 1 very low (acro) · 2 normal
     bool bReplaySpirits = true;   // show replay shadow-doppelgängers
     bool bCoupledThrottle = true;
@@ -224,6 +257,7 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
                    FVector NormalImpulse, const FHitResult &Hit);
     bool StepMath(float DeltaSeconds);
     void UpdateAeroAudio(float DeltaSeconds);
+    void UpdateWindMotes(float DeltaSeconds);
     void SetBlindFlight(bool bOn);
     void CheckFlightTest();
     bool bHandlingTest = false;

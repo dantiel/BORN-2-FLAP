@@ -196,7 +196,7 @@ defaultFirmwareParams = FirmwareParams
   , fwFlapBaseFreqDh = 50
   , fwMountIncidenceDeg = 0
   , fwRudderYawWeight = 65
-  , fwRudderRollWeight = 35
+  , fwRudderRollWeight = 100
   , fwAnchorGain = anchorGainDefault
   , fwCadenceGain = cadenceGainDefault
   }

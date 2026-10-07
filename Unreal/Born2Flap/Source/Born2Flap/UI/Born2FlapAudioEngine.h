@@ -33,7 +33,7 @@ using born2flap::ui::FProps;
 struct FVoice {
     struct FBand {
         double x1=0,x2=0,y1=0,y2=0,hz=-1,b0=0,b2=0,a1=0,a2=0;
-    } gearA,gearB;
+    } gearA,gearB,refLow,refHigh;
     FProps p;
     uint32_t rng = 0x9E3779B9u;
     double lp = 0.0;   // low-pass state (primary)
@@ -130,7 +130,10 @@ private:
     double RenderVoice(FVoice& v) {
         const FProps& p = v.p;
         double pitch = LowPass(v.pitch,clampRaw(num(p,"pitch",1),.5,2),8);
-        double gain = LowPass(v.gain,clamp(p,"gain",0,1),12);
+        // Allow gain up to 4 so the wingbeat's 0..4 user volume can reach 4×.
+        // Ambient voices are already clamped to [0,1] in ComputeIntrinsic, so only
+        // "wing" exceeds 1.
+        double gain = LowPass(v.gain,clamp(p,"gain",0,4),12);
         double brightness=LowPass(v.brightness,clamp(p,"brightness",0,1),10);
         std::string kind = "wind";
         // Determine the voice kind from its distinct params (cheap tag).
@@ -174,18 +177,31 @@ private:
             Advance(v.gearPhase,sweep);
             const double detune=1+((v.seed&255)/255.0-.5)*.008;
             const double n=Noise(v);
-            const double metal=1.6*BandPass(v.gearA,n,(2400+1200*motion)*pitch*detune,1.25)
-                              +.7*BandPass(v.gearB,n,(4900+600*motion)*pitch*detune,1.8);
-            Advance(v.phase1,(650+700*motion)*pitch);
+            // Gear mesh only while the servo actually turns: strictly motion-gated
+            // so a resting wing is silent (no idle hiss/whistle floor).
+            const double metal=1.2*BandPass(v.gearA,n,(2200+1500*motion)*pitch*detune,1.5)
+                              +.55*BandPass(v.gearB,n,(4300+1200*motion)*pitch*detune,1.9);
+            Advance(v.phase1,(650+800*motion)*pitch);
             const double teeth=.72+.28*std::cos(v.phase1);
             const double twitch=.48+.52*std::pow(.5+.5*std::sin(v.gearPhase),5);
-            const double gears=LowPass(v.lp2,LowPass(v.lp,metal*teeth,6500),6500)*twitch*motion*.30;
-            // Motor/gearcase drone acquires weight and droops under load.
-            const double motorHz=(170+35*motion-65*load)*pitch*detune;
-            Advance(v.phase2,motorHz);Advance(v.phase3,motorHz*2.01);
-            const double motor=(std::sin(v.phase2)+.28*std::sin(v.phase3)+.10*std::sin(3*v.phase2))
-                              *load*(.045+.115*load+.035*strain)*(.8+.2*motion);
-            return (gears+motor)*gain;
+            const double gears=LowPass(v.lp2,LowPass(v.lp,metal*teeth,7000),7000)*twitch*motion*.4;
+            // Metallic drone: inharmonic partials (metal-bar ratios 1 : 2.76 : 5.40)
+            // instead of a harmonic 2:1 pipe tone, so it reads as brushed metal
+            // rather than a wooden flute.
+            const double whineHz=(360+820*motion)*pitch*detune;
+            Advance(v.phase2,whineHz);
+            const double drone=(std::sin(v.phase2)+.32*std::sin(v.phase2*2.76)
+                               +.14*std::sin(v.phase2*5.40))*motion*.2*(.6+.4*(1-load));
+            // Low- and high-pitch noise refraction: two narrow metallic bands that
+            // shimmer against the drone (the "touch of high + low" refraction).
+            const double refractLow=BandPass(v.refLow,Noise(v),(210+170*motion)*pitch*detune,2.2)*motion*.45;
+            const double refractHigh=BandPass(v.refHigh,Noise(v),(5200+1400*motion)*pitch*detune,2.6)*motion*.30;
+            // Motor/gearcase drone still droops under load, kept subtle.
+            const double motorHz=(150+40*motion-65*load)*pitch*detune;
+            Advance(v.phase3,motorHz);
+            const double motor=(std::sin(v.phase3)+.28*std::sin(v.phase3*2.01))
+                              *load*(.05+.12*load+.035*strain)*(.8+.2*motion);
+            return (gears+drone+refractLow+refractHigh+motor)*gain;
         }
         // leaves
         double n = Noise(v);
