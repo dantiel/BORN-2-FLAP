@@ -104,7 +104,7 @@
   "game_bench_title": "Banc d'essai",
   "game_bench_desc": "Vue en soufflerie : vecteurs de force, cartes de décrochage, déformation de l'aile en direct.",
 
-  "open_num": "05",
+  "open_num": "06",
   "open_title": "Open source",
   "open_lead": "Commercial et libre à la fois.",
   "open_body": "BORN2FLAP sort sur Steam et l'Epic Games Store, et son propre code est publié sous <strong>licence MIT</strong>. Le noyau de physique, le pont, le cerveau — ouverts. Pilotez le jeu, prenez l'aile et construisez la vôtre. Unreal Engine et les assets tiers conservent leurs propres licences.",
