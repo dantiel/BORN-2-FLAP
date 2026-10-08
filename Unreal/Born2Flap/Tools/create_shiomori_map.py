@@ -1100,10 +1100,13 @@ float g = (n - 0.5) * 0.12;
 return normalize(float3(-g, 0.0, 1.0));''', {'P': wp}, 3)
 output(n, 'NORMAL')
 output(node(glass, 'Constant3Vector', constant=u.LinearColor(0.94, 0.95, 0.96)), 'BASE_COLOR')
-# A gentle refractive bend: IOR 1.0 is no bend, ~1.2 reads as glass.
-output(node(glass, 'Constant', r=1.2), 'REFRACTION')
-output(node(glass, 'Constant', r=0.85), 'OPACITY')
-output(node(glass, 'Constant', r=0.55), 'ROUGHNESS')
+# A stronger refractive bend + higher roughness = the frosted "blurred glass"
+# look; IOR 1.0 is no bend, ~1.32 reads as a slightly milky glass pane.
+output(node(glass, 'Constant', r=1.32), 'REFRACTION')
+# Light, airy body: clearly lighter than before (0.85) but still credible —
+# not a ghost, just a thin sheet of frosted glass rather than a heavy slab.
+output(node(glass, 'Constant', r=0.55), 'OPACITY')
+output(node(glass, 'Constant', r=0.72), 'ROUGHNESS')
 # Fresnel edge sheen -> specular: matte on-axis, mirror-like at grazing angles.
 fres = node(glass, 'Fresnel')
 fres.set_editor_property('exponent', 3.0)
@@ -1116,7 +1119,7 @@ spec = node(glass, 'Add')
 wire(spec_base, spec, 'A')
 wire(spec_boost, spec, 'B')
 output(spec, 'SPECULAR')
-for prop, val in (('translucency_shadow_density_scale', 0.6), ('translucency_self_shadow_density_scale', 0.4)):
+for prop, val in (('translucency_shadow_density_scale', 0.45), ('translucency_self_shadow_density_scale', 0.3)):
     try:
         glass.set_editor_property(prop, val)
     except Exception:

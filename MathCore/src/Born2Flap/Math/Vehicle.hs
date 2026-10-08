@@ -283,7 +283,7 @@ stepStrip flapping side stroke strokeRate input incidenceRad wp index old =
                      (membraneCamberTarget profile attachedCl)
       aspectRatio = shapeAspectRatio wp
       inducedCd = cl * cl / (pi * 0.82 * aspectRatio)
-      attachedCd = 0.025 + inducedCd
+      attachedCd = 0.016 + inducedCd
       separatedCd = 0.20 + 1.20 * sin alphaEff * sin alphaEff
       cd = lerp attachedCd separatedCd relaxed
       sideCd = 0.018 + 0.08 * relaxed

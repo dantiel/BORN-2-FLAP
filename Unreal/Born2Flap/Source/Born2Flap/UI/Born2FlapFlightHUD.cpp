@@ -10,6 +10,7 @@
 #include "UI/Born2FlapI18n.h"
 #include "Flight/Born2FlapFlightPawn.h"
 #include "GameFramework/PlayerController.h"
+#include "Camera/PlayerCameraManager.h"
 #include "Engine/World.h"
 
 using namespace born2flap::ui;
@@ -226,11 +227,22 @@ void ABorn2FlapFlightHUD::Refresh()
         LastWindSpeed = WindSpeed;
     }
 
-    // Relative wind-source bearing: rotate the HUD arrow against the bird's nose
-    // (0° = ahead, clockwise positive) so the source direction reads directly.
-    const float PlayerYaw = CachedBird->GetActorRotation().Yaw;
-    const float PlayerBearing = FMath::Fmod(90.0f - PlayerYaw + 360.0f, 360.0f);
-    const float RelAngle = FMath::Fmod(SourceBearing - PlayerBearing + 360.0f, 360.0f);
+    // Relative wind-source bearing: rotate the HUD arrow against the current
+    // camera view (0° = ahead on screen, clockwise positive = to the right) so
+    // the source direction reads directly no matter where the player is looking.
+    // The arrow lives in screen space, so its reference is the view yaw, not the
+    // bird's nose. RelAngle = viewBearing - sourceBearing (the source's bearing
+    // measured clockwise from the view direction).
+    float ViewYaw = 0.f;
+    if (APlayerController* PC = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr)
+    {
+        if (APlayerCameraManager* Cam = PC->PlayerCameraManager)
+        {
+            ViewYaw = Cam->GetCameraRotation().Yaw;
+        }
+    }
+    const float ViewBearing = FMath::Fmod(90.0f - ViewYaw + 360.0f, 360.0f);
+    const float RelAngle = FMath::Fmod(ViewBearing - SourceBearing + 360.0f, 360.0f);
     if (!FMath::IsNearlyEqual(RelAngle, LastWindRelAngle, 0.5f))
     {
         Ops.Add(UpdateProps(Pth({0, 3, 1}), P({ {"angle", N(RelAngle)}, {"tone", S(WindTone(WindSpeed))} })));

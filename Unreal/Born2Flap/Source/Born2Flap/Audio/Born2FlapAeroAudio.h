@@ -87,7 +87,7 @@ inline ui::FProps ComputeIntrinsic(const std::string& Voice, const FTelemetry& T
         // Keep the wingbeat clearly audible at every throttle/airspeed: a solid
         // floor (idle) rising to full at the flap ceiling. Airspeed texture is
         // carried separately by "whoosh"/"air_speed" so gain stays prominent.
-        SetNum(P, "gain", 0.45 + 0.55 * Clamp01(T.wingbeat_hz / 8.0));
+                SetNum(P, "gain", 0.7 + 0.8 * Clamp01(T.wingbeat_hz / 8.0));
         SetNum(P, "tone", Clamp01(1.0 - std::fabs(T.phase_error_rad) / 0.5));
         SetNum(P, "whoosh", Clamp01(T.airspeed / 25.0));
         SetNum(P, "brightness", Clamp01(T.airspeed / 40.0));

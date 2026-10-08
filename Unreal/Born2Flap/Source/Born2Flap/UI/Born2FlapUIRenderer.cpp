@@ -141,7 +141,7 @@ FString ToneOf(const FProps& Props)
 // home-indicator inset instead of hiding the interaction surface behind glass.
 float AutoSafeAreaEdge()
 {
-    float Edge = 0.14f;
+    float Edge = 0.24f;
     if (FSlateApplication::IsInitialized())
     {
         FDisplayMetrics Metrics;
