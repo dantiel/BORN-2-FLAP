@@ -186,7 +186,7 @@ advanceFirmwareVehicle coupled rc params servo battery wingScale dt bodyVel body
           speed = magnitude bodyVel
           -- Frontal area scales with the planform scale squared (geometric
           -- similarity): a small bird must not carry a full-size body's drag.
-          bodyDrag = scaleVec (-0.5 * 1.225 * 0.018 * wingScale * wingScale * speed) bodyVel
+          bodyDrag = scaleVec (-0.5 * 1.225 * 0.011 * wingScale * wingScale * speed) bodyVel
           -- Two real inverted-V panels, 12 degrees down, with mixed ruddervators.
           -- Each panel sees its own local flow and produces force at its own arm;
           -- the resulting pitch/yaw/roll coupling is geometric, not an added torque.

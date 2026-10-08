@@ -47,7 +47,8 @@ target, so the blur now affects the content itself.
 `edge` is the answer to "definable amount **or** automatic safe-area-bar size":
 pass a number for a fixed band, or `"auto"` (the default) to size it from the
 display's title-safe inset so the blur never hides the notch / home-indicator
-surface. On desktop there is no notch, so `"auto"` falls back to `0.14`.
+On desktop there is no notch, so `"auto"` falls back to `0.24` (a wider
+dissolve band so the frost overlaps the content above/below it).
 
 ## Usage
 

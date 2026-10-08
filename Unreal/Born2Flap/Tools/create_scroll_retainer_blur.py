@@ -54,7 +54,7 @@ def conn(a, b, pin, output=''):
 
 uv = expr('TextureCoordinate')
 
-edge = scalar('EdgeSize', 0.14)
+edge = scalar('EdgeSize', 0.24)
 amount = scalar('Amount', 0.65)
 blur_radius = scalar('BlurRadius', 0.02)
 refract = scalar('Refract', 0.35)

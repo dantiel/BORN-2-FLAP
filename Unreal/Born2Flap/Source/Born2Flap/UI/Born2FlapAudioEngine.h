@@ -40,7 +40,7 @@ struct FVoice {
     double lp2 = 0.0;  // low-pass state (cascade / band-pass)
     double gain=0, pitch=1, pan=0, rate=0, tone=.5, brightness=0;
     double chirp=0, load=0, strain=0, whoosh=0;
-    double stroke=0, phase1=0, phase2=0, phase3=0, gearPhase=0;
+        double stroke=0, phase1=0, phase2=0, phase3=0, phase4=0, gearPhase=0;
     double airspeed=0, damp1=0, damp2=0;
     uint32_t seed=0x9E3779B9u;
 };
@@ -159,15 +159,16 @@ private:
             const double speed=LowPass(v.airspeed,clampRaw(num(p,"air_speed",brightness*40),0,60),4);
             // Broad, zero-slope pressure envelope: softly cushioned air, with
             // the body mostly in the lowest bass and little upper resonance.
-            const double env=3.5*std::pow(std::sin(AudioPi*q),2)*std::exp(-q*2.5);
-            const double fundamental=(34+.75*std::min(speed,35.))*pitch;
-            Advance(v.phase1,fundamental);
-            Advance(v.phase2,fundamental*1.593);
-            Advance(v.phase3,fundamental*2.136);
-            const double membrane=(std::sin(v.phase1)+.12*std::sin(v.phase2)+.035*std::sin(v.phase3))*.76;
-            const double airNoise=LowPass(v.lp2,LowPass(v.lp,Noise(v),120+speed*8),350);
-            const double body=membrane*env*(.8+.2*tone)+airNoise*env*air*.16;
-            return LowPass(v.damp2,LowPass(v.damp1,body,105+speed),105+speed)*gain*.52;
+                        const double env=3.5*std::pow(std::sin(AudioPi*q),2)*std::exp(-q*2.5);
+                        const double fundamental=(60+.9*std::min(speed,40.))*pitch;
+                        Advance(v.phase1,fundamental);
+                        Advance(v.phase2,fundamental*1.55);
+                        Advance(v.phase3,fundamental*2.10);
+                        Advance(v.phase4,fundamental*3.1);
+                        const double membrane=(std::sin(v.phase1)+.30*std::sin(v.phase2)+.15*std::sin(v.phase3)+.07*std::sin(v.phase4))*.72;
+                        const double airNoise=LowPass(v.lp2,LowPass(v.lp,Noise(v),120+speed*8),350);
+                        const double body=membrane*env*(.8+.2*tone)+airNoise*env*air*.16;
+                        return LowPass(v.damp2,LowPass(v.damp1,body,105+speed),105+speed)*gain*1.9;
         }
         if (kind == "servo") {
             const double motion=LowPass(v.chirp,clamp(p,"chirp",0,1),16);
