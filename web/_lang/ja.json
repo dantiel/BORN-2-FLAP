@@ -104,7 +104,7 @@
   "game_bench_title": "テストベンチ",
   "game_bench_desc": "風洞ビュー：力ベクトル、失速マップ、翼の変形をライブで。",
 
-  "open_num": "05",
+  "open_num": "06",
   "open_title": "オープンソース",
   "open_lead": "商用であり、同時に自由。",
   "open_body": "BORN2FLAP は Steam と Epic Games Store でリリースされ、自前のソースは <strong>MIT ライセンス</strong>で公開される。物理コアもブリッジもブレインも——オープンだ。ゲームを飛ばし、翼を持ち帰り、自分だけのものを作れ。Unreal Engine とサードパーティ資産はそれぞれのライセンスを保持する。",

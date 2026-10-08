@@ -422,6 +422,14 @@ section h2 {
   border-top: 1px solid var(--line);
 }
 
+.roadmap-note {
+  margin-top: 1.6rem;
+  font-family: "Space Mono", "Menlo", monospace;
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+  color: var(--mut);
+}
+
 .cards {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

@@ -33,6 +33,52 @@ FBorn2FlapMathBridge::~FBorn2FlapMathBridge()
 bool FBorn2FlapMathBridge::Load()
 {
     Unload();
+#if PLATFORM_IOS || PLATFORM_ANDROID
+    // Static WASM backend: the b2f_math_* symbols are linked directly from
+    // libborn2flap_math_wasm.a (wasm3 + adapter). dlopen is forbidden here.
+    {
+        const uint32 FoundVersion = ::b2f_math_abi_version();
+        if (FoundVersion != B2F_MATH_ABI_VERSION)
+        {
+            Status = FString::Printf(TEXT("Physics ABI %u; expected %u. Rebuild the WASM backend."),
+                                     FoundVersion, B2F_MATH_ABI_VERSION);
+            UE_LOG(LogTemp, Error, TEXT("%s"), *Status);
+            return false;
+        }
+        if (::b2f_math_runtime_init() == 0)
+        {
+            Status = TEXT("Haskell (WASM) runtime initialization failure");
+            UE_LOG(LogTemp, Error, TEXT("%s"), *Status);
+            return false;
+        }
+        bRuntimeInitialized = true;
+        RuntimeShutdown = &::b2f_math_runtime_shutdown;
+        DestroyFirmwareVehicle = &::b2f_math_destroy_firmware_vehicle;
+        StepFirmwareVehicle = &::b2f_math_step_firmware_vehicle;
+        SetWindPhaseNoise = &::b2f_math_set_wind_phase_noise;
+        ReconfigureFirmwareVehicle = &::b2f_math_reconfigure_firmware_vehicle;
+        GetWingShape = &::b2f_math_get_wing_shape;
+
+        B2F_FirmwareConfig FlightConfig{};
+        FlightConfig.servo_no_load_speed_deg_s = 1200;
+        FlightConfig.servo_stall_torque_nm = 8;
+        FlightConfig.servo_backdrive_deg_s_nm = 20;
+        FlightConfig.battery_voltage = 11.1;
+        FlightConfig.battery_resistance_ohm = .08;
+        FlightConfig.battery_capacity_ah = 1.3;
+        Context = ::b2f_math_create_firmware_vehicle(&FlightConfig);
+        if (!Context)
+        {
+            Status = TEXT("Haskell (WASM) backend could not create a firmware vehicle context");
+            UE_LOG(LogTemp, Error, TEXT("%s"), *Status);
+            return false;
+        }
+
+        Status = TEXT("Haskell firmware backend ready (WASM)");
+        UE_LOG(LogTemp, Display, TEXT("%s"), *Status);
+        return true;
+    }
+#endif
     const FString LibraryPath = FPaths::Combine(
         FPaths::ProjectDir(), TEXT("Binaries"), TEXT("ThirdParty"), MathLibraryName());
     // Pin one loader reference for the process: GHC cannot be stopped/restarted

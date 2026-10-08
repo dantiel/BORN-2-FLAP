@@ -40,6 +40,7 @@
           %a{href: "#flight"}!= nav_flight
           %a{href: "#architecture"}!= nav_architecture
           %a{href: "#gameplay"}!= nav_gameplay
+          %a{href: "#roadmap"}!= nav_roadmap
           %a{href: "#open"}!= nav_open
           %a{href: "#support"}!= nav_support
           %span.nav-sep
@@ -176,6 +177,30 @@
           .card
             %h3!= game_rc_title
             %p!= game_rc_desc
+
+      %section#roadmap
+        .section-head
+          %span.section-num!= roadmap_num
+          %h2!= roadmap_title
+        %p.lead!= roadmap_lead
+        %p.body!= roadmap_body
+        .cards.cards--wide
+          .card
+            %h3!= roadmap_p1_title
+            %p!= roadmap_p1_body
+          .card
+            %h3!= roadmap_p2_title
+            %p!= roadmap_p2_body
+          .card
+            %h3!= roadmap_p3_title
+            %p!= roadmap_p3_body
+          .card
+            %h3!= roadmap_p4_title
+            %p!= roadmap_p4_body
+          .card
+            %h3!= roadmap_p5_title
+            %p!= roadmap_p5_body
+        %p.roadmap-note!= roadmap_note
 
       %section#open
         .section-head
