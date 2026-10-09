@@ -1,0 +1,1983 @@
+<!DOCTYPE html>
+<html dir='ltr' lang='en'>
+<head>
+<meta charset='utf-8'>
+<meta content='width=device-width, initial-scale=1' name='viewport'>
+<title>Unreal Engine C++</title>
+<link href='https://fonts.googleapis.com' rel='preconnect'>
+<link crossorigin='true' href='https://fonts.gstatic.com' rel='preconnect'>
+<link href='https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@300;400;500;600;700&amp;family=Spectral:ital,wght@0,200;0,300;0,400;0,500;0,600;1,200;1,300;1,400&amp;family=Space+Mono:wght@400;700&amp;display=swap' rel='stylesheet'>
+<link href='../../../assets/css/style.css' rel='stylesheet'>
+</head>
+<body class='sub-page'>
+<nav class='sub-nav'>
+<div class='nav-inner'>
+<a class='home-link' href='../../../' title='Back to BORN2FLAP'>
+<span class='wm'>BORN</span>
+<span class='wm wm-brush'>2</span>
+<span class='wm'>FLAP</span>
+</a>
+<div class='nav-links'>
+<a href='../../../tutorials/'>Tutorials</a>
+<a class='active' href='../../../documentation/'>Documentation</a>
+</div>
+<button aria-label='Scroll to top' class='nav-scroll-top' onclick='window.scrollTo({top:0,behavior:&#39;smooth&#39;})' title='Scroll to top' type='button'>↑</button>
+</div>
+</nav>
+<main class='sub-main'>
+<div class='sub-content'>
+<p class='back-link'>
+<a href='../../../documentation/'>← Documentation</a>
+</p>
+<h1>Unreal Engine C++</h1>
+<p class='sub-lead'>The game, pawn, menu and audio.</p>
+<div class='markdown'><h2>Unreal Engine C++</h2>
+<p>The game layer: the flight pawn, the fullscreen menu, the UMG renderer and the audio synthesiser. Lives under <code>Unreal/Born2Flap/Source/Born2Flap/</code>.</p>
+<h3>Important files</h3>
+<h4><code>Flight/Born2FlapFlightPawn.{h,cpp}</code> - the bird</h4>
+<p>The heart of the game. Bridges input to the Haskell DLL and back.</p>
+<ul>
+<li><code>ApplyTuning</code> / <code>ApplyBodyMass</code> - push tuning + mass into the physics.</li>
+<li><code>SetBodyMassKg</code> / <code>GetBirdModel</code> / <code>SetBirdModel</code> - bird identity.</li>
+<li><code>UpdateAeroAudio</code> - drives the aero-audio synth (wind/wing/servo/leaves).</li>
+<li><code>SaveFlightPreferences</code> - persists the tuning state.</li>
+<li><code>WingbeatVolume</code> / radio volume accessors - per-voice audio gain.</li>
+</ul>
+<h4><code>Game/Born2FlapGameMode.{h,cpp}</code> - level/menu lifecycle</h4>
+<ul>
+<li><code>InitGame</code> - decides menu mode vs in-level; handles boot/loading.</li>
+<li><code>BeginPlay</code> / <code>Tick</code> - spawns the menu, handles F3/F10 entry.</li>
+<li><code>OpenFlightLevel</code> / level travel - world loading and the FLY path.</li>
+</ul>
+<h4><code>UI/Born2FlapMenu.{h,cpp}</code> - the fullscreen menu</h4>
+<ul>
+<li><code>Build</code> - the sidebar rail + content pane.</li>
+<li><code>OnAction</code> - routes all menu actions (worlds, flight desk, settings, RC).</li>
+<li><code>BuildFlightDesk</code> / <code>BuildPreferences</code> - tuning and general-settings pages.</li>
+<li><code>NavPage</code> / <code>PrefsPage</code> / <code>SettingsPage</code> - page/sub-tab state.</li>
+</ul>
+<h4><code>UI/Born2FlapMenuSettings.{h,cpp}</code> - settings store</h4>
+<ul>
+<li><code>born2flap::FMenuSettings</code> - a pawn-independent store that reads/writes <code>FlightPreferences.ini</code>, so settings work on the home screen.</li>
+</ul>
+<h4><code>Flight/Born2FlapFlightPreferences.{h,cpp}</code> - persistence</h4>
+<ul>
+<li>Load/save of <code>[Flight]</code> / <code>[Audio]</code> / <code>[Tuning]</code> sections in <code>FlightPreferences.ini</code>.</li>
+</ul>
+<h4><code>Input/Born2FlapRcController.{h,cpp}</code> - RC transmitter</h4>
+<ul>
+<li>Device enumeration, calibration wizard, channel mapping.</li>
+<li>Persists calibration to <code>%LOCALAPPDATA%/Born2Flap/Config/RcControllers.ini</code>.</li>
+</ul>
+<h4><code>Flight/Born2FlapRavenCrow.{h,cpp}</code> - bird mesh</h4>
+<ul>
+<li><code>ABorn2FlapRaven::Build</code> - procedurally builds the wing, fuselage, tail and tail pivot (design 1 = ravencrow, 2 = kestrel).</li>
+</ul>
+<h4><code>Flight/Born2FlapWingMesh.{h,cpp}</code> - wing mesh</h4>
+<ul>
+<li>Procedural wing surface from the planform + twist/camber.</li>
+</ul>
+<h4><code>Audio/Born2FlapAudioEngine.h</code> + <code>Born2FlapAudioSynth</code> + <code>Born2FlapAeroAudio</code> + <code>Born2FlapSoundscape</code></h4>
+<ul>
+<li><code>Born2FlapAudioEngine</code> - voice management + per-voice gain clamps.</li>
+<li><code>Born2FlapAeroAudio</code> - the wing/wind/servo synthesis (incl. backlit-independent gain).</li>
+<li><code>Born2FlapSoundscape</code> - ocean/wind/music ambience.</li>
+</ul>
+<h4><code>UI/Born2FlapUIRenderer.{h,cpp}</code> - UMG semantic renderer</h4>
+<ul>
+<li>Renders semantic nodes (panel, tabs, slider, dropdown, segment, image) to UMG widgets.</li>
+</ul>
+<h4><code>UI/Born2FlapUIBridge.{h,cpp}</code> - Brain bridge</h4>
+<ul>
+<li><code>HandleBrainAction</code> - dispatches UMGHAML actions into the game.</li>
+</ul>
+<h4><code>UI/Born2FlapTuning.h</code> - tuning metadata</h4>
+<ul>
+<li><code>born2flap::tuning::ETuningField</code> and <code>Rows[]</code> - the slider/field table; <code>ToDisplayValue</code>/<code>FromDisplayValue</code> unit conversions (kg.cm, s/60deg, grams).</li>
+</ul>
+<h4><code>Racing/Born2FlapSpirit.{h,cpp}</code> + <code>Born2FlapRacing</code></h4>
+<ul>
+<li><code>FB2FSpiritRecording</code> (with <code>BirdModel</code>) and <code>SetupSpirit</code> - replay ghosts that rebuild the correct bird model, grayed-out and translucent.</li>
+</ul>
+<hr/>
+<h2>Unreal Engine C++ - symbol reference</h2>
+<blockquote>
+<p>Auto-generated by Tools/gen_code_reference.py - do not edit by hand.</p>
+</blockquote>
+<p><strong>76 files / 1630 symbols</strong></p>
+<h3><code>Born2Flap\Audio\Born2FlapAeroAudio.h</code></h3>
+<ul>
+<li><code>FTelemetry</code> - <em>class</em> (line 22)</li>
+<li><code>FPerspective</code> - <em>class</em> (line 53)</li>
+<li><code>std::max</code> - <em>method</em> (line 56)</li>
+<li><code>std::sin</code> - <em>method</em> (line 60)</li>
+<li><code>std::pow</code> - <em>method</em> (line 80)</li>
+<li><code>std::fabs</code> - <em>method</em> (line 91)</li>
+</ul>
+<h3><code>Born2Flap\Audio\Born2FlapAudioSynth.cpp</code></h3>
+<ul>
+<li><code>UBorn2FlapAudioSynth::UBorn2FlapAudioSynth</code> - <em>method</em> (line 5)</li>
+<li><code>UBorn2FlapAudioSynth::SetVoiceParams</code> - <em>method</em> (line 12)</li>
+<li><code>UBorn2FlapAudioSynth::Init</code> - <em>method</em> (line 18)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 20)</li>
+<li><code>UBorn2FlapAudioSynth::OnGenerateAudio</code> - <em>method</em> (line 25)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 29)</li>
+<li><code>FMath::IsFinite</code> - <em>method</em> (line 49)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 51)</li>
+<li><code>UBorn2FlapAudioSynth::CheckRenderedAudio</code> - <em>method</em> (line 57)</li>
+<li><code>FMath::Sqrt</code> - <em>method</em> (line 60)</li>
+</ul>
+<h3><code>Born2Flap\Audio\Born2FlapAudioSynth.h</code></h3>
+<ul>
+<li><code>UBorn2FlapAudioSynth</code> - <em>class</em> (line 18)</li>
+</ul>
+<h3><code>Born2Flap\Audio\Born2FlapSoundscape.cpp</code></h3>
+<ul>
+<li><code>ABorn2FlapSoundscape::ABorn2FlapSoundscape</code> - <em>method</em> (line 9)</li>
+<li><code>ABorn2FlapSoundscape::BeginPlay</code> - <em>method</em> (line 29)</li>
+<li><code>Super::BeginPlay</code> - <em>method</em> (line 31)</li>
+<li><code>ABorn2FlapSoundscape::Tick</code> - <em>method</em> (line 45)</li>
+<li><code>Super::Tick</code> - <em>method</em> (line 47)</li>
+<li><code>UGameplayStatics::GetPlayerCameraManager</code> - <em>method</em> (line 49)</li>
+<li><code>Born2FlapWeather::Profile</code> - <em>method</em> (line 51)</li>
+<li><code>Born2FlapWeather::DayTime</code> - <em>method</em> (line 52)</li>
+<li><code>UGameplayStatics::GetPlayerPawn</code> - <em>method</em> (line 55)</li>
+<li><code>FMath::FInterpTo</code> - <em>method</em> (line 57)</li>
+<li><code>Born2FlapSurf::Shore</code> - <em>method</em> (line 64)</li>
+<li><code>FMath::Sqrt</code> - <em>method</em> (line 65)</li>
+<li><code>FMath::Exp</code> - <em>method</em> (line 66)</li>
+<li><code>Born2FlapSurf::Wash</code> - <em>method</em> (line 67)</li>
+<li><code>ABorn2FlapSoundscape::ValidateAudio</code> - <em>method</em> (line 84)</li>
+</ul>
+<h3><code>Born2Flap\Audio\Born2FlapSoundscape.h</code></h3>
+<ul>
+<li><code>UAudioComponent</code> - <em>class</em> (line 5)</li>
+<li><code>USoundWave</code> - <em>class</em> (line 6)</li>
+<li><code>ABorn2FlapSoundscape</code> - <em>class</em> (line 8)</li>
+</ul>
+<h3><code>Born2Flap\Born2Flap.cpp</code></h3>
+<ul>
+<li><code>FPlatformProcess::Sleep</code> - <em>method</em> (line 46)</li>
+<li><code>SBorn2FlapLoadingBar</code> - <em>class</em> (line 57)</li>
+<li><code>theme::ACCENT</code> - <em>method</em> (line 61)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 82)</li>
+<li><code>FCoreStyle::Get</code> - <em>method</em> (line 84)</li>
+<li><code>FSlateDrawElement::MakeBox</code> - <em>method</em> (line 87)</li>
+<li><code>FMath::Fractional</code> - <em>method</em> (line 93)</li>
+<li><code>FSlateDrawElement::MakeBox</code> - <em>method</em> (line 96)</li>
+<li><code>FBorn2FlapModule</code> - <em>class</em> (line 118)</li>
+<li><code>FDefaultGameModuleImpl::StartupModule</code> - <em>method</em> (line 125)</li>
+<li><code>FDefaultGameModuleImpl::ShutdownModule</code> - <em>method</em> (line 135)</li>
+<li><code>SConstraintCanvas::Slot</code> - <em>method</em> (line 178)</li>
+<li><code>SConstraintCanvas::Slot</code> - <em>method</em> (line 184)</li>
+<li><code>FText::FromString</code> - <em>method</em> (line 189)</li>
+<li><code>FCoreStyle::GetDefaultFontStyle</code> - <em>method</em> (line 190)</li>
+<li><code>theme::FG</code> - <em>method</em> (line 192)</li>
+<li><code>SConstraintCanvas::Slot</code> - <em>method</em> (line 194)</li>
+<li><code>IStreamingManager::Get</code> - <em>method</em> (line 212)</li>
+<li><code>FBorn2FlapModule::PlayLoadingScreen</code> - <em>method</em> (line 230)</li>
+</ul>
+<h3><code>Born2Flap\Flight\Born2FlapDesktopTest.cpp</code></h3>
+<ul>
+<li><code>ABorn2FlapFlightPawn::CheckDesktopInputTest</code> - <em>method</em> (line 20)</li>
+<li><code>FMath::FloorToInt</code> - <em>method</em> (line 24)</li>
+<li><code>FInputKeyEventArgs::CreateSimulated</code> - <em>method</em> (line 26)</li>
+<li><code>FInputKeyEventArgs::CreateSimulated</code> - <em>method</em> (line 29)</li>
+<li><code>FMath::Abs</code> - <em>method</em> (line 31)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 34)</li>
+<li><code>UTexture2D::CreateTransient</code> - <em>method</em> (line 36)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 86)</li>
+<li><code>FScreenshotRequest::RequestScreenshot</code> - <em>method</em> (line 87)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 88)</li>
+<li><code>FScreenshotRequest::RequestScreenshot</code> - <em>method</em> (line 89)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 90)</li>
+<li><code>FScreenshotRequest::RequestScreenshot</code> - <em>method</em> (line 91)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 92)</li>
+<li><code>FScreenshotRequest::RequestScreenshot</code> - <em>method</em> (line 93)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 119)</li>
+<li><code>FTSTicker::GetCoreTicker</code> - <em>method</em> (line 120)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 131)</li>
+<li><code>FTSTicker::GetCoreTicker</code> - <em>method</em> (line 139)</li>
+<li><code>FScreenshotRequest::RequestScreenshot</code> - <em>method</em> (line 140)</li>
+<li><code>FTSTicker::GetCoreTicker</code> - <em>method</em> (line 143)</li>
+<li><code>FPaths::ProjectSavedDir</code> - <em>method</em> (line 150)</li>
+<li><code>FMath::Abs</code> - <em>method</em> (line 154)</li>
+<li><code>FPlatformMisc::RequestExitWithStatus</code> - <em>method</em> (line 156)</li>
+<li><code>FPlatformMisc::RequestExitWithStatus</code> - <em>method</em> (line 163)</li>
+</ul>
+<h3><code>Born2Flap\Flight\Born2FlapFlightCamera.cpp</code></h3>
+<ul>
+<li><code>ABorn2FlapFlightPawn::RememberLanding</code> - <em>method</em> (line 10)</li>
+<li><code>ABorn2FlapFlightPawn::MoveWalker</code> - <em>method</em> (line 28)</li>
+<li><code>FCollisionShape::MakeCapsule</code> - <em>method</em> (line 41)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 44)</li>
+<li><code>ABorn2FlapFlightPawn::UpdateLandingCamera</code> - <em>method</em> (line 55)</li>
+<li><code>FVector::DistSquared</code> - <em>method</em> (line 68)</li>
+<li><code>ABorn2FlapFlightPawn::ToggleGroundView</code> - <em>method</em> (line 75)</li>
+<li><code>ABorn2FlapFlightPawn::ToggleFpvView</code> - <em>method</em> (line 81)</li>
+<li><code>ABorn2FlapFlightPawn::GetCameraLabel</code> - <em>method</em> (line 87)</li>
+<li><code>ABorn2FlapFlightPawn::CalcCamera</code> - <em>method</em> (line 91)</li>
+<li><code>FMath::RInterpTo</code> - <em>method</em> (line 99)</li>
+<li><code>FMath::PerlinNoise1D</code> - <em>method</em> (line 101)</li>
+<li><code>FVector::Distance</code> - <em>method</em> (line 106)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 107)</li>
+<li><code>FMath::FInterpTo</code> - <em>method</em> (line 108)</li>
+<li><code>ABorn2FlapFlightPawn::CheckFlightCameras</code> - <em>method</em> (line 132)</li>
+<li><code>FVector::Distance</code> - <em>method</em> (line 142)</li>
+<li><code>FVector::DotProduct</code> - <em>method</em> (line 143)</li>
+<li><code>FVector::Distance</code> - <em>method</em> (line 147)</li>
+<li><code>FVector::DotProduct</code> - <em>method</em> (line 148)</li>
+<li><code>FVector::DotProduct</code> - <em>method</em> (line 152)</li>
+<li><code>FMath::Abs</code> - <em>method</em> (line 153)</li>
+<li><code>FVector::Distance</code> - <em>method</em> (line 160)</li>
+<li><code>FVector::Dist2D</code> - <em>method</em> (line 163)</li>
+<li><code>FVector::Distance</code> - <em>method</em> (line 164)</li>
+</ul>
+<h3><code>Born2Flap\Flight\Born2FlapFlightPawn.cpp</code></h3>
+<ul>
+<li><code>FMath::IsFinite</code> - <em>method</em> (line 39)</li>
+<li><code>FPanelKeyInputProcessor</code> - <em>class</em> (line 47)</li>
+<li><code>keybinds::Get</code> - <em>method</em> (line 54)</li>
+<li><code>keybinds::Get</code> - <em>method</em> (line 55)</li>
+<li><code>ABorn2FlapFlightPawn::ABorn2FlapFlightPawn</code> - <em>method</em> (line 64)</li>
+<li><code>ABorn2FlapFlightPawn::~ABorn2FlapFlightPawn</code> - <em>method</em> (line 162)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 169)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 170)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 171)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 172)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 173)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 174)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 175)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 176)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 177)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 178)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 179)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 180)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 181)</li>
+<li><code>ABorn2FlapFlightPawn::GetTuning</code> - <em>method</em> (line 186)</li>
+<li><code>ABorn2FlapFlightPawn::SetTuning</code> - <em>method</em> (line 206)</li>
+<li><code>ABorn2FlapFlightPawn::ApplyTuning</code> - <em>method</em> (line 228)</li>
+<li><code>ABorn2FlapFlightPawn::ApplyBodyMass</code> - <em>method</em> (line 236)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 242)</li>
+<li><code>ABorn2FlapFlightPawn::BuildGeometry</code> - <em>method</em> (line 249)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 285)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 287)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 294)</li>
+<li><code>ABorn2FlapFlightPawn::DefaultBirdModel</code> - <em>method</em> (line 298)</li>
+<li><code>ABorn2FlapFlightPawn::BeginPlay</code> - <em>method</em> (line 310)</li>
+<li><code>Super::BeginPlay</code> - <em>method</em> (line 312)</li>
+<li><code>FSlateApplication::IsInitialized</code> - <em>method</em> (line 316)</li>
+<li><code>FSlateApplication::Get</code> - <em>method</em> (line 317)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 360)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 361)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 362)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 363)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 364)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 367)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 373)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 432)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 443)</li>
+<li><code>FParse::Value</code> - <em>method</em> (line 449)</li>
+<li><code>FParse::Value</code> - <em>method</em> (line 450)</li>
+<li><code>ABorn2FlapFlightPawn::SetWingPaint</code> - <em>method</em> (line 460)</li>
+<li><code>ABorn2FlapFlightPawn::ResetFlight</code> - <em>method</em> (line 467)</li>
+<li><code>ABorn2FlapFlightPawn::GetAltitude</code> - <em>method</em> (line 502)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 507)</li>
+<li><code>ABorn2FlapFlightPawn::GetSpeed</code> - <em>method</em> (line 509)</li>
+<li><code>ABorn2FlapFlightPawn::GetClimbRate</code> - <em>method</em> (line 513)</li>
+<li><code>ABorn2FlapFlightPawn::OnBodyHit</code> - <em>method</em> (line 517)</li>
+<li><code>ABorn2FlapFlightPawn::SweepWingColliders</code> - <em>method</em> (line 525)</li>
+<li><code>FRotationMatrix::MakeFromZ</code> - <em>method</em> (line 566)</li>
+<li><code>FCollisionShape::MakeCapsule</code> - <em>method</em> (line 567)</li>
+<li><code>FVector::DotProduct</code> - <em>method</em> (line 615)</li>
+<li><code>FMath::Min</code> - <em>method</em> (line 618)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 624)</li>
+<li><code>FVector::DotProduct</code> - <em>method</em> (line 626)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 633)</li>
+<li><code>ABorn2FlapFlightPawn::LaunchFlight</code> - <em>method</em> (line 640)</li>
+<li><code>ABorn2FlapFlightPawn::GetFlightStatus</code> - <em>method</em> (line 659)</li>
+<li><code>I18n::T</code> - <em>method</em> (line 663)</li>
+<li><code>I18n::T</code> - <em>method</em> (line 665)</li>
+<li><code>I18n::T</code> - <em>method</em> (line 667)</li>
+<li><code>I18n::T</code> - <em>method</em> (line 669)</li>
+<li><code>I18n::T</code> - <em>method</em> (line 671)</li>
+<li><code>I18n::T</code> - <em>method</em> (line 672)</li>
+<li><code>ABorn2FlapFlightPawn::SetBlindFlight</code> - <em>method</em> (line 675)</li>
+<li><code>ABorn2FlapFlightPawn::StepMath</code> - <em>method</em> (line 682)</li>
+<li><code>FMath::SmoothStep</code> - <em>method</em> (line 695)</li>
+<li><code>Born2FlapWind::Sample</code> - <em>method</em> (line 697)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 699)</li>
+<li><code>FMath::Min</code> - <em>method</em> (line 709)</li>
+<li><code>FMath::IsFinite</code> - <em>method</em> (line 732)</li>
+<li><code>FMath::Abs</code> - <em>method</em> (line 733)</li>
+<li><code>ABorn2FlapFlightPawn::UpdateAeroAudio</code> - <em>method</em> (line 773)</li>
+<li><code>Born2FlapWind::Sample</code> - <em>method</em> (line 781)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 787)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 788)</li>
+<li><code>FMath::Abs</code> - <em>method</em> (line 792)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 817)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 824)</li>
+<li><code>FMath::Atan2</code> - <em>method</em> (line 827)</li>
+<li><code>FVector::DotProduct</code> - <em>method</em> (line 828)</li>
+<li><code>aeroaudio::Mix</code> - <em>method</em> (line 831)</li>
+<li><code>aeroaudio::VoiceNames</code> - <em>method</em> (line 832)</li>
+<li><code>aeroaudio::GetNum</code> - <em>method</em> (line 837)</li>
+<li><code>aeroaudio::SetNum</code> - <em>method</em> (line 845)</li>
+<li><code>ABorn2FlapFlightPawn::Tick</code> - <em>method</em> (line 852)</li>
+<li><code>Super::Tick</code> - <em>method</em> (line 854)</li>
+<li><code>keybinds::Get</code> - <em>method</em> (line 874)</li>
+<li><code>keybinds::Get</code> - <em>method</em> (line 875)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 902)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 904)</li>
+<li><code>FPlatformMisc::RequestExitWithStatus</code> - <em>method</em> (line 909)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 924)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 925)</li>
+<li><code>DesktopInput::KeyboardThrottle</code> - <em>method</em> (line 931)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 982)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 986)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 997)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 1009)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 1062)</li>
+<li><code>FScreenshotRequest::RequestScreenshot</code> - <em>method</em> (line 1063)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 1075)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 1127)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 1131)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 1145)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 1149)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 1168)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 1169)</li>
+<li><code>ABorn2FlapFlightPawn::UpdateWindMotes</code> - <em>method</em> (line 1219)</li>
+<li><code>Born2FlapWind::Sample</code> - <em>method</em> (line 1229)</li>
+<li><code>ABorn2FlapFlightPawn::CheckFlightTest</code> - <em>method</em> (line 1247)</li>
+<li><code>FMath::Abs</code> - <em>method</em> (line 1251)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 1252)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 1253)</li>
+<li><code>FPlatformMisc::RequestExitWithStatus</code> - <em>method</em> (line 1261)</li>
+<li><code>FMath::Min</code> - <em>method</em> (line 1271)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 1272)</li>
+<li><code>FPlatformMisc::RequestExitWithStatus</code> - <em>method</em> (line 1285)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 1289)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 1290)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 1298)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 1300)</li>
+<li><code>FMath::Min</code> - <em>method</em> (line 1315)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 1316)</li>
+<li><code>FMath::FindDeltaAngleDegrees</code> - <em>method</em> (line 1323)</li>
+<li><code>FPlatformMisc::RequestExitWithStatus</code> - <em>method</em> (line 1345)</li>
+<li><code>FPlatformMisc::RequestExitWithStatus</code> - <em>method</em> (line 1365)</li>
+</ul>
+<h3><code>Born2Flap\Flight\Born2FlapFlightPawn.h</code></h3>
+<ul>
+<li><code>UBoxComponent</code> - <em>class</em> (line 10)</li>
+<li><code>USphereComponent</code> - <em>class</em> (line 11)</li>
+<li><code>UCapsuleComponent</code> - <em>class</em> (line 12)</li>
+<li><code>UBorn2FlapWingMesh</code> - <em>class</em> (line 13)</li>
+<li><code>UStaticMeshComponent</code> - <em>class</em> (line 14)</li>
+<li><code>UInstancedStaticMeshComponent</code> - <em>class</em> (line 15)</li>
+<li><code>USceneComponent</code> - <em>class</em> (line 16)</li>
+<li><code>USpringArmComponent</code> - <em>class</em> (line 17)</li>
+<li><code>UCameraComponent</code> - <em>class</em> (line 18)</li>
+<li><code>UBorn2FlapAudioSynth</code> - <em>class</em> (line 19)</li>
+<li><code>ABorn2FlapFlightSettings</code> - <em>class</em> (line 20)</li>
+<li><code>ABorn2FlapPoiOverlay</code> - <em>class</em> (line 21)</li>
+<li><code>IInputProcessor</code> - <em>class</em> (line 22)</li>
+<li><code>ETuningField</code> - <em>enum</em> (line 25)</li>
+<li><code>ABorn2FlapFlightPawn</code> - <em>class</em> (line 33)</li>
+<li><code>FMath::IsFinite</code> - <em>method</em> (line 58)</li>
+<li><code>FMath::IsFinite</code> - <em>method</em> (line 61)</li>
+<li><code>FMath::IsFinite</code> - <em>method</em> (line 65)</li>
+<li><code>FMath::IsFinite</code> - <em>method</em> (line 103)</li>
+<li><code>FMath::IsFinite</code> - <em>method</em> (line 105)</li>
+<li><code>FMath::IsFinite</code> - <em>method</em> (line 111)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 123)</li>
+<li><code>FMath::IsFinite</code> - <em>method</em> (line 126)</li>
+</ul>
+<h3><code>Born2Flap\Flight\Born2FlapFlightPreferences.cpp</code></h3>
+<ul>
+<li><code>FPaths::ProjectSavedDir</code> - <em>method</em> (line 23)</li>
+<li><code>ABorn2FlapFlightPawn::LoadFlightPreferences</code> - <em>method</em> (line 28)</li>
+<li><code>FMath::IsFinite</code> - <em>method</em> (line 35)</li>
+<li><code>FMath::IsFinite</code> - <em>method</em> (line 38)</li>
+<li><code>FMath::IsFinite</code> - <em>method</em> (line 41)</li>
+<li><code>FMath::IsFinite</code> - <em>method</em> (line 45)</li>
+<li><code>FMath::IsFinite</code> - <em>method</em> (line 48)</li>
+<li><code>FMath::IsFinite</code> - <em>method</em> (line 50)</li>
+<li><code>FMath::IsFinite</code> - <em>method</em> (line 53)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 57)</li>
+<li><code>FMath::IsFinite</code> - <em>method</em> (line 58)</li>
+<li><code>tuning::Key</code> - <em>method</em> (line 64)</li>
+<li><code>ABorn2FlapFlightPawn::SaveFlightPreferences</code> - <em>method</em> (line 73)</li>
+<li><code>IFileManager::Get</code> - <em>method</em> (line 77)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 90)</li>
+<li><code>tuning::Key</code> - <em>method</em> (line 94)</li>
+<li><code>ABorn2FlapFlightPawn::SetMouseGain</code> - <em>method</em> (line 98)</li>
+<li><code>FMath::IsFinite</code> - <em>method</em> (line 100)</li>
+<li><code>ABorn2FlapFlightPawn::OpenFlightSettings</code> - <em>method</em> (line 103)</li>
+<li><code>ABorn2FlapFlightPawn::CloseFlightSettings</code> - <em>method</em> (line 149)</li>
+<li><code>ABorn2FlapFlightPawn::OpenPoiOverlay</code> - <em>method</em> (line 171)</li>
+<li><code>ABorn2FlapFlightPawn::ClosePoiOverlay</code> - <em>method</em> (line 208)</li>
+<li><code>ABorn2FlapFlightPawn::SelectPoi</code> - <em>method</em> (line 228)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 231)</li>
+<li><code>ABorn2FlapFlightPawn::SetReplaySpiritsEnabled</code> - <em>method</em> (line 234)</li>
+<li><code>UGameplayStatics::GetActorOfClass</code> - <em>method</em> (line 239)</li>
+<li><code>ABorn2FlapFlightPawn::DeleteReplaySpirits</code> - <em>method</em> (line 244)</li>
+<li><code>UGameplayStatics::GetActorOfClass</code> - <em>method</em> (line 247)</li>
+<li><code>ABorn2FlapFlightPawn::EndPlay</code> - <em>method</em> (line 252)</li>
+<li><code>FSlateApplication::IsInitialized</code> - <em>method</em> (line 256)</li>
+<li><code>FSlateApplication::Get</code> - <em>method</em> (line 257)</li>
+<li><code>Super::EndPlay</code> - <em>method</em> (line 259)</li>
+</ul>
+<h3><code>Born2Flap\Flight\Born2FlapRavenCrow.cpp</code></h3>
+<ul>
+<li><code>FShardMesh</code> - <em>class</em> (line 12)</li>
+<li><code>EMode</code> - <em>enum</em> (line 15)</li>
+<li><code>FVector::CrossProduct</code> - <em>method</em> (line 31)</li>
+<li><code>FMath::Lerp</code> - <em>method</em> (line 100)</li>
+<li><code>Born2FlapRaven::Build</code> - <em>method</em> (line 150)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 160)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 198)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 200)</li>
+<li><code>FMath::Tan</code> - <em>method</em> (line 234)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 237)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 238)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 240)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 246)</li>
+<li><code>ABorn2FlapFlightPawn::BuildRavenCrow</code> - <em>method</em> (line 250)</li>
+<li><code>Born2FlapRaven::Build</code> - <em>method</em> (line 252)</li>
+<li><code>Born2FlapRaven::Build</code> - <em>method</em> (line 253)</li>
+<li><code>ABorn2FlapFlightPawn::SelectBirdModel</code> - <em>method</em> (line 256)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 258)</li>
+</ul>
+<h3><code>Born2Flap\Flight\Born2FlapRavenMesh.h</code></h3>
+<ul>
+<li><code>AActor</code> - <em>class</em> (line 4)</li>
+<li><code>USceneComponent</code> - <em>class</em> (line 5)</li>
+</ul>
+<h3><code>Born2Flap\Flight\Born2FlapTuning.h</code></h3>
+<ul>
+<li><code>FRow</code> - <em>class</em> (line 49)</li>
+</ul>
+<h3><code>Born2Flap\Flight\Born2FlapWingMesh.cpp</code></h3>
+<ul>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 46)</li>
+<li><code>FMath::FloorToInt</code> - <em>method</em> (line 47)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 49)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 50)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 51)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 52)</li>
+<li><code>UBorn2FlapWingMesh::InitializeWing</code> - <em>method</em> (line 65)</li>
+<li><code>FMath::Lerp</code> - <em>method</em> (line 92)</li>
+<li><code>FMath::Sin</code> - <em>method</em> (line 95)</li>
+<li><code>FMath::Lerp</code> - <em>method</em> (line 96)</li>
+<li><code>FMath::Sqrt</code> - <em>method</em> (line 104)</li>
+<li><code>FMath::DegreesToRadians</code> - <em>method</em> (line 105)</li>
+<li><code>FMath::Cos</code> - <em>method</em> (line 106)</li>
+<li><code>UBorn2FlapWingMesh::ApplyShape</code> - <em>method</em> (line 119)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 121)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 126)</li>
+<li><code>FMath::Lerp</code> - <em>method</em> (line 127)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 130)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 137)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 144)</li>
+<li><code>FMath::Cos</code> - <em>method</em> (line 153)</li>
+<li><code>FVector::CrossProduct</code> - <em>method</em> (line 162)</li>
+<li><code>FVector::VectorPlaneProject</code> - <em>method</em> (line 168)</li>
+<li><code>UBorn2FlapWingMesh::SetPaintTexture</code> - <em>method</em> (line 172)</li>
+<li><code>UBorn2FlapWingMesh::HasValidDeformation</code> - <em>method</em> (line 176)</li>
+<li><code>UBorn2FlapWingMesh::GetWingTipLocal</code> - <em>method</em> (line 184)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 192)</li>
+<li><code>FMath::Abs</code> - <em>method</em> (line 195)</li>
+<li><code>UBorn2FlapWingMesh::GetWingRootLocal</code> - <em>method</em> (line 198)</li>
+<li><code>FMath::Abs</code> - <em>method</em> (line 207)</li>
+</ul>
+<h3><code>Born2Flap\Flight\Born2FlapWingMesh.h</code></h3>
+<ul>
+<li><code>UBorn2FlapWingMesh</code> - <em>class</em> (line 9)</li>
+</ul>
+<h3><code>Born2Flap\Game\Born2FlapGameMode.cpp</code></h3>
+<ul>
+<li><code>FMenuKeyInputProcessor</code> - <em>class</em> (line 62)</li>
+<li><code>FMenuWorld</code> - <em>class</em> (line 93)</li>
+<li><code>ABorn2FlapGameMode::ABorn2FlapGameMode</code> - <em>method</em> (line 105)</li>
+<li><code>ABorn2FlapFlightPawn::StaticClass</code> - <em>method</em> (line 107)</li>
+<li><code>ABorn2FlapHUD::StaticClass</code> - <em>method</em> (line 108)</li>
+<li><code>ABorn2FlapGameMode::InitGame</code> - <em>method</em> (line 111)</li>
+<li><code>Super::InitGame</code> - <em>method</em> (line 113)</li>
+<li><code>FParse::Value</code> - <em>method</em> (line 116)</li>
+<li><code>UGameplayStatics::ParseOption</code> - <em>method</em> (line 118)</li>
+<li><code>I18n::SetLocale</code> - <em>method</em> (line 120)</li>
+<li><code>UGameplayStatics::ParseOption</code> - <em>method</em> (line 122)</li>
+<li><code>FParse::Value</code> - <em>method</em> (line 124)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 127)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 128)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 129)</li>
+<li><code>FApp::IsUnattended</code> - <em>method</em> (line 138)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 151)</li>
+<li><code>UGameplayStatics::ParseOption</code> - <em>method</em> (line 152)</li>
+<li><code>FApp::IsUnattended</code> - <em>method</em> (line 154)</li>
+<li><code>UGameplayStatics::ParseOption</code> - <em>method</em> (line 155)</li>
+<li><code>UGameplayStatics::ParseOption</code> - <em>method</em> (line 156)</li>
+<li><code>UGameplayStatics::ParseOption</code> - <em>method</em> (line 157)</li>
+<li><code>FCString::Atoi</code> - <em>method</em> (line 158)</li>
+<li><code>FParse::Value</code> - <em>method</em> (line 159)</li>
+<li><code>FParse::Value</code> - <em>method</em> (line 160)</li>
+<li><code>Born2FlapWeather::Validate</code> - <em>method</em> (line 163)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 164)</li>
+<li><code>UGameplayStatics::ParseOption</code> - <em>method</em> (line 165)</li>
+<li><code>ABorn2FlapGameMode::RestartPlayerAtPlayerStart</code> - <em>method</em> (line 172)</li>
+<li><code>Super::RestartPlayerAtTransform</code> - <em>method</em> (line 181)</li>
+<li><code>Super::RestartPlayerAtPlayerStart</code> - <em>method</em> (line 184)</li>
+<li><code>ABorn2FlapGameMode::GroundHeight</code> - <em>method</em> (line 186)</li>
+<li><code>FMath::Abs</code> - <em>method</em> (line 192)</li>
+<li><code>Born2FlapBay::Contains</code> - <em>method</em> (line 200)</li>
+<li><code>FMath::Abs</code> - <em>method</em> (line 201)</li>
+<li><code>FMath::Abs</code> - <em>method</em> (line 202)</li>
+<li><code>FMath::Sin</code> - <em>method</em> (line 208)</li>
+<li><code>FMath::Sin</code> - <em>method</em> (line 209)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 210)</li>
+<li><code>FMath::Square</code> - <em>method</em> (line 213)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 214)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 216)</li>
+<li><code>ABorn2FlapValley::GroundHeight</code> - <em>method</em> (line 218)</li>
+<li><code>ABorn2FlapGameMode::IsWater</code> - <em>method</em> (line 220)</li>
+<li><code>ABorn2FlapValley::IsWater</code> - <em>method</em> (line 222)</li>
+<li><code>ABorn2FlapGameMode::WaterHeight</code> - <em>method</em> (line 224)</li>
+<li><code>ABorn2FlapGameMode::WindAt</code> - <em>method</em> (line 225)</li>
+<li><code>Born2FlapWeather::Wind</code> - <em>method</em> (line 227)</li>
+<li><code>ABorn2FlapGameMode::BeginPlay</code> - <em>method</em> (line 229)</li>
+<li><code>Super::BeginPlay</code> - <em>method</em> (line 231)</li>
+<li><code>FSlateApplication::IsInitialized</code> - <em>method</em> (line 239)</li>
+<li><code>FSlateApplication::Get</code> - <em>method</em> (line 240)</li>
+<li><code>Born2FlapWeather::Load</code> - <em>method</em> (line 251)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 389)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 391)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 393)</li>
+<li><code>FMath::Abs</code> - <em>method</em> (line 431)</li>
+<li><code>FMath::Cos</code> - <em>method</em> (line 440)</li>
+<li><code>ABorn2FlapGameMode::UpdateGateColors</code> - <em>method</em> (line 444)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 454)</li>
+<li><code>ABorn2FlapGameMode::HasRadioTrack</code> - <em>method</em> (line 480)</li>
+<li><code>ABorn2FlapGameMode::AddPoi</code> - <em>method</em> (line 482)</li>
+<li><code>ABorn2FlapGameMode::AddPoi</code> - <em>method</em> (line 496)</li>
+<li><code>ABorn2FlapGameMode::PopulatePOIs</code> - <em>method</em> (line 505)</li>
+<li><code>ABorn2FlapGameMode::GetInitialPoiIndex</code> - <em>method</em> (line 560)</li>
+<li><code>ABorn2FlapGameMode::Tick</code> - <em>method</em> (line 571)</li>
+<li><code>Super::Tick</code> - <em>method</em> (line 573)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 574)</li>
+<li><code>UGameplayStatics::ParseOption</code> - <em>method</em> (line 576)</li>
+<li><code>FPlatformMisc::RequestExit</code> - <em>method</em> (line 580)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 591)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 595)</li>
+<li><code>UGameplayStatics::GetPlayerController</code> - <em>method</em> (line 623)</li>
+<li><code>UGameplayStatics::GetPlayerPawn</code> - <em>method</em> (line 627)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 650)</li>
+<li><code>UGameplayStatics::GetPlayerController</code> - <em>method</em> (line 653)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 654)</li>
+<li><code>FScreenshotRequest::RequestScreenshot</code> - <em>method</em> (line 680)</li>
+<li><code>FMath::Abs</code> - <em>method</em> (line 694)</li>
+<li><code>FMath::Abs</code> - <em>method</em> (line 698)</li>
+<li><code>FMath::Abs</code> - <em>method</em> (line 712)</li>
+<li><code>FMath::Abs</code> - <em>method</em> (line 723)</li>
+<li><code>Born2FlapBay::Height</code> - <em>method</em> (line 730)</li>
+<li><code>FMath::Abs</code> - <em>method</em> (line 732)</li>
+<li><code>FMath::Abs</code> - <em>method</em> (line 733)</li>
+<li><code>Born2FlapBay::WindExposure</code> - <em>method</em> (line 735)</li>
+<li><code>Born2FlapBay::WindExposure</code> - <em>method</em> (line 736)</li>
+<li><code>Born2FlapBay::WindExposure</code> - <em>method</em> (line 737)</li>
+<li><code>FPlatformMisc::RequestExitWithStatus</code> - <em>method</em> (line 750)</li>
+<li><code>UGameplayStatics::GetPlayerController</code> - <em>method</em> (line 759)</li>
+<li><code>UGameplayStatics::GetPlayerPawn</code> - <em>method</em> (line 768)</li>
+<li><code>FVector::Dist</code> - <em>method</em> (line 795)</li>
+<li><code>ABorn2FlapGameMode::ShowMainMenu</code> - <em>method</em> (line 821)</li>
+<li><code>UGameplayStatics::GetPlayerController</code> - <em>method</em> (line 834)</li>
+<li><code>ABorn2FlapGameMode::CloseMainMenu</code> - <em>method</em> (line 860)</li>
+<li><code>UGameplayStatics::GetPlayerController</code> - <em>method</em> (line 882)</li>
+<li><code>ABorn2FlapGameMode::IsBrainActive</code> - <em>method</em> (line 890)</li>
+<li><code>ABorn2FlapGameMode::HandleBrainAction</code> - <em>method</em> (line 895)</li>
+<li><code>UGameplayStatics::GetPlayerPawn</code> - <em>method</em> (line 900)</li>
+<li><code>UGameplayStatics::GetPlayerPawn</code> - <em>method</em> (line 906)</li>
+<li><code>FCString::Atoi</code> - <em>method</em> (line 908)</li>
+<li><code>Born2FlapWeather::WeatherOptions</code> - <em>method</em> (line 922)</li>
+<li><code>Born2FlapWeather::TimeOptions</code> - <em>method</em> (line 923)</li>
+<li><code>FMath::RoundToInt</code> - <em>method</em> (line 924)</li>
+<li><code>Born2FlapWeather::Validate</code> - <em>method</em> (line 928)</li>
+<li><code>Born2FlapWeather::Save</code> - <em>method</em> (line 929)</li>
+<li><code>UGameplayStatics::GetPlayerPawn</code> - <em>method</em> (line 939)</li>
+<li><code>UGameplayStatics::GetPlayerPawn</code> - <em>method</em> (line 947)</li>
+<li><code>UGameplayStatics::GetPlayerPawn</code> - <em>method</em> (line 957)</li>
+<li><code>UGameplayStatics::GetPlayerPawn</code> - <em>method</em> (line 964)</li>
+<li><code>UGameplayStatics::GetPlayerPawn</code> - <em>method</em> (line 971)</li>
+<li><code>UGameplayStatics::GetPlayerPawn</code> - <em>method</em> (line 978)</li>
+<li><code>UGameplayStatics::GetPlayerPawn</code> - <em>method</em> (line 985)</li>
+<li><code>UGameplayStatics::GetPlayerPawn</code> - <em>method</em> (line 992)</li>
+<li><code>UGameplayStatics::GetPlayerPawn</code> - <em>method</em> (line 999)</li>
+<li><code>UGameplayStatics::GetPlayerPawn</code> - <em>method</em> (line 1006)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 1011)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 1012)</li>
+<li><code>UGameplayStatics::GetPlayerPawn</code> - <em>method</em> (line 1015)</li>
+<li><code>FCString::Atoi</code> - <em>method</em> (line 1022)</li>
+<li><code>UGameplayStatics::GetPlayerPawn</code> - <em>method</em> (line 1023)</li>
+<li><code>UGameplayStatics::GetPlayerPawn</code> - <em>method</em> (line 1029)</li>
+<li><code>UGameplayStatics::GetPlayerPawn</code> - <em>method</em> (line 1036)</li>
+<li><code>UGameplayStatics::GetPlayerPawn</code> - <em>method</em> (line 1042)</li>
+<li><code>UGameplayStatics::GetPlayerPawn</code> - <em>method</em> (line 1048)</li>
+<li><code>UGameplayStatics::GetPlayerPawn</code> - <em>method</em> (line 1054)</li>
+<li><code>UGameplayStatics::GetPlayerPawn</code> - <em>method</em> (line 1060)</li>
+<li><code>FCString::Atoi</code> - <em>method</em> (line 1067)</li>
+<li><code>UGameplayStatics::GetPlayerPawn</code> - <em>method</em> (line 1068)</li>
+<li><code>UGameplayStatics::GetPlayerPawn</code> - <em>method</em> (line 1074)</li>
+<li><code>UGameplayStatics::GetPlayerPawn</code> - <em>method</em> (line 1084)</li>
+<li><code>UGameplayStatics::GetPlayerPawn</code> - <em>method</em> (line 1091)</li>
+<li><code>UGameplayStatics::GetPlayerPawn</code> - <em>method</em> (line 1097)</li>
+<li><code>UGameplayStatics::GetPlayerPawn</code> - <em>method</em> (line 1103)</li>
+<li><code>tuning::FromKey</code> - <em>method</em> (line 1108)</li>
+<li><code>UGameplayStatics::GetPlayerPawn</code> - <em>method</em> (line 1111)</li>
+<li><code>UKismetSystemLibrary::QuitGame</code> - <em>method</em> (line 1117)</li>
+<li><code>FEntry</code> - <em>class</em> (line 1120)</li>
+<li><code>Born2FlapWeather::TravelOptions</code> - <em>method</em> (line 1130)</li>
+<li><code>Born2FlapPoi::Catalog</code> - <em>method</em> (line 1133)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 1136)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 1138)</li>
+<li><code>UGameplayStatics::OpenLevel</code> - <em>method</em> (line 1141)</li>
+<li><code>ABorn2FlapGameMode::BuildBrainTelemetry</code> - <em>method</em> (line 1147)</li>
+<li><code>UGameplayStatics::GetPlayerPawn</code> - <em>method</em> (line 1151)</li>
+<li><code>Born2FlapFlightHUD::Refresh</code> - <em>method</em> (line 1163)</li>
+<li><code>tuning::Key</code> - <em>method</em> (line 1187)</li>
+<li><code>I18n::T</code> - <em>method</em> (line 1196)</li>
+<li><code>FString::FromInt</code> - <em>method</em> (line 1198)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 1246)</li>
+<li><code>Born2FlapWeather::WeatherOptions</code> - <em>method</em> (line 1279)</li>
+<li><code>Born2FlapWeather::TimeOptions</code> - <em>method</em> (line 1281)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 1294)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 1298)</li>
+<li><code>FJsonSerializer::Serialize</code> - <em>method</em> (line 1320)</li>
+<li><code>ABorn2FlapGameMode::EndPlay</code> - <em>method</em> (line 1324)</li>
+<li><code>FSlateApplication::IsInitialized</code> - <em>method</em> (line 1326)</li>
+<li><code>FSlateApplication::Get</code> - <em>method</em> (line 1327)</li>
+<li><code>Super::EndPlay</code> - <em>method</em> (line 1329)</li>
+</ul>
+<h3><code>Born2Flap\Game\Born2FlapGameMode.h</code></h3>
+<ul>
+<li><code>UBorn2FlapRadioStation</code> - <em>class</em> (line 8)</li>
+<li><code>ABorn2FlapRadioHUD</code> - <em>class</em> (line 9)</li>
+<li><code>ABorn2FlapSplash</code> - <em>class</em> (line 10)</li>
+<li><code>ABorn2FlapMenu</code> - <em>class</em> (line 11)</li>
+<li><code>ABorn2FlapUIBridge</code> - <em>class</em> (line 12)</li>
+<li><code>AStaticMeshActor</code> - <em>class</em> (line 13)</li>
+<li><code>UMaterialInstanceDynamic</code> - <em>class</em> (line 14)</li>
+<li><code>UTexture2D</code> - <em>class</em> (line 15)</li>
+<li><code>IInputProcessor</code> - <em>class</em> (line 16)</li>
+<li><code>ABorn2FlapGameMode</code> - <em>class</em> (line 19)</li>
+</ul>
+<h3><code>Born2Flap\Game\Born2FlapHUD.cpp</code></h3>
+<ul>
+<li><code>ABorn2FlapHUD::DrawHUD</code> - <em>method</em> (line 16)</li>
+<li><code>Super::DrawHUD</code> - <em>method</em> (line 18)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 19)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 44)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 53)</li>
+<li><code>ABorn2FlapValley::PlaceName</code> - <em>method</em> (line 62)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 64)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 93)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 95)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 100)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 102)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 111)</li>
+<li><code>I18n::T</code> - <em>method</em> (line 112)</li>
+<li><code>I18n::T</code> - <em>method</em> (line 113)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 115)</li>
+<li><code>UGameplayStatics::GetActorOfClass</code> - <em>method</em> (line 121)</li>
+<li><code>ABorn2FlapHUD::DrawMouseIndicator</code> - <em>method</em> (line 144)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 163)</li>
+<li><code>FMath::Atan2</code> - <em>method</em> (line 165)</li>
+<li><code>FMath::DegreesToRadians</code> - <em>method</em> (line 166)</li>
+<li><code>FMath::Cos</code> - <em>method</em> (line 174)</li>
+<li><code>FMath::Cos</code> - <em>method</em> (line 175)</li>
+<li><code>FMath::Cos</code> - <em>method</em> (line 177)</li>
+<li><code>FMath::Cos</code> - <em>method</em> (line 178)</li>
+<li><code>ABorn2FlapHUD::DrawChannels</code> - <em>method</em> (line 182)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 189)</li>
+<li><code>FMath::Min</code> - <em>method</em> (line 201)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 203)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 206)</li>
+<li><code>ABorn2FlapHUD::DrawRcPanel</code> - <em>method</em> (line 211)</li>
+<li><code>FMath::Min</code> - <em>method</em> (line 213)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 214)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 233)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 234)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 237)</li>
+</ul>
+<h3><code>Born2Flap\Game\Born2FlapHUD.h</code></h3>
+<ul>
+<li><code>FBorn2FlapRcController</code> - <em>class</em> (line 5)</li>
+<li><code>ABorn2FlapFlightPawn</code> - <em>class</em> (line 6)</li>
+<li><code>ABorn2FlapRacingManager</code> - <em>class</em> (line 7)</li>
+<li><code>ABorn2FlapHUD</code> - <em>class</em> (line 9)</li>
+</ul>
+<h3><code>Born2Flap\Game\Born2FlapPoi.h</code></h3>
+<ul>
+<li><code>FBorn2FlapPoi</code> - <em>class</em> (line 17)</li>
+<li><code>ABorn2FlapGameMode::PopulatePOIs</code> - <em>method</em> (line 29)</li>
+</ul>
+<h3><code>Born2Flap\Game\Born2FlapPoiBeacon.cpp</code></h3>
+<ul>
+<li><code>ABorn2FlapPoiBeacon::ABorn2FlapPoiBeacon</code> - <em>method</em> (line 8)</li>
+<li><code>ABorn2FlapPoiBeacon::Initialize</code> - <em>method</em> (line 42)</li>
+<li><code>FText::FromString</code> - <em>method</em> (line 45)</li>
+<li><code>ABorn2FlapPoiBeacon::SetSelected</code> - <em>method</em> (line 49)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 58)</li>
+</ul>
+<h3><code>Born2Flap\Game\Born2FlapPoiBeacon.h</code></h3>
+<ul>
+<li><code>UPointLightComponent</code> - <em>class</em> (line 10)</li>
+<li><code>UTextRenderComponent</code> - <em>class</em> (line 11)</li>
+<li><code>ABorn2FlapPoiBeacon</code> - <em>class</em> (line 14)</li>
+</ul>
+<h3><code>Born2Flap\Input\Born2FlapKeybinds.cpp</code></h3>
+<ul>
+<li><code>FPaths::ProjectSavedDir</code> - <em>method</em> (line 13)</li>
+<li><code>FCString::Stricmp</code> - <em>method</em> (line 116)</li>
+<li><code>FCString::Stricmp</code> - <em>method</em> (line 133)</li>
+<li><code>IFileManager::Get</code> - <em>method</em> (line 143)</li>
+<li><code>IFileManager::Get</code> - <em>method</em> (line 161)</li>
+</ul>
+<h3><code>Born2Flap\Input\Born2FlapKeybinds.h</code></h3>
+<ul>
+<li><code>FAction</code> - <em>class</em> (line 16)</li>
+</ul>
+<h3><code>Born2Flap\Input\Born2FlapRcController.cpp</code></h3>
+<ul>
+<li><code>FBorn2FlapRcPlatform</code> - <em>class</em> (line 21)</li>
+<li><code>FBorn2FlapRcController::FBorn2FlapRcController</code> - <em>method</em> (line 31)</li>
+<li><code>FPlatformProcess::UserSettingsDir</code> - <em>method</em> (line 42)</li>
+<li><code>FPaths::ProjectSavedDir</code> - <em>method</em> (line 44)</li>
+<li><code>FPaths::ProjectSavedDir</code> - <em>method</em> (line 46)</li>
+<li><code>IFileManager::Get</code> - <em>method</em> (line 48)</li>
+<li><code>FPaths::GetPath</code> - <em>method</em> (line 49)</li>
+<li><code>FBorn2FlapRcController::~FBorn2FlapRcController</code> - <em>method</em> (line 57)</li>
+<li><code>FBorn2FlapRcController::LoadCalibration</code> - <em>method</em> (line 58)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 65)</li>
+<li><code>FBorn2FlapRcController::SaveCalibration</code> - <em>method</em> (line 80)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 89)</li>
+<li><code>FBorn2FlapRcController::SelectDevice</code> - <em>method</em> (line 101)</li>
+<li><code>FBorn2FlapRcController::AdvanceCalibration</code> - <em>method</em> (line 128)</li>
+<li><code>FMath::Abs</code> - <em>method</em> (line 159)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 167)</li>
+<li><code>FBorn2FlapRcController::TogglePanel</code> - <em>method</em> (line 191)</li>
+<li><code>FBorn2FlapRcController::OpenPanel</code> - <em>method</em> (line 196)</li>
+<li><code>FBorn2FlapRcController::ClosePanel</code> - <em>method</em> (line 201)</li>
+<li><code>FBorn2FlapRcController::NextDevice</code> - <em>method</em> (line 205)</li>
+<li><code>FBorn2FlapRcController::StartCalibration</code> - <em>method</em> (line 220)</li>
+<li><code>FBorn2FlapRcController::CancelCalibration</code> - <em>method</em> (line 233)</li>
+<li><code>FBorn2FlapRcController::ToggleEnabled</code> - <em>method</em> (line 240)</li>
+<li><code>FBorn2FlapRcController::LearnLaunch</code> - <em>method</em> (line 250)</li>
+<li><code>FBorn2FlapRcController::LearnReset</code> - <em>method</em> (line 254)</li>
+<li><code>FBorn2FlapRcController::GetDeviceNames</code> - <em>method</em> (line 258)</li>
+<li><code>FBorn2FlapRcController::Tick</code> - <em>method</em> (line 267)</li>
+<li><code>FMath::Min</code> - <em>method</em> (line 322)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 323)</li>
+<li><code>FApp::HasFocus</code> - <em>method</em> (line 329)</li>
+<li><code>FBorn2FlapRcController::GetStatus</code> - <em>method</em> (line 361)</li>
+<li><code>FBorn2FlapRcController::GetInstruction</code> - <em>method</em> (line 373)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 387)</li>
+<li><code>FBorn2FlapRcController::GetMapping</code> - <em>method</em> (line 391)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 394)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 396)</li>
+<li><code>FBorn2FlapRcController::GetButtons</code> - <em>method</em> (line 398)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 400)</li>
+<li><code>FString::FromInt</code> - <em>method</em> (line 401)</li>
+<li><code>FString::FromInt</code> - <em>method</em> (line 402)</li>
+</ul>
+<h3><code>Born2Flap\Input\Born2FlapRcController.h</code></h3>
+<ul>
+<li><code>APlayerController</code> - <em>class</em> (line 5)</li>
+<li><code>FBorn2FlapRcPlatform</code> - <em>class</em> (line 6)</li>
+<li><code>FBorn2FlapRcController</code> - <em>class</em> (line 9)</li>
+</ul>
+<h3><code>Born2Flap\Math\Born2FlapMathBridge.cpp</code></h3>
+<ul>
+<li><code>FPlatformProcess::GetDllExport</code> - <em>method</em> (line 22)</li>
+<li><code>FBorn2FlapMathBridge::FBorn2FlapMathBridge</code> - <em>method</em> (line 26)</li>
+<li><code>FBorn2FlapMathBridge::~FBorn2FlapMathBridge</code> - <em>method</em> (line 28)</li>
+<li><code>FBorn2FlapMathBridge::Load</code> - <em>method</em> (line 33)</li>
+<li><code>FPaths::Combine</code> - <em>method</em> (line 36)</li>
+<li><code>FPaths::ProjectDir</code> - <em>method</em> (line 37)</li>
+<li><code>FPlatformProcess::GetDllHandle</code> - <em>method</em> (line 43)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 48)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 80)</li>
+<li><code>FBorn2FlapMathBridge::Unload</code> - <em>method</em> (line 120)</li>
+<li><code>FBorn2FlapMathBridge::Step</code> - <em>method</em> (line 144)</li>
+<li><code>FBorn2FlapMathBridge::InjectWindPhaseNoise</code> - <em>method</em> (line 151)</li>
+<li><code>FBorn2FlapMathBridge::Reconfigure</code> - <em>method</em> (line 156)</li>
+<li><code>FBorn2FlapMathBridge::ReadWingShape</code> - <em>method</em> (line 160)</li>
+</ul>
+<h3><code>Born2Flap\Math\Born2FlapMathBridge.h</code></h3>
+<ul>
+<li><code>FBorn2FlapMathBridge</code> - <em>class</em> (line 10)</li>
+</ul>
+<h3><code>Born2Flap\Racing\Born2FlapRacing.cpp</code></h3>
+<ul>
+<li><code>FB2FSpiritRecording::Sample</code> - <em>method</em> (line 23)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 27)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 41)</li>
+<li><code>FQuat::Slerp</code> - <em>method</em> (line 43)</li>
+<li><code>FMath::Lerp</code> - <em>method</em> (line 44)</li>
+<li><code>FMath::Lerp</code> - <em>method</em> (line 45)</li>
+<li><code>FFileHelper::SaveArrayToFile</code> - <em>method</em> (line 74)</li>
+<li><code>FFileHelper::LoadFileToArray</code> - <em>method</em> (line 80)</li>
+<li><code>ABorn2FlapRacingManager::ABorn2FlapRacingManager</code> - <em>method</em> (line 119)</li>
+<li><code>ABorn2FlapRacingManager::BeginPlay</code> - <em>method</em> (line 127)</li>
+<li><code>Super::BeginPlay</code> - <em>method</em> (line 129)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 130)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 131)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 132)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 133)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 134)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 135)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 136)</li>
+<li><code>FPaths::ProjectSavedDir</code> - <em>method</em> (line 141)</li>
+<li><code>IFileManager::Get</code> - <em>method</em> (line 142)</li>
+<li><code>FPaths::ProjectSavedDir</code> - <em>method</em> (line 145)</li>
+<li><code>ABorn2FlapRacingManager::LoadAllSpirits</code> - <em>method</em> (line 151)</li>
+<li><code>IFileManager::Get</code> - <em>method</em> (line 155)</li>
+<li><code>FPaths::GetBaseFilename</code> - <em>method</em> (line 162)</li>
+<li><code>ABorn2FlapRacingManager::TrimToLimit</code> - <em>method</em> (line 177)</li>
+<li><code>IFileManager::Get</code> - <em>method</em> (line 188)</li>
+<li><code>ABorn2FlapRacingManager::Tick</code> - <em>method</em> (line 193)</li>
+<li><code>Super::Tick</code> - <em>method</em> (line 195)</li>
+<li><code>UGameplayStatics::GetPlayerPawn</code> - <em>method</em> (line 200)</li>
+<li><code>ABorn2FlapRacingManager::BeginRound</code> - <em>method</em> (line 219)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 222)</li>
+<li><code>ABorn2FlapRacingManager::RecordFrame</code> - <em>method</em> (line 231)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 245)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 246)</li>
+<li><code>ABorn2FlapRacingManager::EndRound</code> - <em>method</em> (line 250)</li>
+<li><code>FDateTime::Now</code> - <em>method</em> (line 257)</li>
+<li><code>ABorn2FlapRacingManager::SpawnSpirits</code> - <em>method</em> (line 281)</li>
+<li><code>ABorn2FlapRacingManager::SpawnSpirit</code> - <em>method</em> (line 296)</li>
+<li><code>ABorn2FlapSpirit::StaticClass</code> - <em>method</em> (line 300)</li>
+<li><code>ABorn2FlapRacingManager::ClearSpiritActors</code> - <em>method</em> (line 308)</li>
+<li><code>ABorn2FlapRacingManager::SetSpiritsEnabled</code> - <em>method</em> (line 316)</li>
+<li><code>ABorn2FlapRacingManager::DeleteAllSpirits</code> - <em>method</em> (line 330)</li>
+<li><code>IFileManager::Get</code> - <em>method</em> (line 334)</li>
+<li><code>IFileManager::Get</code> - <em>method</em> (line 336)</li>
+<li><code>ABorn2FlapRacingManager::GetRacingStatus</code> - <em>method</em> (line 342)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 345)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 347)</li>
+<li><code>ABorn2FlapRacingManager::GetBestLine</code> - <em>method</em> (line 350)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 353)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 354)</li>
+</ul>
+<h3><code>Born2Flap\Racing\Born2FlapRacing.h</code></h3>
+<ul>
+<li><code>ABorn2FlapFlightPawn</code> - <em>class</em> (line 6)</li>
+<li><code>ABorn2FlapSpirit</code> - <em>class</em> (line 7)</li>
+<li><code>FB2FSpiritFrame</code> - <em>class</em> (line 11)</li>
+<li><code>FB2FSpiritRecording</code> - <em>class</em> (line 20)</li>
+<li><code>ABorn2FlapRacingManager</code> - <em>class</em> (line 48)</li>
+</ul>
+<h3><code>Born2Flap\Racing\Born2FlapSpirit.cpp</code></h3>
+<ul>
+<li><code>ABorn2FlapSpirit::ABorn2FlapSpirit</code> - <em>method</em> (line 9)</li>
+<li><code>ABorn2FlapSpirit::BuildPrototype</code> - <em>method</em> (line 41)</li>
+<li><code>ABorn2FlapFlightPawn::BuildGeometry</code> - <em>method</em> (line 43)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 74)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 76)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 83)</li>
+<li><code>ABorn2FlapSpirit::SetupSpirit</code> - <em>method</em> (line 91)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 97)</li>
+<li><code>Born2FlapRaven::Build</code> - <em>method</em> (line 106)</li>
+<li><code>Born2FlapRaven::Build</code> - <em>method</em> (line 112)</li>
+<li><code>ABorn2FlapSpirit::Advance</code> - <em>method</em> (line 132)</li>
+</ul>
+<h3><code>Born2Flap\Racing\Born2FlapSpirit.h</code></h3>
+<ul>
+<li><code>ABorn2FlapSpirit</code> - <em>class</em> (line 11)</li>
+</ul>
+<h3><code>Born2Flap\UI\Born2FlapAudioEngine.h</code></h3>
+<ul>
+<li><code>FVoice</code> - <em>class</em> (line 33)</li>
+<li><code>FBand</code> - <em>class</em> (line 34)</li>
+<li><code>FAudioEngine</code> - <em>class</em> (line 48)</li>
+<li><code>std::cos</code> - <em>method</em> (line 71)</li>
+<li><code>std::sin</code> - <em>method</em> (line 72)</li>
+<li><code>std::max</code> - <em>method</em> (line 113)</li>
+<li><code>std::abs</code> - <em>method</em> (line 122)</li>
+<li><code>std::sin</code> - <em>method</em> (line 123)</li>
+<li><code>std::cos</code> - <em>method</em> (line 124)</li>
+<li><code>std::sin</code> - <em>method</em> (line 150)</li>
+<li><code>std::pow</code> - <em>method</em> (line 162)</li>
+<li><code>std::min</code> - <em>method</em> (line 163)</li>
+<li><code>std::sin</code> - <em>method</em> (line 167)</li>
+<li><code>std::cos</code> - <em>method</em> (line 185)</li>
+<li><code>std::pow</code> - <em>method</em> (line 186)</li>
+<li><code>std::sin</code> - <em>method</em> (line 193)</li>
+<li><code>std::sin</code> - <em>method</em> (line 194)</li>
+<li><code>std::sin</code> - <em>method</em> (line 202)</li>
+<li><code>std::sin</code> - <em>method</em> (line 211)</li>
+</ul>
+<h3><code>Born2Flap\UI\Born2FlapFlightHUD.cpp</code></h3>
+<ul>
+<li><code>I18n::T</code> - <em>method</em> (line 24)</li>
+<li><code>std::move</code> - <em>method</em> (line 37)</li>
+<li><code>std::move</code> - <em>method</em> (line 38)</li>
+<li><code>std::move</code> - <em>method</em> (line 46)</li>
+<li><code>std::move</code> - <em>method</em> (line 47)</li>
+<li><code>I18n::T</code> - <em>method</em> (line 56)</li>
+<li><code>I18n::T</code> - <em>method</em> (line 57)</li>
+<li><code>I18n::T</code> - <em>method</em> (line 58)</li>
+<li><code>I18n::T</code> - <em>method</em> (line 59)</li>
+<li><code>I18n::T</code> - <em>method</em> (line 60)</li>
+<li><code>ABorn2FlapFlightHUD::ABorn2FlapFlightHUD</code> - <em>method</em> (line 79)</li>
+<li><code>ABorn2FlapFlightHUD::BeginPlay</code> - <em>method</em> (line 84)</li>
+<li><code>Super::BeginPlay</code> - <em>method</em> (line 86)</li>
+<li><code>ABorn2FlapFlightHUD::BuildCockpit</code> - <em>method</em> (line 98)</li>
+<li><code>std::move</code> - <em>method</em> (line 139)</li>
+<li><code>ABorn2FlapFlightHUD::Tick</code> - <em>method</em> (line 146)</li>
+<li><code>Super::Tick</code> - <em>method</em> (line 148)</li>
+<li><code>ABorn2FlapFlightHUD::Refresh</code> - <em>method</em> (line 152)</li>
+<li><code>FMath::IsNearlyEqual</code> - <em>method</em> (line 181)</li>
+<li><code>FMath::IsNearlyEqual</code> - <em>method</em> (line 188)</li>
+<li><code>FMath::IsNearlyEqual</code> - <em>method</em> (line 195)</li>
+<li><code>FMath::IsNearlyEqual</code> - <em>method</em> (line 202)</li>
+<li><code>FMath::IsNearlyEqual</code> - <em>method</em> (line 209)</li>
+<li><code>FMath::Fmod</code> - <em>method</em> (line 218)</li>
+<li><code>FMath::Fmod</code> - <em>method</em> (line 219)</li>
+<li><code>FMath::IsNearlyEqual</code> - <em>method</em> (line 221)</li>
+<li><code>FMath::Fmod</code> - <em>method</em> (line 230)</li>
+<li><code>FMath::Fmod</code> - <em>method</em> (line 231)</li>
+<li><code>FMath::IsNearlyEqual</code> - <em>method</em> (line 232)</li>
+</ul>
+<h3><code>Born2Flap\UI\Born2FlapFlightHUD.h</code></h3>
+<ul>
+<li><code>UBorn2FlapUIRenderer</code> - <em>class</em> (line 18)</li>
+<li><code>ABorn2FlapFlightPawn</code> - <em>class</em> (line 19)</li>
+<li><code>ABorn2FlapFlightHUD</code> - <em>class</em> (line 22)</li>
+</ul>
+<h3><code>Born2Flap\UI\Born2FlapFlightSettings.cpp</code></h3>
+<ul>
+<li><code>std::move</code> - <em>method</em> (line 40)</li>
+<li><code>std::move</code> - <em>method</em> (line 41)</li>
+<li><code>std::move</code> - <em>method</em> (line 58)</li>
+<li><code>FServoPreset</code> - <em>class</em> (line 66)</li>
+<li><code>ABorn2FlapFlightSettings::ABorn2FlapFlightSettings</code> - <em>method</em> (line 79)</li>
+<li><code>ABorn2FlapFlightSettings::Tick</code> - <em>method</em> (line 86)</li>
+<li><code>Super::Tick</code> - <em>method</em> (line 88)</li>
+<li><code>ABorn2FlapFlightSettings::Open</code> - <em>method</em> (line 92)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 103)</li>
+<li><code>FTSTicker::GetCoreTicker</code> - <em>method</em> (line 107)</li>
+<li><code>FTSTicker::GetCoreTicker</code> - <em>method</em> (line 110)</li>
+<li><code>FScreenshotRequest::RequestScreenshot</code> - <em>method</em> (line 111)</li>
+<li><code>ABorn2FlapFlightSettings::BuildTree</code> - <em>method</em> (line 117)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 159)</li>
+<li><code>std::move</code> - <em>method</em> (line 163)</li>
+<li><code>std::move</code> - <em>method</em> (line 174)</li>
+<li><code>std::move</code> - <em>method</em> (line 190)</li>
+<li><code>std::move</code> - <em>method</em> (line 199)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 209)</li>
+<li><code>std::move</code> - <em>method</em> (line 218)</li>
+<li><code>std::move</code> - <em>method</em> (line 225)</li>
+<li><code>std::move</code> - <em>method</em> (line 240)</li>
+<li><code>std::move</code> - <em>method</em> (line 254)</li>
+<li><code>std::move</code> - <em>method</em> (line 270)</li>
+<li><code>std::move</code> - <em>method</em> (line 283)</li>
+<li><code>std::move</code> - <em>method</em> (line 290)</li>
+<li><code>std::move</code> - <em>method</em> (line 306)</li>
+<li><code>tuning::Key</code> - <em>method</em> (line 324)</li>
+<li><code>tuning::ToDisplayValue</code> - <em>method</em> (line 326)</li>
+<li><code>FMath::Pow</code> - <em>method</em> (line 329)</li>
+<li><code>std::move</code> - <em>method</em> (line 332)</li>
+<li><code>std::move</code> - <em>method</em> (line 346)</li>
+<li><code>std::move</code> - <em>method</em> (line 359)</li>
+<li><code>std::move</code> - <em>method</em> (line 370)</li>
+<li><code>std::move</code> - <em>method</em> (line 383)</li>
+<li><code>std::move</code> - <em>method</em> (line 384)</li>
+<li><code>std::move</code> - <em>method</em> (line 385)</li>
+<li><code>std::move</code> - <em>method</em> (line 394)</li>
+<li><code>ABorn2FlapFlightSettings::RefreshModelButtons</code> - <em>method</em> (line 399)</li>
+<li><code>std::move</code> - <em>method</em> (line 417)</li>
+<li><code>ABorn2FlapFlightSettings::RefreshMouseGains</code> - <em>method</em> (line 421)</li>
+<li><code>std::move</code> - <em>method</em> (line 429)</li>
+<li><code>ABorn2FlapFlightSettings::HandleAction</code> - <em>method</em> (line 433)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 438)</li>
+<li><code>FCString::Atoi</code> - <em>method</em> (line 443)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 460)</li>
+<li><code>FCString::Atoi</code> - <em>method</em> (line 473)</li>
+<li><code>tuning::FromKey</code> - <em>method</em> (line 511)</li>
+<li><code>tuning::FromDisplayValue</code> - <em>method</em> (line 514)</li>
+<li><code>ABorn2FlapFlightSettings::MarkServoCustom</code> - <em>method</em> (line 521)</li>
+<li><code>ABorn2FlapFlightSettings::HandleClose</code> - <em>method</em> (line 530)</li>
+<li><code>ABorn2FlapFlightSettings::Close</code> - <em>method</em> (line 536)</li>
+<li><code>ABorn2FlapFlightSettings::EndPlay</code> - <em>method</em> (line 542)</li>
+<li><code>Super::EndPlay</code> - <em>method</em> (line 548)</li>
+</ul>
+<h3><code>Born2Flap\UI\Born2FlapFlightSettings.h</code></h3>
+<ul>
+<li><code>UBorn2FlapUIRenderer</code> - <em>class</em> (line 15)</li>
+<li><code>ABorn2FlapFlightPawn</code> - <em>class</em> (line 16)</li>
+<li><code>ABorn2FlapFlightSettings</code> - <em>class</em> (line 19)</li>
+</ul>
+<h3><code>Born2Flap\UI\Born2FlapI18n.h</code></h3>
+<ul>
+<li><code>I18n::SetLocale</code> - <em>method</em> (line 8)</li>
+<li><code>I18n::T</code> - <em>method</em> (line 9)</li>
+<li><code>Entry</code> - <em>class</em> (line 21)</li>
+</ul>
+<h3><code>Born2Flap\UI\Born2FlapMenu.cpp</code></h3>
+<ul>
+<li><code>std::move</code> - <em>method</em> (line 42)</li>
+<li><code>std::move</code> - <em>method</em> (line 43)</li>
+<li><code>std::move</code> - <em>method</em> (line 60)</li>
+<li><code>FServoPreset</code> - <em>class</em> (line 68)</li>
+<li><code>FWorldDef</code> - <em>class</em> (line 81)</li>
+<li><code>FLanguageDef</code> - <em>class</em> (line 95)</li>
+<li><code>ABorn2FlapMenu::ABorn2FlapMenu</code> - <em>method</em> (line 115)</li>
+<li><code>ABorn2FlapMenu::~ABorn2FlapMenu</code> - <em>method</em> (line 120)</li>
+<li><code>ABorn2FlapMenu::Tick</code> - <em>method</em> (line 122)</li>
+<li><code>Super::Tick</code> - <em>method</em> (line 124)</li>
+<li><code>UGameplayStatics::GetPlayerController</code> - <em>method</em> (line 129)</li>
+<li><code>ABorn2FlapMenu::ActiveRc</code> - <em>method</em> (line 134)</li>
+<li><code>ABorn2FlapMenu::SyncSettingsFromBird</code> - <em>method</em> (line 144)</li>
+<li><code>born2flap::MenuSettingsFromPawn</code> - <em>method</em> (line 147)</li>
+<li><code>ABorn2FlapMenu::ApplySettingsToBird</code> - <em>method</em> (line 150)</li>
+<li><code>born2flap::MenuSettingsToPawn</code> - <em>method</em> (line 153)</li>
+<li><code>ABorn2FlapMenu::PersistSettings</code> - <em>method</em> (line 156)</li>
+<li><code>born2flap::MenuSettingsSave</code> - <em>method</em> (line 158)</li>
+<li><code>ABorn2FlapMenu::TuningValue</code> - <em>method</em> (line 161)</li>
+<li><code>born2flap::MenuSettingsGetTuning</code> - <em>method</em> (line 163)</li>
+<li><code>ABorn2FlapMenu::SetTuningValue</code> - <em>method</em> (line 166)</li>
+<li><code>born2flap::MenuSettingsSetTuning</code> - <em>method</em> (line 168)</li>
+<li><code>ABorn2FlapMenu::CurBirdModel</code> - <em>method</em> (line 171)</li>
+<li><code>ABorn2FlapMenu::BeginPlay</code> - <em>method</em> (line 176)</li>
+<li><code>Super::BeginPlay</code> - <em>method</em> (line 178)</li>
+<li><code>born2flap::MenuSettingsLoad</code> - <em>method</em> (line 182)</li>
+<li><code>I18n::SetLocale</code> - <em>method</em> (line 185)</li>
+<li><code>Born2FlapWeather::Load</code> - <em>method</em> (line 187)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 189)</li>
+<li><code>Born2FlapWeather::WeatherOptions</code> - <em>method</em> (line 198)</li>
+<li><code>FTSTicker::GetCoreTicker</code> - <em>method</em> (line 200)</li>
+<li><code>FScreenshotRequest::RequestScreenshot</code> - <em>method</em> (line 201)</li>
+<li><code>FTSTicker::GetCoreTicker</code> - <em>method</em> (line 203)</li>
+<li><code>FTSTicker::GetCoreTicker</code> - <em>method</em> (line 204)</li>
+<li><code>FTSTicker::GetCoreTicker</code> - <em>method</em> (line 205)</li>
+<li><code>FTSTicker::GetCoreTicker</code> - <em>method</em> (line 206)</li>
+<li><code>FTSTicker::GetCoreTicker</code> - <em>method</em> (line 207)</li>
+<li><code>ABorn2FlapMenu::Build</code> - <em>method</em> (line 213)</li>
+<li><code>UGameplayStatics::GetPlayerPawn</code> - <em>method</em> (line 228)</li>
+<li><code>I18n::T</code> - <em>method</em> (line 232)</li>
+<li><code>I18n::T</code> - <em>method</em> (line 238)</li>
+<li><code>std::move</code> - <em>method</em> (line 242)</li>
+<li><code>I18n::T</code> - <em>method</em> (line 247)</li>
+<li><code>std::move</code> - <em>method</em> (line 254)</li>
+<li><code>Born2FlapWeather::WeatherOptions</code> - <em>method</em> (line 263)</li>
+<li><code>Born2FlapWeather::TimeOptions</code> - <em>method</em> (line 264)</li>
+<li><code>Born2FlapWeather::Profile</code> - <em>method</em> (line 267)</li>
+<li><code>Born2FlapWeather::DayTime</code> - <em>method</em> (line 268)</li>
+<li><code>Born2FlapWeather::Profile</code> - <em>method</em> (line 269)</li>
+<li><code>Born2FlapWeather::Wind</code> - <em>method</em> (line 270)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 291)</li>
+<li><code>Born2FlapPoi::Catalog</code> - <em>method</em> (line 296)</li>
+<li><code>I18n::T</code> - <em>method</em> (line 301)</li>
+<li><code>FString::FromInt</code> - <em>method</em> (line 303)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 306)</li>
+<li><code>std::move</code> - <em>method</em> (line 314)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 322)</li>
+<li><code>std::move</code> - <em>method</em> (line 330)</li>
+<li><code>I18n::T</code> - <em>method</em> (line 359)</li>
+<li><code>I18n::T</code> - <em>method</em> (line 362)</li>
+<li><code>I18n::T</code> - <em>method</em> (line 364)</li>
+<li><code>I18n::T</code> - <em>method</em> (line 366)</li>
+<li><code>I18n::T</code> - <em>method</em> (line 370)</li>
+<li><code>I18n::T</code> - <em>method</em> (line 373)</li>
+<li><code>std::move</code> - <em>method</em> (line 391)</li>
+<li><code>std::move</code> - <em>method</em> (line 406)</li>
+<li><code>std::move</code> - <em>method</em> (line 407)</li>
+<li><code>std::move</code> - <em>method</em> (line 415)</li>
+<li><code>ABorn2FlapMenu::BuildFlightDesk</code> - <em>method</em> (line 420)</li>
+<li><code>std::move</code> - <em>method</em> (line 438)</li>
+<li><code>tuning::Row</code> - <em>method</em> (line 448)</li>
+<li><code>tuning::Key</code> - <em>method</em> (line 450)</li>
+<li><code>tuning::ToDisplayValue</code> - <em>method</em> (line 452)</li>
+<li><code>FMath::Pow</code> - <em>method</em> (line 455)</li>
+<li><code>std::move</code> - <em>method</em> (line 458)</li>
+<li><code>std::move</code> - <em>method</em> (line 467)</li>
+<li><code>std::move</code> - <em>method</em> (line 486)</li>
+<li><code>std::move</code> - <em>method</em> (line 499)</li>
+<li><code>std::move</code> - <em>method</em> (line 508)</li>
+<li><code>std::move</code> - <em>method</em> (line 524)</li>
+<li><code>std::move</code> - <em>method</em> (line 568)</li>
+<li><code>std::move</code> - <em>method</em> (line 582)</li>
+<li><code>std::move</code> - <em>method</em> (line 589)</li>
+<li><code>std::move</code> - <em>method</em> (line 590)</li>
+<li><code>std::move</code> - <em>method</em> (line 591)</li>
+<li><code>ABorn2FlapMenu::BuildPreferences</code> - <em>method</em> (line 594)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 635)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 636)</li>
+<li><code>I18n::T</code> - <em>method</em> (line 663)</li>
+<li><code>I18n::GetLocale</code> - <em>method</em> (line 667)</li>
+<li><code>I18n::T</code> - <em>method</em> (line 676)</li>
+<li><code>std::move</code> - <em>method</em> (line 677)</li>
+<li><code>std::move</code> - <em>method</em> (line 679)</li>
+<li><code>std::move</code> - <em>method</em> (line 691)</li>
+<li><code>std::move</code> - <em>method</em> (line 703)</li>
+<li><code>std::move</code> - <em>method</em> (line 719)</li>
+<li><code>UGameplayStatics::GetGameMode</code> - <em>method</em> (line 724)</li>
+<li><code>std::move</code> - <em>method</em> (line 737)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 748)</li>
+<li><code>std::move</code> - <em>method</em> (line 757)</li>
+<li><code>std::move</code> - <em>method</em> (line 763)</li>
+<li><code>std::move</code> - <em>method</em> (line 775)</li>
+<li><code>std::move</code> - <em>method</em> (line 787)</li>
+<li><code>std::move</code> - <em>method</em> (line 800)</li>
+<li><code>std::move</code> - <em>method</em> (line 807)</li>
+<li><code>std::move</code> - <em>method</em> (line 810)</li>
+<li><code>ABorn2FlapMenu::RefreshMouseGains</code> - <em>method</em> (line 815)</li>
+<li><code>std::move</code> - <em>method</em> (line 823)</li>
+<li><code>ABorn2FlapMenu::MarkServoCustom</code> - <em>method</em> (line 827)</li>
+<li><code>ABorn2FlapMenu::Close</code> - <em>method</em> (line 836)</li>
+<li><code>ABorn2FlapMenu::RestoreView</code> - <em>method</em> (line 845)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 847)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 848)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 849)</li>
+<li><code>ABorn2FlapMenu::SetOpacity</code> - <em>method</em> (line 859)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 865)</li>
+<li><code>std::move</code> - <em>method</em> (line 870)</li>
+<li><code>ABorn2FlapMenu::OnAction</code> - <em>method</em> (line 875)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 882)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 883)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 885)</li>
+<li><code>Born2FlapWeather::WeatherOptions</code> - <em>method</em> (line 911)</li>
+<li><code>FMath::RoundToInt</code> - <em>method</em> (line 912)</li>
+<li><code>Born2FlapWeather::Validate</code> - <em>method</em> (line 916)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 917)</li>
+<li><code>FCString::Atoi</code> - <em>method</em> (line 927)</li>
+<li><code>UGameplayStatics::GetGameMode</code> - <em>method</em> (line 948)</li>
+<li><code>UKismetSystemLibrary::QuitGame</code> - <em>method</em> (line 955)</li>
+<li><code>FEntry</code> - <em>class</em> (line 963)</li>
+<li><code>Born2FlapWeather::TravelOptions</code> - <em>method</em> (line 974)</li>
+<li><code>Born2FlapPoi::Catalog</code> - <em>method</em> (line 977)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 980)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 982)</li>
+<li><code>UGameplayStatics::OpenLevel</code> - <em>method</em> (line 988)</li>
+<li><code>UGameplayStatics::GetGameMode</code> - <em>method</em> (line 998)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 1004)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 1005)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 1011)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 1016)</li>
+<li><code>I18n::SetLocale</code> - <em>method</em> (line 1018)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 1023)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 1024)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 1027)</li>
+<li><code>FCString::Atoi</code> - <em>method</em> (line 1040)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 1041)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 1051)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 1052)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 1053)</li>
+<li><code>UGameplayStatics::GetGameMode</code> - <em>method</em> (line 1056)</li>
+<li><code>tuning::FromKey</code> - <em>method</em> (line 1064)</li>
+<li><code>tuning::FromDisplayValue</code> - <em>method</em> (line 1067)</li>
+</ul>
+<h3><code>Born2Flap\UI\Born2FlapMenu.h</code></h3>
+<ul>
+<li><code>UBorn2FlapUIRenderer</code> - <em>class</em> (line 21)</li>
+<li><code>ABorn2FlapFlightPawn</code> - <em>class</em> (line 22)</li>
+<li><code>FBorn2FlapRcController</code> - <em>class</em> (line 23)</li>
+<li><code>ABorn2FlapMenu</code> - <em>class</em> (line 26)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 86)</li>
+</ul>
+<h3><code>Born2Flap\UI\Born2FlapMenuSettings.cpp</code></h3>
+<ul>
+<li><code>FPaths::ProjectSavedDir</code> - <em>method</em> (line 14)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 26)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 27)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 28)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 29)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 30)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 31)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 32)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 33)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 34)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 35)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 36)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 37)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 38)</li>
+<li><code>FMath::IsFinite</code> - <em>method</em> (line 95)</li>
+<li><code>FMath::IsFinite</code> - <em>method</em> (line 100)</li>
+<li><code>FMath::IsFinite</code> - <em>method</em> (line 105)</li>
+<li><code>FMath::IsFinite</code> - <em>method</em> (line 111)</li>
+<li><code>FMath::IsFinite</code> - <em>method</em> (line 116)</li>
+<li><code>FMath::IsFinite</code> - <em>method</em> (line 119)</li>
+<li><code>FMath::IsFinite</code> - <em>method</em> (line 123)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 128)</li>
+<li><code>FMath::IsFinite</code> - <em>method</em> (line 129)</li>
+<li><code>tuning::Key</code> - <em>method</em> (line 136)</li>
+<li><code>IFileManager::Get</code> - <em>method</em> (line 157)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 170)</li>
+<li><code>tuning::Key</code> - <em>method</em> (line 174)</li>
+</ul>
+<h3><code>Born2Flap\UI\Born2FlapMenuSettings.h</code></h3>
+<ul>
+<li><code>ABorn2FlapFlightPawn</code> - <em>class</em> (line 15)</li>
+<li><code>ETuningField</code> - <em>enum</em> (line 16)</li>
+<li><code>FMenuSettings</code> - <em>class</em> (line 20)</li>
+</ul>
+<h3><code>Born2Flap\UI\Born2FlapPoiOverlay.cpp</code></h3>
+<ul>
+<li><code>std::move</code> - <em>method</em> (line 30)</li>
+<li><code>std::move</code> - <em>method</em> (line 31)</li>
+<li><code>ABorn2FlapPoiOverlay::ABorn2FlapPoiOverlay</code> - <em>method</em> (line 37)</li>
+<li><code>ABorn2FlapPoiOverlay::Open</code> - <em>method</em> (line 42)</li>
+<li><code>ABorn2FlapPoiOverlay::BuildTree</code> - <em>method</em> (line 51)</li>
+<li><code>I18n::T</code> - <em>method</em> (line 65)</li>
+<li><code>FString::FromInt</code> - <em>method</em> (line 67)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 70)</li>
+<li><code>std::move</code> - <em>method</em> (line 82)</li>
+<li><code>std::move</code> - <em>method</em> (line 91)</li>
+<li><code>ABorn2FlapPoiOverlay::HandleAction</code> - <em>method</em> (line 96)</li>
+<li><code>FCString::Atoi</code> - <em>method</em> (line 107)</li>
+<li><code>ABorn2FlapPoiOverlay::Close</code> - <em>method</em> (line 114)</li>
+</ul>
+<h3><code>Born2Flap\UI\Born2FlapPoiOverlay.h</code></h3>
+<ul>
+<li><code>UBorn2FlapUIRenderer</code> - <em>class</em> (line 15)</li>
+<li><code>ABorn2FlapFlightPawn</code> - <em>class</em> (line 16)</li>
+<li><code>ABorn2FlapPoiOverlay</code> - <em>class</em> (line 19)</li>
+</ul>
+<h3><code>Born2Flap\UI\Born2FlapRadio.cpp</code></h3>
+<ul>
+<li><code>FPaths::ProjectSavedDir</code> - <em>method</em> (line 26)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 27)</li>
+<li><code>I18n::T</code> - <em>method</em> (line 34)</li>
+<li><code>std::move</code> - <em>method</em> (line 47)</li>
+<li><code>std::move</code> - <em>method</em> (line 48)</li>
+<li><code>std::move</code> - <em>method</em> (line 56)</li>
+<li><code>std::move</code> - <em>method</em> (line 57)</li>
+<li><code>UBorn2FlapRadioStation::Initialize</code> - <em>method</em> (line 83)</li>
+<li><code>I18n::T</code> - <em>method</em> (line 104)</li>
+<li><code>UGameplayStatics::CreateSound2D</code> - <em>method</em> (line 137)</li>
+<li><code>UGameplayStatics::CreateSound2D</code> - <em>method</em> (line 149)</li>
+<li><code>UBorn2FlapRadioStation::StartTrack</code> - <em>method</em> (line 155)</li>
+<li><code>UBorn2FlapRadioStation::Tick</code> - <em>method</em> (line 168)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 194)</li>
+<li><code>UBorn2FlapRadioStation::TogglePlayPause</code> - <em>method</em> (line 213)</li>
+<li><code>UBorn2FlapRadioStation::SetPaused</code> - <em>method</em> (line 225)</li>
+<li><code>UBorn2FlapRadioStation::AdjustVolume</code> - <em>method</em> (line 237)</li>
+<li><code>UBorn2FlapRadioStation::SetVolume</code> - <em>method</em> (line 242)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 244)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 250)</li>
+<li><code>UBorn2FlapRadioStation::ToggleMute</code> - <em>method</em> (line 254)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 260)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 271)</li>
+<li><code>UBorn2FlapRadioStation::LoadSavedVolume</code> - <em>method</em> (line 275)</li>
+<li><code>FMath::IsFinite</code> - <em>method</em> (line 281)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 283)</li>
+<li><code>UBorn2FlapRadioStation::SaveSavedVolume</code> - <em>method</em> (line 288)</li>
+<li><code>UBorn2FlapRadioStation::GetTrackName</code> - <em>method</em> (line 297)</li>
+<li><code>UBorn2FlapRadioStation::GetCoverPath</code> - <em>method</em> (line 302)</li>
+<li><code>UBorn2FlapRadioStation::AutoDetectCover</code> - <em>method</em> (line 309)</li>
+<li><code>UBorn2FlapRadioStation::CoverExists</code> - <em>method</em> (line 334)</li>
+<li><code>ABorn2FlapRadioHUD::ABorn2FlapRadioHUD</code> - <em>method</em> (line 341)</li>
+<li><code>ABorn2FlapRadioHUD::BeginPlay</code> - <em>method</em> (line 346)</li>
+<li><code>Super::BeginPlay</code> - <em>method</em> (line 348)</li>
+<li><code>ABorn2FlapRadioHUD::SetStation</code> - <em>method</em> (line 352)</li>
+<li><code>ABorn2FlapRadioHUD::BuildPanel</code> - <em>method</em> (line 365)</li>
+<li><code>std::move</code> - <em>method</em> (line 392)</li>
+<li><code>ABorn2FlapRadioHUD::Tick</code> - <em>method</em> (line 402)</li>
+<li><code>Super::Tick</code> - <em>method</em> (line 404)</li>
+<li><code>ABorn2FlapRadioHUD::Refresh</code> - <em>method</em> (line 408)</li>
+<li><code>FMath::RoundToInt</code> - <em>method</em> (line 446)</li>
+</ul>
+<h3><code>Born2Flap\UI\Born2FlapRadio.h</code></h3>
+<ul>
+<li><code>UBorn2FlapUIRenderer</code> - <em>class</em> (line 22)</li>
+<li><code>ABorn2FlapFlightPawn</code> - <em>class</em> (line 23)</li>
+<li><code>FBorn2FlapLevelRadio</code> - <em>class</em> (line 27)</li>
+<li><code>UBorn2FlapRadioSettings</code> - <em>class</em> (line 47)</li>
+<li><code>UBorn2FlapRadioStation</code> - <em>class</em> (line 60)</li>
+<li><code>ABorn2FlapRadioHUD</code> - <em>class</em> (line 120)</li>
+</ul>
+<h3><code>Born2Flap\UI\Born2FlapSplash.cpp</code></h3>
+<ul>
+<li><code>std::move</code> - <em>method</em> (line 26)</li>
+<li><code>std::move</code> - <em>method</em> (line 27)</li>
+<li><code>std::move</code> - <em>method</em> (line 39)</li>
+<li><code>ABorn2FlapSplash::ABorn2FlapSplash</code> - <em>method</em> (line 46)</li>
+<li><code>ABorn2FlapSplash::BeginPlay</code> - <em>method</em> (line 51)</li>
+<li><code>Super::BeginPlay</code> - <em>method</em> (line 53)</li>
+<li><code>ABorn2FlapSplash::Build</code> - <em>method</em> (line 59)</li>
+<li><code>std::move</code> - <em>method</em> (line 86)</li>
+<li><code>ABorn2FlapSplash::SetProgress</code> - <em>method</em> (line 91)</li>
+<li><code>ABorn2FlapSplash::SetOpacity</code> - <em>method</em> (line 102)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 108)</li>
+<li><code>std::move</code> - <em>method</em> (line 109)</li>
+<li><code>ABorn2FlapSplash::Close</code> - <em>method</em> (line 112)</li>
+</ul>
+<h3><code>Born2Flap\UI\Born2FlapSplash.h</code></h3>
+<ul>
+<li><code>UBorn2FlapUIRenderer</code> - <em>class</em> (line 13)</li>
+<li><code>ABorn2FlapSplash</code> - <em>class</em> (line 16)</li>
+</ul>
+<h3><code>Born2Flap\UI\Born2FlapTransport.h</code></h3>
+<ul>
+<li><code>FTransport</code> - <em>class</em> (line 24)</li>
+</ul>
+<h3><code>Born2Flap\UI\Born2FlapUIBridge.cpp</code></h3>
+<ul>
+<li><code>ABorn2FlapUIBridge::ABorn2FlapUIBridge</code> - <em>method</em> (line 20)</li>
+<li><code>ABorn2FlapUIBridge::BeginPlay</code> - <em>method</em> (line 25)</li>
+<li><code>Super::BeginPlay</code> - <em>method</em> (line 27)</li>
+<li><code>FParse::Value</code> - <em>method</em> (line 30)</li>
+<li><code>FParse::Value</code> - <em>method</em> (line 31)</li>
+<li><code>FParse::Value</code> - <em>method</em> (line 32)</li>
+<li><code>FPaths::ProjectSavedDir</code> - <em>method</em> (line 37)</li>
+<li><code>FPlatformFileManager::Get</code> - <em>method</em> (line 38)</li>
+<li><code>FPaths::ProjectDir</code> - <em>method</em> (line 52)</li>
+<li><code>FPaths::CollapseRelativeDirectories</code> - <em>method</em> (line 53)</li>
+<li><code>FPaths::FileExists</code> - <em>method</em> (line 54)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 56)</li>
+<li><code>ABorn2FlapUIBridge::Tick</code> - <em>method</em> (line 68)</li>
+<li><code>Super::Tick</code> - <em>method</em> (line 70)</li>
+<li><code>ABorn2FlapUIBridge::EndPlay</code> - <em>method</em> (line 76)</li>
+<li><code>FPlatformProcess::CloseProc</code> - <em>method</em> (line 79)</li>
+<li><code>Super::EndPlay</code> - <em>method</em> (line 88)</li>
+<li><code>ABorn2FlapUIBridge::OpenSource</code> - <em>method</em> (line 93)</li>
+<li><code>FPlatformFileManager::Get</code> - <em>method</em> (line 98)</li>
+<li><code>ABorn2FlapUIBridge::SpawnBrain</code> - <em>method</em> (line 112)</li>
+<li><code>FPlatformProcess::CreateProc</code> - <em>method</em> (line 126)</li>
+<li><code>ABorn2FlapUIBridge::DrainSource</code> - <em>method</em> (line 142)</li>
+<li><code>FPlatformFileManager::Get</code> - <em>method</em> (line 147)</li>
+<li><code>ABorn2FlapUIBridge::WriteTelemetry</code> - <em>method</em> (line 176)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 199)</li>
+<li><code>FFileHelper::SaveStringToFile</code> - <em>method</em> (line 205)</li>
+<li><code>ABorn2FlapUIBridge::HandleAction</code> - <em>method</em> (line 209)</li>
+<li><code>ABorn2FlapUIBridge::ApplyFrame</code> - <em>method</em> (line 215)</li>
+</ul>
+<h3><code>Born2Flap\UI\Born2FlapUIBridge.h</code></h3>
+<ul>
+<li><code>IFileHandle</code> - <em>class</em> (line 26)</li>
+<li><code>UBorn2FlapUIRenderer</code> - <em>class</em> (line 27)</li>
+<li><code>ABorn2FlapUIBridge</code> - <em>class</em> (line 30)</li>
+</ul>
+<h3><code>Born2Flap\UI\Born2FlapUiComposite.h</code></h3>
+<ul>
+<li><code>UPanelWidget</code> - <em>class</em> (line 11)</li>
+<li><code>UWidget</code> - <em>class</em> (line 12)</li>
+<li><code>UBorn2FlapComposite</code> - <em>class</em> (line 15)</li>
+</ul>
+<h3><code>Born2Flap\UI\Born2FlapUiOps.h</code></h3>
+<ul>
+<li><code>FValue</code> - <em>class</em> (line 28)</li>
+<li><code>Kind</code> - <em>enum</em> (line 29)</li>
+<li><code>std::string</code> - <em>method</em> (line 35)</li>
+<li><code>FNode</code> - <em>class</em> (line 43)</li>
+<li><code>EOp</code> - <em>enum</em> (line 49)</li>
+<li><code>FOp</code> - <em>class</em> (line 54)</li>
+<li><code>FJsonParser</code> - <em>class</em> (line 66)</li>
+<li><code>std::move</code> - <em>method</em> (line 105)</li>
+<li><code>std::move</code> - <em>method</em> (line 141)</li>
+<li><code>std::move</code> - <em>method</em> (line 171)</li>
+<li><code>std::move</code> - <em>method</em> (line 225)</li>
+<li><code>std::strtod</code> - <em>method</em> (line 288)</li>
+<li><code>std::string</code> - <em>method</em> (line 294)</li>
+</ul>
+<h3><code>Born2Flap\UI\Born2FlapUIRenderer.cpp</code></h3>
+<ul>
+<li><code>FString::SanitizeFloat</code> - <em>method</em> (line 48)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 56)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 63)</li>
+<li><code>theme::SizePx</code> - <em>method</em> (line 70)</li>
+<li><code>FText::FromString</code> - <em>method</em> (line 113)</li>
+<li><code>theme::FontPx</code> - <em>method</em> (line 126)</li>
+<li><code>FMath::Abs</code> - <em>method</em> (line 145)</li>
+<li><code>FString::SanitizeFloat</code> - <em>method</em> (line 167)</li>
+<li><code>theme::BG</code> - <em>method</em> (line 190)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 220)</li>
+<li><code>FCString::Strcmp</code> - <em>method</em> (line 225)</li>
+<li><code>FCString::Strcmp</code> - <em>method</em> (line 227)</li>
+<li><code>theme::FG</code> - <em>method</em> (line 244)</li>
+<li><code>theme::FG</code> - <em>method</em> (line 245)</li>
+<li><code>theme::FG</code> - <em>method</em> (line 246)</li>
+<li><code>FSlateColor::UseForeground</code> - <em>method</em> (line 252)</li>
+<li><code>theme::FG</code> - <em>method</em> (line 274)</li>
+<li><code>theme::FG_DIM</code> - <em>method</em> (line 279)</li>
+<li><code>theme::FG</code> - <em>method</em> (line 302)</li>
+<li><code>FSlateColor::UseForeground</code> - <em>method</em> (line 308)</li>
+<li><code>UBorn2FlapUIRenderer::UBorn2FlapUIRenderer</code> - <em>method</em> (line 313)</li>
+<li><code>UBorn2FlapActionRelay::OnSlider</code> - <em>method</em> (line 321)</li>
+<li><code>UBorn2FlapActionRelay::OnClick</code> - <em>method</em> (line 327)</li>
+<li><code>UBorn2FlapActionRelay::OnNumber</code> - <em>method</em> (line 333)</li>
+<li><code>UBorn2FlapUIRenderer::EmitAction</code> - <em>method</em> (line 341)</li>
+<li><code>UBorn2FlapUIRenderer::HandleSliderChanged</code> - <em>method</em> (line 348)</li>
+<li><code>FCString::Atof</code> - <em>method</em> (line 354)</li>
+<li><code>FMath::RoundToDouble</code> - <em>method</em> (line 356)</li>
+<li><code>FCString::Atof</code> - <em>method</em> (line 358)</li>
+<li><code>FCString::Atof</code> - <em>method</em> (line 359)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 361)</li>
+<li><code>FCString::Atoi</code> - <em>method</em> (line 363)</li>
+<li><code>FText::FromString</code> - <em>method</em> (line 367)</li>
+<li><code>UBorn2FlapUIRenderer::HandleClicked</code> - <em>method</em> (line 372)</li>
+<li><code>FString::FromInt</code> - <em>method</em> (line 402)</li>
+<li><code>FString::FromInt</code> - <em>method</em> (line 418)</li>
+<li><code>FString::FromInt</code> - <em>method</em> (line 425)</li>
+<li><code>UBorn2FlapUIRenderer::HandleNumberCommitted</code> - <em>method</em> (line 435)</li>
+<li><code>FCString::Atof</code> - <em>method</em> (line 442)</li>
+<li><code>FCString::Atof</code> - <em>method</em> (line 443)</li>
+<li><code>FCString::Atof</code> - <em>method</em> (line 444)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 446)</li>
+<li><code>FCString::Atoi</code> - <em>method</em> (line 448)</li>
+<li><code>FText::FromString</code> - <em>method</em> (line 452)</li>
+<li><code>UBorn2FlapUIRenderer::ApplyOpsJson</code> - <em>method</em> (line 457)</li>
+<li><code>UBorn2FlapUIRenderer::ApplyOps</code> - <em>method</em> (line 469)</li>
+<li><code>UBorn2FlapUIRenderer::ApplyParsedOps</code> - <em>method</em> (line 478)</li>
+<li><code>UBorn2FlapUIRenderer::CreateInstance</code> - <em>method</em> (line 500)</li>
+<li><code>UBorn2FlapUIRenderer::RemoveInstance</code> - <em>method</em> (line 532)</li>
+<li><code>UBorn2FlapUIRenderer::SetRoot</code> - <em>method</em> (line 540)</li>
+<li><code>UBorn2FlapUIRenderer::AttachRoot</code> - <em>method</em> (line 546)</li>
+<li><code>UBorn2FlapUIRenderer::EnsureAttached</code> - <em>method</em> (line 558)</li>
+<li><code>UBorn2FlapUIRenderer::AppendChild</code> - <em>method</em> (line 563)</li>
+<li><code>UBorn2FlapUIRenderer::RemoveChild</code> - <em>method</em> (line 586)</li>
+<li><code>UBorn2FlapUIRenderer::UpdateProps</code> - <em>method</em> (line 601)</li>
+<li><code>UBorn2FlapUIRenderer::SetMaterialParams</code> - <em>method</em> (line 609)</li>
+<li><code>UBorn2FlapUIRenderer::Close</code> - <em>method</em> (line 618)</li>
+<li><code>UBorn2FlapUIRenderer::BeginDestroy</code> - <em>method</em> (line 627)</li>
+<li><code>Super::BeginDestroy</code> - <em>method</em> (line 634)</li>
+<li><code>UBorn2FlapUIRenderer::EnsureViewport</code> - <em>method</em> (line 639)</li>
+<li><code>UBorn2FlapUIRenderer::GetOrCreateDynamicMaterial</code> - <em>method</em> (line 663)</li>
+<li><code>UBorn2FlapUIRenderer::BuildComponent</code> - <em>method</em> (line 681)</li>
+<li><code>theme::Font</code> - <em>method</em> (line 706)</li>
+<li><code>theme::FG_DIM</code> - <em>method</em> (line 707)</li>
+<li><code>theme::Font</code> - <em>method</em> (line 741)</li>
+<li><code>theme::FG_DIM</code> - <em>method</em> (line 742)</li>
+<li><code>theme::Font</code> - <em>method</em> (line 745)</li>
+<li><code>theme::Font</code> - <em>method</em> (line 758)</li>
+<li><code>theme::Font</code> - <em>method</em> (line 761)</li>
+<li><code>theme::FG_DIM</code> - <em>method</em> (line 762)</li>
+<li><code>theme::Font</code> - <em>method</em> (line 776)</li>
+<li><code>theme::FG_DIM</code> - <em>method</em> (line 777)</li>
+<li><code>theme::Font</code> - <em>method</em> (line 780)</li>
+<li><code>theme::Font</code> - <em>method</em> (line 800)</li>
+<li><code>theme::ACCENT</code> - <em>method</em> (line 811)</li>
+<li><code>theme::Font</code> - <em>method</em> (line 814)</li>
+<li><code>theme::Font</code> - <em>method</em> (line 831)</li>
+<li><code>theme::FG_DIM</code> - <em>method</em> (line 832)</li>
+<li><code>theme::Font</code> - <em>method</em> (line 835)</li>
+<li><code>theme::BG_SOLID</code> - <em>method</em> (line 860)</li>
+<li><code>theme::Font</code> - <em>method</em> (line 869)</li>
+<li><code>theme::FG_DIM</code> - <em>method</em> (line 870)</li>
+<li><code>theme::Font</code> - <em>method</em> (line 873)</li>
+<li><code>theme::Font</code> - <em>method</em> (line 887)</li>
+<li><code>theme::FG_DIM</code> - <em>method</em> (line 888)</li>
+<li><code>theme::Font</code> - <em>method</em> (line 904)</li>
+<li><code>theme::FG_DIM</code> - <em>method</em> (line 905)</li>
+<li><code>theme::Font</code> - <em>method</em> (line 911)</li>
+<li><code>theme::FG</code> - <em>method</em> (line 912)</li>
+<li><code>theme::Radius</code> - <em>method</em> (line 933)</li>
+<li><code>theme::Font</code> - <em>method</em> (line 948)</li>
+<li><code>theme::FG_DIM</code> - <em>method</em> (line 949)</li>
+<li><code>theme::Font</code> - <em>method</em> (line 953)</li>
+<li><code>theme::FG</code> - <em>method</em> (line 954)</li>
+<li><code>theme::Font</code> - <em>method</em> (line 971)</li>
+<li><code>theme::FG_DIM</code> - <em>method</em> (line 972)</li>
+<li><code>theme::BG_SOLID</code> - <em>method</em> (line 986)</li>
+<li><code>theme::Font</code> - <em>method</em> (line 992)</li>
+<li><code>theme::ACCENT</code> - <em>method</em> (line 993)</li>
+<li><code>FText::FromString</code> - <em>method</em> (line 994)</li>
+<li><code>theme::Font</code> - <em>method</em> (line 997)</li>
+<li><code>theme::FG_DIM</code> - <em>method</em> (line 1013)</li>
+<li><code>theme::Radius</code> - <em>method</em> (line 1014)</li>
+<li><code>UBorn2FlapUIRenderer::ApplyCompositeProps</code> - <em>method</em> (line 1027)</li>
+<li><code>theme::Tone</code> - <em>method</em> (line 1031)</li>
+<li><code>FText::FromString</code> - <em>method</em> (line 1051)</li>
+<li><code>FText::FromString</code> - <em>method</em> (line 1052)</li>
+<li><code>theme::Radius</code> - <em>method</em> (line 1072)</li>
+<li><code>FText::FromString</code> - <em>method</em> (line 1098)</li>
+<li><code>FText::FromString</code> - <em>method</em> (line 1122)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 1129)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 1130)</li>
+<li><code>FString::SanitizeFloat</code> - <em>method</em> (line 1182)</li>
+<li><code>FString::SanitizeFloat</code> - <em>method</em> (line 1183)</li>
+<li><code>FString::SanitizeFloat</code> - <em>method</em> (line 1184)</li>
+<li><code>FString::FromInt</code> - <em>method</em> (line 1185)</li>
+<li><code>FCString::Atoi</code> - <em>method</em> (line 1191)</li>
+<li><code>FText::FromString</code> - <em>method</em> (line 1194)</li>
+<li><code>FString::FromInt</code> - <em>method</em> (line 1210)</li>
+<li><code>FString::FromInt</code> - <em>method</em> (line 1223)</li>
+<li><code>FString::FromInt</code> - <em>method</em> (line 1234)</li>
+<li><code>FString::SanitizeFloat</code> - <em>method</em> (line 1256)</li>
+<li><code>FString::SanitizeFloat</code> - <em>method</em> (line 1257)</li>
+<li><code>FString::FromInt</code> - <em>method</em> (line 1259)</li>
+<li><code>FCString::Atoi</code> - <em>method</em> (line 1262)</li>
+<li><code>FText::FromString</code> - <em>method</em> (line 1266)</li>
+<li><code>FText::FromString</code> - <em>method</em> (line 1268)</li>
+<li><code>theme::ToneAt</code> - <em>method</em> (line 1301)</li>
+<li><code>UBorn2FlapUIRenderer::ApplyPrimitiveProps</code> - <em>method</em> (line 1305)</li>
+<li><code>FText::FromString</code> - <em>method</em> (line 1314)</li>
+<li><code>theme::Tone</code> - <em>method</em> (line 1324)</li>
+<li><code>theme::Tone</code> - <em>method</em> (line 1338)</li>
+<li><code>theme::Tone</code> - <em>method</em> (line 1346)</li>
+<li><code>theme::Tone</code> - <em>method</em> (line 1354)</li>
+<li><code>UBorn2FlapUIRenderer::BindSlider</code> - <em>method</em> (line 1380)</li>
+<li><code>UBorn2FlapUIRenderer::BindButton</code> - <em>method</em> (line 1391)</li>
+<li><code>UBorn2FlapUIRenderer::BindNumber</code> - <em>method</em> (line 1403)</li>
+<li><code>UBorn2FlapUIRenderer::RebuildSelectOptions</code> - <em>method</em> (line 1417)</li>
+<li><code>theme::BG_SOLID</code> - <em>method</em> (line 1440)</li>
+<li><code>theme::Font</code> - <em>method</em> (line 1442)</li>
+<li><code>theme::FG_DIM</code> - <em>method</em> (line 1443)</li>
+<li><code>FText::FromString</code> - <em>method</em> (line 1444)</li>
+<li><code>theme::FG</code> - <em>method</em> (line 1461)</li>
+<li><code>FText::FromString</code> - <em>method</em> (line 1463)</li>
+<li><code>FText::FromString</code> - <em>method</em> (line 1466)</li>
+<li><code>UBorn2FlapUIRenderer::ApplySelectSelection</code> - <em>method</em> (line 1473)</li>
+<li><code>FSlateColor::UseForeground</code> - <em>method</em> (line 1489)</li>
+<li><code>UBorn2FlapUIRenderer::RebuildDropdownOptions</code> - <em>method</em> (line 1496)</li>
+<li><code>theme::BG_SOLID</code> - <em>method</em> (line 1515)</li>
+<li><code>theme::Font</code> - <em>method</em> (line 1517)</li>
+<li><code>theme::FG_DIM</code> - <em>method</em> (line 1518)</li>
+<li><code>FText::FromString</code> - <em>method</em> (line 1519)</li>
+<li><code>FText::FromString</code> - <em>method</em> (line 1523)</li>
+<li><code>UBorn2FlapUIRenderer::ApplyDropdownSelection</code> - <em>method</em> (line 1528)</li>
+<li><code>FText::FromString</code> - <em>method</em> (line 1540)</li>
+<li><code>UBorn2FlapUIRenderer::RebuildSegmentOptions</code> - <em>method</em> (line 1550)</li>
+<li><code>theme::Font</code> - <em>method</em> (line 1572)</li>
+<li><code>FText::FromString</code> - <em>method</em> (line 1574)</li>
+<li><code>FText::FromString</code> - <em>method</em> (line 1579)</li>
+<li><code>FCString::Atoi</code> - <em>method</em> (line 1585)</li>
+<li><code>UBorn2FlapUIRenderer::ApplySegmentSelection</code> - <em>method</em> (line 1588)</li>
+<li><code>UBorn2FlapUIRenderer::ApplyToggleState</code> - <em>method</em> (line 1603)</li>
+<li><code>FText::FromString</code> - <em>method</em> (line 1616)</li>
+<li><code>FSlateColor::UseForeground</code> - <em>method</em> (line 1617)</li>
+<li><code>UBorn2FlapUIRenderer::ApplySectionFold</code> - <em>method</em> (line 1621)</li>
+<li><code>FText::FromString</code> - <em>method</em> (line 1628)</li>
+<li><code>UBorn2FlapUIRenderer::StoreContainerLayout</code> - <em>method</em> (line 1633)</li>
+<li><code>UBorn2FlapUIRenderer::ApplyStoredLayout</code> - <em>method</em> (line 1656)</li>
+<li><code>UBorn2FlapUIRenderer::ApplyStoredLayoutToChild</code> - <em>method</em> (line 1665)</li>
+</ul>
+<h3><code>Born2Flap\UI\Born2FlapUIRenderer.h</code></h3>
+<ul>
+<li><code>UWidget</code> - <em>class</em> (line 29)</li>
+<li><code>UPanelWidget</code> - <em>class</em> (line 30)</li>
+<li><code>UUserWidget</code> - <em>class</em> (line 31)</li>
+<li><code>UCanvasPanel</code> - <em>class</em> (line 32)</li>
+<li><code>UMaterialInstanceDynamic</code> - <em>class</em> (line 33)</li>
+<li><code>UBorn2FlapComposite</code> - <em>class</em> (line 34)</li>
+<li><code>UBorn2FlapUIRenderer</code> - <em>class</em> (line 35)</li>
+<li><code>USlider</code> - <em>class</em> (line 36)</li>
+<li><code>UButton</code> - <em>class</em> (line 37)</li>
+<li><code>UEditableTextBox</code> - <em>class</em> (line 38)</li>
+<li><code>UBorn2FlapRootWidget</code> - <em>class</em> (line 53)</li>
+<li><code>UBorn2FlapActionRelay</code> - <em>class</em> (line 64)</li>
+<li><code>FLayoutState</code> - <em>class</em> (line 85)</li>
+<li><code>UBorn2FlapUIRenderer</code> - <em>class</em> (line 98)</li>
+</ul>
+<h3><code>Born2Flap\UI\Born2FlapUiTheme.h</code></h3>
+<ul>
+<li><code>FMath::RoundToInt</code> - <em>method</em> (line 105)</li>
+<li><code>FCoreStyle::GetDefaultFontStyle</code> - <em>method</em> (line 108)</li>
+</ul>
+<h3><code>Born2Flap\UI\Born2FlapUiTree.h</code></h3>
+<ul>
+<li><code>FRenderer</code> - <em>class</em> (line 26)</li>
+</ul>
+<h3><code>Born2Flap\UI\Born2FlapWindArrow.h</code></h3>
+<ul>
+<li><code>SBorn2FlapWindArrow</code> - <em>class</em> (line 16)</li>
+<li><code>FMath::IsNearlyEqual</code> - <em>method</em> (line 34)</li>
+<li><code>FMath::IsNearlyEqual</code> - <em>method</em> (line 48)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 64)</li>
+<li><code>FMath::DegreesToRadians</code> - <em>method</em> (line 68)</li>
+<li><code>FMath::Sin</code> - <em>method</em> (line 69)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 74)</li>
+<li><code>FSlateDrawElement::MakeLines</code> - <em>method</em> (line 82)</li>
+<li><code>FSlateDrawElement::MakeLines</code> - <em>method</em> (line 92)</li>
+<li><code>UBorn2FlapWindArrow</code> - <em>class</em> (line 106)</li>
+<li><code>Super::SynchronizeProperties</code> - <em>method</em> (line 140)</li>
+<li><code>Super::ReleaseSlateResources</code> - <em>method</em> (line 151)</li>
+</ul>
+<h3><code>Born2Flap\Water\Born2FlapSurf.cpp</code></h3>
+<ul>
+<li><code>ABorn2FlapSurf::ABorn2FlapSurf</code> - <em>method</em> (line 9)</li>
+<li><code>ABorn2FlapSurf::BeginPlay</code> - <em>method</em> (line 19)</li>
+<li><code>Super::BeginPlay</code> - <em>method</em> (line 21)</li>
+<li><code>ABorn2FlapSurf::Tick</code> - <em>method</em> (line 24)</li>
+<li><code>Super::Tick</code> - <em>method</em> (line 26)</li>
+<li><code>UGameplayStatics::GetPlayerCameraManager</code> - <em>method</em> (line 30)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 33)</li>
+<li><code>AShiomoriWaterDirector::Get</code> - <em>method</em> (line 36)</li>
+<li><code>Born2FlapSurf::Front</code> - <em>method</em> (line 45)</li>
+<li><code>Born2FlapSurf::Shore</code> - <em>method</em> (line 46)</li>
+<li><code>FMath::SmoothStep</code> - <em>method</em> (line 47)</li>
+<li><code>FMath::SmoothStep</code> - <em>method</em> (line 48)</li>
+<li><code>FMath::Sin</code> - <em>method</em> (line 49)</li>
+<li><code>FMath::SmoothStep</code> - <em>method</em> (line 50)</li>
+<li><code>FMath::SmoothStep</code> - <em>method</em> (line 51)</li>
+<li><code>FMath::Sin</code> - <em>method</em> (line 61)</li>
+<li><code>FMath::Lerp</code> - <em>method</em> (line 66)</li>
+<li><code>FMath::Lerp</code> - <em>method</em> (line 67)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 69)</li>
+<li><code>FMath::SmoothStep</code> - <em>method</em> (line 70)</li>
+<li><code>FMath::Sin</code> - <em>method</em> (line 71)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 78)</li>
+<li><code>FMath::SmoothStep</code> - <em>method</em> (line 80)</li>
+<li><code>FMath::Pow</code> - <em>method</em> (line 81)</li>
+<li><code>FMath::SmoothStep</code> - <em>method</em> (line 86)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 89)</li>
+<li><code>FVector::CrossProduct</code> - <em>method</em> (line 110)</li>
+<li><code>ABorn2FlapSurf::ValidateGeometry</code> - <em>method</em> (line 119)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 125)</li>
+</ul>
+<h3><code>Born2Flap\Water\Born2FlapSurf.h</code></h3>
+<ul>
+<li><code>UProceduralMeshComponent</code> - <em>class</em> (line 5)</li>
+<li><code>FMath::Sin</code> - <em>method</em> (line 11)</li>
+<li><code>FMath::Sin</code> - <em>method</em> (line 12)</li>
+<li><code>FMath::Fmod</code> - <em>method</em> (line 16)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 21)</li>
+<li><code>ABorn2FlapSurf</code> - <em>class</em> (line 29)</li>
+</ul>
+<h3><code>Born2Flap\Water\Born2FlapWater.cpp</code></h3>
+<ul>
+<li><code>FOceanParameters::SampleWaveHeight</code> - <em>method</em> (line 23)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 42)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 43)</li>
+<li><code>FMath::Sqrt</code> - <em>method</em> (line 54)</li>
+<li><code>FMath::Cos</code> - <em>method</em> (line 55)</li>
+<li><code>FMath::SmoothStep</code> - <em>method</em> (line 57)</li>
+</ul>
+<h3><code>Born2Flap\Water\Born2FlapWater.h</code></h3>
+<ul>
+<li><code>UMaterialParameterCollection</code> - <em>class</em> (line 18)</li>
+<li><code>FOceanParameters</code> - <em>class</em> (line 25)</li>
+<li><code>FMath::Lerp</code> - <em>method</em> (line 69)</li>
+<li><code>FMath::DegreesToRadians</code> - <em>method</em> (line 75)</li>
+<li><code>FMath::Cos</code> - <em>method</em> (line 76)</li>
+<li><code>UOceanParametersAsset</code> - <em>class</em> (line 90)</li>
+</ul>
+<h3><code>Born2Flap\Water\Born2FlapWaterDirector.cpp</code></h3>
+<ul>
+<li><code>AShiomoriWaterDirector::AShiomoriWaterDirector</code> - <em>method</em> (line 15)</li>
+<li><code>AShiomoriWaterDirector::Get</code> - <em>method</em> (line 25)</li>
+<li><code>AShiomoriWaterDirector::BeginPlay</code> - <em>method</em> (line 33)</li>
+<li><code>Super::BeginPlay</code> - <em>method</em> (line 35)</li>
+<li><code>AShiomoriWaterDirector::GetWaterHeightAt</code> - <em>method</em> (line 70)</li>
+<li><code>AShiomoriWaterDirector::ApplyParameters</code> - <em>method</em> (line 75)</li>
+<li><code>AShiomoriWaterDirector::Tick</code> - <em>method</em> (line 94)</li>
+<li><code>Super::Tick</code> - <em>method</em> (line 96)</li>
+<li><code>FMath::RadiansToDegrees</code> - <em>method</em> (line 102)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 104)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 118)</li>
+<li><code>UGameplayStatics::GetPlayerController</code> - <em>method</em> (line 122)</li>
+<li><code>FVector2D::Distance</code> - <em>method</em> (line 125)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 126)</li>
+</ul>
+<h3><code>Born2Flap\Water\Born2FlapWaterDirector.h</code></h3>
+<ul>
+<li><code>UMaterialParameterCollection</code> - <em>class</em> (line 16)</li>
+<li><code>UMaterialParameterCollectionInstance</code> - <em>class</em> (line 17)</li>
+<li><code>AShiomoriWaterDirector</code> - <em>class</em> (line 20)</li>
+</ul>
+<h3><code>Born2Flap\World\Born2FlapBayTerrain.cpp</code></h3>
+<ul>
+<li><code>FMath::Abs</code> - <em>method</em> (line 13)</li>
+<li><code>FMath::SmoothStep</code> - <em>method</em> (line 19)</li>
+<li><code>FMath::SmoothStep</code> - <em>method</em> (line 20)</li>
+<li><code>FMath::Sin</code> - <em>method</em> (line 23)</li>
+<li><code>FMath::Sin</code> - <em>method</em> (line 24)</li>
+<li><code>FMath::Sin</code> - <em>method</em> (line 25)</li>
+<li><code>FMath::Sin</code> - <em>method</em> (line 26)</li>
+<li><code>FMath::Sin</code> - <em>method</em> (line 27)</li>
+<li><code>FMath::Sin</code> - <em>method</em> (line 30)</li>
+<li><code>FMath::Sin</code> - <em>method</em> (line 31)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 32)</li>
+<li><code>FMath::Sin</code> - <em>method</em> (line 33)</li>
+<li><code>FMath::Square</code> - <em>method</em> (line 35)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 36)</li>
+<li><code>FMath::Exp</code> - <em>method</em> (line 41)</li>
+<li><code>FMath::SmoothStep</code> - <em>method</em> (line 42)</li>
+<li><code>FMath::SmoothStep</code> - <em>method</em> (line 43)</li>
+<li><code>FMath::SmoothStep</code> - <em>method</em> (line 44)</li>
+<li><code>FMath::Sin</code> - <em>method</em> (line 46)</li>
+<li><code>FMath::Lerp</code> - <em>method</em> (line 47)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 48)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 61)</li>
+<li><code>FMath::SmoothStep</code> - <em>method</em> (line 63)</li>
+<li><code>FMath::SmoothStep</code> - <em>method</em> (line 64)</li>
+<li><code>FMath::SmoothStep</code> - <em>method</em> (line 65)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 66)</li>
+<li><code>ABorn2FlapBayTerrain::ABorn2FlapBayTerrain</code> - <em>method</em> (line 70)</li>
+<li><code>ABorn2FlapBayTerrain::BeginPlay</code> - <em>method</em> (line 74)</li>
+<li><code>Super::BeginPlay</code> - <em>method</em> (line 76)</li>
+<li><code>ABorn2FlapBayTerrain::BuildLand</code> - <em>method</em> (line 82)</li>
+<li><code>Born2FlapBay::Height</code> - <em>method</em> (line 101)</li>
+<li><code>Born2FlapBay::Height</code> - <em>method</em> (line 102)</li>
+<li><code>Born2FlapBay::Height</code> - <em>method</em> (line 103)</li>
+<li><code>FMath::PerlinNoise2D</code> - <em>method</em> (line 105)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 106)</li>
+<li><code>Born2FlapBay::Contains</code> - <em>method</em> (line 110)</li>
+<li><code>ABorn2FlapBayTerrain::PlantWoodland</code> - <em>method</em> (line 124)</li>
+<li><code>FMath::Sqrt</code> - <em>method</em> (line 138)</li>
+<li><code>FMath::Cos</code> - <em>method</em> (line 142)</li>
+<li><code>Born2FlapBay::Contains</code> - <em>method</em> (line 143)</li>
+</ul>
+<h3><code>Born2Flap\World\Born2FlapBayTerrain.h</code></h3>
+<ul>
+<li><code>ABorn2FlapBayTerrain</code> - <em>class</em> (line 15)</li>
+</ul>
+<h3><code>Born2Flap\World\Born2FlapRavenLandmarks.cpp</code></h3>
+<ul>
+<li><code>ABorn2FlapValley::Part</code> - <em>method</em> (line 13)</li>
+<li><code>ABorn2FlapValley::Beam</code> - <em>method</em> (line 19)</li>
+<li><code>FRotationMatrix::MakeFromZ</code> - <em>method</em> (line 24)</li>
+<li><code>ABorn2FlapValley::Sign</code> - <em>method</em> (line 26)</li>
+<li><code>FText::FromString</code> - <em>method</em> (line 30)</li>
+<li><code>ABorn2FlapValley::BuildBarn</code> - <em>method</em> (line 36)</li>
+<li><code>FMath::Tan</code> - <em>method</em> (line 44)</li>
+<li><code>FMath::Cos</code> - <em>method</em> (line 69)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 95)</li>
+<li><code>ABorn2FlapValley::BuildBridge</code> - <em>method</em> (line 121)</li>
+<li><code>FMath::Lerp</code> - <em>method</em> (line 150)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 151)</li>
+<li><code>ABorn2FlapValley::BuildCastle</code> - <em>method</em> (line 161)</li>
+<li><code>FMath::Cos</code> - <em>method</em> (line 179)</li>
+<li><code>FMath::RadiansToDegrees</code> - <em>method</em> (line 180)</li>
+<li><code>FMath::Sin</code> - <em>method</em> (line 255)</li>
+<li><code>ABorn2FlapValley::BuildRelics</code> - <em>method</em> (line 261)</li>
+<li><code>FMath::Sin</code> - <em>method</em> (line 272)</li>
+<li><code>FMath::Sin</code> - <em>method</em> (line 277)</li>
+<li><code>FMath::Cos</code> - <em>method</em> (line 303)</li>
+<li><code>ABorn2FlapValley::BuildLandmarks</code> - <em>method</em> (line 308)</li>
+<li><code>FMath::Sin</code> - <em>method</em> (line 347)</li>
+<li><code>FMath::Sin</code> - <em>method</em> (line 351)</li>
+<li><code>ABorn2FlapValley::BuildAtmosphere</code> - <em>method</em> (line 384)</li>
+</ul>
+<h3><code>Born2Flap\World\Born2FlapValley.cpp</code></h3>
+<ul>
+<li><code>FMath::PerlinNoise2D</code> - <em>method</em> (line 20)</li>
+<li><code>FMath::Exp</code> - <em>method</em> (line 22)</li>
+<li><code>ABorn2FlapValley::ABorn2FlapValley</code> - <em>method</em> (line 27)</li>
+<li><code>ABorn2FlapValley::RiverCentre</code> - <em>method</em> (line 33)</li>
+<li><code>FMath::Sin</code> - <em>method</em> (line 34)</li>
+<li><code>ABorn2FlapValley::RiverWidth</code> - <em>method</em> (line 35)</li>
+<li><code>FMath::Square</code> - <em>method</em> (line 36)</li>
+<li><code>ABorn2FlapValley::Height</code> - <em>method</em> (line 37)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 41)</li>
+<li><code>FMath::Exp</code> - <em>method</em> (line 45)</li>
+<li><code>FMath::Exp</code> - <em>method</em> (line 47)</li>
+<li><code>FMath::Lerp</code> - <em>method</em> (line 49)</li>
+<li><code>FMath::Sqrt</code> - <em>method</em> (line 50)</li>
+<li><code>FMath::Sin</code> - <em>method</em> (line 51)</li>
+<li><code>FMath::Lerp</code> - <em>method</em> (line 52)</li>
+<li><code>FMath::Pow</code> - <em>method</em> (line 54)</li>
+<li><code>FMath::Pow</code> - <em>method</em> (line 55)</li>
+<li><code>ABorn2FlapValley::GroundHeight</code> - <em>method</em> (line 58)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 60)</li>
+<li><code>FMath::FloorToDouble</code> - <em>method</em> (line 61)</li>
+<li><code>ABorn2FlapValley::IsWater</code> - <em>method</em> (line 67)</li>
+<li><code>ABorn2FlapValley::PlaceName</code> - <em>method</em> (line 68)</li>
+<li><code>FMath::Abs</code> - <em>method</em> (line 74)</li>
+<li><code>FMath::Abs</code> - <em>method</em> (line 76)</li>
+<li><code>ABorn2FlapValley::BuildWorld</code> - <em>method</em> (line 79)</li>
+<li><code>ABorn2FlapValley::BeginPlay</code> - <em>method</em> (line 90)</li>
+<li><code>Super::BeginPlay</code> - <em>method</em> (line 92)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 95)</li>
+<li><code>ABorn2FlapValley::BuildGround</code> - <em>method</em> (line 97)</li>
+<li><code>FMath::RoundToInt</code> - <em>method</em> (line 104)</li>
+<li><code>FMath::SmoothStep</code> - <em>method</em> (line 113)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 114)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 115)</li>
+<li><code>FMath::Abs</code> - <em>method</em> (line 120)</li>
+<li><code>ABorn2FlapValley::BuildRiver</code> - <em>method</em> (line 126)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 146)</li>
+<li><code>ABorn2FlapValley::Group</code> - <em>method</em> (line 153)</li>
+<li><code>ABorn2FlapValley::PlantForest</code> - <em>method</em> (line 166)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 171)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 172)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 176)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 180)</li>
+<li><code>FMath::Abs</code> - <em>method</em> (line 187)</li>
+<li><code>FMath::Abs</code> - <em>method</em> (line 200)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 208)</li>
+<li><code>FMath::Abs</code> - <em>method</em> (line 224)</li>
+<li><code>ABorn2FlapValley::HasRadioTrack</code> - <em>method</em> (line 229)</li>
+<li><code>ABorn2FlapValley::SetPhotoView</code> - <em>method</em> (line 237)</li>
+<li><code>UGameplayStatics::GetPlayerController</code> - <em>method</em> (line 239)</li>
+<li><code>ABorn2FlapValley::Tick</code> - <em>method</em> (line 248)</li>
+<li><code>Super::Tick</code> - <em>method</em> (line 250)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 252)</li>
+<li><code>FScreenshotRequest::RequestScreenshot</code> - <em>method</em> (line 256)</li>
+<li><code>FPlatformMisc::RequestExit</code> - <em>method</em> (line 258)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 260)</li>
+<li><code>ABorn2FlapValley::ValidateWorld</code> - <em>method</em> (line 262)</li>
+<li><code>UGameplayStatics::GetPlayerPawn</code> - <em>method</em> (line 267)</li>
+<li><code>FMath::Abs</code> - <em>method</em> (line 272)</li>
+</ul>
+<h3><code>Born2Flap\World\Born2FlapValley.h</code></h3>
+<ul>
+<li><code>UHierarchicalInstancedStaticMeshComponent</code> - <em>class</em> (line 6)</li>
+<li><code>UAudioComponent</code> - <em>class</em> (line 7)</li>
+<li><code>ACameraActor</code> - <em>class</em> (line 8)</li>
+<li><code>ABorn2FlapValley</code> - <em>class</em> (line 11)</li>
+</ul>
+<h3><code>Born2Flap\World\Born2FlapWeather.cpp</code></h3>
+<ul>
+<li><code>ABorn2FlapWeather::ABorn2FlapWeather</code> - <em>method</em> (line 31)</li>
+<li><code>ABorn2FlapWeather::Configure</code> - <em>method</em> (line 52)</li>
+<li><code>Born2FlapWeather::Validate</code> - <em>method</em> (line 55)</li>
+<li><code>ABorn2FlapWeather::Apply</code> - <em>method</em> (line 58)</li>
+<li><code>Born2FlapWeather::Profile</code> - <em>method</em> (line 60)</li>
+<li><code>Born2FlapWeather::DayTime</code> - <em>method</em> (line 61)</li>
+<li><code>IConsoleManager::Get</code> - <em>method</em> (line 104)</li>
+<li><code>Born2FlapWeather::Exposure</code> - <em>method</em> (line 105)</li>
+<li><code>FMath::Pow</code> - <em>method</em> (line 106)</li>
+<li><code>UMaterialInstanceDynamic::Create</code> - <em>method</em> (line 115)</li>
+<li><code>UMaterialInstanceDynamic::Create</code> - <em>method</em> (line 122)</li>
+<li><code>FMath::Lerp</code> - <em>method</em> (line 125)</li>
+<li><code>UGameplayStatics::GetPlayerCameraManager</code> - <em>method</em> (line 149)</li>
+<li><code>FMath::Lerp</code> - <em>method</em> (line 154)</li>
+<li><code>ABorn2FlapWeather::Respawn</code> - <em>method</em> (line 162)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 166)</li>
+<li><code>ABorn2FlapWeather::SurfaceHeight</code> - <em>method</em> (line 168)</li>
+<li><code>UGameplayStatics::GetPlayerPawn</code> - <em>method</em> (line 172)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 178)</li>
+<li><code>ABorn2FlapWeather::UpdateSurfaces</code> - <em>method</em> (line 181)</li>
+<li><code>Born2FlapWeather::Profile</code> - <em>method</em> (line 183)</li>
+<li><code>FMath::FInterpConstantTo</code> - <em>method</em> (line 184)</li>
+<li><code>FMath::FInterpConstantTo</code> - <em>method</em> (line 185)</li>
+<li><code>ABorn2FlapWeather::Tick</code> - <em>method</em> (line 202)</li>
+<li><code>Super::Tick</code> - <em>method</em> (line 204)</li>
+<li><code>Born2FlapWeather::Profile</code> - <em>method</em> (line 211)</li>
+<li><code>Born2FlapWeather::Wind</code> - <em>method</em> (line 212)</li>
+<li><code>UGameplayStatics::GetPlayerCameraManager</code> - <em>method</em> (line 214)</li>
+<li><code>Born2FlapWeather::Wind</code> - <em>method</em> (line 219)</li>
+<li><code>FMath::Sin</code> - <em>method</em> (line 221)</li>
+<li><code>FMath::Min</code> - <em>method</em> (line 222)</li>
+<li><code>FRotationMatrix::MakeFromZ</code> - <em>method</em> (line 233)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 237)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 238)</li>
+<li><code>ABorn2FlapWeather::CheckExperienceTest</code> - <em>method</em> (line 240)</li>
+<li><code>FApp::SetUnfocusedVolumeMultiplier</code> - <em>method</em> (line 246)</li>
+<li><code>FApp::SetVolumeMultiplier</code> - <em>method</em> (line 247)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 251)</li>
+<li><code>UGameplayStatics::GetPlayerPawn</code> - <em>method</em> (line 253)</li>
+<li><code>UGameplayStatics::GetPlayerController</code> - <em>method</em> (line 264)</li>
+<li><code>UAudioMixerBlueprintLibrary::StartRecordingOutput</code> - <em>method</em> (line 265)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 268)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 276)</li>
+<li><code>UGameplayStatics::GetPlayerPawn</code> - <em>method</em> (line 278)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 282)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 284)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 285)</li>
+<li><code>FScreenshotRequest::RequestScreenshot</code> - <em>method</em> (line 286)</li>
+<li><code>Born2FlapWeather::Profile</code> - <em>method</em> (line 299)</li>
+<li><code>UAudioMixerBlueprintLibrary::StopRecordingOutput</code> - <em>method</em> (line 313)</li>
+<li><code>FString::Printf</code> - <em>method</em> (line 314)</li>
+<li><code>FParse::Param</code> - <em>method</em> (line 318)</li>
+<li><code>ABorn2FlapWeather::CheckTest</code> - <em>method</em> (line 320)</li>
+<li><code>UGameplayStatics::GetPlayerController</code> - <em>method</em> (line 324)</li>
+<li><code>FScreenshotRequest::RequestScreenshot</code> - <em>method</em> (line 334)</li>
+<li><code>Born2FlapWeather::WeatherOptions</code> - <em>method</em> (line 337)</li>
+<li><code>Born2FlapWeather::TimeOptions</code> - <em>method</em> (line 338)</li>
+<li><code>Born2FlapWeather::TravelOptions</code> - <em>method</em> (line 341)</li>
+<li><code>UGameplayStatics::ParseOption</code> - <em>method</em> (line 342)</li>
+<li><code>UGameplayStatics::ParseOption</code> - <em>method</em> (line 343)</li>
+<li><code>Born2FlapWeather::Wind</code> - <em>method</em> (line 347)</li>
+<li><code>Born2FlapWeather::Wind</code> - <em>method</em> (line 349)</li>
+<li><code>Born2FlapWeather::Validate</code> - <em>method</em> (line 352)</li>
+<li><code>Born2FlapWeather::Profile</code> - <em>method</em> (line 354)</li>
+<li><code>FPlatformMisc::RequestExit</code> - <em>method</em> (line 358)</li>
+</ul>
+<h3><code>Born2Flap\World\Born2FlapWeather.h</code></h3>
+<ul>
+<li><code>FBorn2FlapWeather</code> - <em>class</em> (line 6)</li>
+<li><code>FBorn2FlapDayTime</code> - <em>class</em> (line 12)</li>
+<li><code>FBorn2FlapConditions</code> - <em>class</em> (line 18)</li>
+<li><code>UInstancedStaticMeshComponent</code> - <em>class</em> (line 39)</li>
+<li><code>UVolumetricCloudComponent</code> - <em>class</em> (line 40)</li>
+<li><code>UPostProcessComponent</code> - <em>class</em> (line 41)</li>
+<li><code>UMaterialInstanceDynamic</code> - <em>class</em> (line 42)</li>
+<li><code>UMaterialParameterCollection</code> - <em>class</em> (line 43)</li>
+<li><code>ABorn2FlapWeather</code> - <em>class</em> (line 46)</li>
+</ul>
+<h3><code>Born2Flap\World\Born2FlapWeatherProfiles.cpp</code></h3>
+<ul>
+<li><code>FString::Printf</code> - <em>method</em> (line 86)</li>
+<li><code>FMath::Log2</code> - <em>method</em> (line 90)</li>
+<li><code>FMath::DegreesToRadians</code> - <em>method</em> (line 97)</li>
+<li><code>FMath::Sin</code> - <em>method</em> (line 98)</li>
+<li><code>FMath::PerlinNoise3D</code> - <em>method</em> (line 99)</li>
+<li><code>FMath::PerlinNoise3D</code> - <em>method</em> (line 100)</li>
+<li><code>FMath::Cos</code> - <em>method</em> (line 101)</li>
+<li><code>FMath::Sin</code> - <em>method</em> (line 102)</li>
+<li><code>Born2FlapBay::WindExposure</code> - <em>method</em> (line 105)</li>
+<li><code>FMath::Exp</code> - <em>method</em> (line 106)</li>
+<li><code>FMath::Exp</code> - <em>method</em> (line 107)</li>
+<li><code>Born2FlapWind::Sample</code> - <em>method</em> (line 110)</li>
+</ul>
+<h3><code>Born2Flap\World\Born2FlapWind.cpp</code></h3>
+<ul>
+<li><code>FThermal</code> - <em>class</em> (line 19)</li>
+<li><code>FMath::PerlinNoise1D</code> - <em>method</em> (line 46)</li>
+<li><code>FMath::PerlinNoise1D</code> - <em>method</em> (line 47)</li>
+<li><code>FMath::Cos</code> - <em>method</em> (line 48)</li>
+<li><code>FMath::PerlinNoise3D</code> - <em>method</em> (line 51)</li>
+<li><code>FMath::PerlinNoise3D</code> - <em>method</em> (line 52)</li>
+<li><code>FMath::PerlinNoise3D</code> - <em>method</em> (line 53)</li>
+<li><code>FMath::Exp</code> - <em>method</em> (line 64)</li>
+<li><code>FMath::Exp</code> - <em>method</em> (line 66)</li>
+<li><code>FMath::Max</code> - <em>method</em> (line 72)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 73)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 74)</li>
+<li><code>FMath::PerlinNoise1D</code> - <em>method</em> (line 85)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 86)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 91)</li>
+</ul>
+<h3><code>Born2Flap\World\Born2FlapWindLeaves.cpp</code></h3>
+<ul>
+<li><code>Born2FlapWind::Sample</code> - <em>method</em> (line 10)</li>
+<li><code>ABorn2FlapWindLeaves::ABorn2FlapWindLeaves</code> - <em>method</em> (line 21)</li>
+<li><code>ABorn2FlapWindLeaves::BeginPlay</code> - <em>method</em> (line 39)</li>
+<li><code>Super::BeginPlay</code> - <em>method</em> (line 41)</li>
+<li><code>ABorn2FlapWindLeaves::Tick</code> - <em>method</em> (line 78)</li>
+<li><code>Super::Tick</code> - <em>method</em> (line 80)</li>
+<li><code>FVector::Dist</code> - <em>method</em> (line 86)</li>
+<li><code>FMath::VInterpTo</code> - <em>method</em> (line 95)</li>
+<li><code>ABorn2FlapValley::GroundHeight</code> - <em>method</em> (line 100)</li>
+<li><code>FVector::Dist</code> - <em>method</em> (line 101)</li>
+<li><code>FMath::Min</code> - <em>method</em> (line 119)</li>
+<li><code>FMath::Sin</code> - <em>method</em> (line 120)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 121)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 122)</li>
+<li><code>FMath::Clamp</code> - <em>method</em> (line 123)</li>
+<li><code>ABorn2FlapWindLeaves::CameraLocation</code> - <em>method</em> (line 132)</li>
+<li><code>UGameplayStatics::GetPlayerCameraManager</code> - <em>method</em> (line 134)</li>
+<li><code>ABorn2FlapWindLeaves::SpawnLeaf</code> - <em>method</em> (line 139)</li>
+<li><code>FMath::Cos</code> - <em>method</em> (line 144)</li>
+<li><code>ABorn2FlapWindLeaves::SpawnBlade</code> - <em>method</em> (line 154)</li>
+<li><code>FMath::Cos</code> - <em>method</em> (line 159)</li>
+<li><code>ABorn2FlapValley::GroundHeight</code> - <em>method</em> (line 160)</li>
+<li><code>ABorn2FlapWindLeaves::RespawnBlades</code> - <em>method</em> (line 168)</li>
+</ul>
+<h3><code>Born2Flap\World\Born2FlapWindLeaves.h</code></h3>
+<ul>
+<li><code>UInstancedStaticMeshComponent</code> - <em>class</em> (line 14)</li>
+<li><code>ABorn2FlapWindLeaves</code> - <em>class</em> (line 17)</li>
+<li><code>FLeaf</code> - <em>class</em> (line 27)</li>
+<li><code>FBlade</code> - <em>class</em> (line 36)</li>
+</ul></div>
+</div>
+</main>
+<footer class='sub-footer'>
+<div class='lang-switch'>
+<a class='active' href='../../../'>EN</a>
+<a class='' href='../../../de/'>DE</a>
+<a class='' href='../../../es/'>ES</a>
+<a class='' href='../../../fr/'>FR</a>
+<a class='' href='../../../zh/'>中文</a>
+<a class='' href='../../../ja/'>日本語</a>
+<a class='' href='../../../ko/'>한국어</a>
+<a class='' href='../../../ru/'>RU</a>
+</div>
+<p class='footer-hermetic'>Written in the æther by ferocious hearts.</p>
+<p class='footer-credit'>BORN2FLAP ·</p>
+</footer>
+</body>
+</html>

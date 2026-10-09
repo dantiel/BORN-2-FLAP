@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html dir='ltr' lang='en'>
+<head>
+<meta charset='utf-8'>
+<meta content='width=device-width, initial-scale=1' name='viewport'>
+<title>Modding</title>
+<link href='https://fonts.googleapis.com' rel='preconnect'>
+<link crossorigin='true' href='https://fonts.gstatic.com' rel='preconnect'>
+<link href='https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@300;400;500;600;700&amp;family=Spectral:ital,wght@0,200;0,300;0,400;0,500;0,600;1,200;1,300;1,400&amp;family=Space+Mono:wght@400;700&amp;display=swap' rel='stylesheet'>
+<link href='../../../assets/css/style.css' rel='stylesheet'>
+</head>
+<body class='sub-page'>
+<nav class='sub-nav'>
+<div class='nav-inner'>
+<a class='home-link' href='../../../' title='Back to BORN2FLAP'>
+<span class='wm'>BORN</span>
+<span class='wm wm-brush'>2</span>
+<span class='wm'>FLAP</span>
+</a>
+<div class='nav-links'>
+<a href='../../../tutorials/'>Tutorials</a>
+<a class='active' href='../../../documentation/'>Documentation</a>
+</div>
+<button aria-label='Scroll to top' class='nav-scroll-top' onclick='window.scrollTo({top:0,behavior:&#39;smooth&#39;})' title='Scroll to top' type='button'>↑</button>
+</div>
+</nav>
+<main class='sub-main'>
+<div class='sub-content'>
+<p class='back-link'>
+<a href='../../../documentation/'>← Documentation</a>
+</p>
+<h1>Modding</h1>
+<p class='sub-lead'>Change the game to your own ideas.</p>
+<div class='markdown'><h2>Modding Guide</h2>
+<p>Everything is open source and designed to be changed without a fork or a pull request. This page is the map of where to touch what.</p>
+<h3>Quick reference</h3>
+<ul>
+<li>Change a bird model: <code>Flight/Born2FlapRavenCrow.cpp</code> (<code>Build</code>) + the CRAFT tab in <code>UI/Born2FlapMenu.cpp</code>.</li>
+<li>Add a servo preset: presets in <code>UI/Born2FlapTuning.h</code> + the dropdown in the menu.</li>
+<li>Tweak physics: <code>MathCore/src/Born2Flap/Math/FFI.hs</code> (<code>applyTuning</code>) and <code>Vehicle.hs</code>.</li>
+<li>Add a UI panel: <code>Brain/lib/born2flap/ui/views/&lt;name&gt;/&lt;name&gt;.umghaml</code> + <code>.rb</code> + a route in <code>router.rb</code>.</li>
+<li>Add a world: a new map + entries in <code>Game/Born2FlapGameMode.cpp</code> and the menu world list.</li>
+<li>Persist a setting: <code>Config/FlightPreferences.ini</code> via <code>Flight/Born2FlapFlightPreferences.cpp</code>.</li>
+</ul>
+<h3>Rebuild workflow</h3>
+<ol>
+<li>Physics: <code>Tools/build.ps1</code> runs <code>cabal build</code> and copies the DLL. If you change the C struct layout, bump <code>B2F_MATH_ABI_VERSION</code> in <code>Native/include/born2flap_math.h</code> and the matching ABI in <code>MathCore/cbits/bridge.c</code> and <code>FFI.hs</code>.</li>
+<li>Unreal: the same <code>build.ps1</code> runs UnrealBuildTool.</li>
+<li>UI text: regenerate <code>UI/Born2FlapI18n.h</code> via <code>Brain/bin/gen_i18n_header</code> after editing locale JSON.</li>
+</ol>
+<h3>Adding a bird model</h3>
+<p>A bird is built procedurally. <code>ABorn2FlapRaven::Build</code> (design 1 = ravencrow, 2 = kestrel) emits the mesh parts (wing, fuselage, tail, tail pivot). The model list lives in the menu CRAFT segment and is persisted as <code>[Flight] BirdModel</code>. Add a new design by extending <code>Build</code>, giving it a design id, and adding it to the CRAFT segment and to <code>GetBirdModel</code>/<code>SetBirdModel</code>.</p>
+<h3>Adding a servo preset</h3>
+<p>Servo presets are a table of <code>{name, speed, torque, backdrive, voltage}</code> in <code>born2flap::tuning</code>. Loading a preset writes those into the tuning config. Add a row to the preset table and it appears in the SERVO PRESET dropdown. Slider edits mark the selection as CUSTOM.</p>
+<h3>Tweaking physics</h3>
+<p>The ABI struct <code>B2F_TuningConfig</code> (currently ABI v8) carries body mass, CG, mount angle, servo speed/torque, flap frequency and wing parameters. <code>applyTuning</code> in <code>FFI.hs</code> maps those to the firmware/vehicle. Wing planform and aeroelastic stiffness scale from body mass (see <code>Planform.hs</code> and <code>Structure.hs</code>). The force model lives in <code>Vehicle.hs</code>.</p>
+<h3>Adding a UI panel</h3>
+<p>UMGHAML is a declarative tree that the Brain turns into semantic actions. A panel has a <code>.umghaml</code> (the tree) and a <code>.rb</code> (the builder + action routes). The Unreal side renders the semantic nodes (see <code>UI/Born2FlapUIRenderer.cpp</code>). New actions are routed through <code>HandleBrainAction</code> in <code>Born2FlapUIBridge</code>.</p>
+<h3>Persistence locations</h3>
+<ul>
+<li>Flight/tuning/audio settings: <code>Saved/Config/FlightPreferences.ini</code>.</li>
+<li>RC controller calibration: <code>%LOCALAPPDATA%/Born2Flap/Config/RcControllers.ini</code> (survives recompiles and Steam updates).</li>
+</ul>
+<h3>Regenerating the reference</h3>
+<p>Run <code>python Tools/gen_code_reference.py</code> to refresh <code>web/_code_ref/*.md</code> after structural changes.</p></div>
+</div>
+</main>
+<footer class='sub-footer'>
+<div class='lang-switch'>
+<a class='active' href='../../../'>EN</a>
+<a class='' href='../../../de/'>DE</a>
+<a class='' href='../../../es/'>ES</a>
+<a class='' href='../../../fr/'>FR</a>
+<a class='' href='../../../zh/'>中文</a>
+<a class='' href='../../../ja/'>日本語</a>
+<a class='' href='../../../ko/'>한국어</a>
+<a class='' href='../../../ru/'>RU</a>
+</div>
+<p class='footer-hermetic'>Written in the æther by ferocious hearts.</p>
+<p class='footer-credit'>BORN2FLAP ·</p>
+</footer>
+</body>
+</html>

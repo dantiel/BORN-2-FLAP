@@ -28,15 +28,15 @@
 <div class='sub-content'>
 <h1>Controles</h1>
 <p class='sub-lead'>CRSF, mezclador, firmware.</p>
-<div class='markdown'><p>Control runs through the same path as real firmware.</p>
-<h3>Channels</h3>
-<p>CRSF channels arrive raw (172…1811). Aileron, elevator, throttle, rudder, arm, frequency and profile are normalised and fed to the mixer.</p>
-<h3>Flapping hysteresis</h3>
-<p>Flapping engages when throttle exceeds the threshold and releases only after it drops by a hysteresis band — so the wing does not chatter at the edge of idle.</p>
-<h3>Steering</h3>
-<p>Aileron command becomes an asymmetric stroke; elevator becomes tail deflection; rudder shifts the flap amplitude left versus right. Gliding keeps full wing authority.</p>
-<h3>Mixer and PID</h3>
-<p>The ONDAS servo mixer and PID loops are ported from the firmware, so in-simulator behaviour tracks the hardware it mirrors.</p></div>
+<div class='markdown'><p>El control recorre el mismo camino que el firmware real.</p>
+<h3>Canales</h3>
+<p>Los canales CRSF llegan en crudo (172…1811). Alerón, elevador, acelerador, timón, armado, frecuencia y perfil se normalizan y se alimentan al mezclador.</p>
+<h3>Histéresis de aleteo</h3>
+<p>El aleteo se activa cuando el acelerador supera el umbral y se libera solo después de caer por una banda de histéresis, de modo que el ala no titubea en el borde del ralentí.</p>
+<h3>Dirección</h3>
+<p>El mando de alerón se convierte en un batido asimétrico; el elevador en deflexión de cola; el timón desplaza la amplitud de aleteo izquierda frente a derecha. El planeo conserva toda la autoridad del ala.</p>
+<h3>Mezclador y PID</h3>
+<p>El mezclador de servos ONDAS y los bucles PID se portan desde el firmware, de modo que el comportamiento en el simulador sigue al hardware que refleja.</p></div>
 </div>
 </main>
 <footer class='sub-footer'>

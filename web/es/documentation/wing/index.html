@@ -28,15 +28,15 @@
 <div class='sub-content'>
 <h1>El Ala</h1>
 <p class='sub-lead'>Planta, perfil, estructura.</p>
-<div class='markdown'><p>Wing geometry is a <strong>single source of truth</strong> — an arbitrary outline, not bird-specific scalars.</p>
-<h3>Planform</h3>
-<p>A <code>WingShape</code> is a half-span plus an ordered list of spanwise stations. Each station carries leading-edge position, chord, twist and dihedral. <strong>Sweep is implicit</strong> — the slope of the leading-edge polyline — never a stored parameter.</p>
-<h3>Section</h3>
-<p>Every station carries a <code>SectionProfile</code>: rest camber, trailing-edge reflex, and membrane compliance. The thin-airfoil response shifts the zero-lift angle with camber and couples camber + reflex into a sectional pitching moment.</p>
-<h3>Structure</h3>
-<p>Every station carries a <code>StructureProfile</code>: bending stiffness <strong>EI</strong>, torsional stiffness <strong>GJ</strong>, and relaxation times. A root-clamped cantilever pass turns vertical force into bending moment → deflection/slope, and sectional pitching moment into torque → twist. A stiffer armwing and a flexible handwing yield realistic load-induced washout.</p>
-<h3>Aeroelastic loop</h3>
-<p>Deformation is not cosmetic. Aeroelastic twist adds to incidence; bending adds to flap position. The wing feeds its own loads back into its shape — the beating wing is a structure, not a picture.</p></div>
+<div class='markdown'><p>La geometría del ala es una <strong>única fuente de verdad</strong>: un contorno arbitrario, no escalares específicos de cada pájaro.</p>
+<h3>Planta</h3>
+<p>Una <code>WingShape</code> es una semienvergadura más una lista ordenada de estaciones de envergadura. Cada estación lleva posición del borde de ataque, cuerda, torsión y diedro. <strong>La flecha es implícita</strong> (la pendiente de la polilínea del borde de ataque), nunca un parámetro almacenado.</p>
+<h3>Sección</h3>
+<p>Cada estación lleva un <code>SectionProfile</code>: comba en reposo, reflexión del borde de salida y flexibilidad de la membrana. La respuesta de perfil delgado desplaza el ángulo de sustentación nula con la comba y acopla comba + reflexión en un momento de cabeceo seccional.</p>
+<h3>Estructura</h3>
+<p>Cada estación lleva un <code>StructureProfile</code>: rigidez a flexión <strong>EI</strong>, rigidez torsional <strong>GJ</strong> y tiempos de relajación. Un paso de viga en voladizo con raíz empotrada convierte la fuerza vertical en momento flector → deflexión/pendiente, y el momento de cabeceo seccional en par → torsión. Un brazo rígido y una mano flexible producen un lavado realista inducido por la carga.</p>
+<h3>Bucle aeroelástico</h3>
+<p>La deformación no es cosmética. La torsión aeroelástica se suma a la incidencia; la flexión se suma a la posición de aleteo. El ala realimenta sus propias cargas en su forma: el ala que late es una estructura, no una imagen.</p></div>
 </div>
 </main>
 <footer class='sub-footer'>
