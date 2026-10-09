@@ -64,8 +64,11 @@ bool FBorn2FlapMathBridge::Load()
     ReconfigureFirmwareVehicle =
         LoadExport<ReconfigureFn>(LibraryHandle, TEXT("b2f_math_reconfigure_firmware_vehicle"));
     GetWingShape = LoadExport<GetWingShapeFn>(LibraryHandle, TEXT("b2f_math_get_wing_shape"));
+    GetWingForces = LoadExport<GetWingForcesFn>(LibraryHandle, TEXT("b2f_math_get_wing_forces"));
     if (!GetWingShape)
         UE_LOG(LogTemp, Warning, TEXT("Wing deformation unavailable: rebuild the Haskell backend for wing-shape telemetry."));
+    if (!GetWingForces)
+        UE_LOG(LogTemp, Warning, TEXT("Per-strip wing forces unavailable: rebuild the Haskell backend for force-driven audio."));
     if (!AbiVersion || !RuntimeInit || !RuntimeShutdown || !CreateFirmwareVehicle ||
         !DestroyFirmwareVehicle || !StepFirmwareVehicle || !ReconfigureFirmwareVehicle)
     {
@@ -134,7 +137,9 @@ void FBorn2FlapMathBridge::Unload()
     StepFirmwareVehicle = nullptr;
     SetWindPhaseNoise = nullptr;
     ReconfigureFirmwareVehicle = nullptr;
-    GetWingShape = nullptr;    if (LibraryHandle)
+    GetWingShape = nullptr;
+    GetWingForces = nullptr;
+    if (LibraryHandle)
     {
         // The process owns the loader reference, not this aircraft.
         LibraryHandle = nullptr;
@@ -160,4 +165,8 @@ bool FBorn2FlapMathBridge::Reconfigure(const B2F_TuningConfig& Tuning) const
 bool FBorn2FlapMathBridge::ReadWingShape(B2F_WingSection* Left, B2F_WingSection* Right) const
 {
     return Context && GetWingShape && GetWingShape(Context, B2F_WING_STATIONS, Left, Right) == B2F_WING_STATIONS;
+}
+bool FBorn2FlapMathBridge::ReadWingForces(double* Left, double* Right) const
+{
+    return Context && GetWingForces && GetWingForces(Context, B2F_WING_STATIONS, Left, Right) == B2F_WING_STATIONS;
 }

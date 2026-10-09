@@ -30,6 +30,8 @@ struct FTelemetry {
     double phase_error_rad = 0.0;   // MathCore resonance δ (rad)
     double k_gain_mod = 1.0;        // phase-advance demand
     double stall_margin = 1.0;      // 1 far from stall, 0 stalled
+    double wing_force = 0.0;        // 0..1 total per-strip |aero force| (audio drive)
+    double wing_flutter = 0.0;      // 0..1 high-frequency force fluctuation (flow separation)
     // perspective (listener-relative)
     double listener_distance = 5.0; // metres
     double listener_bearing = 0.0;  // rad, 0 = straight ahead
@@ -80,17 +82,39 @@ inline ui::FProps ComputeIntrinsic(const std::string& Voice, const FTelemetry& T
         SetNum(P, "gain", Clamp01(std::pow(T.airspeed / 30.0, 3.0)));
         SetNum(P, "brightness", Clamp01(T.airspeed / 40.0));
         SetNum(P, "gust_depth", Clamp01(0.1 + 0.6 * T.thermal_strength));
-        SetNum(P, "gust_rate", 0.4 + 0.6 * T.wingbeat_hz);
+        // The air is a CONSTANT STREAM: no wingbeat-coupled gust. Its slow
+        // breathing is an aperiodic noise swell rendered in the synth, never a
+        // periodic flap-rate pump (which read as a phantom wingbeat).
     } else if (Voice == "wing") {
-        SetNum(P, "rate", T.wingbeat_hz);
         SetNum(P, "air_speed", T.airspeed);
-        // Keep the wingbeat clearly audible at every throttle/airspeed: a solid
-        // floor (idle) rising to full at the flap ceiling. Airspeed texture is
-        // carried separately by "whoosh"/"air_speed" so gain stays prominent.
-                SetNum(P, "gain", 0.7 + 0.8 * Clamp01(T.wingbeat_hz / 8.0));
+        // The wing sound is FORCE-DRIVEN, not wingbeat-driven. The per-strip
+        // aerodynamic force each strip exerts on the air is the source:
+        //   wing_force   → total |force|, the natural stream + flap pulse
+        //   wing_flutter → high-frequency force fluctuation (flow separation)
+        // There is NO synthetic wingbeat clock and NO sin² envelope, so a
+        // steady glide is a uniform stream and a flap is the real force
+        // transient. (gain is a fixed 1.0 base — the ×1.9 lives in the synth)
+        SetNum(P, "wing_force", Clamp01(T.wing_force));
+        SetNum(P, "flutter", Clamp01(T.wing_flutter));
+        // Measured wingbeat rate, for a SUBTLE noise-carried pump only. It is
+        // never the sound source (the per-strip force is); the synth uses it to
+        // breathe the whoosh bed gently (±~10%), vanishing to zero in a glide.
+        SetNum(P, "beat", T.wingbeat_hz);
         SetNum(P, "tone", Clamp01(1.0 - std::fabs(T.phase_error_rad) / 0.5));
-        SetNum(P, "whoosh", Clamp01(T.airspeed / 25.0));
+        // whoosh / whistle — the CONSTANT STREAM: airspeed-gated, never pulsed.
+        SetNum(P, "whoosh", Clamp01(T.airspeed / 22.0));
+        SetNum(P, "whistle", Clamp01(T.airspeed / 18.0));
         SetNum(P, "brightness", Clamp01(T.airspeed / 40.0));
+        // "crack" — the papery-whoosh blend weight, driven by the force
+        // fluctuation (a flapping/stalling wing fizzles; a clean glide doesn't).
+        SetNum(P, "crack", Clamp01(T.wing_flutter));
+        // "stall" reshapes the spectrum: stalled wings chug low and flutter,
+        // fast clean wings sing bright. 0 = clean flight, 1 = fully stalled.
+        SetNum(P, "stall", Clamp01(1.0 - T.stall_margin));
+        // Base loudness (the force modulation lives in wing_force, consumed by
+        // the synth; the WingbeatVolume slider + camera scale this gain). A
+        // resting wing is still silent because wing_force → 0 and airspeed → 0.
+        SetNum(P, "gain", 1.0);
     } else if (Voice == "servo_l") {
         ServoVoice(P, T.servo_load_l, T);
     } else if (Voice == "servo_r") {

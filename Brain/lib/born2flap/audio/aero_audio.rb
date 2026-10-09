@@ -92,13 +92,40 @@ module Born2Flap
           }
         },
         wing: lambda { |t|
+          flap_drive = clamp01(t.wingbeat_hz / 8.0)
+          # Flow-separation FLUTTER — broadband "paper-tearing" noise the membrane
+          # makes whenever it works the air. ONE voice, THREE excitations, so a
+          # fast glide and a quick pitch flick sound like flapping:
+          #   glide  — dynamic pressure past a transient threshold (∝ excess v²)
+          #   motion — the wing's own angular velocity (flap strokes + manoeuvres)
+          glide_sep = ([t.airspeed - 6.0, 0.0].max / 22.0)**2
+          motion_sep = clamp01(t.sweep_rate / 240.0)
           {
             "rate" => t.wingbeat_hz,
             "air_speed" => t.airspeed,
-            "gain" => clamp01((t.wingbeat_hz / 8.0) * (0.3 + 0.7 * clamp01(t.airspeed / 20.0))),
+            # Wing amplitude is QUANTIFIED BY its two drivers — no idle floor, so
+            # a perched bird is silent. (mirrors Born2FlapAeroAudio.h — gain is
+            # allowed > 1.0 for loudness)
+            "gain" => 1.7 * flap_drive,
+            # Flow-separation flutter (see glide_sep/motion_sep above): the same
+            # broadband paper-tear in glide, flap and manoeuvre alike.
+            "flutter" => clamp01(glide_sep + 0.7 * motion_sep),
             "tone" => clamp01(1.0 - t.phase_error_rad.abs / 0.5),
-            "whoosh" => clamp01(t.airspeed / 25.0),
-            "brightness" => clamp01(t.airspeed / 40.0)
+            "whoosh" => clamp01(t.airspeed / 22.0),
+            # "whistle" — the continuous aero tone (air over feather slots) that
+            # dominates a fast glide: a uniform whistle rather than a knock. It is
+            # ∝ airspeed and eases a touch while flapping hard (the downstroke
+            # thump already fills the band).
+            "whistle" => clamp01(t.airspeed / 18.0) * (0.7 + 0.3 * (1.0 - flap_drive)),
+            "brightness" => clamp01(t.airspeed / 40.0),
+            # "crack" is the papery-whoosh blend weight — the early-attack hiss the
+            # wing's direct lift response makes ("phi activates early"), a broad
+            # fizzle rather than a firecracker snap. It rises with flap rate and
+            # eases as the wing stalls (no lift to fizzle).
+            "crack" => flap_drive * (1.0 - 0.4 * clamp01(1.0 - t.stall_margin)),
+            # "stall" reshapes the spectrum: stalled wings chug low and flutter,
+            # fast clean wings sing bright. 0 = clean flight, 1 = fully stalled.
+            "stall" => clamp01(1.0 - t.stall_margin)
           }
         },
         servo_l: lambda { |t| SERVO.call(t.servo_load_l, t) },

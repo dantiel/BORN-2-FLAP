@@ -36,6 +36,7 @@ foreign export ccall "hs_b2f_math_set_stabilization" b2f_math_set_stabilization 
 foreign export ccall "hs_b2f_math_set_wind_phase_noise" b2f_math_set_wind_phase_noise :: Ptr () -> Double -> IO Int32
 foreign export ccall "hs_b2f_math_reconfigure_firmware_vehicle" b2f_math_reconfigure_firmware_vehicle :: Ptr () -> Ptr () -> IO Int32
 foreign export ccall "hs_b2f_math_get_wing_shape" b2f_math_get_wing_shape :: Ptr () -> Word32 -> Ptr () -> Ptr () -> IO Int32
+foreign export ccall "hs_b2f_math_get_wing_forces" b2f_math_get_wing_forces :: Ptr () -> Word32 -> Ptr () -> Ptr () -> IO Int32
 b2f_math_get_wing_shape :: Ptr () -> Word32 -> Ptr () -> Ptr () -> IO Int32
 b2f_math_get_wing_shape contextPointer capacity leftPointer rightPointer
   | contextPointer == nullPtr || leftPointer == nullPtr || rightPointer == nullPtr
@@ -62,8 +63,29 @@ b2f_math_get_wing_shape contextPointer capacity leftPointer rightPointer
         pure (fromIntegral stripCount)
     failure :: SomeException -> IO Int32
     failure _ = pure 0
+b2f_math_get_wing_forces :: Ptr () -> Word32 -> Ptr () -> Ptr () -> IO Int32
+b2f_math_get_wing_forces contextPointer capacity leftPointer rightPointer
+  | contextPointer == nullPtr || leftPointer == nullPtr || rightPointer == nullPtr
+      || capacity < fromIntegral stripCount = pure 0
+  | otherwise = run `catch` failure
+  where
+    run = do
+      contextRef <- deRefStablePtr (castPtrToStablePtr contextPointer :: StablePtr (IORef FwContext))
+      context <- readIORef contextRef
+      let state = fwcState context
+          left = fvLeftStripForceMag state
+          right = fvRightStripForceMag state
+          valid xs = length xs == stripCount && all (\v -> not (isNaN v || isInfinite v)) xs
+          write pointer xs = sequence_
+            [pokeElemOff (castPtr pointer :: Ptr CDouble) i (CDouble v) | (i, v) <- zip [0 ..] xs]
+      if not (valid left && valid right) then pure 0 else do
+        write leftPointer left
+        write rightPointer right
+        pure (fromIntegral stripCount)
+    failure :: SomeException -> IO Int32
+    failure _ = pure 0
 b2f_math_abi_version :: IO Word32
-b2f_math_abi_version = pure 8
+b2f_math_abi_version = pure 9
 
 b2f_math_runtime_init :: IO Int32
 b2f_math_runtime_init = pure 1

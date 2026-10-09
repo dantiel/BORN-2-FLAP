@@ -813,7 +813,33 @@ void ABorn2FlapFlightPawn::UpdateAeroAudio(float Dt)
     // measured rate so the throttle estimate takes over again.
     if (LastStrokeTopTime >= 0.0 && (WorldTime - LastStrokeTopTime) > 1.5)
         MeasuredWingbeatHz = 0.0;
-    Tel.wingbeat_hz = MeasuredWingbeatHz > 0.5 ? MeasuredWingbeatHz : (2.0 + 5.0 * Throttle);
+    // Amplitude must be quantified by the flap rate itself. The old "+2.0" floor
+    // kept the wing voice "flapping" at 2 Hz even on a perched/gliding bird (no
+    // measured stroke), which the synth read as a rhythmic thump at rest. No
+    // measured flap → 0 Hz, so the wing voice goes silent at rest and the throttle
+    // estimate (0..5 Hz) only ramps in while actually throttling up.
+    Tel.wingbeat_hz = MeasuredWingbeatHz > 0.5 ? MeasuredWingbeatHz : (5.0 * Throttle);
+    // Wing audio is FORCE-DRIVEN, not wingbeat-driven. Read the per-strip
+    // aerodynamic force the physics computed last step and derive two signals:
+    //   wing_force   → total |force| (steady stream + the natural flap transient)
+    //   wing_flutter → |force − low-pass(force)| (the high-frequency separation)
+    // There is no synthetic wingbeat clock, so a glide is a constant stream and
+    // a flap is the real force transient.
+    double WingStripForces[B2F_WING_STATIONS * 2];
+    double ForceTotal = 0.0;
+    if (MathBridge && MathBridge->ReadWingForces(&WingStripForces[0], &WingStripForces[B2F_WING_STATIONS]))
+    {
+        for (int32 I = 0; I < B2F_WING_STATIONS * 2; ++I)
+            ForceTotal += FMath::Abs(WingStripForces[I]);
+    }
+    // Reference: ~2.5 g of body weight — the peak aero force a hard downstroke
+    // reaches. Normalizing by weight keeps the flap pulse sized to the bird.
+    const double WeightN = double(Body->GetMass()) * 9.81;
+    const double WingForceRef = FMath::Max(2.0, WeightN * 2.5);
+    const double ForceSmooth = FMath::Clamp(Dt * 6.0, 0.0, 1.0);   // ~0.17 s low-pass
+    WingForceLp += (ForceTotal - WingForceLp) * ForceSmooth;
+    Tel.wing_force = FMath::Clamp(ForceTotal / WingForceRef, 0.0, 1.0);
+    Tel.wing_flutter = FMath::Clamp(FMath::Abs(ForceTotal - WingForceLp) / (WingForceRef * 0.5), 0.0, 1.0);
     Tel.phase_error_rad = LastPhaseError;
     Tel.k_gain_mod = LastKGainMod;
     Tel.stall_margin = FMath::Clamp((Tel.airspeed - 3.5) / 6.0, 0.0, 1.0);
@@ -837,13 +863,15 @@ void ABorn2FlapFlightPawn::UpdateAeroAudio(float Dt)
     for (int32 I = 0; I < 5; ++I)
     {
         double Gain=born2flap::aeroaudio::GetNum(Voices[I],"gain");
-        // Voice 1 is "wing" — the wingbeat. Scale it alone so the flap can be
-        // heard over wind/surf/music without touching the rest of the mix. The
-        // wing is exempt from the onboard headroom cut (CameraGain) so it stays
-        // prominent when the camera rides at the bird — that cut was what made
-        // the wingbeat almost inaudible in FPV/chase.
-        if (I == 1) Gain *= WingbeatVolume;
-        else        Gain *= CameraGain;
+        // Voice 1 is "wing" — the wingbeat, and voices 2/3 are the servo whine
+        // ("servo_l"/"servo_r"). The servos are the mechanical partner of the
+        // flap, so they ride the SAME WINGBEAT VOLUME slider as the wing but at
+        // 80% (the whine reads best as a texture slightly under the thump), and
+        // are exempt from the onboard headroom cut (CameraGain) for the same
+        // reason: that cut was what buried the flap and its servo texture in FPV.
+        if (I == 1)            Gain *= WingbeatVolume;
+        else if (I == 2 || I == 3) Gain *= WingbeatVolume * 0.80;
+        else                   Gain *= CameraGain;
         born2flap::aeroaudio::SetNum(Voices[I],"gain",Gain);
         AudioSynth->SetVoiceParams(Names[I], Voices[I]);
     }

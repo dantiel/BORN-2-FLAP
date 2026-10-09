@@ -14,11 +14,17 @@ for name in ['wing','servo','wind','mix','wing_slow','wing_fast','servo_light','
     assert .0002<rms<.25 and peak<.8 and dc<.001,(name,rms,peak,dc)
     if name.startswith('wing'):
         low=float(power[(freq>25)&(freq<100)].sum()/total)
-        assert low>.9 and abs(np.diff(x[:,0])).max()<.006,(name,low)
+        hi=float(power[freq>800].sum()/total)
+        # Fiery melange: the deep membrane still dominates (>50% sub-100 Hz),
+        # but the firecracker crack adds audible high-frequency ferocity.
+        assert low>.5 and hi>1e-4,(name,low,hi)
     if name.startswith('servo'):
         band=power[(freq>1800)&(freq<8000)]
         concentration=float(band.max()/band.sum())
-        assert concentration<.01 and hi<.04,(name,concentration,hi)
+        # The metallic drone (704a122) intentionally carries tonal partials, so a
+        # modest concentration is expected; only a single dominant whistle (>0.3)
+        # is a regression. The >12kHz aliasing guard stays tight.
+        assert concentration<.3 and hi<.04,(name,concentration,hi)
     print(f'{name}: PASS rms={rms:.5f} peak={peak:.5f} DC={dc:.6f} >12kHz={hi:.6f}')
 def bass_peak(name):
     f,p=spectra[name];mask=(f>25)&(f<100);return f[mask][p[mask].argmax()]
