@@ -10,7 +10,17 @@ namespace Born2FlapBay
 {
 bool Contains(double X,double Y)
 {
-    return FMath::Abs(X)<=180000 && Y>=-180000 && Y<=80000 && (FMath::Abs(X)>=40000 || Y<=-34000);
+    if(FMath::Abs(X)>180000 || Y<-180000 || Y>80000) return false;
+    const double AX=FMath::Abs(X);
+    // Central corridor: only the far inland hills (behind the hand-placed
+    // beach, promenade and hinterland slab) are procedural.
+    if(AX<40000.0) return Y<=-34000.0;
+    // The beach, promenade and flat industrial-hinterland slab are hand-placed
+    // static meshes; the procedural terrain must not overlap them, or it z-fights
+    // and pokes foreign sand through the beach ends and behind the service road.
+    if(AX<=45000.0 && Y>=-3000.0 && Y<=12500.0) return false;  // beach + promenade + tidewalk
+    if(AX<=75000.0 && Y>=-34000.0 && Y<-3000.0) return false;  // flat hinterland band
+    return true;
 }
 double Height(double X,double Y)
 {
@@ -38,7 +48,7 @@ double Height(double X,double Y)
     // metres above the sea at each beach end and curve seaward, rounding the
     // open shore back into a bay. They stay low (east a touch higher than the
     // west) so the far mountains remain the only tall skyline.
-    const double Inner=47000+(X<0?7000:0)-3500*FMath::Exp(-FMath::Square((Y-26000)/14000));
+    const double Inner=(X<0?54000.0:50750.0)-3500*FMath::Exp(-FMath::Square((Y-26000)/14000));
     const double Rise=FMath::SmoothStep(Inner-5000,Inner+14000,FMath::Abs(X));
     const double Tip=1-FMath::SmoothStep(40000.,68000.,Y);
     const double Inland=FMath::SmoothStep(-3000.,5000.,Y);

@@ -43,6 +43,7 @@ target, so the blur now affects the content itself.
 | `refract`     | number | `0.35`     | refraction warp strength (hammered glass / water) `0..1`       |
 | `refractScale`| number | `6.0`      | organic noise frequency                                        |
 | `void`        | number | `0.9`      | how fully the edge dissolves into the void `0..1`              |
+| `pad`         | number | `0`        | internal top/bottom scroll padding (px) so the first/last rows scroll clear of the dissolve band and any overlaid tabs/footer |
 
 `edge` is the answer to "definable amount **or** automatic safe-area-bar size":
 pass a number for a fixed band, or `"auto"` (the default) to size it from the
@@ -52,7 +53,10 @@ dissolve band so the frost overlaps the content above/below it).
 
 ## Usage
 
-**Native C++** (how the menu/settings build their trees):
+**Native C++** (how the menu/settings build their trees). The menu wraps a
+`ScrollBlur` in a `ScrollPage` overlay — the ScrollBlur fills the whole content
+area while the tab bar (top) and footer (bottom) float above the dissolve bands:
+=======
 
 ```cpp
 Nd("ScrollBlur", P({ {"edge", S("auto")}, {"blur", N(0.02)} }),

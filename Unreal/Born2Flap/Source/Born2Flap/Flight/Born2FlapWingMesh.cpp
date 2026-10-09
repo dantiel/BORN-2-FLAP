@@ -60,6 +60,15 @@ double SampleStationField(const B2F_WingSection* Shape, int32 Count, double Stat
         + (2.0 * P0 - 5.0 * P1 + 4.0 * P2 - P3) * T2
         + (-P0 + 3.0 * P1 - 3.0 * P2 + P3) * T3);
 }
+// Visual exaggeration of the solver's aeroelastic deformation. The solver
+// already yields a physical quasi-static cantilever bend + washout twist; these
+// gains scale only the *rendered* flex (solver state and the aero feedback loop
+// are untouched). AeroBendVisualGain scales the carbon-spar bend; AeroTwistVisualGain
+// scales ONLY the load-driven elastic torsion (the reactive part), NOT the static
+// geometric washout — so the wing rests nearly flat and flexes with load. Raise
+// for a floppier look, lower toward 1 to match the raw physics.
+constexpr double AeroBendVisualGain  = 33.3;
+constexpr double AeroTwistVisualGain = 3.0;
 }
 
 void UBorn2FlapWingMesh::InitializeWing(int32 Side, int32 Design)
@@ -129,13 +138,27 @@ void UBorn2FlapWingMesh::ApplyShape(const B2F_WingSection* Shape)
         {
             const double Station=FMath::Clamp(V*B2F_WING_STATIONS-.5,0.,double(B2F_WING_STATIONS-1));
             Camber=SampleStationField(Shape,B2F_WING_STATIONS,Station,&B2F_WingSection::camber);
-            Twist=SampleStationField(Shape,B2F_WING_STATIONS,Station,&B2F_WingSection::twist_rad);
+            // The FFI returns geometric washout and the load-driven elastic torsion
+            // as separate fields. The root strip is clamped (its elastic torsion
+            // ≈ 0), so Shape[0].twist_geo_rad is the geometric root incidence and
+            // Shape[0].twist_elastic_rad ≈ 0 — subtract both as a corrective
+            // rotation so the root TE stays pinned. Only the ELASTIC part is
+            // amplified: AeroTwistVisualGain scales the reactive, load-driven
+            // washout (deepening under positive lift, reversing on the upstroke),
+            // while the static geometric washout keeps its natural ≈9° root → 0°
+            // tip pose, so the wing rests almost flat and only gains twist under
+            // load.
+            const double RootGeo=Shape[0].twist_geo_rad;
+            const double RootElastic=Shape[0].twist_elastic_rad;
+            const double GeoTwist=SampleStationField(Shape,B2F_WING_STATIONS,Station,&B2F_WingSection::twist_geo_rad)-RootGeo;
+            const double ElasticTwist=(SampleStationField(Shape,B2F_WING_STATIONS,Station,&B2F_WingSection::twist_elastic_rad)-RootElastic)*AeroTwistVisualGain;
+            Twist=GeoTwist+ElasticTwist;
             // Passive flap bending: bend_m is the solver's root-clamped cantilever
             // deflection [m] (tip-up positive). *100 maps metres to mesh units; the
             // first station (span_fraction≈0.031) is the clamp ramp so the root
             // stays pinned and bends in smoothly.
             const double RootRamp=FMath::Clamp(V/Shape[0].span_fraction,0.,1.);
-            Bend=SampleStationField(Shape,B2F_WING_STATIONS,Station,&B2F_WingSection::bend_m)*100*RootRamp;
+            Bend=SampleStationField(Shape,B2F_WING_STATIONS,Station,&B2F_WingSection::bend_m)*100*RootRamp*AeroBendVisualGain;
         }
         const double Leading=WingDesign==2?SampleMembrane(MembraneLE,13,V*100):17-14*V;
         const double Trailing=WingDesign==2?SampleMembrane(MembraneTE,13,V*100):Leading-47.;

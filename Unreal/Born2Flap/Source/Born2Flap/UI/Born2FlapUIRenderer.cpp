@@ -26,6 +26,7 @@
 #include "Components/EditableTextBox.h"
 #include "Components/PanelWidget.h"
 #include "Components/ScrollBox.h"
+#include "Components/ScrollBoxSlot.h"
 #include "Components/SizeBox.h"
 #include "Components/RetainerBox.h"
 #include "Engine/Texture2D.h"
@@ -62,6 +63,10 @@ FString FormatValue(const FValue& V, const FProps& Props)
         if (F == TEXT("int")) Decimals = 0;
         else if (F.Len() == 2 && F[0] == 'f' && F[1] >= '0' && F[1] <= '9') Decimals = F[1] - '0';
     }
+    // `signed` keeps the sign in the readout (e.g. "+0.4"); the Stat composite
+    // splits it off into its own quiet, colour-coded glyph.
+    if (Props.count("signed") && Props.at("signed").AsBool(false))
+        return FString::Printf(TEXT("%+.*f"), Decimals, V.AsNumber(0.0));
     return FString::Printf(TEXT("%.*f"), Decimals, V.AsNumber(0.0));
 }
 
@@ -152,6 +157,27 @@ float AutoSafeAreaEdge()
             Edge = FMath::Clamp(Inset / H, 0.02f, 0.5f);
     }
     return Edge;
+}
+
+// Does a widget (or any descendant) contain a scrollable region? A ScrollBlur
+// composite is often wrapped in an Overlay (so tabs/footers float above it),
+// and that Overlay — not the ScrollBlur itself — becomes the linear-box child.
+// Without this, the wrapper reports the ScrollBox's full content height and the
+// panel overflows instead of scrolling.
+static bool ContainsScrollable(UWidget* W)
+{
+    if (!W)
+        return false;
+    if (Cast<UScrollBox>(W))
+        return true;
+    if (UBorn2FlapComposite* C = Cast<UBorn2FlapComposite>(W))
+        if (C->SemanticType == TEXT("ScrollBlur"))
+            return true;
+    if (UPanelWidget* P = Cast<UPanelWidget>(W))
+        for (int32 i = 0; i < P->GetChildrenCount(); ++i)
+            if (ContainsScrollable(P->GetChildAt(i)))
+                return true;
+    return false;
 }
 
 // ---- semantic value formatting (the "prowess" of numeric components) ------
@@ -588,6 +614,22 @@ void UBorn2FlapUIRenderer::AppendChild(UWidget* Parent, int32 Index, UWidget* Ch
         {
             Panel->InsertChildAt(Index, Child);
             ApplyStoredLayout(Panel);
+            // ScrollBlur's internal top/bottom padding: the declared children
+            // (the rows VBox) are appended after props, so apply the cached pad
+            // to the scroll slot here so the first/last rows can scroll clear of
+            // the dissolve band.
+            if (C->SemanticType == TEXT("ScrollBlur"))
+            {
+                // `pad` is the empty scroll space at both ends of the content so
+                // the first/last rows can scroll clear of the dissolve band.
+                // Defaults to a small inset for tiny lists; the menu's large
+                // panels pass an explicit larger value.
+                const FString PadStr = C->State.FindRef(TEXT("pad"));
+                const float Pad = PadStr.IsEmpty() ? 24.f : FCString::Atof(*PadStr);
+                if (Pad > 0.f)
+                    if (UScrollBoxSlot* Slot = Cast<UScrollBoxSlot>(Child->Slot))
+                        Slot->SetPadding(FMargin(0.f, Pad, 0.f, Pad));
+            }
         }
         return;
     }
@@ -774,14 +816,30 @@ UBorn2FlapComposite* UBorn2FlapUIRenderer::BuildComponent(const FString& Type)
         C->SetPadding(FMargin(8.f, 6.f));
         UVerticalBox* Body = NewObject<UVerticalBox>(this);
         C->SetContent(Body);
+        // Readout row: sign (quiet, colour-coded) + digits (bright) + unit
+        // (small, dim, baseline-hugging). The label stays a caption below.
+        UHorizontalBox* Row = NewObject<UHorizontalBox>(this);
+        Body->AddChildToVerticalBox(Row);
+        UTextBlock* Sign = NewObject<UTextBlock>(this);
+        Sign->SetFont(theme::Font(TEXT("m"), 15));
+        Sign->SetColorAndOpacity(FSlateColor(theme::FG_DIM()));
+        Row->AddChildToHorizontalBox(Sign)->SetPadding(FMargin(0.f, 0.f, 2.f, 0.f));
         UTextBlock* Value = NewObject<UTextBlock>(this);
         Value->SetFont(theme::Font(TEXT("l"), 20));
-        Body->AddChildToVerticalBox(Value);
+        Row->AddChildToHorizontalBox(Value);
+        UTextBlock* Unit = NewObject<UTextBlock>(this);
+        Unit->SetFont(theme::Font(TEXT("s"), 12));
+        Unit->SetColorAndOpacity(FSlateColor(FLinearColor(theme::FG_DIM().R, theme::FG_DIM().G, theme::FG_DIM().B, 0.82f)));
+        UHorizontalBoxSlot* UnitSlot = Row->AddChildToHorizontalBox(Unit);
+        UnitSlot->SetPadding(FMargin(5.f, 0.f, 0.f, 3.f));
+        UnitSlot->SetVerticalAlignment(VAlign_Bottom);
         UTextBlock* Label = NewObject<UTextBlock>(this);
         Label->SetFont(theme::Font(TEXT("s"), 12));
         Label->SetColorAndOpacity(FSlateColor(theme::FG_DIM()));
         Body->AddChildToVerticalBox(Label);
+        C->Parts.Add(TEXT("sign"), Sign);
         C->Parts.Add(TEXT("value"), Value);
+        C->Parts.Add(TEXT("unit"), Unit);
         C->Parts.Add(TEXT("label"), Label);
         return C;
     }
@@ -1176,11 +1234,15 @@ void UBorn2FlapUIRenderer::ApplyCompositeProps(UBorn2FlapComposite* C, const FPr
             SParam("Void",         PropFloat("void", 0.9f));
             SetMaterialParams(Retainer, Params);
         }
+        if (Props.count("pad"))
+            C->State.Add(TEXT("pad"), FString::SanitizeFloat((float)Props.at("pad").AsNumber(0.0)));
     }
     else if (Type == TEXT("Value") || Type == TEXT("Stat"))
     {
         UTextBlock* Label = Cast<UTextBlock>(C->Part(TEXT("label")));
         UTextBlock* Value = Cast<UTextBlock>(C->Part(TEXT("value")));
+        UTextBlock* Sign = Cast<UTextBlock>(C->Part(TEXT("sign")));
+        UTextBlock* Unit = Cast<UTextBlock>(C->Part(TEXT("unit")));
         if (Props.count("label") && Label) SetText(Label, Props.at("label"));
 
         const bool bV = Props.count("value") != 0;
@@ -1189,9 +1251,36 @@ void UBorn2FlapUIRenderer::ApplyCompositeProps(UBorn2FlapComposite* C, const FPr
         if (bU) C->State.Add(TEXT("unit"), Str(Props.at("unit")));
         if (bV || bU)
         {
-            FString D = C->State.FindRef(TEXT("value"));
-            D += C->State.FindRef(TEXT("unit"));
-            if (Value) Value->SetText(FText::FromString(D));
+            const FString D = C->State.FindRef(TEXT("value"));
+            if (Sign && Value)
+            {
+                // Stat: the leading sign gets its own quiet glyph — the minus
+                // in a soft warm tone, the plus in plain dim — so the digits
+                // stay steady and the sign never widens the readout column.
+                FString SignText;
+                FString NumText = D;
+                if (D.Len() > 0 && (D[0] == TEXT('+') || D[0] == TEXT('-')))
+                {
+                    SignText = D.Left(1);
+                    NumText = D.Mid(1);
+                }
+                Sign->SetText(FText::FromString(SignText));
+                Sign->SetVisibility(SignText.IsEmpty() ? ESlateVisibility::Collapsed : ESlateVisibility::SelfHitTestInvisible);
+                Sign->SetColorAndOpacity(FSlateColor(SignText == TEXT("-")
+                    ? FLinearColor(theme::WARN().R, theme::WARN().G, theme::WARN().B, 0.92f)
+                    : theme::FG_DIM()));
+                Value->SetText(FText::FromString(NumText));
+            }
+            else if (Value)
+            {
+                Value->SetText(FText::FromString(D));
+            }
+            if (Unit)
+            {
+                const FString U = C->State.FindRef(TEXT("unit"));
+                Unit->SetText(FText::FromString(U));
+                Unit->SetVisibility(U.IsEmpty() ? ESlateVisibility::Collapsed : ESlateVisibility::SelfHitTestInvisible);
+            }
         }
         if (!Tone.IsEmpty() && Value) Value->SetColorAndOpacity(FSlateColor(ToneColor));
         StyleText(Value, Props);
@@ -1207,14 +1296,22 @@ void UBorn2FlapUIRenderer::ApplyCompositeProps(UBorn2FlapComposite* C, const FPr
 
         const bool bV = Props.count("value") != 0;
         const bool bU = Props.count("unit") != 0;
+        const bool bR = Props.count("readout") != 0;
         const bool bLo = Props.count("min") != 0;
         const bool bHi = Props.count("max") != 0;
         if (bV) C->State.Add(TEXT("value"), FormatValue(Props.at("value"), Props));
         if (bU) C->State.Add(TEXT("unit"), Str(Props.at("unit")));
-        if (bV || bU)
+        // `readout` overrides the composed text (the battery shows volts per
+        // cell + total while the numeric value still drives the bar).
+        if (bR) C->State.Add(TEXT("readout"), Str(Props.at("readout")));
+        if (bV || bU || bR)
         {
-            FString D = C->State.FindRef(TEXT("value"));
-            D += C->State.FindRef(TEXT("unit"));
+            FString D = C->State.FindRef(TEXT("readout"));
+            if (D.IsEmpty())
+            {
+                D = C->State.FindRef(TEXT("value"));
+                D += C->State.FindRef(TEXT("unit"));
+            }
             if (ValueTxt) ValueTxt->SetText(FText::FromString(D));
         }
         if (bV || bLo || bHi)
@@ -1769,10 +1866,10 @@ void UBorn2FlapUIRenderer::ApplyStoredLayoutToChild(UPanelWidget* Panel, int32 I
     // A ScrollBox — or a ScrollBlur composite wrapping one — placed in a linear
     // box slot defaults to "Automatic" sizing, so it reports its full content
     // height and overflows its panel instead of scrolling. Pin it to the
-    // remaining space so it clips and scrolls.
-    const bool bScrollBlur = Child->IsA<UBorn2FlapComposite>() &&
-        Cast<UBorn2FlapComposite>(Child)->SemanticType == TEXT("ScrollBlur");
-    if (Cast<UScrollBox>(Child) || bScrollBlur)
+    // remaining space so it clips and scrolls. The check is recursive so an
+    // Overlay (ScrollPage) wrapping the ScrollBlur also gets pinned.
+    const bool bScrollable = Cast<UScrollBox>(Child) != nullptr || ContainsScrollable(Child);
+    if (bScrollable)
     {
         if (UVerticalBoxSlot* VSlot = Cast<UVerticalBoxSlot>(Child->Slot))
         {

@@ -401,3 +401,102 @@ FString FBorn2FlapRcController::GetButtons() const
                            LaunchButton >= 0 ? *FString::FromInt(LaunchButton + 1) : TEXT("--"),
                            ResetButton >= 0 ? *FString::FromInt(ResetButton + 1) : TEXT("--"));
 }
+FString FBorn2FlapRcController::GetChannelName(int32 Channel) const
+{
+    return (Channel >= 0 && Channel < 5) ? FString(ChannelNames[Channel]) : FString();
+}
+void FBorn2FlapRcController::WriteChannel(int32 Channel)
+{
+    if (Channel < 0 || Channel >= 5)
+        return;
+    const auto &C = Calibration.channels[Channel];
+    const FString Prefix = FString::Printf(TEXT("Channel%d"), Channel);
+    GConfig->SetInt(*DeviceId, *(Prefix + TEXT("Axis")), C.axis, ConfigPath);
+    GConfig->SetDouble(*DeviceId, *(Prefix + TEXT("Low")), C.low, ConfigPath);
+    GConfig->SetDouble(*DeviceId, *(Prefix + TEXT("Centre")), C.centre, ConfigPath);
+    GConfig->SetDouble(*DeviceId, *(Prefix + TEXT("High")), C.high, ConfigPath);
+    GConfig->SetBool(*DeviceId, *(Prefix + TEXT("Invert")), C.inverted, ConfigPath);
+    GConfig->Flush(false, ConfigPath);
+}
+void FBorn2FlapRcController::AssignChannelAxis(int32 Channel, int32 Axis)
+{
+    if (Channel < 0 || Channel >= 5)
+        return;
+    if (Axis < 0 || Axis >= 8)
+    {
+        Calibration.channels[Channel] = {};
+        WriteChannel(Channel);
+        bEnabled = false;
+        Notice = FString::Printf(TEXT("%s nicht zugeordnet."), *GetChannelName(Channel));
+        return;
+    }
+    for (int32 C = 0; C < 5; ++C)
+        if (C != Channel && Calibration.channels[C].axis == Axis)
+        {
+            Notice = FString::Printf(TEXT("Achse %d ist schon %s zugeordnet."), Axis + 1, *GetChannelName(C));
+            return;
+        }
+    auto &C = Calibration.channels[Channel];
+    // Prefer the ranges captured by the wizard's sweep when present, otherwise
+    // the DirectInput [0..1] neutral-at-0.5 default is already exactly right.
+    const bool bRanged = Available[Axis] && (High[Axis] - Low[Axis] >= .2);
+    const double Lo = bRanged ? Low[Axis] : 0.0;
+    const double Hi = bRanged ? High[Axis] : 1.0;
+    const double Ce = bRanged ? Rest[Axis] : 0.5;
+    C = {Axis, Lo, Ce, Hi, C.inverted, C.deadzone};
+    WriteChannel(Channel);
+    if (Calibration.Valid())
+    {
+        bEnabled = true;
+        GConfig->SetString(TEXT("Selection"), TEXT("Device"), *DeviceId, ConfigPath);
+        GConfig->SetBool(TEXT("Selection"), TEXT("Enabled"), bEnabled, ConfigPath);
+        GConfig->Flush(false, ConfigPath);
+        Notice = TEXT("Sender bereit.");
+    }
+    else
+        Notice = TEXT("Alle 5 Kanäle zuordnen — dann wird der Sender aktiv.");
+}
+void FBorn2FlapRcController::ToggleChannelInvert(int32 Channel)
+{
+    if (Channel < 0 || Channel >= 5)
+        return;
+    Calibration.channels[Channel].inverted = !Calibration.channels[Channel].inverted;
+    WriteChannel(Channel);
+    Notice = FString::Printf(TEXT("%s %s."), *GetChannelName(Channel),
+                             Calibration.channels[Channel].inverted ? TEXT("invertiert") : TEXT("normal"));
+}
+void FBorn2FlapRcController::LearnChannelAxis(int32 Channel)
+{
+    if (!bConnected)
+    {
+        Notice = TEXT("Kein Sender verbunden.");
+        return;
+    }
+    if (Channel < 0 || Channel >= 5)
+        return;
+    // Pick the most-deflected, still-unassigned axis. The user holds the stick
+    // for this channel at full deflection and clicks LEARN.
+    int32 Best = -1;
+    double Peak = 0.15;
+    for (int32 Axis = 0; Axis < 8; ++Axis)
+    {
+        bool Used = false;
+        for (int32 C = 0; C < 5; ++C)
+            if (C != Channel && Calibration.channels[C].axis == Axis)
+                Used = true;
+        if (Used || !Available[Axis])
+            continue;
+        const double Delta = FMath::Abs(RawAxes[Axis] - 0.5);
+        if (Delta > Peak)
+        {
+            Peak = Delta;
+            Best = Axis;
+        }
+    }
+    if (Best < 0)
+    {
+        Notice = FString::Printf(TEXT("%s: Knueppel bis zum Anschlag halten und LERNEN klicken."), *GetChannelName(Channel));
+        return;
+    }
+    AssignChannelAxis(Channel, Best);
+}

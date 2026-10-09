@@ -42,6 +42,19 @@ FNode Nd(const char* Type, FProps Props = {}, std::vector<FNode> Children = {})
     return N_;
 }
 
+// A scroll page: the ScrollBlur fills the whole content area while the tab bar
+// and footer float above it (top / bottom). The dissolve band runs underneath
+// them, and the scroll content's internal `pad` lets the first/last rows scroll
+// clear of it.
+FNode ScrollPage(FNode Tabs, FNode Scroll, FNode Footer)
+{
+    return Nd("Overlay", P({}), {
+        std::move(Scroll),
+        Nd("Overlay", P({ {"visible", B(true)}, {"valign", S("top")} }), { std::move(Tabs) }),
+        Nd("Overlay", P({ {"visible", B(true)}, {"valign", S("bottom")} }), { std::move(Footer) }),
+    });
+}
+
 FPath ToPath(const TArray<int32>& Indices)
 {
     return FPath(Indices.GetData(), Indices.GetData() + Indices.Num());
@@ -120,8 +133,8 @@ void ABorn2FlapFlightSettings::BuildTree()
         return;
 
     // Paths are child indices from the Overlay root ([]):
-    //   [0] SizeBox → [0] Panel → [1] ScrollBox → [0] VBox → [row].
-    static const TArray<int32> VBox{ 0, 0, 1, 0 };
+    //   [0] SizeBox → [0] Panel → [0] ScrollPage → [0] ScrollBlur → [0] VBox → [row].
+    static const TArray<int32> VBox{ 0, 0, 0, 0, 0 };
     auto RowPath = [&](int32 Row) { TArray<int32> P = VBox; P.Add(Row); return P; };
 
     const int32 CurModel = Bird->GetBirdModel();
@@ -373,16 +386,17 @@ void ABorn2FlapFlightSettings::BuildTree()
     FNode Tabs=Rows.front(), Footer=Rows.back();
     Rows.front().props["visible"]=B(false);
     Rows.back().props["visible"]=B(false);
-    // Root: centered, fixed-size card → Panel → ScrollBox → VBox of rows.
+    // Root: centered, fixed-size card → Panel → ScrollPage overlay (ScrollBlur
+    // fills; tabs/footer float above the dissolve bands).
     FNode Root = Nd("Overlay", P({ {"align", S("center")}, {"valign", S("center")} }),
     {
         Nd("SizeBox", P({ {"width", N(900)}, {"height", N(SelectedPage==0 ? 510 : 800)} }),
         {
             Nd("Panel", P({ {"title",S("FLIGHT DESK")}, {"bg", S("solid")}, {"padding", N(24)}, {"spacing",N(12)} }),
             {
-                std::move(Tabs),
-                Nd("ScrollBlur", {}, { Nd("VerticalBox", P({ { "spacing", N(12)} }), std::move(Rows)) }),
-                std::move(Footer)
+                ScrollPage(std::move(Tabs),
+                    Nd("ScrollBlur", P({ {"pad", N(200)} }), { Nd("VerticalBox", P({ { "spacing", N(12)} }), std::move(Rows)) }),
+                    std::move(Footer))
             })
         })
     });

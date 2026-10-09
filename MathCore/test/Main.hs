@@ -84,10 +84,17 @@ main = do
       reflexedMoment = sectionPitchMomentCoeff camber 0.4
       cupped = relaxCamber 0.01 0.05 0.05
                  (membraneCamberTarget defaultBirdHandSection 1.0)
+      twistLoaded = sectionTwistMomentCoeff camber 0.4 0.10 0.8
+      twistReversed = sectionTwistMomentCoeff camber 0.4 0.10 (-0.8)
+      leverInboard = sectionTwistLever 0.0
+      leverOutboard = sectionTwistLever 1.0
   if zeroLiftAngle camber < 0
      && abs (sectionPitchMomentCoeff 0 0.9) < 1.0e-12
      && plainMoment < reflexedMoment && reflexedMoment < 0
      && cupped > 0.05
+     && twistLoaded < reflexedMoment
+     && twistReversed > 0 && twistReversed > twistLoaded
+     && leverInboard < leverOutboard && leverInboard > 0 && leverOutboard < 0.25
     then pure ()
     else fail "section model must couple camber to lift, reflex to trim, membrane to load"
   let structDr = 0.05

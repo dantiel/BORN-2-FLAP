@@ -1052,14 +1052,22 @@ lib.recompile_material(cloud)
 ela.save_asset('/Game/Shiomori/Materials/M_Cloud')
 mats['Cloud'] = cloud
 
-# Milky cloud-glass canopy: a soft, blurred, half-transparent translucent roof
-# that reads as cloud density rather than textured sheet glass. A barely-
-# perceptible multi-octave value-noise normal (subtle organic, "regularly
-# irregular" — not coarse) keeps the surface from reading as perfectly flat
-# plastic; a Fresnel edge sheen and a gentle refractive bend give it a glassy
-# rim. Soft, opacity-weighted translucent shadows (not a hard masked shadow)
-# make the overlapping slabs cast half-transparent shadows that deepen where
-# they overlap.
+# Milky cloud-glass canopy: a smooth, frosted glass roof. Two facts drive the
+# tuning, both verified against UE5.8's DistortionRendering.cpp / DistortionCommon.ush:
+#   1. A REAL refraction offset is REQUIRED — DistortionCommon.ush computes
+#      ViewportUVDistortion = ViewNormal.xy * (IOR - 1.0), then clips any pixel
+#      whose offset is sub-pixel. An IOR of exactly 1.0 therefore produces a
+#      ZERO offset and the pane is never written to the distortion buffer — no
+#      refraction, no blur. The IOR below is pinned to a real glass value (1.33)
+#      so the offset registers; the smooth, low-amplitude normal keeps that
+#      offset gentle (frosted smear, not a lens warp).
+#   2. Roughness-driven background BLUR ("rough refraction") is a Substrate-only
+#      feature in 5.8 (GetSubstrateEnabledUseRoughRefraction() == Substrate on &&
+#      r.Refraction.Blur > 0). Without it the high roughness only softens the
+#      specular. See .setup/regen-shiomori.ps1 + DefaultEngine.ini.
+# Surface forward-shading (TLM_SurfacePerPixelLighting) is what lets the pane
+# actually light per-pixel (Fresnel sheen) AND cast a soft opacity-weighted
+# translucent shadow via the sun's cast_translucent_shadows flag.
 glass = u.load_asset('/Game/Shiomori/Materials/M_Glass') if ela.does_asset_exist('/Game/Shiomori/Materials/M_Glass') else assets.create_asset(
     'M_Glass', '/Game/Shiomori/Materials', u.Material, u.MaterialFactoryNew())
 glass.set_editor_property('blend_mode', u.BlendMode.BLEND_TRANSLUCENT)
@@ -1070,6 +1078,13 @@ except Exception:
     pass
 try:
     glass.set_editor_property('refraction_method', u.RefractionMode.RM_INDEX_OF_REFRACTION)
+except Exception:
+    pass
+# Surface forward-shading: per-pixel lighting (so the Fresnel/specular actually
+# shows) AND the only translucency lighting mode that casts a translucent shadow.
+# The default TLM_VolumetricNonDirectional is lit from a volume and casts nothing.
+try:
+    glass.set_editor_property('translucency_lighting_mode', u.TranslucencyLightingMode.TLM_SURFACE_PER_PIXEL_LIGHTING)
 except Exception:
     pass
 # Cast a soft, opacity-weighted translucent shadow (via the sun's
@@ -1096,17 +1111,21 @@ n = custom(glass, '''struct GlassNoise { float vnoise(float2 p){
 float n = noise.vnoise(P.xy * 0.05) * 0.50
         + noise.vnoise(P.xy * 0.15) * 0.30
         + noise.vnoise(P.xy * 0.40) * 0.20;
-float g = (n - 0.5) * 0.12;
+float g = (n - 0.5) * 0.10;
 return normalize(float3(-g, 0.0, 1.0));''', {'P': wp}, 3)
 output(n, 'NORMAL')
 output(node(glass, 'Constant3Vector', constant=u.LinearColor(0.94, 0.95, 0.96)), 'BASE_COLOR')
-# A stronger refractive bend + higher roughness = the frosted "blurred glass"
-# look; IOR 1.0 is no bend, ~1.32 reads as a slightly milky glass pane.
-output(node(glass, 'Constant', r=1.32), 'REFRACTION')
-# Light, airy body: clearly lighter than before (0.85) but still credible —
-# not a ghost, just a thin sheet of frosted glass rather than a heavy slab.
-output(node(glass, 'Constant', r=0.55), 'OPACITY')
-output(node(glass, 'Constant', r=0.72), 'ROUGHNESS')
+# Real glass IOR: a value above 1.0 is what makes the refraction offset non-zero
+# (DistortionCommon.ush uses ViewNormal.xy * (IOR - 1.0)). Pinned at 1.0 the
+# pane was clipped out of the distortion buffer entirely. 1.33 + the gentle
+# normal above reads as frosted blur, not a sharp lens warp.
+output(node(glass, 'Constant', r=1.33), 'REFRACTION')
+# Frosted/milky body (not clear, not a ghost): translucent but visibly dense,
+# so the pane reads as smooth frosted glass rather than clear sheet glass.
+output(node(glass, 'Constant', r=0.70), 'OPACITY')
+# High roughness = the actual "glass blur": it widens the gaussian kernel that
+# smears the background behind the pane. Smooth (uniform), not wavy.
+output(node(glass, 'Constant', r=0.90), 'ROUGHNESS')
 # Fresnel edge sheen -> specular: matte on-axis, mirror-like at grazing angles.
 fres = node(glass, 'Fresnel')
 fres.set_editor_property('exponent', 3.0)

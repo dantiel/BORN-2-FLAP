@@ -380,7 +380,7 @@ void ABorn2FlapRadioHUD::BuildPanel()
                 Nd("VerticalBox", P({ {"spacing", N(2)} }),
                 {
                     Nd("Banner", P({ {"text", S("—")}, {"tone", S("normal")} })),
-                    Nd("Stat",  P({ {"label", L("radio.vol")}, {"value", N(50)}, {"unit", S(" %")}, {"tone", S("info")} })),
+                    Nd("Stat",  P({ {"label", L("radio.vol")}, {"value", N(50)}, {"unit", S("%")}, {"tone", S("info")} })),
                 }),
             }),
         }),

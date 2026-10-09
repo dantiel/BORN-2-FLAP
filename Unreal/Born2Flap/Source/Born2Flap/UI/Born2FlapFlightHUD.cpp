@@ -20,6 +20,7 @@ namespace {
 
 FValue S(const char* v) { FValue x; x.kind = FValue::Kind::String; x.str = v; return x; }
 FValue N(double v) { FValue x; x.kind = FValue::Kind::Number; x.num = v; return x; }
+FValue B(bool v) { FValue x; x.kind = FValue::Kind::Bool; x.b = v; return x; }
 
 // A localized string value: look up a semantic key and emit it as UTF-8.
 FValue L(const char* Key) { return S(TCHAR_TO_UTF8(*Born2Flap::I18n::T(Key))); }
@@ -112,20 +113,20 @@ void ABorn2FlapFlightHUD::BuildCockpit()
 
             Nd("Panel", P({ {"title", L("hud.instruments")}, {"spacing", N(2)} }),
             {
-                Nd("Stat", P({ {"label", L("hud.altitude")}, {"value", N(0)}, {"unit", S(" m")},   {"format", S("int")}, {"tone", S("good")} })),
-                Nd("Stat", P({ {"label", L("hud.climb")},    {"value", N(0)}, {"unit", S(" m/s")}, {"format", S("f1")} })),
-                Nd("Stat", P({ {"label", L("hud.speed")},    {"value", N(0)}, {"unit", S(" m/s")}, {"format", S("f1")}, {"tone", S("info")} })),
+                Nd("Stat", P({ {"label", L("hud.altitude")}, {"value", N(0)}, {"unit", S("m")},   {"format", S("int")}, {"tone", S("good")} })),
+                Nd("Stat", P({ {"label", L("hud.climb")},    {"value", N(0)}, {"unit", S("m/s")}, {"format", S("f1")}, {"signed", B(true)}, {"tone", S("normal")} })),
+                Nd("Stat", P({ {"label", L("hud.speed")},    {"value", N(0)}, {"unit", S("m/s")}, {"format", S("f1")}, {"tone", S("info")} })),
             }),
 
             Nd("Panel", P({ {"title", L("hud.energy")}, {"spacing", N(2)} }),
             {
                 Nd("Gauge", P({ {"label", L("hud.battery")}, {"value", N(100)}, {"min", N(0)}, {"max", N(100)}, {"unit", S("%")}, {"format", S("int")}, {"tone", S("good")} })),
-                Nd("Gauge", P({ {"label", L("hud.throttle")}, {"value", N(0)},   {"min", N(0)}, {"max", N(1)},                     {"format", S("f2")}, {"tone", S("accent")} })),
+                Nd("Gauge", P({ {"label", L("hud.throttle")}, {"value", N(0)},   {"min", N(0)}, {"max", N(100)}, {"unit", S("%")}, {"format", S("int")}, {"tone", S("accent")} })),
             }),
 
             Nd("Panel", P({ {"title", L("hud.wind")}, {"spacing", N(2)} }),
             {
-                Nd("Stat", P({ {"label", L("hud.speed")},    {"value", N(0)}, {"unit", S(" m/s")}, {"format", S("f1")}, {"tone", S("info")} })),
+                Nd("Stat", P({ {"label", L("hud.speed")},    {"value", N(0)}, {"unit", S("m/s")}, {"format", S("f1")}, {"tone", S("info")} })),
                 Nd("WindArrow", P({ {"angle", N(0)}, {"size", N(30)} })),
                 Nd("Banner", P({ {"text", L("wind.calm")}, {"tone", S("good")} })),
             }),
@@ -181,38 +182,54 @@ void ABorn2FlapFlightHUD::Refresh()
     TArray<FOp> Ops;
 
     const float Alt = CachedBird->GetAltitude();
-    if (!FMath::IsNearlyEqual(Alt, LastAlt))
+    const FString AltTxt = FString::Printf(TEXT("%.0f"), Alt);
+    if (AltTxt != LastAlt)
     {
         Ops.Add(UpdateProps(Pth({0, 1, 0}), P({ {"value", N(Alt)}, {"format", S("int")} })));
-        LastAlt = Alt;
+        LastAlt = AltTxt;
     }
 
     const float Climb = CachedBird->GetClimbRate();
-    if (!FMath::IsNearlyEqual(Climb, LastClimb))
+    const FString ClimbTxt = FString::Printf(TEXT("%+.1f"), Climb);
+    if (ClimbTxt != LastClimb)
     {
-        Ops.Add(UpdateProps(Pth({0, 1, 1}), P({ {"value", N(Climb)} })));
-        LastClimb = Climb;
+        Ops.Add(UpdateProps(Pth({0, 1, 1}), P({ {"value", N(Climb)}, {"signed", B(true)},
+            {"tone", S(Climb > 0.4f ? "good" : Climb < -0.4f ? "warn" : "normal")} })));
+        LastClimb = ClimbTxt;
     }
 
     const float Speed = CachedBird->GetSpeed();
-    if (!FMath::IsNearlyEqual(Speed, LastSpeed))
+    const FString SpeedTxt = FString::Printf(TEXT("%.1f"), Speed);
+    if (SpeedTxt != LastSpeed)
     {
         Ops.Add(UpdateProps(Pth({0, 1, 2}), P({ {"value", N(Speed)} })));
-        LastSpeed = Speed;
+        LastSpeed = SpeedTxt;
     }
 
-    const float Battery = CachedBird->GetBattery() * 100.f;  // 0..100 %
-    if (!FMath::IsNearlyEqual(Battery, LastBattery))
+    // Battery: the bar stays a 0..100 % gauge, the readout shows the LiPo
+    // voltages — per cell first, then the pack total (cell count derived from
+    // the tuned nominal pack voltage, e.g. 11.1 V → 3S; 3.0 V empty → 4.2 V
+    // full per cell).
+    const float Soc = CachedBird->GetBattery();
+    const float NominalV = CachedBird->GetTuning(ETuningField::BatteryVoltage);
+    const int32 Cells = FMath::Max(1, FMath::RoundToInt(NominalV / 3.7f));
+    const float CellV = 3.0f + Soc * 1.2f;
+    const FString BattTxt = FString::Printf(TEXT("%.2fV × %d = %.1fV"), CellV, Cells, CellV * Cells);
+    const FString BattKey = BattTxt + FString::Printf(TEXT("#%.0f"), Soc * 100.f);
+    if (BattKey != LastBattery)
     {
-        Ops.Add(UpdateProps(Pth({0, 2, 0}), P({ {"value", N(Battery)}, {"format", S("int")} })));
-        LastBattery = Battery;
+        Ops.Add(UpdateProps(Pth({0, 2, 0}), P({ {"value", N(Soc * 100.f)},
+            {"readout", S(TCHAR_TO_UTF8(*BattTxt))},
+            {"tone", S(Soc > 0.5f ? "good" : Soc > 0.2f ? "warn" : "danger")} })));
+        LastBattery = BattKey;
     }
 
-    const float Throttle = CachedBird->GetEffort();
-    if (!FMath::IsNearlyEqual(Throttle, LastThrottle))
+    const float Throttle = CachedBird->GetEffort() * 100.f;
+    const FString ThrottleTxt = FString::Printf(TEXT("%.0f"), Throttle);
+    if (ThrottleTxt != LastThrottle)
     {
-        Ops.Add(UpdateProps(Pth({0, 2, 1}), P({ {"value", N(Throttle)} })));
-        LastThrottle = Throttle;
+        Ops.Add(UpdateProps(Pth({0, 2, 1}), P({ {"value", N(Throttle)}, {"format", S("int")} })));
+        LastThrottle = ThrottleTxt;
     }
 
     const FVector Wind = CachedBird->GetWind();
@@ -221,10 +238,11 @@ void ABorn2FlapFlightHUD::Refresh()
     const float BlowBearing = FMath::Fmod(FMath::RadiansToDegrees(FMath::Atan2(Wind.X, Wind.Y)) + 360.0f, 360.0f);
     const float SourceBearing = FMath::Fmod(BlowBearing + 180.0f, 360.0f);
 
-    if (!FMath::IsNearlyEqual(WindSpeed, LastWindSpeed))
+    const FString WindTxt = FString::Printf(TEXT("%.1f"), WindSpeed);
+    if (WindTxt != LastWindSpeed)
     {
         Ops.Add(UpdateProps(Pth({0, 3, 0}), P({ {"value", N(WindSpeed)} })));
-        LastWindSpeed = WindSpeed;
+        LastWindSpeed = WindTxt;
     }
 
     // Relative wind-source bearing: rotate the HUD arrow against the current

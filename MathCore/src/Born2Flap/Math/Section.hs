@@ -31,6 +31,8 @@ module Born2Flap.Math.Section
     -- * Thin-airfoil response (camber + reflex)
   , zeroLiftAngle
   , sectionPitchMomentCoeff
+  , sectionTwistLever
+  , sectionTwistMomentCoeff
     -- * Aeroelastic membrane dynamics
   , membraneCamberTarget
   , relaxCamber
@@ -80,6 +82,35 @@ sectionPitchMomentCoeff camber reflex =
   let momentK = pi / 2
       trim = clamp01 reflex
   in -momentK * camber * (1.0 - trim)
+
+-- | Chordwise offset of the aerodynamic centre from the *effective* torsional
+-- axis, as a fraction of chord, at a given span fraction. Thin-airfoil AC sits
+-- at @0.25c@, but the elastic axis is NOT at the leading edge everywhere: the
+-- braced inboard arm wing (diagonal LE→TE brace + mid-chord spar) holds its
+-- torsional centre AFT (≈0.15c), leaving only ~0.05c for the lift to twist it;
+-- the unbraced outboard hand wing has its elastic axis at the leading edge, so
+-- the full ~0.20c AC offset twists it. This concentrates aeroelastic washout in
+-- the hand wing (the part a real bird twists) and keeps the stiff, braced arm
+-- wing from washing out under the accumulated outboard torque — the inner wing
+-- stays near its geometric incidence while the tip washes out with load. Using a
+-- single full-LE lever (0.25c) everywhere had eaten the lift-curve slope and made
+-- the elevator feel weak under load; the spanwise split keeps that authority.
+sectionTwistLever :: Double -> Double
+sectionTwistLever frac =
+  let f = clamp01 frac
+      t = clamp01 ((f - 0.15) / 0.45)
+      s = t * t * (3.0 - 2.0 * t)   -- smoothstep inboard → outboard
+  in 0.05 + 0.15 * s
+
+-- | Section pitching-moment coefficient about the LEADING-EDGE elastic axis
+-- (the twist axis), not the quarter-chord AC. It is the camber/reflex AC moment
+-- plus the lift acting at the @lever@ offset. The lift term is load-proportional:
+-- positive @cl@ deepens the nose-down washout (delaying tip stall), negative @cl@
+-- (upstroke / reversed flow) reverses it into nose-up wash-in — the hand-wing
+-- reversal a real bird shows on the upstroke.
+sectionTwistMomentCoeff :: Double -> Double -> Double -> Double -> Double
+sectionTwistMomentCoeff camber reflex lever cl =
+  sectionPitchMomentCoeff camber reflex - lever * cl
 
 -- | Membrane cupping target camber @f/c@ under a local lift coefficient @cl@.
 -- A positive @cl@ (lift up, suction on top) cups the membrane deeper (more

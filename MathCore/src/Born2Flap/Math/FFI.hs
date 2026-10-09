@@ -50,11 +50,11 @@ b2f_math_get_wing_shape contextPointer capacity leftPointer rightPointer
           values strips = concat
             [ let fraction = (fromIntegral i + 0.5) / fromIntegral stripCount
               in [fraction, shapeChord defaultBirdWing fraction, stripBendM s,
-                  shapeTwistRad defaultBirdWing fraction + stripTwistAero s, stripCamber s]
+                  shapeTwistRad defaultBirdWing fraction, stripTwistAero s, stripCamber s]
             | (i, s) <- zip [0 :: Int ..] strips ]
           left = values (fvLeftStrips state)
           right = values (fvRightStrips state)
-          valid xs = length xs == stripCount * 5 && all (\v -> not (isNaN v || isInfinite v)) xs
+          valid xs = length xs == stripCount * 6 && all (\v -> not (isNaN v || isInfinite v)) xs
           write pointer xs = sequence_
             [pokeElemOff (castPtr pointer :: Ptr CDouble) i (CDouble v) | (i,v) <- zip [0..] xs]
       if not (valid left && valid right) then pure 0 else do
@@ -85,7 +85,7 @@ b2f_math_get_wing_forces contextPointer capacity leftPointer rightPointer
     failure :: SomeException -> IO Int32
     failure _ = pure 0
 b2f_math_abi_version :: IO Word32
-b2f_math_abi_version = pure 9
+b2f_math_abi_version = pure 10
 
 b2f_math_runtime_init :: IO Int32
 b2f_math_runtime_init = pure 1

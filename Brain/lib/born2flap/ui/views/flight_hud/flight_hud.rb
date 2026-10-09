@@ -30,12 +30,19 @@ module Born2Flap
         private
 
         def telemetry(locals)
+          climb = locals[:climb] || 0
+          battery = locals[:battery] || 100
           {
             altitude: locals[:altitude] || 0,
-            climb: locals[:climb] || 0,
+            climb: climb,
+            climb_tone: climb > 0.4 ? "good" : (climb < -0.4 ? "warn" : "normal"),
             speed: locals[:speed] || 0,
-            battery: locals[:battery] || 100,
-            throttle: locals[:throttle] || 0,
+            battery: battery,
+            battery_tone: battery > 50 ? "good" : (battery > 20 ? "warn" : "danger"),
+            # Native HUD computes "4.18V × 3 = 12.5V"; the Brain accepts an
+            # authored readout and falls back to the plain percent.
+            battery_readout: locals[:battery_readout] || "#{battery.round}%",
+            throttle: (locals[:throttle] || 0) * 100,
             status: locals[:status] || I18n.t("hud.ready", lang: locals[:lang])
           }
         end
