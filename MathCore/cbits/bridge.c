@@ -36,7 +36,7 @@ B2F_EXPORT HsWord32 b2f_math_abi_version(void) {
      * constant instead of a call into the (uninitialised) Haskell RTS.
      /* KEEP IN SYNC with B2F_MATH_ABI_VERSION in Native/include/born2flap_math.h
       * and b2f_math_abi_version in MathCore/src/Born2Flap/Math/FFI.hs. */
-     return 9;
+     return 10;
 }
 
 B2F_EXPORT HsInt32 b2f_math_runtime_init(void) {

@@ -45,6 +45,17 @@ class FBorn2FlapRcController
     void LearnLaunch();
     void LearnReset();
 
+    // --- per-channel axis editing (manual, no wizard required) --------------
+    // Each of the 5 channels (GAS/ROLL/PITCH/YAW/SPEED) can be mapped to a
+    // physical axis directly, inverted, or learned from the currently-deflected
+    // stick — so the 7-step wizard stays optional.
+    FString GetChannelName(int32 Channel) const;
+    int32 GetChannelAxis(int32 Channel) const { return Calibration.channels[Channel].axis; }
+    bool IsChannelInverted(int32 Channel) const { return Calibration.channels[Channel].inverted; }
+    void AssignChannelAxis(int32 Channel, int32 Axis);
+    void ToggleChannelInvert(int32 Channel);
+    void LearnChannelAxis(int32 Channel);
+
     FString Notice;
 
   private:
@@ -62,4 +73,7 @@ class FBorn2FlapRcController
     void SelectDevice(int32 Index);
     void LoadCalibration();
     void SaveCalibration();
+    // Persist a single channel immediately (partial configs survive a menu
+    // close before all 5 channels are assigned; SaveCalibration guards on Valid()).
+    void WriteChannel(int32 Channel);
 };

@@ -13,7 +13,7 @@
 extern "C" {
 #endif
 
-#define B2F_MATH_ABI_VERSION 9u
+#define B2F_MATH_ABI_VERSION 10u
 
 typedef struct B2F_MathContext B2F_MathContext;
 
@@ -140,9 +140,10 @@ B2F_API int32_t b2f_math_reconfigure_firmware_vehicle(
 typedef struct B2F_WingSection {
     double span_fraction;
     double chord_m;
-    double bend_m;       /* solver's body-Z displacement, not flap-normal */
-    double twist_rad;    /* geometric incidence + elastic torsion, nose-up + */
-    double camber;       /* signed membrane height / local chord */
+    double bend_m;            /* solver's body-Z displacement, not flap-normal */
+    double twist_geo_rad;     /* geometric incidence (washout), nose-up + */
+    double twist_elastic_rad; /* load-driven aeroelastic torsion, nose-up + */
+    double camber;            /* signed membrane height / local chord */
 } B2F_WingSection;
 B2F_API int32_t b2f_math_get_wing_shape(B2F_MathContext* context,
     uint32_t capacity, B2F_WingSection* left, B2F_WingSection* right);

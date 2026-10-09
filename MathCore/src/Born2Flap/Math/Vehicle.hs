@@ -34,7 +34,7 @@ import Born2Flap.Math.Planform
   , shapeSweepRad, shapeTwistRad, shapeDihedralRad, shapeAspectRatio, shapeSection, shapeStructure )
 import Born2Flap.Math.Section
   ( SectionProfile(..), zeroLiftAngle, sectionPitchMomentCoeff
-  , membraneCamberTarget, relaxCamber )
+  , sectionTwistLever, sectionTwistMomentCoeff, membraneCamberTarget, relaxCamber )
 import Born2Flap.Math.Structure
   ( StructureProfile(..), integrateFlapBeam, integrateTwist, relaxDeflection, softSaturate
   , sparBendEISpanwise, sparTwistGJSpanwise )
@@ -83,7 +83,7 @@ data StripResult = StripResult
   , resultForce :: !Vec3
   , resultMoment :: !Vec3
   , resultPower :: !Double
-  , resultSectionMoment :: !Double  -- ^ sectional pitching moment [N·m] (nose-up +)
+  , resultSectionMoment :: !Double  -- ^ twist-driving moment about the LE elastic axis [N·m] (nose-up +)
   } deriving stock (Eq, Show)
 
 stripCount :: Int
@@ -319,6 +319,15 @@ stepStrip flapping side stroke strokeRate input incidenceRad wp index old =
       -- a fictitious 25 N source at every strip.
       cm0 = sectionPitchMomentCoeff camberPrev (spReflex profile)
       sectionPitchMoment = cm0 * q * chord * chord * dr
+      -- Twist-driving moment about the LE elastic axis: the camber/reflex AC
+      -- moment plus the lift acting at the 0.25c AC offset. Load-proportional —
+      -- positive cl deepens washout (gust/stall relief, delays tip stall), and
+      -- the upstroke's reversed lift twists the outer wing nose-up (wash-in),
+      -- the reversal a real hand-wing shows. This feeds the spanwise torsion
+      -- only; the body pitching moment above still uses the AC moment.
+      twistLever = sectionTwistLever fraction
+      sectionTwistMoment = sectionTwistMomentCoeff camberPrev (spReflex profile) twistLever cl
+                            * q * chord * chord * dr
       -- Section Cm is positive nose-up. With body +x forward,+y right,+z up,
       -- the axial +Y moment rotates the nose DOWN, so convert the sign here.
       -- Keep the scalar section moment in its original convention for twist.
@@ -326,7 +335,7 @@ stepStrip flapping side stroke strokeRate input incidenceRad wp index old =
       power = max 0 (negate (dot force flapVelocity))
       next = StripState relaxed alpha normalVelocity lev camberNext bend
                (stripBendSlope old) aeroTwist
-  in StripResult next force moment power sectionPitchMoment
+  in StripResult next force moment power sectionTwistMoment
 
 transportSeparation :: Double -> VehicleInput -> WingShape -> [StripResult] -> [StripResult]
 transportSeparation _side input wp results = zipWith update [0 ..] results

@@ -126,7 +126,7 @@ FKey Get(const FString& Id)
 void Set(const TCHAR* Id, FKey Key)
 {
     LoadIfNeeded();
-    if (!Key.IsValid())
+    if (!Id || !Key.IsValid())
         return;
     for (const auto& A : MutableCatalog())
     {

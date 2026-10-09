@@ -179,6 +179,10 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     FRotator GroundGaze = FRotator::ZeroRotator;
     bool bGroundView = false, bFpvAirView = false, bCameraGrounded = false, bGroundGazeReady = false;
     double CameraTime = 0, GroundSettleTime = 0;
+    // True once the pilot has walked away from the auto-anchor beside the bird:
+    // a later throw then launches from the pilot's position and gaze instead of
+    // the bird's resting spot. Cleared when the bird lands (RememberLanding).
+    bool bPilotWalked = false;
     // Ground interaction (pilot walk + look), active while the middle mouse
     // button is held and the bird is grounded. Chase-orbit offsets rotate the
     // spring arm around the bird; ground free-look offsets detach the ground
@@ -189,9 +193,10 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     // ChaseArmLength dollies the chase spring arm (auto-FPV when close enough).
     float GroundZoom = 1.f;
     float ChaseArmLength = 480.f;
-    // True while the MMB walk/look mode is active — including in flight, where
-    // the chase camera honours the orbit offsets instead of the fixed follow.
-    bool bWalkLookActive = false;
+    // Click-vs-drag latch for the middle mouse button: a clean click (press +
+    // release with no mouse move or scroll) snaps the chase orbit + zoom back
+    // to default, while a drag leaves the orbit/zoom where the player parked it.
+    bool bMmbOrbitDragged = false;
     // Invert the ground free-look mouse (an accessibility/comfort option in the
     // GENERAL SETTINGS). Only the detached ground-perspective free-look honours
     // it — chase orbit and flight controls keep their own conventions.

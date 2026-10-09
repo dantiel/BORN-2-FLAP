@@ -49,6 +49,27 @@ FNode Nd(const char* Type, FProps Props = {}, std::vector<FNode> Children = {})
     return N_;
 }
 
+// A scroll page: the ScrollBlur fills the whole content area while the tab bar
+// and footer float above it (top / bottom). The dissolve band runs underneath
+// them, and the scroll content's internal `pad` lets the first/last rows scroll
+// clear of it.
+FNode ScrollPage(FNode Tabs, FNode Scroll, FNode Footer)
+{
+    return Nd("Overlay", P({}), {
+        std::move(Scroll),
+        Nd("Overlay", P({ {"visible", B(true)}, {"valign", S("top")} }), { std::move(Tabs) }),
+        Nd("Overlay", P({ {"visible", B(true)}, {"valign", S("bottom")} }), { std::move(Footer) }),
+    });
+}
+
+FNode ScrollPage(FNode Tabs, FNode Scroll)
+{
+    return Nd("Overlay", P({}), {
+        std::move(Scroll),
+        Nd("Overlay", P({ {"visible", B(true)}, {"valign", S("top")} }), { std::move(Tabs) }),
+    });
+}
+
 FPath ToPath(const TArray<int32>& Indices)
 {
     return FPath(Indices.GetData(), Indices.GetData() + Indices.Num());
@@ -122,12 +143,16 @@ constexpr int32 LanguageCount = (int32)(sizeof(Languages) / sizeof(Languages[0])
 class FMenuKeyCaptureProcessor : public IInputProcessor
 {
 public:
-    ABorn2FlapMenu* Menu = nullptr;
-
+    // Weak, not raw: the processor is registered with the global
+    // FSlateApplication, which keeps it alive independently of the menu actor.
+    // A raw pointer here dangles if the menu is destroyed without Close()
+    // (level travel via OpenLevel), producing a use-after-free on the next key.
+    TWeakObjectPtr<ABorn2FlapMenu> Menu;
+ 
     virtual void Tick(const float DeltaTime, FSlateApplication& SlateApp, TSharedRef<ICursor> Cursor) override {}
     virtual bool HandleKeyDownEvent(FSlateApplication& SlateApp, const FKeyEvent& InKeyEvent) override
     {
-        if (!Menu || !Menu->IsListeningForKeybind())
+        if (!Menu.IsValid() || !Menu->IsListeningForKeybind())
             return false;
         if (InKeyEvent.IsRepeat())
             return true;  // swallow auto-repeat while listening
@@ -166,6 +191,18 @@ void ABorn2FlapMenu::Tick(float DeltaSeconds)
     {
         bKeybindRebuildPending = false;
         Build();
+    }
+    // CONTROL SETTINGS: keep the live RC readouts fresh (sticks, status,
+    // instruction, notice) without a full rebuild — that would reset scroll and
+    // any open dropdown. Throttled so idle pages cost nothing.
+    if (NavPage == 2 && PrefsPage == 0 && !RcAxisPaths.IsEmpty())
+    {
+        RcRefreshTimer += DeltaSeconds;
+        if (RcRefreshTimer >= 0.1f)
+        {
+            RcRefreshTimer = 0.f;
+            RefreshRcReadouts();
+        }
     }
 }
 
@@ -466,11 +503,12 @@ void ABorn2FlapMenu::Build()
 
 void ABorn2FlapMenu::BuildFlightDesk(std::vector<FNode>& Out)
 {
-    // The hosting Panel sits at root path {1,1,0}; its children are [0]=tabs
-    // Select, [1]=ScrollBox, [2]=footer. Rows hang off the VBox at {1,1,0,1,0}.
+    // The hosting Panel sits at root path {1,1,0}; its single child is the
+    // ScrollPage Overlay: [0]=ScrollBlur, [1]=tabs Select, [2]=footer. Rows
+    // hang off the ScrollBlur's VBox at {1,1,0,0,0,0}.
     // The desk is purely the hangar — choose the aircraft and tune it. Global
     // preferences (camera, audio, input, replay) live in SETTINGS → GENERAL.
-    static const TArray<int32> VBox{ 1, 1, 0, 1, 0 };
+    static const TArray<int32> VBox{ 1, 1, 0, 0, 0, 0 };
     auto RowPath = [&](int32 Row) { TArray<int32> P = VBox; P.Add(Row); return P; };
 
     const int32 CurModel = CurBirdModel();
@@ -487,7 +525,7 @@ void ABorn2FlapMenu::BuildFlightDesk(std::vector<FNode>& Out)
     // Sub-tabs: CRAFT / BIRD / SERVO / FLIGHT.
     FValue Pages; Pages.kind = FValue::Kind::Array;
     for (const char* Page : { "CRAFT", "BIRD", "SERVO", "FLIGHT" }) Pages.arr.push_back(S(Page));
-    Push(Nd("Select", P({ {"options", Pages}, {"value", N(SettingsPage)}, {"action", S("settings.page")}, {"tooltip", S("Choose the aircraft, tune the bird, configure the servo and battery, or trim the flight.")} })), -1);
+    Push(Nd("Segment", P({ {"options", Pages}, {"value", N(SettingsPage)}, {"action", S("settings.page")}, {"tooltip", S("Choose the aircraft, tune the bird, configure the servo and battery, or trim the flight.")} })), -1);
 
     // A tuning row grouped into one of the desk's tabs.
     auto PushTuning = [&](ETuningField Field, int32 Page)
@@ -633,68 +671,149 @@ void ABorn2FlapMenu::BuildFlightDesk(std::vector<FNode>& Out)
     Rows.front().props["visible"]=B(false);
     Rows.back().props["visible"]=B(false);
 
-    Out.push_back(std::move(Tabs));
-    Out.push_back(Nd("ScrollBlur", P({}), { Nd("VerticalBox", P({ { "spacing", N(12)} }), std::move(Rows)) }));
-    Out.push_back(std::move(Footer));
+    Out.push_back(ScrollPage(
+        std::move(Tabs),
+        Nd("ScrollBlur", P({ {"pad", N(200)} }), { Nd("VerticalBox", P({ { "spacing", N(12)} }), std::move(Rows)) }),
+        std::move(Footer)));
 }
 
 void ABorn2FlapMenu::BuildPreferences(std::vector<FNode>& Out)
 {
     FValue Pages; Pages.kind = FValue::Kind::Array;
     for (const char* Pg : { "CONTROL SETTINGS", "GENERAL SETTINGS", "KEY BINDINGS" }) Pages.arr.push_back(S(Pg));
-    Out.push_back(Nd("Select", P({ {"options", Pages}, {"value", N(PrefsPage)}, {"action", S("prefs.page")}, {"tooltip", S("Configure the RC transmitter, browse general game options, or rebind keys.")} })));
+    FNode Tabs = Nd("Segment", P({ {"options", Pages}, {"value", N(PrefsPage)}, {"action", S("prefs.page")}, {"tooltip", S("Configure the RC transmitter, browse general game options, or rebind keys.")} }));
 
     if (PrefsPage == 0)
     {
-        // ---- CONTROL SETTINGS: the RC transmitter panel, embedded ----
-        if (FBorn2FlapRcController* Rc = ActiveRc())
+        // ---- CONTROL SETTINGS: RC transmitter, scrollable + per-channel ----
+        // editing. The wizard (START / NEXT STEP) stays available but is optional:
+        // every channel can be mapped, inverted and learned by hand, so the RC
+        // is usable without ever entering the guided calibration.
+        static const TArray<int32> VBox{ 1, 1, 0, 0, 0, 0 };
+        auto RowPath = [&](int32 Row) { TArray<int32> P = VBox; P.Add(Row); return P; };
+
+        RcStatusPath.Reset();
+        RcInstructionPath.Reset();
+        RcNoticePath.Reset();
+        RcAxisPaths.Reset();
+
+        FBorn2FlapRcController* Rc = ActiveRc();
+        std::vector<FNode> Rows;
+        int32 R = 0;
+        const auto Next = [&]() -> int32 { return R++; };
+
+        Rows.push_back(Nd("Banner", P({ {"text", S("RC TRANSMITTER")}, {"tone", S("accent")} })));
+        Next();
+
+        Rows.push_back(Nd("TextBlock", P({ {"text", S(Rc->GetDeviceName())}, {"tone", S("info")}, {"size", S("m")}, {"wrap", B(true)} })));
+        Next();
+
         {
-                Out.push_back(Nd("Banner", P({ {"text", S("RC TRANSMITTER")}, {"tone", S("accent")} })));
-                Out.push_back(Nd("TextBlock", P({ {"text", S(Rc->GetDeviceName())}, {"tone", S("info")}, {"size", S("m")}, {"wrap", B(true)} })));
-                Out.push_back(Nd("TextBlock", P({ {"text", S(Rc->GetStatus())}, {"tone", S("dim")}, {"size", S("s")} })));
-                Out.push_back(Nd("TextBlock", P({ {"text", S(Rc->GetInstruction())}, {"tone", S("accent")}, {"size", S("s")}, {"wrap", B(true)} })));
-                if (!Rc->GetNotice().IsEmpty())
-                    Out.push_back(Nd("TextBlock", P({ {"text", S(Rc->GetNotice())}, {"tone", S("accent")}, {"size", S("s")}, {"wrap", B(true)} })));
+            const int32 Idx = Next();
+            RcStatusPath = RowPath(Idx);
+            Rows.push_back(Nd("TextBlock", P({ {"text", S(Rc->GetStatus())}, {"tone", S("dim")}, {"size", S("s")} })));
+        }
+        {
+            const int32 Idx = Next();
+            RcInstructionPath = RowPath(Idx);
+            Rows.push_back(Nd("TextBlock", P({ {"text", S(Rc->GetInstruction())}, {"tone", S("accent")}, {"size", S("s")}, {"wrap", B(true)} })));
+        }
+        {
+            const int32 Idx = Next();
+            RcNoticePath = RowPath(Idx);
+            Rows.push_back(Nd("TextBlock", P({ {"text", S(Rc->GetNotice())}, {"tone", S("accent")}, {"size", S("s")}, {"wrap", B(true)} })));
+        }
 
-                Out.push_back(Nd("Field", P({ {"label", S("DEVICE")} })));
-                Out.push_back(Nd("HorizontalBox", P({ {"spacing", N(8)} }), {
-                    Nd("Button", P({ {"label", S("NEXT DEVICE")}, {"action", S("rc.device.next")} })),
-                    Nd("Button", P({ {"label", S(Rc->IsEnabled() ? "DISABLE RC" : "ENABLE RC")}, {"action", S("rc.enable.toggle")}, {"tone", S("dim")} }))
-                }));
+        // DEVICE
+        Rows.push_back(Nd("Field", P({ {"label", S("DEVICE")} })));
+        Next();
+        Rows.push_back(Nd("HorizontalBox", P({ {"spacing", N(8)} }), {
+            Nd("Button", P({ {"label", S("NEXT DEVICE")}, {"action", S("rc.device.next")} })),
+            Nd("Button", P({ {"label", S(Rc->IsEnabled() ? "DISABLE RC" : "ENABLE RC")}, {"action", S("rc.enable.toggle")}, {"tone", S("dim")} }))
+        }));
+        Next();
 
-                Out.push_back(Nd("Field", P({ {"label", S("CALIBRATION")} })));
-                Out.push_back(Nd("HorizontalBox", P({ {"spacing", N(8)} }), {
-                    Nd("Button", P({ {"label", S("START")}, {"action", S("rc.calibrate.start")}, {"tone", S("good")} })),
-                    Nd("Button", P({ {"label", S("NEXT STEP")}, {"action", S("rc.calibrate.advance")} })),
-                    Nd("Button", P({ {"label", S("CANCEL")}, {"action", S("rc.calibrate.cancel")}, {"tone", S("danger")} }))
-                }));
-                Out.push_back(Nd("HorizontalBox", P({ {"spacing", N(8)} }), {
-                    Nd("Button", P({ {"label", S("LEARN START")}, {"action", S("rc.learn.launch")}, {"tone", S("dim")} })),
-                    Nd("Button", P({ {"label", S("LEARN RESET")}, {"action", S("rc.learn.reset")}, {"tone", S("dim")} }))
-                }));
+        // QUICK SETUP — optional wizard
+        Rows.push_back(Nd("Field", P({ {"label", S("QUICK SETUP  (optional)")} })));
+        Next();
+        Rows.push_back(Nd("TextBlock", P({ {"text", S(FString(TEXT("START runs the guided 7-step calibration. You can also map each channel below directly — the wizard is not required.")))}, {"tone", S("dim")}, {"size", S("xs")}, {"wrap", B(true)} })));
+        Next();
+        Rows.push_back(Nd("HorizontalBox", P({ {"spacing", N(8)} }), {
+            Nd("Button", P({ {"label", S("START")}, {"action", S("rc.calibrate.start")}, {"tone", S("good")} })),
+            Nd("Button", P({ {"label", S("NEXT STEP")}, {"action", S("rc.calibrate.advance")} })),
+            Nd("Button", P({ {"label", S("CANCEL")}, {"action", S("rc.calibrate.cancel")}, {"tone", S("danger")} }))
+        }));
+        Next();
 
-                Out.push_back(Nd("Field", P({ {"label", S("LIVE AXES")} })));
-                const auto& Axes = Rc->GetRawAxes();
-                const auto& Avail = Rc->GetAvailableAxes();
-                for (int32 I = 0; I < 8; ++I)
-                {
-                    FString AxisLabel;
-                    if (Avail[I]) AxisLabel = FString::Printf(TEXT("%d: %d%%"), I + 1, FMath::RoundToInt(Axes[I] * 100.f));
-                    else          AxisLabel = FString::Printf(TEXT("%d: --"), I + 1);
-                    Out.push_back(Nd("Stat", P({ {"label", S(AxisLabel)}, {"value", N(Axes[I])}, {"tone", S(Avail[I] ? "info" : "dim")} })));
-                }
+        // CHANNELS — manual, per-axis editing (wizard-free)
+        Rows.push_back(Nd("Field", P({ {"label", S("CHANNELS")} })));
+        Next();
+        for (int32 Ch = 0; Ch < 5; ++Ch)
+        {
+            const int32 CurAxis = Rc->GetChannelAxis(Ch);
+            FValue AxisOptions; AxisOptions.kind = FValue::Kind::Array;
+            for (int32 A = 0; A < 8; ++A)
+                AxisOptions.arr.push_back(S(FString::Printf(TEXT("Axis %d"), A + 1)));
+            AxisOptions.arr.push_back(S("None"));
+            const int32 Sel = CurAxis >= 0 ? CurAxis : 8;
 
-                Out.push_back(Nd("Field", P({ {"label", S("CHANNEL MAPPING")} })));
-                for (int32 I = 0; I < 8; ++I)
-                    Out.push_back(Nd("TextBlock", P({ {"text", S(Rc->GetMapping(I))}, {"tone", S("dim")}, {"size", S("s")} })));
-                Out.push_back(Nd("TextBlock", P({ {"text", S(Rc->GetButtons())}, {"tone", S("dim")}, {"size", S("xs")} })));
-            }
+            Rows.push_back(Nd("HorizontalBox", P({ {"spacing", N(8)} }), {
+                Nd("SizeBox", P({ {"width", N(70)} }), {
+                    Nd("TextBlock", P({ {"text", S(Rc->GetChannelName(Ch))}, {"tone", S("accent")}, {"size", S("m")} }))
+                }),
+                Nd("Dropdown", P({
+                    {"options", AxisOptions},
+                    {"value", N(Sel)},
+                    {"action", S(FString::Printf(TEXT("rc.channel.axis.%d"), Ch))},
+                    {"tooltip", S(FString::Printf(TEXT("Map %s to a physical axis."), *Rc->GetChannelName(Ch)))}
+                })),
+                Nd("Toggle", P({
+                    {"label", S("INVERT")},
+                    {"value", B(Rc->IsChannelInverted(Ch))},
+                    {"action", S(FString::Printf(TEXT("rc.channel.invert.%d"), Ch))},
+                    {"tooltip", S(FString::Printf(TEXT("Reverse %s direction."), *Rc->GetChannelName(Ch)))}
+                })),
+                Nd("Button", P({
+                    {"label", S("LEARN")},
+                    {"action", S(FString::Printf(TEXT("rc.channel.learn.%d"), Ch))},
+                    {"tone", S("dim")},
+                    {"tooltip", S(FString::Printf(TEXT("Hold the %s stick fully deflected and click."), *Rc->GetChannelName(Ch)))}
+                }))
+            }));
+            Next();
+        }
+
+        // Transmitter buttons (launch / reset)
+        Rows.push_back(Nd("TextBlock", P({ {"text", S(Rc->GetButtons())}, {"tone", S("dim")}, {"size", S("xs")} })));
+        Next();
+        Rows.push_back(Nd("HorizontalBox", P({ {"spacing", N(8)} }), {
+            Nd("Button", P({ {"label", S("LEARN START")}, {"action", S("rc.learn.launch")}, {"tone", S("dim")} })),
+            Nd("Button", P({ {"label", S("LEARN RESET")}, {"action", S("rc.learn.reset")}, {"tone", S("dim")} }))
+        }));
+        Next();
+
+        // LIVE AXES
+        Rows.push_back(Nd("Field", P({ {"label", S("LIVE AXES")} })));
+        Next();
+        const auto& Axes = Rc->GetRawAxes();
+        const auto& Avail = Rc->GetAvailableAxes();
+        for (int32 I = 0; I < 8; ++I)
+        {
+            const int32 Idx = Next();
+            RcAxisPaths.Add(RowPath(Idx));
+            const FString AxisLabel = Avail[I] ? FString::Printf(TEXT("%d: %d%%"), I + 1, FMath::RoundToInt(Axes[I] * 100.f))
+                                               : FString::Printf(TEXT("%d: --"), I + 1);
+            Rows.push_back(Nd("Stat", P({ {"label", S(AxisLabel)}, {"value", N(Axes[I])}, {"tone", S(Avail[I] ? "info" : "dim")} })));
+        }
+
+        Out.push_back(ScrollPage(std::move(Tabs),
+            Nd("ScrollBlur", P({ {"pad", N(200)} }), { Nd("VerticalBox", P({ { "spacing", N(12)} }), std::move(Rows)) })));
     }
     else if (PrefsPage == 1)
     {
         // ---- GENERAL SETTINGS: camera, audio, input and replay, grouped ----
         {
-            static const TArray<int32> VBox{ 1, 1, 0, 1, 0 };
+            static const TArray<int32> VBox{ 1, 1, 0, 0, 0, 0 };
             auto RowPath = [&](int32 Row) { TArray<int32> P = VBox; P.Add(Row); return P; };
             static const TCHAR* MouseNames[] =
             {
@@ -866,7 +985,8 @@ void ABorn2FlapMenu::BuildPreferences(std::vector<FNode>& Out)
                 Rows.push_back(Nd("Button", std::move(Props)));
             }
 
-            Out.push_back(Nd("ScrollBlur", P({}), { Nd("VerticalBox", P({ { "spacing", N(12)} }), std::move(Rows)) }));
+            Out.push_back(ScrollPage(std::move(Tabs),
+                Nd("ScrollBlur", P({ {"pad", N(200)} }), { Nd("VerticalBox", P({ { "spacing", N(12)} }), std::move(Rows)) })));
         }
     }
     else
@@ -901,7 +1021,8 @@ void ABorn2FlapMenu::BuildPreferences(std::vector<FNode>& Out)
             Props["tone"] = S("danger");
             Rows.push_back(Nd("Button", std::move(Props)));
         }
-        Out.push_back(Nd("ScrollBlur", P({}), { Nd("VerticalBox", P({ { "spacing", N(10)} }), std::move(Rows)) }));
+        Out.push_back(ScrollPage(std::move(Tabs),
+            Nd("ScrollBlur", P({ {"pad", N(200)} }), { Nd("VerticalBox", P({ { "spacing", N(10)} }), std::move(Rows)) })));
     }
 }
 
@@ -926,16 +1047,60 @@ void ABorn2FlapMenu::MarkServoCustom()
     SendUpdate(Renderer, ServoStatusPath, P({ {"text", S("SERVO:  CUSTOM  /  manual")}, {"tone", S("dim")} }));
 }
 
+void ABorn2FlapMenu::RefreshRcReadouts()
+{
+    if (!Renderer)
+        return;
+    FBorn2FlapRcController* Rc = ActiveRc();
+    if (!Rc)
+        return;
+
+    // Status / instruction / notice: update the existing TextBlocks in place.
+    if (RcStatusPath.Num())
+        SendUpdate(Renderer, RcStatusPath, P({ {"text", S(Rc->GetStatus())} }));
+    if (RcInstructionPath.Num())
+        SendUpdate(Renderer, RcInstructionPath, P({ {"text", S(Rc->GetInstruction())} }));
+    if (RcNoticePath.Num())
+        SendUpdate(Renderer, RcNoticePath, P({ {"text", S(Rc->GetNotice())} }));
+
+    const auto& Axes = Rc->GetRawAxes();
+    const auto& Avail = Rc->GetAvailableAxes();
+    for (int32 I = 0; I < 8 && I < RcAxisPaths.Num(); ++I)
+    {
+        const FString AxisLabel = Avail[I] ? FString::Printf(TEXT("%d: %d%%"), I + 1, FMath::RoundToInt(Axes[I] * 100.f))
+                                           : FString::Printf(TEXT("%d: --"), I + 1);
+        SendUpdate(Renderer, RcAxisPaths[I],
+                   P({ {"label", S(AxisLabel)}, {"value", N(Axes[I])}, {"tone", S(Avail[I] ? "info" : "dim")} }));
+    }
+}
+
+void ABorn2FlapMenu::UnregisterKeyCapture()
+{
+    if (!KeyCaptureProcessor.IsValid())
+        return;
+    if (FSlateApplication::IsInitialized())
+        FSlateApplication::Get().UnregisterInputPreProcessor(KeyCaptureProcessor);
+    KeyCaptureProcessor.Reset();
+}
+
 void ABorn2FlapMenu::Close()
 {
     // Persist whatever the menu edited — on the home screen there is no bird to
     // save, so the settings store writes Config/FlightPreferences.ini directly.
     PersistSettings();
-    if (KeyCaptureProcessor.IsValid() && FSlateApplication::IsInitialized())
-        FSlateApplication::Get().UnregisterInputPreProcessor(KeyCaptureProcessor);
-    KeyCaptureProcessor.Reset();
+    UnregisterKeyCapture();
     if (Renderer)
         Renderer->Close();
+}
+
+void ABorn2FlapMenu::EndPlay(const EEndPlayReason::Type Reason)
+{
+    // The pre-processor is a global Slate registration holding a (now weak)
+    // reference to `this`. Close() normally unregisters it, but level travel
+    // (level button → OpenLevel) destroys this actor without Close(); leaving it
+    // registered used to route keys into freed memory. Always unregister here.
+    UnregisterKeyCapture();
+    Super::EndPlay(Reason);
 }
 
 void ABorn2FlapMenu::CancelKeybindListen()
@@ -1013,6 +1178,9 @@ void ABorn2FlapMenu::OnAction(const FString& Action, float Value, const FString&
             else if (Action == TEXT("rc.enable.toggle"))     Rc->ToggleEnabled();
             else if (Action == TEXT("rc.learn.launch"))      Rc->LearnLaunch();
             else if (Action == TEXT("rc.learn.reset"))       Rc->LearnReset();
+            else if (Action.StartsWith(TEXT("rc.channel.axis.")))   { const int32 Ch = FCString::Atoi(*Action.Mid(16)); Rc->AssignChannelAxis(Ch, FMath::RoundToInt(Value) < 8 ? FMath::RoundToInt(Value) : -1); }
+            else if (Action.StartsWith(TEXT("rc.channel.invert."))) { const int32 Ch = FCString::Atoi(*Action.Mid(18)); Rc->ToggleChannelInvert(Ch); }
+            else if (Action.StartsWith(TEXT("rc.channel.learn.")))  { const int32 Ch = FCString::Atoi(*Action.Mid(17)); Rc->LearnChannelAxis(Ch); }
         }
         Build();
         return;

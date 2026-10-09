@@ -36,14 +36,15 @@ private:
     UPROPERTY() TObjectPtr<UBorn2FlapUIRenderer> Renderer;
     ABorn2FlapFlightPawn* CachedBird = nullptr;
 
-    // Last-emitted readout values — lets Refresh skip no-op update_props ops
-    // (the reconciler stays minimal, matching the Brain's live-propagation ideal).
-    float LastAlt = -1e9f;
-    float LastClimb = -1e9f;
-    float LastSpeed = -1e9f;
-    float LastBattery = -1e9f;
-    float LastThrottle = -1e9f;
-    float LastWindSpeed = -1e9f;
+    // Last-emitted readouts, cached as the *displayed* strings: Refresh only
+    // re-drives a stat when what the pilot actually reads changes — oscillating
+    // telemetry (e.g. climb flickering ±0.1 m/s) no longer shakes the digits.
+    FString LastAlt;
+    FString LastClimb;
+    FString LastSpeed;
+    FString LastBattery;
+    FString LastThrottle;
+    FString LastWindSpeed;
     float LastWindRelAngle = -1e9f;
     FString LastWindDesc;
     FString LastStatus;

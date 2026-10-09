@@ -10,6 +10,7 @@
 void ABorn2FlapFlightPawn::RememberLanding(FVector Position)
 {
     LastLanding=Position;
+    bPilotWalked=false;
     const FVector Behind=FRotator(0,Body->GetComponentRotation().Yaw,0).Vector();
     GroundAnchor=Position-Behind*160;
     const auto* Mode=Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode());
@@ -29,6 +30,7 @@ void ABorn2FlapFlightPawn::MoveWalker(const FVector& Delta)
 {
     if (Delta.IsNearlyZero())
         return;
+    bPilotWalked=true;
     UWorld* World = GetWorld();
     if (!World)
         return;
@@ -121,17 +123,17 @@ void ABorn2FlapFlightPawn::CalcCamera(float Dt,FMinimalViewInfo& Out)
     }
     else
     {
-        // Grounded chase orbit: rotate the spring arm around the bird (yaw
-        // inherits the body, pitch/roll are fixed). In flight the arm returns
-        // to its neutral follow orientation; automated tests keep their own
-        // configured arm and are left untouched.
+        // Chase (follower) view: rotate the spring arm around the bird (yaw
+        // inherits the body, pitch/roll are fixed). Orbit + arm length persist
+        // across MMB release; automated tests keep their own configured arm and
+        // are left untouched.
         if (!bFlightTest && !bDesktopInputTest)
         {
-            // Chase orbit while grounded, or whenever the MMB walk/look mode is
-            // held (so the camera can orbit the bird mid-flight for cinematic
-            // shots); otherwise the arm returns to its neutral follow.
-            const bool bOrbit = !bFlying || bWalkLookActive;
-            CameraBoom->SetRelativeRotation(bOrbit ? FRotator(ChaseOrbitPitch,ChaseOrbitYaw,0) : FRotator(-12,0,0));
+            // The chase arm always honours the persisted orbit offsets and arm
+            // length, so orbiting/zooming with MMB stays put after release (the
+            // defaults 0/-12/480 are exactly the neutral follow). A clean MMB
+            // click resets those values back to default in the pawn's Tick.
+            CameraBoom->SetRelativeRotation(FRotator(ChaseOrbitPitch,ChaseOrbitYaw,0));
             CameraBoom->TargetArmLength = ChaseArmLength;
         }
         Camera->GetCameraView(Dt,Out);

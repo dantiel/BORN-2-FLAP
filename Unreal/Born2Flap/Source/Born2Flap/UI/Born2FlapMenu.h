@@ -35,6 +35,7 @@ public:
 
     virtual void BeginPlay() override;
     virtual void Tick(float DeltaSeconds) override;
+    virtual void EndPlay(const EEndPlayReason::Type Reason) override;
 
     // Fade the whole menu (root opacity).
     void SetOpacity(float Opacity);
@@ -64,6 +65,11 @@ public:
 private:
     void Build();
 
+    // Unregister the global Slate key-capture pre-processor (which holds a raw
+    // `this`). Close() and EndPlay() both funnel through here so the processor
+    // can never outlive the menu actor.
+    void UnregisterKeyCapture();
+
     // Build the FLIGHT DESK page (the tuning panel, previously a separate
     // floating actor) into the shared full-screen content pane. `Out` receives
     // the Panel children: [0] tabs Select, [1] ScrollBox→VBox rows, [2] footer.
@@ -78,6 +84,10 @@ private:
     // exact widget (model selection, "reset mouse response", servo CUSTOM).
     void RefreshMouseGains();
     void MarkServoCustom();
+    // CONTROL SETTINGS live readouts: status/instruction/notice + the 8 raw axes
+    // are refreshed via UpdateProps (no full rebuild) while the page is open, so
+    // the sticks move in real time during calibration.
+    void RefreshRcReadouts();
 
     // Settings-store helpers (see Born2FlapMenuSettings.h). The menu edits the
     // store directly and mirrors edits into the live bird when one exists.
@@ -129,6 +139,11 @@ private:
     TArray<int32> ServoSelectPath;
     TArray<int32> ServoStatusPath;
     int32 ServoPresetIndex = -1;
+    // CONTROL SETTINGS readout paths (row indices into the ScrollBlur VBox) +
+    // a throttle timer so the live refresh stays ~10 Hz.
+    TArray<int32> RcStatusPath, RcInstructionPath, RcNoticePath;
+    TArray<TArray<int32>> RcAxisPaths;
+    float RcRefreshTimer = 0.f;
 
     // true = opened from inside a level (F10): offer FLIGHT DESK + RESUME.
     bool bInLevel = false;

@@ -22,6 +22,7 @@
 #include "World/Born2FlapValley.h"
 #include "World/Born2FlapWind.h"
 #include "World/Born2FlapWindLeaves.h"
+#include "World/Born2FlapInsectSwarm.h"
 #include "UI/Born2FlapUIBridge.h"
 #include "UI/Born2FlapFlightHUD.h"
 #include "UI/Born2FlapRadio.h"
@@ -307,6 +308,15 @@ void ABorn2FlapGameMode::BeginPlay()
     WeatherActor=World->SpawnActor<ABorn2FlapWeather>(FVector::ZeroVector,FRotator::ZeroRotator,Params);
     WeatherActor->Configure(GetLevelId(),Conditions);
     World->SpawnActor<ABorn2FlapSoundscape>();
+    // The manifold insect swarm: myriads of butterflies, dragonflies, moths,
+    // mantids and brumming bummer bugs that flutter and dart around the pilot
+    // on the outdoor levels (coast + valley). Skipped on the training course.
+    if (bCoastLevel || bNatureLevel)
+    {
+        FActorSpawnParameters BugParams;
+        BugParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+        World->SpawnActor<ABorn2FlapInsectSwarm>(FVector::ZeroVector, FRotator::ZeroRotator, BugParams);
+    }
     if(bCoastLevel)
     {
         World->SpawnActor<ABorn2FlapBayTerrain>();

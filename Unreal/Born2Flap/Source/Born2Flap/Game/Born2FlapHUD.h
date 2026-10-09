@@ -15,6 +15,9 @@ class BORN2FLAP_API ABorn2FlapHUD : public AHUD
   private:
     bool bShowChannels = true;
     bool bShowMouseIndicator = false;
+    // Frame-rate independent display damping for the channel bars (THR/PIT/
+    // YAW/ROLL) so the F2 window reads steadily instead of vibrating.
+    float ChannelDisplay[4] = { 0.f, 0.f, 0.f, 0.f };
     void DrawChannels(const ABorn2FlapFlightPawn& Bird);
     void DrawMouseIndicator(const ABorn2FlapFlightPawn& Bird);
     void DrawRcPanel(const FBorn2FlapRcController &Rc);

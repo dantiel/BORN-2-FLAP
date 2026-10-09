@@ -133,6 +133,14 @@ sparMidChordBraceGJ = 3 * sparBendEI sparDMidChord / sparMidLength ^ 3 * sparMid
 sparMembraneGJ :: Double
 sparMembraneGJ = 8.0e-2
 
+-- | Braced arm-wing torsional calibration. The diagonal + mid-chord braces form
+-- a triangulated spar box whose torsional resistance is several times the bare
+-- cantilever estimate (3·EI/L³·lever²). This scale lifts the arm wing's GJ so it
+-- stays torsionally stiff against the accumulated outboard torque — only the
+-- unbraced hand wing washes out under load, the inner wing keeps its incidence.
+sparBraceScale :: Double
+sparBraceScale = 4.0
+
 -- | Spanwise torsional stiffness [N·m²]: the tensioned membrane (whole wing)
 -- plus the diagonal + mid-chord braces (inner wing) resist twist; outboard only
 -- the membrane + the thin hand-wing rod remain, so the hand wing washes out
@@ -141,7 +149,7 @@ sparTwistGJSpanwise :: Double -> Double -> Double
 sparTwistGJSpanwise spanM frac =
   sparTwistScale *
     if frac < sparInnerFraction spanM
-      then sparTorsionGJ sparDInnerMain + sparBraceGJ + sparMidChordBraceGJ + sparMembraneGJ
+      then sparTorsionGJ sparDInnerMain + sparBraceScale * (sparBraceGJ + sparMidChordBraceGJ) + sparMembraneGJ
       else sparTorsionGJ sparDOuterMain + sparMembraneGJ
 
 -- | Bird armwing (kestrel inner wing): 1.6 mm main spar + diagonal & mid-chord
@@ -149,7 +157,7 @@ sparTwistGJSpanwise spanM frac =
 defaultBirdArmStructure :: StructureProfile
 defaultBirdArmStructure = StructureProfile
   { stBendEI = sparBendScale * sparBendEI sparDInnerMain
-  , stTwistGJ = sparTwistScale * (sparTorsionGJ sparDInnerMain + sparBraceGJ + sparMidChordBraceGJ + sparMembraneGJ)
+  , stTwistGJ = sparTwistScale * (sparTorsionGJ sparDInnerMain + sparBraceScale * (sparBraceGJ + sparMidChordBraceGJ) + sparMembraneGJ)
   , stTauBend = 0.03
   , stTauTwist = 0.03
   }

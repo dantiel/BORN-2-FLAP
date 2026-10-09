@@ -644,19 +644,32 @@ void ABorn2FlapFlightPawn::LaunchFlight()
         return;
     // One explicit hand launch supplies initial momentum; it cannot repeat in
     // the air. Every subsequent acceleration comes from aero forces/gravity.
-    FRotator Heading(0, Body->GetComponentRotation().Yaw, 0);
+    // If the pilot walked away from the bird (ground walk mode), the throw
+    // starts where the pilot stands and heads the way the pilot is looking;
+    // otherwise the bird launches from its resting spot and facing.
+    const bool bFromPilot = bPilotWalked;
+    float LaunchYaw = Body->GetComponentRotation().Yaw;
+    FVector LaunchPos = Body->GetComponentLocation() + FVector(0, 0, 140);
+    if (bFromPilot)
+    {
+        LaunchYaw = bGroundView
+                        ? float(GroundGaze.Yaw + GroundLookYaw)
+                        : float(Body->GetComponentRotation().Yaw + ChaseOrbitYaw);
+        LaunchPos = GroundAnchor;   // the pilot is already at eye height
+    }
+    FRotator Heading(0, LaunchYaw, 0);
     ChaseOrbitYaw = 0.f; ChaseOrbitPitch = -12.f;
     GroundLookYaw = 0.f; GroundLookPitch = 0.f;
     GroundZoom = 1.f; ChaseArmLength = 480.f;
-    RememberLanding(Body->GetComponentLocation());
-    bCameraGrounded = false;
-    GroundSettleTime = 0;
-    Body->SetWorldLocationAndRotation(Body->GetComponentLocation() + FVector(0, 0, 140), Heading, false, nullptr,
+    Body->SetWorldLocationAndRotation(LaunchPos, Heading, false, nullptr,
                                       ETeleportType::TeleportPhysics);
     Body->SetPhysicsLinearVelocity(Heading.Vector() * 850 + FVector(0, 0, 220));
     Body->SetPhysicsAngularVelocityInRadians(FVector::ZeroVector);
+    bCameraGrounded = false;
+    GroundSettleTime = 0;
     bFlying = true;
-    UE_LOG(LogTemp, Display, TEXT("FlightHandLaunch speed=8.5m/s vertical=2.2m/s"));
+    RememberLanding(Body->GetComponentLocation());
+    UE_LOG(LogTemp, Display, TEXT("FlightHandLaunch fromPilot=%d speed=8.5m/s vertical=2.2m/s"), bFromPilot);
 }
 FString ABorn2FlapFlightPawn::GetFlightStatus() const
 {
@@ -942,6 +955,7 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     float Effort = 0, Steer = 0, Pitch = 0, Roll = 0;
     float MouseX = 0, MouseY = 0, Wheel = 0;
     bool WDown = false, MuteMouseYaw = false, MuteMouseRoll = false, MmbDown = false;
+    bool MmbPressed = false, MmbReleased = false;
     bool ResetMouse = false;
     bool Launch = false, Reset = false;
     if (auto *PC = Cast<APlayerController>(GetController()))
@@ -958,6 +972,8 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
             RcController->Tick(PC, Dt);
         WDown = PC->IsInputKeyDown(Get(TEXT("Throttle")));
         MmbDown = PC->IsInputKeyDown(Get(TEXT("FreeCamera")));
+        MmbPressed = PC->WasInputKeyJustPressed(Get(TEXT("FreeCamera")));
+        MmbReleased = PC->WasInputKeyJustReleased(Get(TEXT("FreeCamera")));
         Effort = born2flap::DesktopInput::KeyboardThrottle(
             WDown, PC->IsInputKeyDown(EKeys::LeftControl) || PC->IsInputKeyDown(EKeys::RightControl),
             PC->IsInputKeyDown(EKeys::LeftShift) || PC->IsInputKeyDown(EKeys::RightShift));
@@ -978,6 +994,11 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
             MouseX = MouseY = Wheel = 0;
             MuteMouseYaw = MuteMouseRoll = true;
         }
+        // A drag (any mouse move or scroll while MMB is held) marks the press as
+        // an orbit gesture; a clean click (no move/scroll) resets on release.
+        if (MmbPressed) bMmbOrbitDragged = false;
+        if (MmbDown && (!FMath::IsNearlyZero(MouseX) || !FMath::IsNearlyZero(MouseY) || !FMath::IsNearlyZero(Wheel)))
+            bMmbOrbitDragged = true;
         Steer = (PC->IsInputKeyDown(Get(TEXT("YawRight"))) ? 1.f : 0.f) - (PC->IsInputKeyDown(Get(TEXT("YawLeft"))) ? 1.f : 0.f);
         Roll = (PC->IsInputKeyDown(Get(TEXT("RollRight"))) ? 1.f : 0.f) - (PC->IsInputKeyDown(Get(TEXT("RollLeft"))) ? 1.f : 0.f);
         Pitch = (PC->IsInputKeyDown(Get(TEXT("PitchUp"))) ? 1.f : 0.f) -
@@ -1008,7 +1029,6 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     // the bird is still airborne). The bird is never carried along — it stays
     // put and only the pilot (ground observer) walks.
     const bool bGroundWalk = MmbDown && !bMenuOpen;
-    bWalkLookActive = bGroundWalk;
     if (bGroundWalk)
     {
         if (auto* PC = Cast<APlayerController>(GetController()))
@@ -1082,11 +1102,31 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
                 }
             }
         }
-        // Neutralise the bird's own control surfaces while the pilot is walking.
+        // Neutralise the bird's own control surfaces while the pilot is walking on
+        // the ground. In flight the bird keeps its throttle + sticks so orbiting the
+        // chase camera never stops the wings — only the mouse is diverted to orbit.
         MouseX = MouseY = Wheel = 0.f;
-        Effort = 0.f; Roll = Pitch = Steer = 0.f;
-        WDown = false;
-        Launch = Reset = false;
+        if (!bFlying)
+        {
+            Effort = 0.f; Roll = Pitch = Steer = 0.f;
+            WDown = false;
+            Launch = Reset = false;
+        }
+    }
+    // A clean middle-mouse click (press + release with no drag/scroll) snaps the
+    // chase orbit + zoom back to their default follow position.
+    if (MmbReleased && !bMmbOrbitDragged && !bMenuOpen)
+    {
+        ChaseOrbitYaw = 0.f; ChaseOrbitPitch = -12.f;
+        ChaseArmLength = 480.f;
+        GroundZoom = 1.f;
+        GroundLookYaw = 0.f; GroundLookPitch = 0.f;
+        if (bFpvAirView)
+        {
+            bFpvAirView = false;
+            if (auto* PC = Cast<APlayerController>(GetController()); PC && PC->PlayerCameraManager)
+                PC->PlayerCameraManager->SetGameCameraCutThisFrame();
+        }
     }
     if (bFlightTest)
     {

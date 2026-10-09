@@ -63,15 +63,20 @@ private:
         auto w = host.CreateInstance(node.type);
         host.UpdateProps(w, node.props);
         widgets[path] = w;
+        // Mount children FIRST: the host's layout pass inspects a subtree when a
+        // widget is appended to its parent (e.g. pinning a ScrollBlur/ScrollBox to
+        // Fill so it clips + scrolls). Appending an empty wrapper first made a
+        // ScrollPage Overlay report "no scrollable", so it sized to its content and
+        // overflowed instead of scrolling.
+        for (size_t i = 0; i < node.children.size(); ++i) {
+            FPath child = path; child.push_back((int)i);
+            Mount(child, node.children[i]);
+        }
         if (path.empty()) {
             host.SetRoot(w);
         } else {
             FPath parent = path; parent.pop_back();
             host.AppendChild(widgets.at(parent), path.back(), w);
-        }
-        for (size_t i = 0; i < node.children.size(); ++i) {
-            FPath child = path; child.push_back((int)i);
-            Mount(child, node.children[i]);
         }
     }
 
@@ -82,12 +87,12 @@ private:
         auto parent = widgets.at(parentPath);
         auto w = host.CreateInstance(node.type);
         host.UpdateProps(w, node.props);
-        host.AppendChild(parent, index, w);
         widgets[childPath] = w;
         for (size_t i = 0; i < node.children.size(); ++i) {
             FPath grand = childPath; grand.push_back((int)i);
             Mount(grand, node.children[i]);
         }
+        host.AppendChild(parent, index, w);
     }
 
     void RemoveChildAt(const FPath& parentPath, int index) {

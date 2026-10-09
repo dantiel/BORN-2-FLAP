@@ -39,11 +39,13 @@ void ABorn2FlapHUD::DrawHUD()
         return;
     // F9 stream overlay: a faint line from screen centre showing the mouse
     // control-input direction (not the cursor position). Drawn before the Brain
-    // early-return so it also shows while the Ruby Brain authors the panels.
+    // early-return so it also shows while the Ruby Brain authors the panels —
+    // and deliberately NOT gated on IsUIHidden, so F7 strips every other HUD
+    // element but leaves this control-reference visible.
     if (auto* PC = GetOwningPlayerController())
         if (PC->WasInputKeyJustPressed(born2flap::keybinds::Get(TEXT("ToggleMouseInd"))))
             bShowMouseIndicator = !bShowMouseIndicator;
-    if (bShowMouseIndicator && !Bird->IsUIHidden())
+    if (bShowMouseIndicator)
         DrawMouseIndicator(*Bird);
     // Brain path: the Ruby Brain authors every panel (cockpit / RC / channels /
     // radio / menu / poi / splash) — the imperative canvas stays dormant.
@@ -76,7 +78,16 @@ void ABorn2FlapHUD::DrawHUD()
             const FVector P=Bird->GetActorLocation();
             DrawText(Mode->IsCoastLevel()?TEXT("TIDEWALK / BASALT COVE"):ABorn2FlapValley::PlaceName(P.X,P.Y),Amber,47,85,GEngine->GetSmallFont(),.95);
             DrawRect(Ink,32,H-120,425,83);
-            DrawText(FString::Printf(TEXT("%5.1f m       %4.1f m/s       %.0f%% battery"),Bird->GetAltitude(),Bird->GetSpeed(),Bird->GetBattery()*100),Ivory,48,H-109,GEngine->GetMediumFont(),.9);
+            // Readouts split into bright digits + quiet units (and a quiet
+            // sign where a value can go negative) so the line never jitters.
+            auto Readout = [&](const FString& Num, const FString& Unit, float Xr, float Yr)
+            {
+                DrawText(Num, Ivory, Xr, Yr, GEngine->GetMediumFont(), .9f);
+                DrawText(Unit, Muted, Xr + 44.f, Yr + 3.f, GEngine->GetSmallFont(), .72f);
+            };
+            Readout(FString::Printf(TEXT("%.0f"), Bird->GetAltitude()), TEXT("m"), 48, H-109);
+            Readout(FString::Printf(TEXT("%.1f"), Bird->GetSpeed()), TEXT("m/s"), 148, H-109);
+            Readout(FString::Printf(TEXT("%.0f"), Bird->GetBattery()*100), TEXT("%"), 248, H-109);
             DrawText(Bird->GetFlightStatus(),Muted,48,H-79,GEngine->GetSmallFont(),.9);
             DrawText(TEXT("SPACE launch  W / CTRL+W / SHIFT+W  WHEEL fine"),Ivory,48,H-55,GEngine->GetSmallFont(),.85);
         }
@@ -85,7 +96,7 @@ void ABorn2FlapHUD::DrawHUD()
         if (bShowChannels) DrawChannels(*Bird);
         return;
     }
-    const FLinearColor Cream(.94f, .94f, .84f), Gold(1, .66f, .2f), Muted(.55f, .76f, .76f);
+    const FLinearColor Cream(.94f, .94f, .84f), Gold(1, .66f, .2f), Muted(.55f, .76f, .76f), Amber(.88f, .63f, .31f);
     if (Bird->IsBlindFlight())
     {
         const auto *RcBlind = Bird->GetRcController();
@@ -108,11 +119,27 @@ void ABorn2FlapHUD::DrawHUD()
         }
         DrawText(TEXT("RC STICKS  /  AERODYNAMIC FLIGHT"), Gold, 40, 108, GEngine->GetSmallFont(), 1.1f);
         DrawText(Bird->GetFlightStatus(), Cream, 40, 136, GEngine->GetSmallFont(), 1.05f);
-        DrawText(FString::Printf(TEXT("HEIGHT  %4.1f m     SPEED  %4.1f m/s"), Bird->GetAltitude(), Bird->GetSpeed()),
-                 Cream, 40, 166, GEngine->GetMediumFont(), 1.f);
-        DrawText(FString::Printf(TEXT("CLIMB  %+.1f m/s    EFFORT  %.0f%%    BATTERY  %.0f%%"), Bird->GetClimbRate(),
-                                 Bird->GetEffort() * 100, Bird->GetBattery() * 100),
-                 Cream, 40, 199, GEngine->GetSmallFont(), 1.f);
+        // Bright digits, quiet units — and the climb sign gets its own soft
+        // amber glyph so a descending "-" reads at a glance.
+        auto Stat2 = [&](const FString& Label, float Xl, float Xv, const FString& Num, const FString& Unit, float Yr,
+                         const FLinearColor& ValueColour)
+        {
+            DrawText(Label, Muted, Xl, Yr, GEngine->GetSmallFont(), 1.f);
+            DrawText(Num, ValueColour, Xv, Yr, GEngine->GetMediumFont(), 1.f);
+            DrawText(Unit, Muted, Xv + 44.f, Yr + 3.f, GEngine->GetSmallFont(), .72f);
+        };
+        Stat2(TEXT("HEIGHT"), 40, 118, FString::Printf(TEXT("%.0f"), Bird->GetAltitude()), TEXT("m"), 166, Cream);
+        Stat2(TEXT("SPEED"), 205, 278, FString::Printf(TEXT("%.1f"), Bird->GetSpeed()), TEXT("m/s"), 166, Cream);
+        {
+            const float Climb = Bird->GetClimbRate();
+            const FString Sign = Climb < -0.05f ? TEXT("-") : (Climb > 0.05f ? TEXT("+") : TEXT(" "));
+            DrawText(TEXT("CLIMB"), Muted, 40, 199, GEngine->GetSmallFont(), 1.f);
+            DrawText(Sign, Amber, 118, 199, GEngine->GetMediumFont(), 1.f);
+            DrawText(FString::Printf(TEXT("%.1f"), FMath::Abs(Climb)), Cream, 130, 199, GEngine->GetMediumFont(), 1.f);
+            DrawText(TEXT("m/s"), Muted, 174, 202, GEngine->GetSmallFont(), .72f);
+        }
+        Stat2(TEXT("EFFORT"), 205, 278, FString::Printf(TEXT("%.0f"), Bird->GetEffort() * 100), TEXT("%"), 199, Cream);
+        Stat2(TEXT("BATTERY"), 330, 405, FString::Printf(TEXT("%.0f"), Bird->GetBattery() * 100), TEXT("%"), 199, Cream);
         const FVector Sticks = Bird->GetRcSticks();
         const FVector2D Wings = Bird->GetWingAngles();
         DrawText(FString::Printf(TEXT("RC  YAW %+.2f    ROLL %+.2f    PITCH %+.2f"), Sticks.Z, Sticks.X, Sticks.Y), Gold,
@@ -164,67 +191,125 @@ void ABorn2FlapHUD::DrawMouseIndicator(const ABorn2FlapFlightPawn& Bird)
     // Dropped below the screen centre so it stays clear of the centred bird.
     const float CX = Canvas->SizeX * 0.5f;
     const float CY = Canvas->SizeY * 0.62f;
-    const float MaxRadius = 90.f;
-    const FVector2D Input = Bird.GetMouseControl();
+    const FVector2D Raw = Bird.GetMouseControl();
+    const float Mag = FMath::Clamp(Raw.Size(), 0.f, 1.f);
+    const FVector2D Input = Mag > 0.0001f ? Raw * (Mag / Raw.Size()) : FVector2D::ZeroVector;
     const FLinearColor Line(0.42f, 0.85f, 0.9f, 0.55f);
 
-    // Centre dot + the mouse control-input direction line (a soft under-glow
-    // pass first, then the crisp stroke, for a smoother edge).
-    DrawRect(Line, CX - 1.f, CY - 1.f, 2.f, 2.f);
-    const float DX = Input.X * MaxRadius;
-    const float DY = Input.Y * MaxRadius;
-    DrawLine(CX, CY, CX + DX, CY + DY, FLinearColor(Line.R, Line.G, Line.B, Line.A * 0.35f), 3.2f);
-    DrawLine(CX, CY, CX + DX, CY + DY, Line, 1.6f);
+    // Centre dot — layered passes read as a soft glow, not a hard 2×2 block.
+    DrawRect(FLinearColor(Line.R, Line.G, Line.B, Line.A * 0.22f), CX - 3.f, CY - 3.f, 6.f, 6.f);
+    DrawRect(FLinearColor(Line.R, Line.G, Line.B, Line.A * 0.6f), CX - 1.5f, CY - 1.5f, 3.f, 3.f);
+    DrawRect(Line, CX - 0.5f, CY - 0.5f, 1.f, 1.f);
 
-    // The outer arc radius follows the inner line length: the halo always sits
-    // at the line's tip, collapsing to a tight ring at rest.
-    const float Radius = FMath::Max(16.f, Input.Size() * MaxRadius);
-    const FLinearColor Ring(0.42f, 0.85f, 0.9f, 0.32f);
+    // Direction line: three strokes (wide faint → mid → crisp thin) approximate
+    // anti-aliasing. Its length encodes the input magnitude (0…fixed radius).
+    const float Reach = 90.f;
+    const float DX = Input.X * Reach;
+    const float DY = Input.Y * Reach;
+    DrawLine(CX, CY, CX + DX, CY + DY, FLinearColor(Line.R, Line.G, Line.B, Line.A * 0.16f), 5.f);
+    DrawLine(CX, CY, CX + DX, CY + DY, FLinearColor(Line.R, Line.G, Line.B, Line.A * 0.5f), 2.4f);
+    DrawLine(CX, CY, CX + DX, CY + DY, Line, 1.f);
+
+    // The outer ring has a FIXED diameter; only the section's angular span
+    // follows the inner line's length (a sliver at rest, nearly a full circle
+    // at full deflection), and the whole halo's presence scales with the line
+    // too — so the ring is always an echo of the input, never a hard frame.
+    const float Radius = 90.f;
+    const float HalfSpan = FMath::DegreesToRadians(FMath::Lerp(5.f, 160.f, Mag));
+    const float Presence = 0.08f + 0.92f * Mag;
+    const FLinearColor Ring(0.42f, 0.85f, 0.9f, 0.34f * Presence);
     const float TouchAngle = FMath::Atan2(Input.Y, Input.X);
-    const float HalfSpan = FMath::DegreesToRadians(55.f);
-    const int32 Segments = 48;
+    const int32 Segments = 128;
     for (int32 I = 0; I < Segments; ++I)
     {
         const float A0 = -HalfSpan + (2.f * HalfSpan * I) / Segments;
         const float A1 = -HalfSpan + (2.f * HalfSpan * (I + 1)) / Segments;
-        // Cosine falloff sampled at both endpoints so the arc dissolves cleanly
-        // to nothing at its two ends (no hard clip).
+        // Cosine falloff sampled at both endpoints so the section dissolves to
+        // nothing at its two ends (no hard clip, no visible joints).
         const float Alpha = 0.5f * (FMath::Cos(FMath::Clamp(A0 / HalfSpan, -1.f, 1.f) * HALF_PI)
                                   + FMath::Cos(FMath::Clamp(A1 / HalfSpan, -1.f, 1.f) * HALF_PI));
-        const FLinearColor Arc(Ring.R, Ring.G, Ring.B, Ring.A * Alpha);
-        DrawLine(CX + FMath::Cos(TouchAngle + A0) * Radius, CY + FMath::Sin(TouchAngle + A0) * Radius,
-                 CX + FMath::Cos(TouchAngle + A1) * Radius, CY + FMath::Sin(TouchAngle + A1) * Radius, Arc, 1.f);
+        const float X0 = CX + FMath::Cos(TouchAngle + A0) * Radius;
+        const float Y0 = CY + FMath::Sin(TouchAngle + A0) * Radius;
+        const float X1 = CX + FMath::Cos(TouchAngle + A1) * Radius;
+        const float Y1 = CY + FMath::Sin(TouchAngle + A1) * Radius;
+        // Two layered passes smooth the arc edges (Canvas lines are aliased).
+        DrawLine(X0, Y0, X1, Y1, FLinearColor(Ring.R, Ring.G, Ring.B, Ring.A * Alpha * 0.32f), 2.2f);
+        DrawLine(X0, Y0, X1, Y1, FLinearColor(Ring.R, Ring.G, Ring.B, Ring.A * Alpha), 0.8f);
     }
-    DrawText(TEXT("MOUSE"), Line, CX + 6.f, CY - 20.f, GEngine->GetSmallFont(), .7f);
+    DrawText(TEXT("MOUSE"), FLinearColor(Line.R, Line.G, Line.B, Line.A * (0.3f + 0.7f * Mag)),
+             CX + 8.f, CY + 8.f, GEngine->GetSmallFont(), .7f);
 }
 void ABorn2FlapHUD::DrawChannels(const ABorn2FlapFlightPawn& Bird)
 {
-    const float X = Canvas->SizeX - 244.f, Y = 143.f;
-    const FLinearColor Text(.76f, .81f, .76f, .85f), Accent(.72f, .65f, .43f, .8f);
-    DrawRect(FLinearColor(.015f, .028f, .025f, .42f), X, Y, 212, 126);
+    // The channel monitor in the glass-cockpit language: hairline frame, amber
+    // head bar, dim labels, centred tracks with a soft halo under the fill,
+    // and steady (frame-rate independent, damped) readouts.
+    const float X = Canvas->SizeX - 272.f, Y = 143.f, W = 240.f, H = 152.f;
+    const FLinearColor Ivory(.93f, .91f, .81f), Muted(.66f, .73f, .71f), Amber(.88f, .63f, .31f), Teal(.42f, .85f, .9f);
+    const FLinearColor Ink(.012f, .022f, .020f, .62f);
     const auto* Rc = Bird.GetRcController();
     const bool Hardware = Rc && Rc->IsEnabled();
-    DrawText(FString::Printf(TEXT("CHANNELS / %s   F2"), Hardware ? TEXT("RC") : TEXT("KEYS")),
-             Text, X + 12, Y + 7, GEngine->GetSmallFont(), .8f);
+
+    // Glass panel: dark backing, hairline frame, amber head bar.
+    DrawRect(Ink, X, Y, W, H);
+    DrawRect(FLinearColor(.6f, .7f, .65f, .10f), X, Y + 2, W, 1);
+    DrawRect(Amber, X, Y, W, 2);
+    DrawRect(FLinearColor(.6f, .7f, .65f, .07f), X, Y, H - 1, 1);
+    DrawRect(FLinearColor(.6f, .7f, .65f, .07f), X + W - 1, Y, 1, H);
+
+    // Header: accent tick + title, F2 key hint quiet on the right.
+    DrawRect(Amber, X + 14, Y + 12, 3, 14);
+    DrawText(FString::Printf(TEXT("CHANNELS / %s"), Hardware ? TEXT("RC") : TEXT("KEYS")),
+             Ivory, X + 24, Y + 9, GEngine->GetSmallFont(), .95f);
+    DrawText(TEXT("F2"), Muted, X + W - 28, Y + 9, GEngine->GetSmallFont(), .8f);
+
     const FVector Sticks = Bird.GetRcSticks();
-    const float Values[] = {Bird.GetEffort(), float(Sticks.Y), float(Sticks.Z), float(Sticks.X)};
-    const TCHAR* Names[] = {TEXT("THR"), TEXT("PIT"), TEXT("YAW"), TEXT("ROLL")};
+    const float Targets[] = { Bird.GetEffort(), float(Sticks.Y), float(Sticks.Z), float(Sticks.X) };
+    const TCHAR* Names[] = { TEXT("THR"), TEXT("PIT"), TEXT("YAW"), TEXT("ROLL") };
+
+    // Frame-rate independent damping so the bars read steadily.
+    const float Dt = GetWorld() ? GetWorld()->GetDeltaSeconds() : 1.f / 60.f;
+    const float Blend = 1.f - FMath::Exp(-Dt * 9.f);
+
+    const float TrackX = X + 56.f, TrackW = 96.f;
     for (int32 I = 0; I < 4; ++I)
     {
-        const float Row = Y + 28 + I * 19, Value = Values[I];
-        DrawText(Names[I], Text, X + 12, Row - 4, GEngine->GetSmallFont(), .8f);
-        DrawRect(FLinearColor(.5f, .6f, .55f, .18f), X + 58, Row + 3, 90, 3);
-        const float Centre = I == 0 ? 0.f : 45.f;
-        const float End = I == 0 ? Value * 90.f : Centre + Value * 45.f;
-        DrawRect(Accent, X + 58 + FMath::Min(Centre, End), Row + 3, FMath::Abs(End - Centre), 3);
-        if (I) DrawRect(Text, X + 102, Row, 1, 9);
-        DrawText(I == 0 ? FString::Printf(TEXT("%3.0f%%"), Value * 100) : FString::Printf(TEXT("%+4.0f"), Value * 100),
-                 Text, X + 159, Row - 4, GEngine->GetSmallFont(), .8f);
+        ChannelDisplay[I] = FMath::Lerp(ChannelDisplay[I], Targets[I], Blend);
+        const float Value = FMath::Clamp(ChannelDisplay[I], -1.f, 1.f);
+        const float Row = Y + 34 + I * 23;
+        const bool bBipolar = I > 0;
+        const FLinearColor Fill = bBipolar ? Teal : Amber;
+
+        // Label + dim track + centre tick for the bipolar channels.
+        DrawText(Names[I], Muted, X + 14, Row - 2, GEngine->GetSmallFont(), .8f);
+        DrawRect(FLinearColor(.5f, .6f, .55f, .10f), TrackX, Row + 4, TrackW, 3);
+        const float Centre = bBipolar ? TrackX + TrackW * .5f : TrackX;
+        const float End = bBipolar ? Centre + Value * TrackW * .5f : TrackX + Value * TrackW;
+        DrawRect(FLinearColor(Fill.R, Fill.G, Fill.B, .20f), FMath::Min(Centre, End), Row + 2, FMath::Abs(End - Centre), 7);
+        DrawRect(Fill, FMath::Min(Centre, End), Row + 4, FMath::Abs(End - Centre), 3);
+        if (bBipolar)
+            DrawRect(FLinearColor(Ivory.R, Ivory.G, Ivory.B, .5f), Centre, Row + 2, 1, 7);
+
+        // Readout: sign quiet + digits bright (THR shows percent instead).
+        if (I == 0)
+        {
+            DrawText(FString::Printf(TEXT("%.0f%%"), Value * 100.f), Ivory, X + 160, Row - 2,
+                     GEngine->GetSmallFont(), .8f);
+        }
+        else
+        {
+            const FString Readout = FString::Printf(TEXT("%+.0f"), Value * 100.f);
+            DrawText(Readout.Left(1), Muted, X + 160, Row - 2, GEngine->GetSmallFont(), .8f);
+            DrawText(Readout.Mid(1), Ivory, X + 165, Row - 2, GEngine->GetSmallFont(), .8f);
+        }
     }
-    DrawText(FString::Printf(TEXT("THR %s  SPEED %3.0f%%"),
+
+    // Footer: hairline + throttle coupling + speed modifier.
+    DrawRect(FLinearColor(.6f, .7f, .65f, .10f), X + 14, Y + 126, W - 28, 1);
+    DrawText(FString::Printf(TEXT("THR %s    SPEED %3.0f%%"),
              Bird.IsThrottleCoupled() ? TEXT("COUPLED") : TEXT("INDEP"),
              Bird.GetSpeedModifier() * 100),
-             Text, X + 12, Y + 105, GEngine->GetSmallFont(), .75f);
+             Muted, X + 14, Y + 130, GEngine->GetSmallFont(), .72f);
 }
 void ABorn2FlapHUD::DrawRcPanel(const FBorn2FlapRcController &Rc)
 {
