@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html dir='ltr' lang='en'>
+<head>
+<meta charset='utf-8'>
+<meta content='width=device-width, initial-scale=1' name='viewport'>
+<title>Haskell MathCore</title>
+<link href='https://fonts.googleapis.com' rel='preconnect'>
+<link crossorigin='true' href='https://fonts.gstatic.com' rel='preconnect'>
+<link href='https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@300;400;500;600;700&amp;family=Spectral:ital,wght@0,200;0,300;0,400;0,500;0,600;1,200;1,300;1,400&amp;family=Space+Mono:wght@400;700&amp;display=swap' rel='stylesheet'>
+<link href='../../../assets/css/style.css' rel='stylesheet'>
+</head>
+<body class='sub-page'>
+<nav class='sub-nav'>
+<div class='nav-inner'>
+<a class='home-link' href='../../../' title='Back to BORN2FLAP'>
+<span class='wm'>BORN</span>
+<span class='wm wm-brush'>2</span>
+<span class='wm'>FLAP</span>
+</a>
+<div class='nav-links'>
+<a href='../../../tutorials/'>Tutorials</a>
+<a class='active' href='../../../documentation/'>Documentation</a>
+</div>
+<button aria-label='Scroll to top' class='nav-scroll-top' onclick='window.scrollTo({top:0,behavior:&#39;smooth&#39;})' title='Scroll to top' type='button'>↑</button>
+</div>
+</nav>
+<main class='sub-main'>
+<div class='sub-content'>
+<p class='back-link'>
+<a href='../../../documentation/'>← Documentation</a>
+</p>
+<h1>Haskell MathCore</h1>
+<p class='sub-lead'>The canonical physics core.</p>
+<div class='markdown'><h2>Haskell MathCore</h2>
+<p>The physics brain. Pure Haskell, compiled to <code>born2flap_math.dll</code> and called through a stable C ABI. Every file here is total and tested.</p>
+<h3>Important files</h3>
+<h4><code>FFI.hs</code> - the C ABI surface</h4>
+<p>The foreign-function exports and the top-level orchestration.</p>
+<ul>
+<li><code>b2f_math_abi_version</code>, <code>b2f_math_runtime_init/shutdown</code> - lifecycle.</li>
+<li><code>b2f_math_reconfigure_firmware_vehicle</code> - applies a <code>B2F_TuningConfig</code>.</li>
+<li><code>b2f_math_step_firmware_vehicle</code> / <code>b2f_math_step_vehicle</code> - the per-tick advance.</li>
+<li><code>applyTuning</code> - maps tuning fields to <code>FirmwareParams</code> and the planform scale.</li>
+</ul>
+<h4><code>Vehicle.hs</code> - aerodynamics</h4>
+<p>The force model: per-strip lift/drag, stall, crossflow, added mass.</p>
+<ul>
+<li><code>vehicleForces</code> - assembles strip forces into the total force/moment.</li>
+<li><code>stepStrip</code> / section incidence - local angle of attack and separation state.</li>
+<li><code>computeFlapThrust</code> - the momentum-jet downstroke thrust term.</li>
+</ul>
+<h4><code>Firmware.hs</code> - servo mixer and control surfaces</h4>
+<p>Pilot sticks -&gt; mixer -&gt; servo commands.</p>
+<ul>
+<li><code>computeServoMixer</code> - throttle/roll/pitch/yaw -&gt; per-servo flap + glide commands.</li>
+<li><code>flappingBranch</code> / <code>glideBranch</code> - flap vs glide amplitude logic.</li>
+<li><code>FirmwareParams</code> / <code>PilotInput</code> - the tuning and stick records.</li>
+</ul>
+<h4><code>FirmwareVehicle.hs</code> - firmware-level vehicle step</h4>
+<ul>
+<li><code>advanceFirmwareVehicle</code> - runs mixer -&gt; servo -&gt; wing in one timestep.</li>
+</ul>
+<h4><code>Servo.hs</code> - actuator model</h4>
+<ul>
+<li><code>stepServo</code> - rate/torque-limited tracking against hinge load.</li>
+<li><code>ServoSpec</code> / <code>ServoState</code> / <code>BatterySpec</code> - servo and battery records.</li>
+</ul>
+<h4><code>Wing.hs</code> - wing kinematics/aero</h4>
+<ul>
+<li>Wing strip state, flapping geometry, and the wing-level force assembly.</li>
+</ul>
+<h4><code>Planform.hs</code> - wing geometry</h4>
+<ul>
+<li><code>defaultBirdWing</code>, <code>shapeChord</code>, <code>shapeTwistRad</code> - the reference planform.</li>
+<li>planform scale derived from body mass (<code>(mass/0.45)^(1/4)</code>).</li>
+</ul>
+<h4><code>Structure.hs</code> - aeroelasticity</h4>
+<ul>
+<li><code>applyStructure</code> - bending (EI) and torsion (GJ) stiffness, relaxed per strip.</li>
+<li>The global kestrel spar (1.6 mm inner / 1.2 mm outer) lives here as the reference.</li>
+</ul>
+<h4><code>Section.hs</code> - blade-element section</h4>
+<ul>
+<li>Per-section aerofoil coefficients and stall behaviour.</li>
+</ul>
+<h4><code>Waveform.hs</code> - flap waveform</h4>
+<ul>
+<li>Asymmetric dwell / pointed, beat-locked flap waveform.</li>
+</ul>
+<h4>Supporting modules</h4>
+<ul>
+<li><code>PhaseEnvelope.hs</code> - phase coverage of the flap cycle.</li>
+<li><code>Resonance.hs</code> - phase error / resonance tracking.</li>
+<li><code>Control.hs</code> - control law helpers.</li>
+<li><code>OrderTracker.hs</code> - order tracking.</li>
+<li><code>FerocityPrice.hs</code> - stroke ferocity cost model.</li>
+<li><code>Simulation.hs</code> - top-level simulation glue.</li>
+<li><code>Types.hs</code> - shared records (<code>Vec3</code> etc.).</li>
+</ul>
+<hr/>
+<h2>Haskell MathCore - symbol reference</h2>
+<blockquote>
+<p>Auto-generated by Tools/gen_code_reference.py - do not edit by hand.</p>
+</blockquote>
+<p><strong>17 files / 223 symbols</strong></p>
+<h3><code>src\Born2Flap\Math\Control.hs</code></h3>
+<ul>
+<li><code>Born2Flap.Math.Control</code> - <em>module</em> (line 4)</li>
+<li><code>AxisController</code> - <em>data</em> (line 13)</li>
+<li><code>AxisInput</code> - <em>data</em> (line 22)</li>
+<li><code>AxisOutput</code> - <em>data</em> (line 27)</li>
+<li><code>stepAxis</code> - <em>sig</em> (line 32)</li>
+</ul>
+<h3><code>src\Born2Flap\Math\FerocityPrice.hs</code></h3>
+<ul>
+<li><code>Born2Flap.Math.FerocityPrice</code> - <em>module</em> (line 7)</li>
+<li><code>dwellFromFerocity</code> - <em>sig</em> (line 14)</li>
+<li><code>ferocityPowerPrice</code> - <em>sig</em> (line 18)</li>
+<li><code>ferocityForcePrice</code> - <em>sig</em> (line 22)</li>
+<li><code>ferocityThrustPrice</code> - <em>sig</em> (line 26)</li>
+<li><code>clamp</code> - <em>sig</em> (line 29)</li>
+</ul>
+<h3><code>src\Born2Flap\Math\FFI.hs</code></h3>
+<ul>
+<li><code>Born2Flap.Math.FFI</code> - <em>module</em> (line 3)</li>
+<li><code>b2f_math_get_wing_shape</code> - <em>sig</em> (line 39)</li>
+<li><code>b2f_math_abi_version</code> - <em>sig</em> (line 65)</li>
+<li><code>b2f_math_runtime_init</code> - <em>sig</em> (line 68)</li>
+<li><code>b2f_math_runtime_shutdown</code> - <em>sig</em> (line 71)</li>
+<li><code>b2f_math_create_default_vehicle</code> - <em>sig</em> (line 74)</li>
+<li><code>b2f_math_destroy_vehicle</code> - <em>sig</em> (line 78)</li>
+<li><code>b2f_math_step_vehicle</code> - <em>sig</em> (line 83)</li>
+<li><code>peekInput</code> - <em>sig</em> (line 99)</li>
+<li><code>pokeOutput</code> - <em>sig</em> (line 116)</li>
+<li><code>FwContext</code> - <em>data</em> (line 130)</li>
+<li><code>FwConfig</code> - <em>data</em> (line 139)</li>
+<li><code>TuningConfig</code> - <em>data</em> (line 151)</li>
+<li><code>b2f_math_create_firmware_vehicle</code> - <em>sig</em> (line 168)</li>
+<li><code>b2f_math_destroy_firmware_vehicle</code> - <em>sig</em> (line 198)</li>
+<li><code>b2f_math_set_stabilization</code> - <em>sig</em> (line 203)</li>
+<li><code>b2f_math_set_wind_phase_noise</code> - <em>sig</em> (line 213)</li>
+<li><code>b2f_math_reconfigure_firmware_vehicle</code> - <em>sig</em> (line 227)</li>
+<li><code>peekTuning</code> - <em>sig</em> (line 241)</li>
+<li><code>applyTuning</code> - <em>sig</em> (line 249)</li>
+<li><code>clampRange</code> - <em>sig</em> (line 297)</li>
+<li><code>b2f_math_step_firmware_vehicle</code> - <em>sig</em> (line 300)</li>
+<li><code>peekConfig</code> - <em>sig</em> (line 328)</li>
+<li><code>peekPilot</code> - <em>sig</em> (line 336)</li>
+<li><code>BodyState</code> - <em>data</em> (line 344)</li>
+<li><code>peekBody</code> - <em>sig</em> (line 350)</li>
+<li><code>pokeFwOutput</code> - <em>sig</em> (line 358)</li>
+<li><code>posOr</code> - <em>sig</em> (line 377)</li>
+</ul>
+<h3><code>src\Born2Flap\Math\Firmware.hs</code></h3>
+<ul>
+<li><code>Born2Flap.Math.Firmware</code> - <em>module</em> (line 13)</li>
+<li><code>RcChannels</code> - <em>data</em> (line 41)</li>
+<li><code>defaultRcChannels</code> - <em>sig</em> (line 51)</li>
+<li><code>crsfToFloat</code> - <em>sig</em> (line 61)</li>
+<li><code>crsfToNorm</code> - <em>sig</em> (line 66)</li>
+<li><code>normToRaw</code> - <em>sig</em> (line 69)</li>
+<li><code>PilotInput</code> - <em>data</em> (line 80)</li>
+<li><code>defaultPilotInput</code> - <em>sig</em> (line 89)</li>
+<li><code>pilot4</code> - <em>sig</em> (line 93)</li>
+<li><code>pilotToRc</code> - <em>sig</em> (line 96)</li>
+<li><code>FlightProfile</code> - <em>data</em> (line 146)</li>
+<li><code>defaultFlightProfiles</code> - <em>sig</em> (line 169)</li>
+<li><code>FirmwareParams</code> - <em>data</em> (line 181)</li>
+<li><code>defaultFirmwareParams</code> - <em>sig</em> (line 192)</li>
+<li><code>FirmwareState</code> - <em>data</em> (line 206)</li>
+<li><code>defaultFirmwareState</code> - <em>sig</em> (line 216)</li>
+<li><code>MixerOutput</code> - <em>data</em> (line 234)</li>
+<li><code>clamp</code> - <em>sig</em> (line 250)</li>
+<li><code>clamp01</code> - <em>sig</em> (line 253)</li>
+<li><code>orniThrottleFrequencyCommand</code> - <em>sig</em> (line 256)</li>
+<li><code>orniThrottleThrustExpo</code> - <em>sig</em> (line 263)</li>
+<li><code>ThrustShape</code> - <em>data</em> (line 270)</li>
+<li><code>orniThrottleThrustShape</code> - <em>sig</em> (line 275)</li>
+<li><code>orniAileronRollShift</code> - <em>sig</em> (line 282)</li>
+<li><code>orniThrottleSkewRateShift</code> - <em>sig</em> (line 288)</li>
+<li><code>orniAileronRollRateShift</code> - <em>sig</em> (line 293)</li>
+<li><code>computeServoMixer</code> - <em>sig</em> (line 300)</li>
+<li><code>glideTransition</code> - <em>sig</em> (line 346)</li>
+<li><code>flappingBranch</code> - <em>sig</em> (line 355)</li>
+<li><code>slewUpdate</code> - <em>sig</em> (line 495)</li>
+</ul>
+<h3><code>src\Born2Flap\Math\FirmwareVehicle.hs</code></h3>
+<ul>
+<li><code>Born2Flap.Math.FirmwareVehicle</code> - <em>module</em> (line 14)</li>
+<li><code>FirmwareVehicleState</code> - <em>data</em> (line 34)</li>
+<li><code>defaultFirmwareVehicleState</code> - <em>sig</em> (line 49)</li>
+<li><code>finite</code> - <em>sig</em> (line 102)</li>
+<li><code>components</code> - <em>sig</em> (line 105)</li>
+<li><code>hingeTorque</code> - <em>sig</em> (line 109)</li>
+<li><code>batterySocDrop</code> - <em>sig</em> (line 248)</li>
+<li><code>zeroOutput</code> - <em>sig</em> (line 256)</li>
+<li><code>tailSurface</code> - <em>sig</em> (line 261)</li>
+</ul>
+<h3><code>src\Born2Flap\Math\OrderTracker.hs</code></h3>
+<ul>
+<li><code>Born2Flap.Math.OrderTracker</code> - <em>module</em> (line 12)</li>
+<li><code>orderTrackerZeta</code> - <em>sig</em> (line 18)</li>
+<li><code>orderTrackerOmegaMin</code> - <em>sig</em> (line 21)</li>
+<li><code>OrderTrackerState</code> - <em>data</em> (line 24)</li>
+<li><code>defaultOrderTracker</code> - <em>sig</em> (line 29)</li>
+<li><code>stepOrderTracker</code> - <em>sig</em> (line 34)</li>
+</ul>
+<h3><code>src\Born2Flap\Math\PhaseEnvelope.hs</code></h3>
+<ul>
+<li><code>Born2Flap.Math.PhaseEnvelope</code> - <em>module</em> (line 11)</li>
+<li><code>goldenAngleStep</code> - <em>sig</em> (line 23)</li>
+<li><code>phaseBins</code> - <em>sig</em> (line 26)</li>
+<li><code>phaseEma</code> - <em>sig</em> (line 29)</li>
+<li><code>PhaseEnvelopeState</code> - <em>data</em> (line 32)</li>
+<li><code>defaultPhaseEnvelope</code> - <em>sig</em> (line 38)</li>
+<li><code>PhaseEnvelopeMetric</code> - <em>data</em> (line 41)</li>
+<li><code>phaseStrobe</code> - <em>sig</em> (line 46)</li>
+<li><code>phaseEnvelope</code> - <em>sig</em> (line 56)</li>
+<li><code>phaseCoverage</code> - <em>sig</em> (line 59)</li>
+<li><code>detectReversal</code> - <em>sig</em> (line 66)</li>
+</ul>
+<h3><code>src\Born2Flap\Math\Planform.hs</code></h3>
+<ul>
+<li><code>Born2Flap.Math.Planform</code> - <em>module</em> (line 26)</li>
+<li><code>WingShape</code> - <em>data</em> (line 54)</li>
+<li><code>ShapeStation</code> - <em>data</em> (line 61)</li>
+<li><code>SpanStation</code> - <em>data</em> (line 74)</li>
+<li><code>defaultBirdWing</code> - <em>sig</em> (line 88)</li>
+<li><code>scaleWing</code> - <em>sig</em> (line 104)</li>
+<li><code>shapeLeadingEdgeX</code> - <em>sig</em> (line 117)</li>
+<li><code>shapeChord</code> - <em>sig</em> (line 121)</li>
+<li><code>shapeSweepRad</code> - <em>sig</em> (line 127)</li>
+<li><code>shapeTwistRad</code> - <em>sig</em> (line 142)</li>
+<li><code>shapeDihedralRad</code> - <em>sig</em> (line 147)</li>
+<li><code>shapeSection</code> - <em>sig</em> (line 152)</li>
+<li><code>shapeStructure</code> - <em>sig</em> (line 163)</li>
+<li><code>shapeArea</code> - <em>sig</em> (line 173)</li>
+<li><code>shapeMeanChord</code> - <em>sig</em> (line 185)</li>
+<li><code>shapeAspectRatio</code> - <em>sig</em> (line 189)</li>
+<li><code>shapeStationsAt</code> - <em>sig</em> (line 196)</li>
+<li><code>stationField</code> - <em>sig</em> (line 208)</li>
+<li><code>segmentIndex</code> - <em>sig</em> (line 222)</li>
+<li><code>normalise</code> - <em>sig</em> (line 233)</li>
+<li><code>finite</code> - <em>sig</em> (line 245)</li>
+<li><code>lerp</code> - <em>sig</em> (line 248)</li>
+<li><code>clamp</code> - <em>sig</em> (line 251)</li>
+<li><code>radians</code> - <em>sig</em> (line 254)</li>
+</ul>
+<h3><code>src\Born2Flap\Math\Resonance.hs</code></h3>
+<ul>
+<li><code>Born2Flap.Math.Resonance</code> - <em>module</em> (line 15)</li>
+<li><code>ResonanceState</code> - <em>data</em> (line 23)</li>
+<li><code>defaultResonance</code> - <em>sig</em> (line 30)</li>
+<li><code>stepPhaseLockDwell</code> - <em>sig</em> (line 36)</li>
+<li><code>engagementFromTracked</code> - <em>sig</em> (line 42)</li>
+</ul>
+<h3><code>src\Born2Flap\Math\Section.hs</code></h3>
+<ul>
+<li><code>Born2Flap.Math.Section</code> - <em>module</em> (line 27)</li>
+<li><code>SectionProfile</code> - <em>data</em> (line 40)</li>
+<li><code>defaultBirdArmSection</code> - <em>sig</em> (line 49)</li>
+<li><code>defaultBirdHandSection</code> - <em>sig</em> (line 60)</li>
+<li><code>zeroLiftAngle</code> - <em>sig</em> (line 71)</li>
+<li><code>sectionPitchMomentCoeff</code> - <em>sig</em> (line 78)</li>
+<li><code>membraneCamberTarget</code> - <em>sig</em> (line 87)</li>
+<li><code>relaxCamber</code> - <em>sig</em> (line 92)</li>
+<li><code>clamp01</code> - <em>sig</em> (line 98)</li>
+</ul>
+<h3><code>src\Born2Flap\Math\Servo.hs</code></h3>
+<ul>
+<li><code>Born2Flap.Math.Servo</code> - <em>module</em> (line 16)</li>
+<li><code>ServoSpec</code> - <em>data</em> (line 32)</li>
+<li><code>defaultServoSpec</code> - <em>sig</em> (line 38)</li>
+<li><code>BatterySpec</code> - <em>data</em> (line 47)</li>
+<li><code>defaultBatterySpec</code> - <em>sig</em> (line 54)</li>
+<li><code>batteryVoltageUnderLoad</code> - <em>sig</em> (line 63)</li>
+<li><code>ServoState</code> - <em>data</em> (line 70)</li>
+<li><code>defaultServoState</code> - <em>sig</em> (line 75)</li>
+<li><code>stepServo</code> - <em>sig</em> (line 92)</li>
+<li><code>clampRate</code> - <em>sig</em> (line 148)</li>
+</ul>
+<h3><code>src\Born2Flap\Math\Simulation.hs</code></h3>
+<ul>
+<li><code>Born2Flap.Math.Simulation</code> - <em>module</em> (line 4)</li>
+<li><code>Simulation</code> - <em>newtype</em> (line 7)</li>
+<li><code>runSimulation</code> - <em>sig</em> (line 27)</li>
+<li><code>getState</code> - <em>sig</em> (line 30)</li>
+<li><code>putState</code> - <em>sig</em> (line 33)</li>
+<li><code>abort</code> - <em>sig</em> (line 36)</li>
+</ul>
+<h3><code>src\Born2Flap\Math\Structure.hs</code></h3>
+<ul>
+<li><code>Born2Flap.Math.Structure</code> - <em>module</em> (line 28)</li>
+<li><code>StructureProfile</code> - <em>data</em> (line 44)</li>
+<li><code>sparBendScale</code> - <em>sig</em> (line 73)</li>
+<li><code>sparTwistScale</code> - <em>sig</em> (line 78)</li>
+<li><code>sparInnerLengthM</code> - <em>sig</em> (line 89)</li>
+<li><code>sparMainDiameter</code> - <em>sig</em> (line 97)</li>
+<li><code>sparInnerFraction</code> - <em>sig</em> (line 103)</li>
+<li><code>sparBendEISpanwise</code> - <em>sig</em> (line 108)</li>
+<li><code>sparBraceGJ</code> - <em>sig</em> (line 113)</li>
+<li><code>sparMidChordBraceGJ</code> - <em>sig</em> (line 122)</li>
+<li><code>sparMembraneGJ</code> - <em>sig</em> (line 133)</li>
+<li><code>sparTwistGJSpanwise</code> - <em>sig</em> (line 140)</li>
+<li><code>defaultBirdArmStructure</code> - <em>sig</em> (line 149)</li>
+<li><code>defaultBirdHandStructure</code> - <em>sig</em> (line 159)</li>
+<li><code>integrateFlapBeam</code> - <em>sig</em> (line 172)</li>
+<li><code>integrateTwist</code> - <em>sig</em> (line 194)</li>
+<li><code>relaxDeflection</code> - <em>sig</em> (line 208)</li>
+<li><code>softSaturate</code> - <em>sig</em> (line 219)</li>
+<li><code>clamp</code> - <em>sig</em> (line 222)</li>
+</ul>
+<h3><code>src\Born2Flap\Math\Types.hs</code></h3>
+<ul>
+<li><code>Born2Flap.Math.Types</code> - <em>module</em> (line 4)</li>
+<li><code>Seconds</code> - <em>newtype</em> (line 6)</li>
+<li><code>Radians</code> - <em>newtype</em> (line 9)</li>
+<li><code>MetresPerSecond</code> - <em>newtype</em> (line 12)</li>
+<li><code>UnitInterval</code> - <em>newtype</em> (line 15)</li>
+<li><code>Vec3</code> - <em>data</em> (line 18)</li>
+<li><code>ElementGeometry</code> - <em>data</em> (line 24)</li>
+<li><code>ElementState</code> - <em>data</em> (line 31)</li>
+<li><code>WingLoads</code> - <em>data</em> (line 38)</li>
+<li><code>clamp01</code> - <em>sig</em> (line 44)</li>
+</ul>
+<h3><code>src\Born2Flap\Math\Vehicle.hs</code></h3>
+<ul>
+<li><code>Born2Flap.Math.Vehicle</code> - <em>module</em> (line 4)</li>
+<li><code>VehicleInput</code> - <em>data</em> (line 45)</li>
+<li><code>VehicleOutput</code> - <em>data</em> (line 55)</li>
+<li><code>StripState</code> - <em>data</em> (line 64)</li>
+<li><code>VehicleState</code> - <em>data</em> (line 75)</li>
+<li><code>StripResult</code> - <em>data</em> (line 81)</li>
+<li><code>stripCount</code> - <em>sig</em> (line 89)</li>
+<li><code>emptyStrip</code> - <em>sig</em> (line 92)</li>
+<li><code>initialStrips</code> - <em>sig</em> (line 97)</li>
+<li><code>defaultVehicle</code> - <em>sig</em> (line 104)</li>
+<li><code>stepVehicle</code> - <em>sig</em> (line 107)</li>
+<li><code>stepVehicleUnchecked</code> - <em>sig</em> (line 120)</li>
+<li><code>stepWing</code> - <em>sig</em> (line 175)</li>
+<li><code>stepWingWithStroke</code> - <em>sig</em> (line 187)</li>
+<li><code>wingRootHeight</code> - <em>sig</em> (line 198)</li>
+<li><code>stepStrip</code> - <em>sig</em> (line 201)</li>
+<li><code>transportSeparation</code> - <em>sig</em> (line 331)</li>
+<li><code>applyStructure</code> - <em>sig</em> (line 359)</li>
+<li><code>zeroOutput</code> - <em>sig</em> (line 391)</li>
+<li><code>zeroVec</code> - <em>sig</em> (line 394)</li>
+<li><code>addVec</code> - <em>sig</em> (line 397)</li>
+<li><code>scaleVec</code> - <em>sig</em> (line 400)</li>
+<li><code>crossVec</code> - <em>sig</em> (line 403)</li>
+<li><code>magnitude</code> - <em>sig</em> (line 407)</li>
+<li><code>vecValues</code> - <em>sig</em> (line 410)</li>
+<li><code>finite</code> - <em>sig</em> (line 418)</li>
+<li><code>clamp</code> - <em>sig</em> (line 421)</li>
+<li><code>clampInt</code> - <em>sig</em> (line 424)</li>
+<li><code>lerp</code> - <em>sig</em> (line 427)</li>
+<li><code>smoothStep</code> - <em>sig</em> (line 430)</li>
+<li><code>radians</code> - <em>sig</em> (line 435)</li>
+<li><code>firstIndex</code> - <em>sig</em> (line 438)</li>
+</ul>
+<h3><code>src\Born2Flap\Math\Waveform.hs</code></h3>
+<ul>
+<li><code>Born2Flap.Math.Waveform</code> - <em>module</em> (line 18)</li>
+<li><code>OscillatorState</code> - <em>data</em> (line 33)</li>
+<li><code>defaultOscillator</code> - <em>sig</em> (line 44)</li>
+<li><code>twoPi</code> - <em>sig</em> (line 47)</li>
+<li><code>wrap2pi</code> - <em>sig</em> (line 51)</li>
+<li><code>kWaveMaxDwell</code> - <em>sig</em> (line 92)</li>
+<li><code>kWaveMaxPoint</code> - <em>sig</em> (line 95)</li>
+<li><code>cosHalf</code> - <em>sig</em> (line 99)</li>
+<li><code>limiarFromFerocities</code> - <em>sig</em> (line 105)</li>
+<li><code>clamp</code> - <em>sig</em> (line 176)</li>
+</ul>
+<h3><code>src\Born2Flap\Math\Wing.hs</code></h3>
+<ul>
+<li><code>Born2Flap.Math.Wing</code> - <em>module</em> (line 3)</li>
+<li><code>crossflowBaseline</code> - <em>sig</em> (line 10)</li>
+<li><code>relaxSeparation</code> - <em>sig</em> (line 14)</li>
+</ul></div>
+</div>
+</main>
+<footer class='sub-footer'>
+<div class='lang-switch'>
+<a class='active' href='../../../'>EN</a>
+<a class='' href='../../../de/'>DE</a>
+<a class='' href='../../../es/'>ES</a>
+<a class='' href='../../../fr/'>FR</a>
+<a class='' href='../../../zh/'>中文</a>
+<a class='' href='../../../ja/'>日本語</a>
+<a class='' href='../../../ko/'>한국어</a>
+<a class='' href='../../../ru/'>RU</a>
+</div>
+<p class='footer-hermetic'>Written in the æther by ferocious hearts.</p>
+<p class='footer-credit'>BORN2FLAP ·</p>
+</footer>
+</body>
+</html>

@@ -28,28 +28,28 @@
 <div class='sub-content'>
 <h1>Física</h1>
 <p class='sub-lead'>El modelo reducido en tiempo real.</p>
-<div class='markdown'><p>The simulation resolves a full vehicle at a <strong>fixed 240 Hz</strong> timestep: two wings, a body, and a tail.</p>
-<h3>Reference frames</h3>
+<div class='markdown'><p>La simulación resuelve un vehículo completo a un <strong>paso de tiempo fijo de 240 Hz</strong>: dos alas, un cuerpo y una cola.</p>
+<h3>Marcos de referencia</h3>
 <ul>
-<li><strong>Body</strong> — +x forward, +y right, +z up (Unreal's left-handed layout).</li>
-<li><strong>Wing local</strong> — x chordwise toward the trailing edge, y root→tip, z wing normal.</li>
+<li><strong>Cuerpo</strong>: +x hacia delante, +y a la derecha, +z arriba (distribución zurda de Unreal).</li>
+<li><strong>Ala local</strong>: x a lo largo de la cuerda hacia el borde de salida, y raíz→punta, z normal del ala.</li>
 </ul>
-<p>All units are SI internally; the Unreal boundary converts metres ↔ centimetres.</p>
-<h3>Discretisation</h3>
+<p>Todas las unidades son SI internamente; la frontera de Unreal convierte metros ↔ centímetros.</p>
+<h3>Discretización</h3>
 <ul>
-<li>16 spanwise strips per wing (Haskell simulates both wings; C++ OrniCore simulates one isolated wing as the research reference).</li>
-<li>Local angle of attack, Reynolds number and separation state are computed <strong>per strip</strong>.</li>
+<li>16 franjas de envergadura por ala (Haskell simula ambas alas; C++ OrniCore simula un ala aislada como referencia de investigación).</li>
+<li>El ángulo de ataque local, el número de Reynolds y el estado de separación se calculan <strong>por franja</strong>.</li>
 </ul>
-<h3>Forces</h3>
+<h3>Fuerzas</h3>
 <ul>
-<li><strong>Lift</strong> — perpendicular to the local planar flow.</li>
-<li><strong>Drag</strong> — opposes the local planar flow; dissipative.</li>
-<li><strong>Separation</strong> — a continuous per-element state from 0 (attached) to 1 (separated), giving partial stall.</li>
-<li><strong>Added mass</strong> — the reaction of the air the wing accelerates.</li>
-<li><strong>LEV</strong> — leading-edge vortex lift captured in the stall model.</li>
-<li><strong>Crossflow</strong> — spanwise transport driven by sweep, gated by flapping phase.</li>
+<li><strong>Sustentación</strong>: perpendicular al flujo planar local.</li>
+<li><strong>Resistencia</strong>: se opone al flujo planar local; disipativa.</li>
+<li><strong>Separación</strong>: un estado continuo por elemento de 0 (adherido) a 1 (separado), que da pérdida parcial.</li>
+<li><strong>Masa añadida</strong>: la reacción del aire que el ala acelera.</li>
+<li><strong>LEV</strong>: sustentación del vórtice de borde de ataque capturada en el modelo de pérdida.</li>
+<li><strong>Flujo cruzado</strong>: transporte en envergadura impulsado por la flecha, controlado por la fase de aleteo.</li>
 </ul>
-<p>Signs and constants are single-sourced in <code>docs/physics-convention.md</code> and asserted by regression tests.</p></div>
+<p>Los signos y las constantes tienen una única fuente en <code>docs/physics-convention.md</code> y se verifican mediante tests de regresión.</p></div>
 </div>
 </main>
 <footer class='sub-footer'>
