@@ -22,17 +22,21 @@ int main(int argc,char** argv)
     std::filesystem::path dir=argc>1 ? argv[1] : "audio-quality";
     std::filesystem::create_directories(dir);
     bool pass=true;
-    for(const std::string name:{"wing","servo","wind","mix","wing_slow","wing_fast","servo_light","servo_loaded"})
+    for(const std::string name:{"wing","servo","wind","mix","wing_slow","wing_fast","wing_glide","servo_light","servo_loaded"})
     {
         audio::FAudioEngine engine(Rate);std::vector<float> data;
         for(int tick=0;tick<60*12;++tick)
         {
             aeroaudio::FTelemetry t;
             t.airspeed=12+4*std::sin(tick*.018);t.wingbeat_hz=4+.7*std::sin(tick*.027);
+            t.wing_force=.5+.3*std::sin(tick*.027);t.wing_flutter=.35+.2*std::sin(tick*.055);
             t.servo_load_l=.45;t.servo_load_r=.35;t.sweep_rate=250+130*std::sin(tick*.055);
             t.stall_margin=.7;t.altitude=18;t.listener_distance=1;
             if(name=="wing_slow" || name=="wing_fast") {
-                t.airspeed=name=="wing_slow" ? 5 : 25;t.wingbeat_hz=4;
+                t.airspeed=name=="wing_slow" ? 5 : 25;t.wing_force=.6;t.wing_flutter=.3;
+            }
+            if(name=="wing_glide") {
+                t.airspeed=20;t.wing_force=.35;t.wing_flutter=.05;t.stall_margin=.9;t.sweep_rate=0;
             }
             if(name=="servo_light" || name=="servo_loaded") {
                 t.servo_load_l=name=="servo_light" ? .1 : .9;t.sweep_rate=300;

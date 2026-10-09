@@ -13,7 +13,7 @@
 extern "C" {
 #endif
 
-#define B2F_MATH_ABI_VERSION 8u
+#define B2F_MATH_ABI_VERSION 9u
 
 typedef struct B2F_MathContext B2F_MathContext;
 
@@ -146,6 +146,13 @@ typedef struct B2F_WingSection {
 } B2F_WingSection;
 B2F_API int32_t b2f_math_get_wing_shape(B2F_MathContext* context,
     uint32_t capacity, B2F_WingSection* left, B2F_WingSection* right);
+/* Per-strip aerodynamic force magnitude [N], left then right in separate
+ * caller-owned arrays (ABI v9). Root-to-tip midpoints. Returns station count,
+ * or 0 on invalid arguments/insufficient capacity. Read-only; does not advance
+ * or mutate the simulation. This is the audio flutter/whoosh drive: the sound
+ * of a flapping wing is the force each strip exerts on the air, not a clock. */
+B2F_API int32_t b2f_math_get_wing_forces(B2F_MathContext* context,
+    uint32_t capacity, double* left, double* right);
 #ifdef __cplusplus
 }
 #endif

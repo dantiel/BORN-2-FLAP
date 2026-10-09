@@ -37,6 +37,8 @@ data FirmwareVehicleState = FirmwareVehicleState
   , fvServoRight      :: !ServoState
   , fvLeftStrips      :: ![StripState]
   , fvRightStrips     :: ![StripState]
+  , fvLeftStripForceMag  :: ![Double]  -- ^ per-strip |aero force| [N] root→tip, last step (audio drive)
+  , fvRightStripForceMag :: ![Double]
   , fvLeftHingeTorqueNm  :: !Double   -- ^ aero load fed to the servo next step
   , fvRightHingeTorqueNm :: !Double
   , fvBatterySoc      :: !Double     -- ^ 0..1, drains under servo current
@@ -53,6 +55,8 @@ defaultFirmwareVehicleState = FirmwareVehicleState
   , fvServoRight = defaultServoState
   , fvLeftStrips = initialStrips
   , fvRightStrips = initialStrips
+  , fvLeftStripForceMag = []
+  , fvRightStripForceMag = []
   , fvLeftHingeTorqueNm = 0
   , fvRightHingeTorqueNm = 0
   , fvBatterySoc = 1.0
@@ -233,6 +237,8 @@ advanceFirmwareVehicle coupled rc params servo battery wingScale dt bodyVel body
             , fvServoRight = nextServoR
             , fvLeftStrips = leftNext
             , fvRightStrips = rightNext
+            , fvLeftStripForceMag = map (magnitude . resultForce) leftResults
+            , fvRightStripForceMag = map (magnitude . resultForce) rightResults
             , fvLeftHingeTorqueNm = leftHinge
             , fvRightHingeTorqueNm = rightHinge
             , fvBatterySoc = nextSoc

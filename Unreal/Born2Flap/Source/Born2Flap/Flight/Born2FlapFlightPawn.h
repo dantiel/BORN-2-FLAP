@@ -212,6 +212,7 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     bool bFlapRising = false;        // flap velocity sign for top-of-stroke detection
     double LastStrokeTopTime = -1.0; // world-time of last flap top (period measurement)
     double MeasuredWingbeatHz = 0.0; // actual flap frequency measured from the servo
+    double WingForceLp = 0.0;        // low-passed total |strip force| for force-driven audio
     born2flap::DesktopInput Desktop;
     float ControlExpo=.65f;
     float WingbeatVolume=1.0f;   // wingbeat-only voice volume (0..4)
