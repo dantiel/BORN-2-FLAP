@@ -14,7 +14,8 @@ definitions=[n for n in tree.body if isinstance(n,(ast.Import,ast.ImportFrom,ast
 scope=dict(__file__=str(source),assets=u.AssetToolsHelpers.get_asset_tools(),lib=u.MaterialEditingLibrary,
            ela=u.EditorAssetLibrary,count=0)
 exec(compile(ast.Module(body=definitions,type_ignores=[]),str(source),'exec'),scope)
-scope['foliage_meshes']={key:[u.load_asset('/Game/Nature/SM_%s%d'%(key,i)) for i in range(n)] for key,n in [('Grass',3),('Tree',2),('Fir',3)]}
+scope['foliage_meshes']={key:[m for m in (u.load_asset('/Game/Nature/SM_%s%d'%(key,i)) for i in range(n)) if m]
+                         for key,n in [('Grass',3),('Tree',2),('Fir',3),('Rock',4),('Leaf',2),('Fern',1)]}
 world=u.EditorLoadingAndSavingUtils.load_map('/Game/Shiomori/Maps/SHIOMORI')
 assert world
 sub=u.get_editor_subsystem(u.EditorActorSubsystem)

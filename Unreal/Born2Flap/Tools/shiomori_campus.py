@@ -46,6 +46,15 @@ def install(scope):
         'Paving': ((.34,.33,.29),.91,0),
         'Stain': ((.31,.30,.245),.96,0),
         'Membrane': ((.73,.70,.56),.62,0),
+        'Moss': ((.12,.26,.11),.95,0),
+        'Meadow': ((.22,.30,.14),.95,0),
+        'Gravel': ((.44,.42,.37),.95,0),
+        'Blossom': ((.87,.41,.55),.62,0),
+        'BlossomLight': ((.95,.72,.80),.62,0),
+        'FlowerRed': ((.76,.14,.18),.8,0),
+        'FlowerYellow': ((.86,.72,.16),.8,0),
+        'FlowerBlue': ((.30,.42,.74),.8,0),
+        'FlowerOrange': ((.88,.45,.12),.8,0),
     }
     for key,(color,rough,metal) in specs.items():
         materials[key] = scope['pbr_material']('Campus'+key,color=color,rough=rough,metallic=metal,noise_var=.012 if key not in ('Dark','Steel') else 0)
@@ -410,6 +419,174 @@ def install(scope):
         beam('Shrine','Roof',(qx-185,qy+s*170,qz+283),(qx+185,qy+s*170,qz+283),28)
     beam('Shrine','Roof',(qx-195,qy,qz+380),(qx+195,qy,qz+380),25)
     route([(tx,ty,tz),(qx,5000,ground(qx,5000)+14),(qx,qy-380,qz+14)],160,'Stone','ShorePath')
+
+    # ------------------------------------------------------------------ #
+    # Campus decoration: far-west pine forest, hinterland nature, a       #
+    # tended shrine park (cherry, bonsai, lanterns, bronze), ground       #
+    # texture variation and playful painted + overgrown hotel balconies.  #
+    # ------------------------------------------------------------------ #
+    deco = random.Random(20261010)
+    foliage = scope['foliage']
+    fm = scope['foliage_meshes']
+
+    def pick(kind):
+        pool = fm.get(kind) or []
+        return pool[deco.randrange(len(pool))] if pool else None
+
+    def plant(kind, x, y, z, h, yaw=None):
+        m = pick(kind)
+        if m is None:
+            return None
+        a = foliage('Campus nature', (x, y, z), m, h,
+                    rot=(0, yaw if yaw is not None else deco.uniform(0, 360), 0), ground_z=z)
+        if a is not None:
+            a.tags = [TAG, 'CampusNature']
+        return a
+
+    def sphere(zone, mat, c, r, seg=7):
+        for j in range(seg):
+            t0 = -math.pi/2 + j*math.pi/seg; t1 = t0 + math.pi/seg
+            for i in range(seg*2):
+                a0 = i*math.tau/(seg*2); a1 = (i+1)*math.tau/(seg*2)
+                face((zone, mat), [(c[0]+r*math.cos(t)*math.cos(a),
+                                    c[1]+r*math.cos(t)*math.sin(a),
+                                    c[2]+r*math.sin(t)) for t, a in ((t0, a0), (t0, a1), (t1, a1), (t1, a0))])
+
+    def avoid(x, y):
+        # Launch field (flight clearance) and open hangar stay unobstructed.
+        return (-55900 <= x <= -51100 and -21450 <= y <= -17150) or \
+               (-62800 <= x <= -60200 and -23000 <= y <= -20800)
+
+    # --- Far-west pine forest on the raised headland beyond the campus. ---
+    for i in range(220):
+        x = deco.uniform(-84000, -70500); y = deco.uniform(-18500, 3500)
+        plant('Fir', x, y, ground(x, y), deco.uniform(650, 1650))
+    for i in range(170):
+        x = deco.uniform(-84000, -70500); y = deco.uniform(-18500, 3500)
+        kind = deco.choice(('Grass', 'Grass', 'Grass', 'Fern', 'Rock'))
+        h = deco.uniform(60, 180) if kind == 'Grass' else deco.uniform(90, 240) if kind == 'Fern' else deco.uniform(40, 140)
+        plant(kind, x, y, ground(x, y), h)
+
+    # --- Hinterland nature behind the campus (flat wasteland, H~150). ---
+    for i in range(120):
+        x = deco.uniform(-76000, -50500); y = deco.uniform(-25500, -24300)
+        kind = deco.choice(('Grass', 'Grass', 'Fern', 'Fir', 'Tree', 'Rock'))
+        h = deco.uniform(70, 200) if kind == 'Grass' else deco.uniform(140, 360) if kind in ('Fir', 'Fern', 'Tree') else deco.uniform(45, 150)
+        plant(kind, x, y, 150, h)
+
+    # --- Ground texture variation: moss/meadow/gravel patches + flowers. ---
+    def patch(mat, x, y, sx, sy):
+        z = ground(x, y)
+        box('GroundDeco', mat, (x, y, z+3), (sx, sy, 7))
+
+    def flower(x, y, z, color, s=1.0):
+        beam('FlowerDeco', 'Grass', (x, y, z), (x, y, z+12*s), 4*s)
+        box('FlowerDeco', color, (x, y, z+16*s), (13*s, 13*s, 12*s))
+
+    prng2 = random.Random(20261011)
+    fcol = ('FlowerRed', 'FlowerYellow', 'FlowerBlue', 'FlowerOrange', 'Blossom')
+    for i in range(24):
+        x = prng2.uniform(-74000, -51500); y = prng2.uniform(-21500, 4000)
+        if avoid(x, y): continue
+        patch(prng2.choice(('Moss', 'Meadow')), x, y, prng2.uniform(900, 2600), prng2.uniform(700, 1900))
+    for i in range(10):
+        x = prng2.uniform(-76000, -50500); y = prng2.uniform(-25600, -24300)
+        patch('Meadow', x, y, prng2.uniform(1200, 3000), prng2.uniform(700, 1600))
+    for i in range(120):
+        x = prng2.uniform(-74000, -51500); y = prng2.uniform(-21500, 4000)
+        if avoid(x, y): continue
+        flower(x, y, ground(x, y), fcol[prng2.randrange(len(fcol))], prng2.uniform(.7, 1.6))
+
+    # --- Shrine park: a tended garden around the hokora and torii path. ---
+    def cherry(x, y, z, s=1.0):
+        beam('Park', 'Wood', (x, y, z), (x, y, z+150*s), 11*s)
+        beam('Park', 'Wood', (x, y, z+60*s), (x-52*s, y, z+140*s), 7*s)
+        beam('Park', 'Wood', (x, y, z+60*s), (x+52*s, y, z+140*s), 7*s)
+        sphere('Park', 'Blossom', (x, y, z+185*s), 85*s)
+        sphere('Park', 'Blossom', (x-42*s, y, z+160*s), 58*s)
+        sphere('Park', 'Blossom', (x+42*s, y, z+160*s), 58*s)
+        sphere('Park', 'BlossomLight', (x, y, z+235*s), 45*s)
+
+    def bonsai(x, y, z, s=1.0):
+        box('Park', 'Stone', (x, y, z+7), (78*s, 52*s, 14*s))
+        box('Park', 'Dark', (x, y, z+19), (66*s, 40*s, 12*s))
+        beam('Park', 'Wood', (x, y, z+24), (x, y, z+52*s), 6*s)
+        beam('Park', 'Wood', (x, y, z+34*s), (x-22*s, y, z+56*s), 4*s)
+        sphere('Park', 'Grass', (x-20*s, y, z+58*s), 32*s)
+        sphere('Park', 'Grass', (x+20*s, y, z+58*s), 32*s)
+        sphere('Park', 'Grass', (x, y, z+66*s), 28*s)
+
+    def toro(x, y, z, s=1.0):
+        box('Park', 'Stone', (x, y, z+8), (64*s, 64*s, 16*s))
+        box('Park', 'Stone', (x, y, z+48), (26*s, 26*s, 80*s))
+        box('Park', 'Stone', (x, y, z+92), (58*s, 58*s, 12*s))
+        box('Park', 'Dark', (x, y, z+118), (28*s, 28*s, 44*s))
+        box('Park', 'Stone', (x, y, z+146), (72*s, 72*s, 10*s))
+        prism('Park', 'Stone', [(-40*s, -40*s), (40*s, -40*s), (40*s, 40*s), (-40*s, 40*s)], 151*s, 20*s, (x, y, z), 0)
+        beam('Park', 'Stone', (x, y, z+171*s), (x, y, z+186*s), 7*s)
+        sphere('Park', 'Stone', (x, y, z+192*s), 8*s)
+
+    cherry_x = [(-59000, 5400), (-58600, 4700), (-58200, 5600), (-57800, 4300),
+                (-57200, 3400), (-56800, 3600), (-56300, 3000), (-56000, 2700),
+                (-58200, 6600), (-58600, 6900), (-57800, 7300)]
+    for x, y in cherry_x:
+        cherry(x, y, ground(x, y), deco.uniform(.9, 1.5))
+    for dx, dy in ((-300, 380), (300, 380), (-320, 620), (0, 780), (320, 620)):
+        bonsai(qx+dx, qy+dy, ground(qx+dx, qy+dy), deco.uniform(.8, 1.3))
+    for x, y in ((-57800, 4800), (-57000, 3300), (-58500, 6200), (-58000, 4000)):
+        toro(x, y, ground(x, y), deco.uniform(.85, 1.2))
+    for i in range(12):
+        x = prng2.uniform(-59500, -55600); y = prng2.uniform(1500, 7600)
+        patch(prng2.choice(('Moss', 'Meadow')), x, y, prng2.uniform(700, 1800), prng2.uniform(500, 1400))
+    for i in range(50):
+        x = prng2.uniform(-59600, -55500); y = prng2.uniform(1200, 7800)
+        flower(x, y, ground(x, y), fcol[prng2.randrange(len(fcol))], prng2.uniform(.6, 1.4))
+
+    # Bronze kestrel on a stone pedestal beside the shrine forecourt.
+    pscx, pscy = -58200, 5000
+    pscz = ground(pscx, pscy)
+    box('Park', 'Stone', (pscx, pscy, pscz+40), (150, 120, 80))
+    kestrel2 = u.load_asset('/Game/Birds/SM_KestrelFuselage')
+    if kestrel2:
+        kb = kestrel2.get_bounds()
+        ks = 46.0 / max(kb.box_extent.x*2.0, 1.0)
+        ka = u.EditorLevelLibrary.spawn_actor_from_class(u.StaticMeshActor, u.Vector(pscx, pscy, pscz+84), u.Rotator(pitch=0, yaw=100, roll=0))
+        ka.set_actor_label('Campus shrine kestrel')
+        ka.set_editor_property('tags', [TAG, 'CampusKestrel'])
+        kc = ka.static_mesh_component
+        kc.set_static_mesh(kestrel2)
+        kc.set_material(0, materials['Bronze'])
+        kc.set_collision_profile_name('NoCollision')
+        ka.set_actor_scale3d(u.Vector(ks, ks, ks))
+
+    # --- Playful hotel: painted mural bands + overgrown balcony plants. ---
+    mural_colors = ('FlowerRed', 'FlowerYellow', 'FlowerBlue', 'FlowerOrange', 'Blossom')
+    BALCONY_FLOOR_Z = 170 + 750 + 25
+    for floor in range(1, FLOORS):
+        if floor in (0, 10):
+            continue
+        z = floor*FLOOR_HEIGHT
+        end = 6000 - max(0, floor-2)*480
+        edges = [((-6000, 1250), (end-650, 1250)), ((end-650, 1250), (end, 600)),
+                 ((end, 600), (end, -600)), ((end, -600), (end-650, -1250))]
+        for a, b in edges:
+            dx, dy = b[0]-a[0], b[1]-a[1]; length = math.hypot(dx, dy)
+            nx, ny = dy/length, -dx/length
+            count = max(1, round(length/BAY_WIDTH)); step = length/count
+            ang = math.degrees(math.atan2(dy, dx)) + HOTEL_YAW
+            for j in range(count):
+                t = (j+.5)/count; px = a[0]+dx*t; py = a[1]+dy*t
+                if (j+floor) % 4 == 0:
+                    mc = mural_colors[(j+floor) % len(mural_colors)]
+                    box('Hotel', mc, hp(px+nx*(BALCONY_DEPTH-5), py+ny*(BALCONY_DEPTH-5), z+150), (step-80, 12, 120), ang)
+                if (j*3 + floor*7) % 7 == 0:
+                    m = pick('Leaf') or pick('Fern')
+                    if m:
+                        bx, by = hp(px+nx*(BALCONY_DEPTH-8), py+ny*(BALCONY_DEPTH-8), 0)[:2]
+                        bz = BALCONY_FLOOR_Z + floor*FLOOR_HEIGHT
+                        a2 = foliage('Campus balcony plant', (bx, by, bz), m, deco.uniform(240, 340), rot=(0, deco.uniform(0, 360), 0), ground_z=bz)
+                        if a2 is not None:
+                            a2.tags = [TAG, 'CampusBalconyPlant']
 
     # Save reusable material-zone meshes. Each actor is tightly scoped/tagged;
     # real triangle collision preserves balconies, hangar openings and paths.
