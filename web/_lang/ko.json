@@ -107,7 +107,7 @@
   "open_num": "06",
   "open_title": "오픈소스",
   "open_lead": "상업적이면서 동시에 자유롭다.",
-  "open_body": "BORN2FLAP은 Steam과 Epic Games Store에 출시되며, 자체 소스는 <strong>MIT 라이선스</strong>로 공개된다. 물리 코어, 브리지, 브레인——모두 개방. 게임을 날리고, 날개를 가져가 너만의 것을 만들어라. Unreal Engine과 서드파티 에셋은 각자의 라이선스를 유지한다.",
+  "open_body": "BORN2FLAP은 Steam과 Epic Games Store에 출시되며, 자체 소스는 <strong>MIT 라이선스</strong>로 공개된다. 물리 코어, 브리지, 브레인——모두 개방. 게임을 날리고, 날개를 가져가 너만의 것을 만들어라. Unreal Engine과 서드파티 에셋은 각자의 라이선스를 유지한다. 관련 오픈소스 프로젝트: <a href=\"https://dantiel.github.io/OrniFlight/\">OrniFlight</a>(STM32 플라이트 컨트롤러용)와 <a href=\"https://dantiel.github.io/PteronautOS/\">PteronautOS</a>(단순한 하드웨어에서 더 범용적)——각각 자체 컨피규레이터와 펌웨어를 갖춘다.",
   "open_license": "MIT 라이선스",
 
   "footer_github": "GitHub",
