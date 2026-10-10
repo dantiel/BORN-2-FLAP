@@ -28,9 +28,23 @@ permissions:
   contents: write
 
 jobs:
+readiness:
+  runs-on: ubuntu-latest
+  steps:
+    - uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.tag || github.ref_name }}
+        lfs: true
+    - uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: "3.3"
+    - name: Gate release readiness
+      run: ruby Tools/generate-readiness.rb --check
+
   macos-dmg:
     if: github.event_name == 'push' || inputs.platform == 'macos' || inputs.platform == 'both'
     runs-on: [self-hosted, macOS, ARM64]
+    needs: readiness
     env:
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
@@ -51,6 +65,7 @@ jobs:
   windows-exe:
     if: github.event_name == 'push' || inputs.platform == 'windows' || inputs.platform == 'both'
     runs-on: [self-hosted, Windows, X64]
+    needs: readiness
     env:
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:

@@ -48,6 +48,7 @@
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
 #include "UnrealClient.h"
+#include "Platform/Born2FlapPlatformSubsystem.h"
 #include "Serialization/JsonWriter.h"
 #include "Serialization/JsonSerializer.h"
 #include "Dom/JsonObject.h"
@@ -603,6 +604,9 @@ int32 ABorn2FlapGameMode::GetInitialPoiIndex() const
 void ABorn2FlapGameMode::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
+    // Platform backend heartbeat (achievements/cloud/presence store sync).
+    if (UBorn2FlapPlatformSubsystem* Platform = UBorn2FlapPlatformSubsystem::Get(this))
+        Platform->Tick(DeltaSeconds);
     if(FParse::Param(FCommandLine::Get(),TEXT("B2FWeatherMenuTest")))
     {
         if(UGameplayStatics::ParseOption(OptionsString,TEXT("Weather")).IsEmpty())
