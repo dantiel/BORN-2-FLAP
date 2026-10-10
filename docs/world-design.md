@@ -154,6 +154,10 @@ addition — not "another map".
    Lesson: flying by feel, gust recovery, orientation without a clear horizon.
 6. **Night city / bioluminescent coast** — *FPV lights, night flight.* "The
    glow." Lesson: orientation without horizon cues, instrument discipline.
+7. **Endless procedural sky** — *cross-country, energy management, flow.*
+   "The horizon." Lesson: reading a biome gradient and riding whatever lift the
+   terrain offers — thermals over baked rock, ridge lift on windward slopes —
+   with no fixed goal and no map edge.
 
 **Proposal template** (use when pitching a new world):
 
@@ -163,6 +167,42 @@ addition — not "another map".
 - **Geometry plan** — scripted (`Tools/create_*.py`) or assembled.
 - **POI plan** — named launch/reset points (`F8`).
 - **Weather + radio profile** — wind, light, and a music/radio track.
+
+---
+
+## Procedural richness (reference: slowroads.io)
+
+`slowroads.io` — an endless browser driving game — feels "rich and diverse"
+not from more authored assets but from a handful of procedural rules. They
+transfer directly to flight:
+
+1. **Elevation-driven biome blending.** One contiguous world reads as many
+   because biome is a *continuous function* of elevation, moisture and
+   temperature: meadow → forest → rock → snow → coast, with no hard seams. A
+   single valley already has this latent range (river floor → wooded slope →
+   ridge → distant lake); push the elevation gradient and the biomes reveal
+   themselves.
+2. **Dense instancing for perceived richness.** Thousands of cheap instances
+   (trees, grass, rock) read as "lush" far more than a few detailed props.
+   Unreal's ISM/HISM and Nanite foliage are the native tool; the lesson is
+   *coverage over individual detail*.
+3. **Natural flight lines laid along terrain.** slowroads' road follows the
+   heightfield, so motion always has a natural path. The flight equivalent is
+   placing thermals and ridge lift *where the terrain says they belong* —
+   sun-baked south slopes and windward ridges — so a pilot who reads the land
+   reads the air.
+4. **Atmospheric coherence.** One strong mood (fog + color grade + sun angle)
+   unifies every asset. BORN-2-FLAP already exceeds this (parhelion, surf,
+   snow accumulation, per-world soundscapes); the discipline is to keep each
+   world's register *singular* rather than everything-everywhere.
+
+**Completion tie-in.** These rules are the concrete "what could be developed
+next" for the existing worlds: denser instanced undergrowth and a stronger
+elevation gradient for Ravenstonefield; cliff-ridge lift and a biome transition
+(garden → forest → volcanic rock) for Shiomori Bay; and a procedurally-laid
+endless gate run for Training (the neutral ground stays neutral, but its course
+can extend without a map edge). Proposal #7 above is the purest expression of
+rules 1 + 3 — an infinite cross-country where the horizon keeps generating.
 
 ---
 
