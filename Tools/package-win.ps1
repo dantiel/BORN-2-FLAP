@@ -47,6 +47,8 @@ foreach ($Required in @('Born2Flap.exe', 'Born2Flap\Binaries\Win64\Born2Flap-Win
     if (!(Test-Path (Join-Path $Package $Required))) { throw "Incomplete package: $Required" }
 }
 Copy-Item (Join-Path $RepoRoot 'LICENSE') $Package
+Copy-Item (Join-Path $RepoRoot 'THIRD-PARTY-NOTICES.md') $Package
+Copy-Item (Join-Path $RepoRoot 'Unreal\Born2Flap\Tools\fonts\OFL.txt') (Join-Path $Package 'ChakraPetch-OFL.txt')
 & (Join-Path $PSScriptRoot 'test-package-win.ps1') -Package $Package
 @"
 BORN 2 FLAP - $Tag

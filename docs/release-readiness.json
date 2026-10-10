@@ -1,0 +1,73 @@
+{
+  "schema": 1,
+  "meta": {
+    "title": "BORN-2-FLAP Release-Readiness-Katalog",
+    "product": "BORN-2-FLAP",
+    "version": "Alpha 0.1.0"
+  },
+  "legend": {
+    "🟢": "erfüllt",
+    "🟡": "teilweise",
+    "🔴": "offen",
+    "⛔": "Blocker",
+    "➖": "n/a"
+  },
+  "gates": [
+    { "id": "G1", "name": "Rechtliche Freigabe", "description": "Lizenzen, Drittanbieter-Attribution und Unreal-EULA-Compliance" },
+    { "id": "G2", "name": "Technische Stabilität", "description": "Flugphysik, Absturzfreiheit und bekannte Fehler" },
+    { "id": "G3", "name": "Build & Distribution", "description": "Reproduzierbare Win64/macOS-Builds und GitHub-Release-Artefakte" },
+    { "id": "G4", "name": "Store-Infrastruktur", "description": "Steamworks/Epic-Services: Achievements, Cloud-Saves, Overlay" },
+    { "id": "G5", "name": "Store-Präsentation", "description": "Store-Assets, Alterseinstufung und Steam-Deck-Tauglichkeit" }
+  ],
+  "records": [
+    { "id": "LIC-01", "req": "Eigencode unter MIT-Lizenz", "cat": "Lizenz", "scope": ["Alle"], "ist": "LICENSE vorhanden", "ziel": "MIT bleibt", "evidence": ["LICENSE"], "status": "🟢", "gate": "G1", "facet": "corax" },
+    { "id": "LIC-02", "req": "Unreal-Engine-EULA eingehalten", "cat": "Recht", "scope": ["Alle"], "ist": "UE 5.8 Shipping-Build", "ziel": "EULA-Compliance dokumentiert", "evidence": ["Unreal/Born2Flap/Born2Flap.uproject"], "status": "🟢", "gate": "G1", "facet": "corax" },
+    { "id": "LIC-03", "req": "Drittanbieter-Assets CC0 (Poly Haven)", "cat": "Lizenz", "scope": ["Alle"], "ist": "Ravenstonefield, Natural Valley, Shiomori Bay", "ziel": "CC0 beibehalten", "evidence": ["docs/ravenstonefield.md", "docs/natural-valley-and-rc.md", "docs/shiomori-bay.md"], "status": "🟢", "gate": "G1", "facet": "corax" },
+    { "id": "LIC-04", "req": "Kein CC-NC-Material gebündelt", "cat": "Lizenz", "scope": ["Steam", "Epic"], "ist": "manuell geprüft, kein CC-NC gefunden", "ziel": "automatisierte Inventar-Prüfung", "evidence": [], "status": "🟡", "gate": "G1", "facet": "corax" },
+    { "id": "LIC-05", "req": "Kein GPL-Code verlinkt", "cat": "Lizenz", "scope": ["Alle"], "ist": "Haskell nur base (>=4.17)", "ziel": "keine GPL-Abhängigkeit", "evidence": ["MathCore/born2flap-math.cabal"], "status": "🟢", "gate": "G1", "facet": "corax" },
+    { "id": "LIC-06", "req": "ChakraPetch-OFL gebündelt", "cat": "Lizenz", "scope": ["Alle"], "ist": "OFL.txt im Repo + Paket-Kopie", "ziel": "OFL-Text liegt jedem Build bei", "evidence": ["Unreal/Born2Flap/Tools/fonts/OFL.txt", "Tools/package-win.ps1"], "status": "🟢", "gate": "G1", "facet": "corax" },
+    { "id": "LIC-07", "req": "Olympia-Script-Lizenz geklärt", "cat": "Lizenz", "scope": ["GitHub"], "ist": "frei für kommerzielle Nutzung (DaroGraphix)", "ziel": "Attribution im Notices", "evidence": ["web/assets/fonts/OlympiaScript-LICENSE.txt"], "status": "🟢", "gate": "G1", "facet": "corax" },
+    { "id": "LIC-08", "req": "THIRD-PARTY-NOTICES im Paket", "cat": "Lizenz", "scope": ["Alle"], "ist": "generiert + Paket-Kopie", "ziel": "Notices liegen jedem Build bei", "evidence": ["THIRD-PARTY-NOTICES.md", "Tools/package-win.ps1"], "status": "🟢", "gate": "G1", "facet": "corax" },
+    { "id": "LIC-09", "req": "7-Zip-SFX-Lizenz im Installer", "cat": "Lizenz", "scope": ["Alle"], "ist": "License.txt liegt via bundle-win.ps1 bei", "ziel": "im Notices dokumentieren", "evidence": [], "status": "🟡", "gate": "G1", "facet": "corax" },
+    { "id": "LIC-10", "req": "Haskell-cabal-Lizenzzeile", "cat": "Lizenz", "scope": ["Alle"], "ist": "cabal ohne license-Zeile", "ziel": "license: MIT ergänzen", "evidence": [], "status": "🟡", "gate": "G1", "facet": "corax" },
+    { "id": "REV-01", "req": "Unreal-Royalty-Schwelle dokumentiert", "cat": "Recht", "scope": ["Steam", "Epic"], "ist": "5% erst >1 Mio USD", "ziel": "Schwelle im Notices vermerkt", "evidence": ["docs/release-packaging.md"], "status": "🟢", "gate": "G1", "facet": "solomon" },
+    { "id": "REV-02", "req": "Preis-/Vertriebsmodell festgelegt", "cat": "Recht", "scope": ["Steam", "Epic"], "ist": "7,99€ Anker, GitHub gratis (eine Version zurück)", "ziel": "DLC-Strategie nach Launch prüfen", "evidence": [], "status": "🟡", "gate": "G1", "facet": "solomon" },
+
+    { "id": "STA-01", "req": "Bank-Recovery stabil", "cat": "Stabilität", "scope": ["Alle"], "ist": "bekannte Fehler (experimental alpha)", "ziel": "stabil", "evidence": [], "status": "⛔", "gate": "G2", "facet": "phoenix" },
+    { "id": "STA-02", "req": "Dauerflug (sustained flight) stabil", "cat": "Stabilität", "scope": ["Alle"], "ist": "bekannte Fehler (experimental alpha)", "ziel": "stabil", "evidence": [], "status": "⛔", "gate": "G2", "facet": "phoenix" },
+    { "id": "STA-03", "req": "30-min-Dauerlauf ohne Crash", "cat": "Stabilität", "scope": ["Steam", "Epic"], "ist": "nicht gemessen", "ziel": "automatisierter Soak-Test", "evidence": [], "status": "🔴", "gate": "G2", "facet": "phoenix" },
+    { "id": "STA-04", "req": "Haskell-Regressionstests grün", "cat": "Stabilität", "scope": ["Alle"], "ist": "cabal test all in CI", "ziel": "grün bleiben", "evidence": [".github/workflows/ci.yml"], "status": "🟢", "gate": "G2", "facet": "phoenix" },
+    { "id": "STA-05", "req": "Packaged-Smoke-Tests grün", "cat": "Stabilität", "scope": ["Alle"], "ist": "test-package-win.ps1 startet Shipping-EXE", "ziel": "grün bleiben", "evidence": ["Tools/test-package-win.ps1"], "status": "🟢", "gate": "G2", "facet": "phoenix" },
+    { "id": "STA-06", "req": "Flugkoeffizienten kalibriert", "cat": "Stabilität", "scope": ["Alle"], "ist": "unkalibriert", "ziel": "kalibriert via OrniFlight-Export", "evidence": [], "status": "🔴", "gate": "G2", "facet": "phoenix" },
+
+    { "id": "WIN-01", "req": "Win64-Shipping-Build reproduzierbar", "cat": "Build/Distribution", "scope": ["Alle"], "ist": "package-win.ps1 + UAT BuildCookRun", "ziel": "reproduzierbar", "evidence": ["Tools/package-win.ps1"], "status": "🟢", "gate": "G3", "facet": "undine" },
+    { "id": "WIN-02", "req": "macOS-Build reproduzierbar", "cat": "Build/Distribution", "scope": ["GitHub"], "ist": "dmg gebaut, kein Store-Ziel", "ziel": "macOS-Store prüfen", "evidence": ["Tools/package-mac.sh"], "status": "🟡", "gate": "G3", "facet": "undine" },
+    { "id": "WIN-03", "req": "64-Bit-only Artefakte", "cat": "Build/Distribution", "scope": ["Steam", "Epic"], "ist": "Win64 + x64 DLL", "ziel": "kein 32-Bit", "evidence": ["Tools/package-win.ps1"], "status": "🟢", "gate": "G3", "facet": "undine" },
+    { "id": "WIN-04", "req": "GitHub-Release-Automatik", "cat": "Build/Distribution", "scope": ["Alle"], "ist": "release.yml tag → Artefakte", "ziel": "tag-Push löst Build aus", "evidence": [".github/workflows/release.yml"], "status": "🟢", "gate": "G3", "facet": "undine" },
+    { "id": "WIN-05", "req": "Debug-Symbole ausgeschlossen", "cat": "Build/Distribution", "scope": ["Alle"], "ist": "nodebuginfo gesetzt", "ziel": "keine Symbole im Player-Download", "evidence": ["Tools/package-win.ps1"], "status": "🟢", "gate": "G3", "facet": "undine" },
+    { "id": "WIN-06", "req": "Checksums (.sha256)", "cat": "Build/Distribution", "scope": ["Alle"], "ist": "sha256 neben Artefakten", "ziel": "Integrität verifizierbar", "evidence": ["Tools/package-win.ps1"], "status": "🟢", "gate": "G3", "facet": "undine" },
+
+    { "id": "STM-01", "req": "Steamworks-AppID", "cat": "Store-Infra", "scope": ["Steam"], "ist": "nicht integriert", "ziel": "AppID + OnlineSubsystemSteam", "evidence": [], "status": "🔴", "gate": "G4", "facet": "solomon" },
+    { "id": "STM-02", "req": "Steam-Achievements", "cat": "Store-Infra", "scope": ["Steam"], "ist": "nicht implementiert", "ziel": "Achievement-Set", "evidence": [], "status": "🔴", "gate": "G4", "facet": "solomon" },
+    { "id": "STM-03", "req": "Steam-Cloud-Saves", "cat": "Store-Infra", "scope": ["Steam"], "ist": "nicht implementiert", "ziel": "Cloud-Save aktiv", "evidence": [], "status": "🔴", "gate": "G4", "facet": "solomon" },
+    { "id": "EGS-01", "req": "Epic-Services-Integration", "cat": "Store-Infra", "scope": ["Epic"], "ist": "nicht integriert", "ziel": "OnlineSubsystemEOS", "evidence": [], "status": "🔴", "gate": "G4", "facet": "solomon" },
+    { "id": "EGS-02", "req": "Epic-Achievements", "cat": "Store-Infra", "scope": ["Epic"], "ist": "nicht implementiert", "ziel": "Achievement-Set", "evidence": [], "status": "🔴", "gate": "G4", "facet": "solomon" },
+    { "id": "EGS-03", "req": "Epic-Cloud-Saves", "cat": "Store-Infra", "scope": ["Epic"], "ist": "nicht implementiert", "ziel": "Cloud-Save aktiv", "evidence": [], "status": "🔴", "gate": "G4", "facet": "solomon" },
+
+    { "id": "DEC-01", "req": "Steam-Deck-Tauglichkeit", "cat": "Plattform", "scope": ["Steam"], "ist": "nicht verifiziert", "ziel": "Deck-Verified", "evidence": [], "status": "🔴", "gate": "G5", "facet": "drache" },
+    { "id": "DEC-02", "req": "Store-Assets (Capsule/Screenshots)", "cat": "Store-Präsentation", "scope": ["Steam", "Epic"], "ist": "nicht erstellt", "ziel": "Capsule + Trailer", "evidence": [], "status": "🔴", "gate": "G5", "facet": "schwan" },
+    { "id": "DEC-03", "req": "Alterseinstufung (IARC)", "cat": "Store-Präsentation", "scope": ["Steam", "Epic"], "ist": "nicht beantragt", "ziel": "IARC-Rating", "evidence": [], "status": "🔴", "gate": "G5", "facet": "solomon" },
+    { "id": "DEC-04", "req": "Controller-/Deck-Input", "cat": "Plattform", "scope": ["Steam"], "ist": "RC/F3-Setup vorhanden", "ziel": "Deck-Layout", "evidence": [], "status": "🟡", "gate": "G5", "facet": "drache" }
+  ],
+  "components": [
+    { "name": "Unreal Engine 5.8", "version": "5.8", "spdx": "LicenseRef-Proprietary (Unreal EULA)", "origin": "Epic Games", "bundled_in": "Runtime (redistributable)", "notes": "Engine-Royalty 5% erst ab 1 Mio USD Bruttoumsatz", "attribution": false },
+    { "name": "born2flap-math (Haskell MathCore)", "version": "0.1.0", "spdx": "MIT", "origin": "Eigencode (in-repo)", "bundled_in": "born2flap_math.dll", "notes": "Nur base (>=4.17), keine Fremd-Deps", "attribution": false },
+    { "name": "Ruby Brain", "version": "0.1.0", "spdx": "MIT", "origin": "Eigencode (in-repo)", "bundled_in": "—", "notes": "mruby-Einbettung geplant", "attribution": false },
+    { "name": "Poly Haven Ravenstonefield", "version": "—", "spdx": "CC0-1.0", "origin": "Poly Haven (https://polyhaven.com)", "bundled_in": "Content", "notes": "tree_small_02, dead_tree_trunk, castle_wall_slates, clay_roof_tiles u.a.", "attribution": true },
+    { "name": "Poly Haven Natural Valley", "version": "—", "spdx": "CC0-1.0", "origin": "Poly Haven (https://polyhaven.com)", "bundled_in": "Content", "notes": "Umgebungs-Assets", "attribution": true },
+    { "name": "Poly Haven Shiomori Bay", "version": "—", "spdx": "CC0-1.0", "origin": "Poly Haven (https://polyhaven.com)", "bundled_in": "Content", "notes": "Umgebungs-Assets", "attribution": true },
+    { "name": "ChakraPetch", "version": "1.0", "spdx": "OFL-1.1", "origin": "Google Fonts / The Chakra Petch Project Authors", "bundled_in": "Unreal/Born2Flap/Tools/fonts", "notes": "Copyright 2017 The Chakra Petch Project Authors (https://github.com/max-may/chakra-petch)", "attribution": true },
+    { "name": "Olympia Script", "version": "—", "spdx": "LicenseRef-free-commercial", "origin": "DaroGraphix (darographix)", "bundled_in": "web/assets/fonts", "notes": "Frei für kommerzielle Nutzung (DaroGraphix)", "attribution": true },
+    { "name": "7-Zip SFX", "version": "—", "spdx": "LicenseRef-7-Zip (LGPL + unRAR-Restriktion)", "origin": "7-Zip", "bundled_in": "Self-extracting EXE", "notes": "7z.sfx + License.txt liegen dem Installer bei", "attribution": true }
+  ]
+}
