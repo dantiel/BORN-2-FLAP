@@ -3,5 +3,6 @@
     %VBox{ spacing: 6 }
       %Banner{ text: "POINTS OF INTEREST", tone: "accent" }
       %TextBlock{ text: "Choose a launch point — the bird re-places there instantly.", tone: "dim", size: "xs", wrap: true }
-#{rows}
+      - pois.each_with_index do |p, i|
+        %Button{ label: "#{p[:name]}", action: "poi.#{i}", tone: "#{p[:selected] ? 'good' : 'accent'}" }
       %Button{ label: "CLOSE  /  F8", action: "poi.close", tone: "dim" }

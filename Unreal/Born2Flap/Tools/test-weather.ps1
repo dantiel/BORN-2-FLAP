@@ -2,11 +2,12 @@ param(
     [string]$EngineRoot='V:\UE_5.8',
     [ValidateSet('Shiomori','Ravenstonefield','Training')][string]$Level='Shiomori',
     [string]$Weather='parhelion', [string]$DayTime='morning',
-    [switch]$All, [switch]$Menu, [switch]$Experience, [switch]$BirdWater, [switch]$Volcanic
+    [switch]$All, [switch]$Menu, [switch]$Experience, [switch]$BirdWater, [switch]$Volcanic, [switch]$Campus
 )
 $ErrorActionPreference='Stop'
 if($BirdWater){$Experience=$true;$Level='Shiomori'}
 if($Volcanic){$Experience=$true;$Level='Shiomori'}
+if($Campus){$Experience=$true;$Level='Shiomori'}
 $project=(Resolve-Path (Join-Path $PSScriptRoot '../Born2Flap.uproject')).Path
 $cases=, @($Level,$Weather,$DayTime)
 if($All){$cases=@(
@@ -26,12 +27,14 @@ foreach($case in $cases){
     else{$arguments=@($arguments | Where-Object {$_ -ne '-benchmark'});$arguments+=@('-sound','-AudioMixer')}
     if($BirdWater){$arguments+='-B2FBirdWaterTest'}
     if($Volcanic){$arguments+='-B2FVolcanicTest'}
+    if($Campus){$arguments+='-B2FCampusTest'}
     $process=Start-Process -FilePath (Join-Path $EngineRoot 'Engine/Binaries/Win64/UnrealEditor-Cmd.exe') -ArgumentList $arguments -WindowStyle Hidden -PassThru
     if(!$process.WaitForExit(180000)){Stop-Process -Id $process.Id;throw "Weather test timed out: $log"}
     $marker=if($Menu){'WeatherMenuTest PASS'}elseif($Experience){'WeatherExperienceTest PASS'}else{'WeatherTest PASS'}
     if($process.ExitCode -ne 0 -or !(Select-String -LiteralPath $log -Pattern $marker -SimpleMatch)){throw "Weather test failed: $log"}
     if($Menu -and !(Select-String -LiteralPath $log -Pattern 'WeatherMenuTravel PASS' -SimpleMatch)){throw "Menu travel failed: $log"}
     if(Select-String -LiteralPath $log -Pattern 'Failed to compile Material|LogShaderCompilers: Error|Weather.*Test FAIL'){throw "Weather render failed: $log"}
+    if($Campus -and !(Select-String -LiteralPath $log -Pattern 'CampusTest PASS' -SimpleMatch)){throw "Campus collision test failed: $log"}
     if($Experience){
         $capture=Join-Path (Split-Path $project) "Saved/BouncedWavFiles/EXPERIENCE_$($levelId)_$($weatherId).wav"
         python (Join-Path $PSScriptRoot 'check_soundscape_audio.py') $capture

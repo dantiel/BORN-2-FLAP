@@ -2,4 +2,5 @@
   %Panel{ bg: "solid", padding: 14 }
     %VBox{ spacing: 4 }
       %Banner{ text: "CHANNELS", tone: "accent", size: "s" }
-#{channel_rows}
+      - (rc_channels || []).each do |c|
+        %Stat{ label: "#{c[:name] || '?'}", value: #{(c[:value] || 0.0).to_f.round(2)}, tone: "info" }

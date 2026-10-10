@@ -1,1 +1,30 @@
-#{tree_source}
+%Overlay{ align: "center", valign: "center" }
+  %SizeBox{ width: 880 }
+    %Panel{ title: "CONTROL SETTINGS", padding: 24 }
+      %VBox{ spacing: 8 }
+        %Banner{ text: "RC TRANSMITTER", tone: "accent" }
+        %TextBlock{ text: "#{rc_device}", tone: "info", size: "m" }
+        %TextBlock{ text: "#{rc_status}", tone: "dim", size: "s" }
+        %TextBlock{ text: "#{rc_instruction}", tone: "accent", size: "s" }
+        - unless rc_notice.empty?
+          %TextBlock{ text: "#{rc_notice}", tone: "accent", size: "s" }
+        %Field{ label: "DEVICE" }
+        %HBox{ spacing: 8 }
+          %Button{ label: "NEXT DEVICE", action: "rc.device.next" }
+          %Button{ label: "#{rc_enabled ? 'DISABLE RC' : 'ENABLE RC'}", action: "rc.enable.toggle", tone: "dim" }
+        %Field{ label: "CALIBRATION" }
+        %HBox{ spacing: 8 }
+          %Button{ label: "START", action: "rc.calibrate.start", tone: "good" }
+          %Button{ label: "NEXT STEP", action: "rc.calibrate.advance" }
+          %Button{ label: "CANCEL", action: "rc.calibrate.cancel", tone: "danger" }
+        %HBox{ spacing: 8 }
+          %Button{ label: "LEARN START", action: "rc.learn.launch", tone: "dim" }
+          %Button{ label: "LEARN RESET", action: "rc.learn.reset", tone: "dim" }
+        %Field{ label: "LIVE AXES" }
+        - rc_axes.each do |a|
+          %Stat{ label: "#{a[:label]}", value: #{a[:value]}, tone: "#{a[:tone]}" }
+        %Field{ label: "CHANNEL MAPPING" }
+        - rc_mappings.each do |m|
+          %TextBlock{ text: "#{m}", tone: "dim", size: "s" }
+        %TextBlock{ text: "#{rc_buttons}", tone: "dim", size: "xs" }
+        %Button{ label: "CLOSE", action: "rc.close", tone: "good" }

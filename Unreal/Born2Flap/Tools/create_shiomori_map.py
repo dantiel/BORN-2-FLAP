@@ -1730,6 +1730,10 @@ for j, x in enumerate(range(-40000, 41000, 10000)):
 # Sterile white buildings behind the promenade; the yard and industrial accents
 # (vents, tanks) keep a muted, grey-yellowed concrete tone.
 for j, x in enumerate(range(-43000, 44000, 6500)):
+    # The campus (repurposed hotel + hangar) replaces the west-side warehouses;
+    # skip that band so the bulky hotel stands clear of the old sheds.
+    if -37500 < x < -26500:
+        continue
     w = rng.uniform(4200, 5600)
     h = rng.uniform(850, 1700)
     y = -8500 - rng.uniform(0, 2500)
@@ -1853,6 +1857,8 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import shiomori_volcanic
 shiomori_volcanic.install(globals())
+import shiomori_campus
+shiomori_campus.install(globals())
 # Volleyball court: two poles, sparse dark mesh and white top tape.
 for x in (11550, 12450):
     part('Volleyball post', (x, 4500, 130), (12, 12, 260), 'Teal', 'Cylinder')

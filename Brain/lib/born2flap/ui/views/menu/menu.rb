@@ -16,7 +16,6 @@ module Born2Flap
           world = worlds[index] || worlds.first || {}
           weathers = world[:weathers] || ["clear"]
           times = world[:times] || ["day"]
-          in_level = locals[:menu_inlevel] ? true : false
           world_id = (world[:id] || "world").to_s
 
           {
@@ -29,20 +28,8 @@ module Born2Flap
             weathers: weathers,
             time_index: times.index(world[:time]) || 0,
             times: times,
-            action_buttons: action_buttons(in_level)
+            menu_inlevel: locals[:menu_inlevel] ? true : false
           }
-        end
-
-        private
-
-        def action_buttons(in_level)
-          return "" unless in_level
-
-          [
-            %(      %Button{ label: "RESUME", action: "menu.resume", tone: "good" }),
-            %(      %Button{ label: "FLIGHT DESK", action: "menu.settings" }),
-            %(      %Button{ label: "CONTROLS", action: "menu.controls" })
-          ].join("\n")
         end
       end
     end

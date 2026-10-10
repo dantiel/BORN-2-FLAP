@@ -67,8 +67,8 @@ double SampleStationField(const B2F_WingSection* Shape, int32 Count, double Stat
 // scales ONLY the load-driven elastic torsion (the reactive part), NOT the static
 // geometric washout — so the wing rests nearly flat and flexes with load. Raise
 // for a floppier look, lower toward 1 to match the raw physics.
-constexpr double AeroBendVisualGain  = 33.3;
-constexpr double AeroTwistVisualGain = 3.0;
+constexpr double AeroBendVisualGain  = 37.0;
+constexpr double AeroTwistVisualGain = 4.4;
 }
 
 void UBorn2FlapWingMesh::InitializeWing(int32 Side, int32 Design)
