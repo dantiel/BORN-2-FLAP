@@ -10,7 +10,7 @@ from collections import defaultdict
 # Architectural drafting coordinates stay stable; translate the whole property
 # onto the west headland only once, after construction. Separate elevations
 # keep the inland hangar low while the hotel occupies a supported terrace.
-SITE_OFFSET = (-4000., 4000.)
+SITE_OFFSET = (-6000., 21000.)
 HOTEL_RISE = 750.
 FIELD_RISE = 180.
 HOTEL_CENTER = (-59500., -13700.)
@@ -243,11 +243,9 @@ def install(scope):
                         pts=[aa,bb,(ob[0],ob[1],ground(*ob)-4),(oa[0],oa[1],ground(*oa)-4)]
                         face(('Ground','Headland'),pts if side<0 else pts[::-1])
 
-    # A single dogleg access lane crosses the open buffer from the existing
-    # road endpoint. The town endpoint is inverse-transformed deliberately;
-    # the lane first skirts the westernmost warehouse before turning inland.
-    route([(-40000,-8400,160),(-46000,-8500,160),(-46500,-26000,160),(-55500,-27500,165),(-61500,-25000,170),(-61500,-23100,170)],450)
     # Switchback service ramp reaches the hotel's rear terrace from inland.
+    # (The old road-access dogleg is removed: the campus now sits on the
+    # isolated west-headland peninsula, well clear of the coastal road.)
     route([(-61500,-20700,175),(-66000,-20500,190),(-69000,-18100,520),(-68300,-16100,910),(-62500,-16700,920)],500)
     # Solid retaining terrace and a ground-hugging apron of headland material;
     # this prevents a floating platform after moving onto the sloping land.
