@@ -1,6 +1,6 @@
 # Shiomori Ornithopter University
 
-The campus is an adapted 1988 seaside hotel on the west (negative-X) side of the bay. From the sea, it appears on the right. Its drafting center is **(-59500, -13700) cm**, rotated -18 degrees, translated to world space by `SITE_OFFSET` (currently (-4000, 4000), i.e. hotel at world **(-63500, -9700) cm**): well inland of the coastal road and promenade, on the flat wasteland of the west headland rather than the beach. The coastal garden, torii and shrine remain on the shoreward approach to the volcanic island; the island and lagoon are untouched.
+The campus is an adapted 1988 seaside hotel on the west (negative-X) side of the bay. From the sea, it appears on the right. Its drafting center is **(-59500, -13700) cm**, rotated -18 degrees, translated to world space by `SITE_OFFSET` (currently (-6000, 21000), i.e. hotel at world **(-65500, 7300) cm**): on the raised west-headland peninsula (the "big wasteland" west of the bay), clearly apart from the beach, promenade and coastal road. The coastal garden, torii and shrine face the volcanic island from the west across the sheltered water; the island and lagoon are untouched.
 
 ## Construction
 
