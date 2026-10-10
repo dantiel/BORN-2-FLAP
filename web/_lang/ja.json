@@ -107,7 +107,7 @@
   "open_num": "06",
   "open_title": "オープンソース",
   "open_lead": "商用であり、同時に自由。",
-  "open_body": "BORN2FLAP は Steam と Epic Games Store でリリースされ、自前のソースは <strong>MIT ライセンス</strong>で公開される。物理コアもブリッジもブレインも——オープンだ。ゲームを飛ばし、翼を持ち帰り、自分だけのものを作れ。Unreal Engine とサードパーティ資産はそれぞれのライセンスを保持する。",
+  "open_body": "BORN2FLAP は Steam と Epic Games Store でリリースされ、自前のソースは <strong>MIT ライセンス</strong>で公開される。物理コアもブリッジもブレインも——オープンだ。ゲームを飛ばし、翼を持ち帰り、自分だけのものを作れ。Unreal Engine とサードパーティ資産はそれぞれのライセンスを保持する。 関連するオープンソースプロジェクト: <a href=\"https://dantiel.github.io/OrniFlight/\">OrniFlight</a>（STM32 フライトコントローラー向け）と <a href=\"https://dantiel.github.io/PteronautOS/\">PteronautOS</a>（シンプルなハードウェアでより汎用的）——それぞれ独自のコンフィギュレーターとファームウェアを備える。",
   "open_license": "MIT ライセンス",
 
   "footer_github": "GitHub",

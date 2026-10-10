@@ -99,7 +99,7 @@
   "open_num": "06",
   "open_title": "Código abierto",
   "open_lead": "Comercial y libre a la vez.",
-  "open_body": "BORN2FLAP llega a Steam y a Epic Games Store, y su propio código se publica bajo la <strong>licencia MIT</strong>. El núcleo de física, el puente, el cerebro — abiertos. Vuela el juego, toma el ala y construye la tuya. Unreal Engine y los assets de terceros conservan sus propias licencias.",
+  "open_body": "BORN2FLAP llega a Steam y a Epic Games Store, y su propio código se publica bajo la <strong>licencia MIT</strong>. El núcleo de física, el puente, el cerebro — abiertos. Vuela el juego, toma el ala y construye la tuya. Unreal Engine y los assets de terceros conservan sus propias licencias. Proyectos de código abierto relacionados: <a href=\"https://dantiel.github.io/OrniFlight/\">OrniFlight</a> (orientado a controladoras de vuelo STM32) y <a href=\"https://dantiel.github.io/PteronautOS/\">PteronautOS</a> (más versátil en hardware sencillo) — cada uno con su propio configurador y firmware.",
   "open_license": "Licencia MIT",
   "footer_github": "GitHub",
   "footer_docs": "Documentación",

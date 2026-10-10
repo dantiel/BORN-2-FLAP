@@ -1,5 +1,8 @@
 # Shiomori Bay
 
+> **Design intent & narrative:** see [world-design.md](world-design.md) — what
+> this world *is*, why it exists, and what could be developed next.
+
 ## CAMPUS LOCATION AND ORIENTATION
 
 The university occupies a repurposed late-1980s seaside hotel on the WEST side of Shiomori Bay, appearing on the RIGHT when viewing the beach from the sea. The iconic volcanic island and sheltered bathing lagoon are also on this same west/right side.
