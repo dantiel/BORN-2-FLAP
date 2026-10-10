@@ -13,5 +13,8 @@
         %Button{ label: "PREV", action: "menu.prevWorld", tooltip: "Browse the previous world." }
         %Button{ label: "FLY  #{world_title}", action: "menu.#{world_id.downcase}", tone: "good", tooltip: "Start a flight with the selected weather and time." }
         %Button{ label: "NEXT", action: "menu.nextWorld", tooltip: "Browse the next world." }
-#{action_buttons}
+      - if menu_inlevel
+        %Button{ label: "RESUME", action: "menu.resume", tone: "good" }
+        %Button{ label: "FLIGHT DESK", action: "menu.settings" }
+        %Button{ label: "CONTROLS", action: "menu.controls" }
       %Button{ label: "QUIT", action: "menu.quit", tone: "dim" }

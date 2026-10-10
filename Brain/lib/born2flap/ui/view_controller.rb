@@ -71,7 +71,7 @@ module Born2Flap
         locals = locals.merge(lang: lang) # re-assert: a locals hook may rebuild the hash
 
         source = load_template(name)
-        source = Template.interpolate(source, locals) if source.is_a?(String)
+        source = Template.evaluate(source, locals) if source.is_a?(String)
         tree = HamlParser.parse(source).children.first
 
         theme = load_theme(name)
