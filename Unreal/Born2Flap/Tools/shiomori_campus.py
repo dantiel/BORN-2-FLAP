@@ -1,6 +1,7 @@
 """Repeatable adapted hotel campus. Centimetres; west=-X, sea=+Y.
 Generated assets are persistent; geometry is batched by material and zone.
-The founder is a provisional sculptural study, not an accurate likeness.
+The founder is a bronze figure with tricorn, long hair and a kestrel
+familiar cast from the authored bird mesh; no real name is used.
 """
 import math
 import random
@@ -328,8 +329,22 @@ def install(scope):
     for dx in (-12,12):beam('Statue','Bronze',(sx+23+dx,sy+65,461),(sx+23+dx,sy+65,476),4)
     beam('Statue','Bronze',(sx-15,sy+20,504),(sx+5,sy+63,450),5)
     beam('Statue','Bronze',(sx+20,sy+20,504),(sx+40,sy+63,450),5)
-    aircraft('Statue',(sx-94,sy+12,606),170,0,'Bronze')
-    text('founder plaque','OBI-WAN DA VINCI ANAKIN CHRONISTER RODRIGUEZ\nFOUNDER  /  SCULPTURAL STUDY',(sx-84,sy+92,278),12)
+    # Bronze kestrel perched on the founder's raised hand, cast from the
+    # authored bird mesh (SM_KestrelFuselage) so the familiar reads as a bird.
+    kestrel = u.load_asset('/Game/Birds/SM_KestrelFuselage')
+    if kestrel:
+        kb = kestrel.get_bounds()
+        ks = 36.0 / max(kb.box_extent.x * 2.0, 1.0)
+        ka = u.EditorLevelLibrary.spawn_actor_from_class(
+            u.StaticMeshActor, u.Vector(sx - 94, sy + 12, 620), u.Rotator(pitch=0, yaw=90, roll=0))
+        ka.set_actor_label('Campus founder kestrel')
+        ka.set_editor_property('tags', [TAG, 'CampusKestrel'])
+        kc = ka.static_mesh_component
+        kc.set_static_mesh(kestrel)
+        kc.set_material(0, materials['Bronze'])
+        kc.set_collision_profile_name('NoCollision')
+        ka.set_actor_scale3d(u.Vector(ks, ks, ks))
+    text('founder plaque','OBI-WAN DA VINCI ANAKIN CHRONISTER RODRIGUEZ\nFOUNDER  /  ORNITHOPTER PIONEER',(sx-84,sy+92,278),12)
 
     # Inherited resort planting beds break up the forecourt without filling
     # the flight field or turning the campus into a forest.
