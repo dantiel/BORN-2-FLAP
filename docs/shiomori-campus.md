@@ -1,13 +1,13 @@
 # Shiomori Ornithopter University
 
-The campus is an adapted 1988 seaside hotel on the west (negative-X) side of the bay. From the sea, it appears on the right. Its center is **(-59500, -13700) cm**, rotated -18 degrees: farther west and inland of the coastal road, separate from the smaller waterfront buildings. The volcanic island and lagoon remain untouched.
+The campus is an adapted 1988 seaside hotel on the west (negative-X) side of the bay. From the sea, it appears on the right. Its drafting center is **(-59500, -13700) cm**, rotated -18 degrees, translated to world space by `SITE_OFFSET` (currently (-4000, 4000), i.e. hotel at world **(-63500, -9700) cm**): well inland of the coastal road and promenade, on the flat wasteland of the west headland rather than the beach. The coastal garden, torii and shrine remain on the shoreward approach to the volcanic island; the island and lagoon are untouched.
 
 ## Construction
 
 - Twelve 3.3 m floors; a 120 m base slab with upper floors progressively shortened, creating a descending stepped silhouette. The east end is bevelled. Continuous floor bands and railings follow the bevel.
 - Real 2.8 m balcony recesses, thick party walls, dark sliding-door recesses, faded sea-green parapets, beige room blocks, dirty off-white structural concrete and sparse drainage marks. The service elevation is intentionally plain.
 - Heavy hotel entrance canopy, restrained university sign, retained 1988 hotel sign/frame, visible ground-floor testing hall and upper panoramic flight laboratory, sparse balcony research frames, rooftop net enclosure.
-- Separate forecourt with a former fountain basin and provisional bronze founder sculpture holding an ornithopter aloft and a transmitter with strap. **No likeness was supplied; this is a stylized sculptural study, not an accurate portrait of Daniel Antonio Rodriguez.**
+- Separate forecourt with a former fountain basin and provisional bronze founder sculpture holding an ornithopter aloft and a transmitter with strap. **No likeness was supplied; this is a stylized sculptural study of the founder, Obi-Wan Da Vinci Anakin Chronister Rodriguez, not an accurate portrait.**
 - Inland workshop hangar: 26 x 22 m, pitched roof with two glazed daylight strips, steel framing, cladding ribs, parked sliding doors and a clear approximately 16 x 6 m opening. Two aircraft positions, rear workbenches/storage and an approximately 8 m central handling aisle. Apron and handling route connect to a separate grass launch field.
 - Mainland pedestrian garden/path toward the island, existing fir assets, worktables and benches at ordinary human scale, low stone boundaries, bicycle rack and modest torii. The torii's opening faces the existing island center at (-45200,18200) cm. A small pitched-roof shrine sits off that sightline. There is no causeway or bridge across the lagoon.
 
