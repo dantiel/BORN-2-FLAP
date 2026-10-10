@@ -281,12 +281,12 @@ void ABorn2FlapWeather::CheckExperienceTest()
     if(ExperienceCamera && Campus)
     {
         const int32 Index=FMath::Clamp(int32((Elapsed-2)/4),0,6);
-        const FVector CampusViews[]={FVector(-37000,28000,7000),FVector(-60000,13100,1110),
-            FVector(-45000,32000,23000),FVector(-65000,0,620),
-            FVector(-61700,21220,520),FVector(-62900,10500,1190),FVector(-58500,6800,2600)};
-        const FVector Targets[]={FVector(-60000,11000,1400),FVector(-63500,4300,2600),
-            FVector(-56000,7000,1000),FVector(-65500,-3900,450),
-            FVector(-45200,18200,530),FVector(-62618,8955,1170),FVector(-61800,5400,2250)};
+        const FVector CampusViews[]={FVector(-37000,14000,7000),FVector(-60000,-900,1110),
+            FVector(-45000,18000,23000),FVector(-65000,-14000,620),
+            FVector(-61700,7220,520),FVector(-62900,-3500,1190),FVector(-58500,-7200,2600)};
+        const FVector Targets[]={FVector(-60000,-3000,1400),FVector(-63500,-9700,2600),
+            FVector(-56000,-7000,1000),FVector(-65500,-17900,450),
+            FVector(-45200,18200,530),FVector(-62618,-5045,1170),FVector(-61800,-8600,2250)};
         ExperienceCamera->SetActorLocation(CampusViews[Index]);
         ExperienceCamera->SetActorRotation((Targets[Index]-CampusViews[Index]).Rotation());
         CastChecked<ACameraActor>(ExperienceCamera)->GetCameraComponent()->SetFieldOfView(Index==0?70:Index==4?65:75);
@@ -340,16 +340,16 @@ void ABorn2FlapWeather::CheckExperienceTest()
                 UE_LOG(LogTemp,Display,TEXT("CampusProbe %s %s hit=%d actor=%s z=%.1f"),Name,Correct?TEXT("PASS"):TEXT("FAIL"),Found,*GetNameSafe(Hit.GetActor()),Hit.ImpactPoint.Z);
                 return Correct;
             };
-            Pass &= Probe(TEXT("hangar open central handling aisle"),FVector(-65500,-1500,450),FVector(-65500,-4500,450),false);
-            Pass &= Probe(TEXT("hangar roof"),FVector(-65500,-3900,1800),FVector(-65500,-3900,500),true);
-            Pass &= Probe(TEXT("campus forecourt ground"),FVector(-62000,8500,1100),FVector(-62000,8500,500),true);
-            Pass &= Probe(TEXT("launch field ground"),FVector(-57500,-1300,650),FVector(-57500,-1300,-100),true);
-            Pass &= Probe(TEXT("mainland garden path"),FVector(-62400,16000,1200),FVector(-62400,16000,0),true);
-            Pass &= Probe(TEXT("peninsula shrine ledge"),FVector(-62000,24200,550),FVector(-62000,24200,100),true);
-            Pass &= Probe(TEXT("terrace retaining ground"),FVector(-67000,8000,1150),FVector(-67000,8000,500),true);
+            Pass &= Probe(TEXT("hangar open central handling aisle"),FVector(-65500,-15500,450),FVector(-65500,-18500,450),false);
+            Pass &= Probe(TEXT("hangar roof"),FVector(-65500,-17900,1800),FVector(-65500,-17900,500),true);
+            Pass &= Probe(TEXT("campus forecourt ground"),FVector(-62000,-5500,1100),FVector(-62000,-5500,500),true);
+            Pass &= Probe(TEXT("launch field ground"),FVector(-57500,-15300,650),FVector(-57500,-15300,-100),true);
+            Pass &= Probe(TEXT("mainland garden path"),FVector(-62400,2000,1200),FVector(-62400,2000,0),true);
+            Pass &= Probe(TEXT("peninsula shrine ledge"),FVector(-62000,10200,550),FVector(-62000,10200,100),true);
+            Pass &= Probe(TEXT("terrace retaining ground"),FVector(-67000,-6000,1150),FVector(-67000,-6000,500),true);
             FHitResult ClearanceHit;
             FCollisionQueryParams ClearanceQuery(SCENE_QUERY_STAT(CampusAircraftClearance),true);
-            const bool Obstructed=GetWorld()->SweepSingleByChannel(ClearanceHit,FVector(-65500,-1500,450),FVector(-65500,-4200,450),
+            const bool Obstructed=GetWorld()->SweepSingleByChannel(ClearanceHit,FVector(-65500,-15500,450),FVector(-65500,-18200,450),
                 FQuat::Identity,ECC_WorldStatic,FCollisionShape::MakeBox(FVector(300,180,120)),ClearanceQuery);
             Pass &= !Obstructed;
             UE_LOG(LogTemp,Display,TEXT("CampusProbe 6m aircraft handling envelope %s actor=%s"),Obstructed?TEXT("FAIL"):TEXT("PASS"),*GetNameSafe(ClearanceHit.GetActor()));

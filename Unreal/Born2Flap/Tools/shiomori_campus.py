@@ -9,7 +9,7 @@ from collections import defaultdict
 # Architectural drafting coordinates stay stable; translate the whole property
 # onto the west headland only once, after construction. Separate elevations
 # keep the inland hangar low while the hotel occupies a supported terrace.
-SITE_OFFSET = (-4000., 18000.)
+SITE_OFFSET = (-4000., 4000.)
 HOTEL_RISE = 750.
 FIELD_RISE = 180.
 HOTEL_CENTER = (-59500., -13700.)
@@ -243,8 +243,9 @@ def install(scope):
                         face(('Ground','Headland'),pts if side<0 else pts[::-1])
 
     # A single dogleg access lane crosses the open buffer from the existing
-    # road endpoint. The town endpoint is inverse-transformed deliberately.
-    route([(-40000,-22400,160),(-46500,-26000,160),(-55500,-27500,165),(-61500,-25000,170),(-61500,-23100,170)],450)
+    # road endpoint. The town endpoint is inverse-transformed deliberately;
+    # the lane first skirts the westernmost warehouse before turning inland.
+    route([(-40000,-8400,160),(-46000,-8500,160),(-46500,-26000,160),(-55500,-27500,165),(-61500,-25000,170),(-61500,-23100,170)],450)
     # Switchback service ramp reaches the hotel's rear terrace from inland.
     route([(-61500,-20700,175),(-66000,-20500,190),(-69000,-18100,520),(-68300,-16100,910),(-62500,-16700,920)],500)
     # Solid retaining terrace and a ground-hugging apron of headland material;
@@ -328,7 +329,7 @@ def install(scope):
     beam('Statue','Bronze',(sx-15,sy+20,504),(sx+5,sy+63,450),5)
     beam('Statue','Bronze',(sx+20,sy+20,504),(sx+40,sy+63,450),5)
     aircraft('Statue',(sx-94,sy+12,606),170,0,'Bronze')
-    text('founder plaque','DANIEL ANTONIO RODRIGUEZ\nFOUNDER  /  SCULPTURAL STUDY',(sx-84,sy+92,278),12)
+    text('founder plaque','OBI-WAN DA VINCI ANAKIN CHRONISTER RODRIGUEZ\nFOUNDER  /  SCULPTURAL STUDY',(sx-84,sy+92,278),12)
 
     # Inherited resort planting beds break up the forecourt without filling
     # the flight field or turning the campus into a forest.
