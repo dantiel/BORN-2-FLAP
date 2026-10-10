@@ -44,8 +44,8 @@
           %a{href: "#open"}!= nav_open
           %a{href: "#support"}!= nav_support
           %span.nav-sep
-          %a{href: "#{asset_prefix}#{lang_dir}tutorials/"}!= nav_tutorials
-          %a{href: "#{asset_prefix}#{lang_dir}documentation/"}!= nav_documentation
+          %a{href: "tutorials/"}!= nav_tutorials
+          %a{href: "documentation/"}!= nav_documentation
         %button.nav-toggle{type: "button", "aria-label" => "Menu", "aria-expanded" => "false", "aria-controls" => "nav-links"}
           %span
           %span
@@ -243,9 +243,9 @@
         %span.sep ·
         %a{href: "https://store.epicgames.com/", target: "_blank", rel: "noopener"}!= footer_epic
         %span.sep ·
-        %a{href: "#{asset_prefix}#{lang_dir}tutorials/"}!= footer_tutorials
+        %a{href: "tutorials/"}!= footer_tutorials
         %span.sep ·
-        %a{href: "#{asset_prefix}#{lang_dir}documentation/"}!= footer_docs
+        %a{href: "documentation/"}!= footer_docs
       %p.footer-hermetic!= footer_hermetic
       %p.footer-credit
         != footer_credit

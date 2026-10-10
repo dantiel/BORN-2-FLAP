@@ -9,6 +9,7 @@
 #include "Components/PostProcessComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Materials/MaterialInterface.h"
+#include "World/RavenSurface.h"
 
 void ABorn2FlapValley::Part(const FString& Mesh,const FString& Material,FVector P,FVector Scale,FRotator R,bool Collision)
 {
@@ -123,12 +124,12 @@ void ABorn2FlapValley::BuildBridge()
     const double X=18500,Y=RiverCentre(185)*100,Deck=1350;
     // An overbuilt concrete motorway crossing: deep beams, paired piers,
     // drainage pipes, barriers and a gloomy service bunker beside the bank.
-    Part(TEXT("Cube"),TEXT("Concrete"),FVector(X,Y,Deck),FVector(19,145,2.5),FRotator::ZeroRotator,true);
-    Part(TEXT("Cube"),TEXT("Slate"),FVector(X,Y,Deck+137),FVector(17.3,145,.18));
+    Part(TEXT("Cube"),TEXT("CivilConcrete"),FVector(X,Y,Deck),FVector(19,145,2.5),FRotator::ZeroRotator,true);
+    Part(TEXT("Cube"),TEXT("RoadConcrete"),FVector(X,Y,Deck+137),FVector(17.3,145,.18),FRotator::ZeroRotator,true);
     for(int Side:{-1,1})
     {
-        Part(TEXT("Cube"),TEXT("Concrete"),FVector(X+Side*730,Y,Deck-280),FVector(1.4,145,3.6),FRotator::ZeroRotator,true);
-        Part(TEXT("Cube"),TEXT("Concrete"),FVector(X+Side*910,Y,Deck+210),FVector(.55,145,1.7),FRotator::ZeroRotator,true);
+        Part(TEXT("Cube"),TEXT("CivilConcrete"),FVector(X+Side*730,Y,Deck-280),FVector(1.4,145,3.6),FRotator::ZeroRotator,true);
+        Part(TEXT("Cube"),TEXT("CivilConcrete"),FVector(X+Side*910,Y,Deck+210),FVector(.55,145,1.7),FRotator::ZeroRotator,true);
         for(int I=-23;I<=23;++I)
             Part(TEXT("Cube"),TEXT("Rust"),FVector(X+Side*914,Y+I*300,Deck+340),FVector(.10,.10,1.25));
         Part(TEXT("Cube"),TEXT("Rust"),FVector(X+Side*914,Y,Deck+390),FVector(.12,145,.12));
@@ -138,22 +139,43 @@ void ABorn2FlapValley::BuildBridge()
         for(int Side:{-1,1})
         {
             const double Py=Y+End*4300,G=GroundHeight(X+Side*520,Py)-90;
-            Part(TEXT("Cube"),TEXT("Concrete"),FVector(X+Side*520,Py,(G+Deck-120)/2),FVector(2.1,3,(Deck-120-G)/100),FRotator::ZeroRotator,true);
-            Part(TEXT("Cube"),TEXT("Concrete"),FVector(X+Side*520,Py,G),FVector(5,6,1.6),FRotator::ZeroRotator,true);
+            Part(TEXT("Cube"),TEXT("CivilConcrete"),FVector(X+Side*520,Py,(G+Deck-120)/2),FVector(2.1,3,(Deck-120-G)/100),FRotator::ZeroRotator,true);
+            Part(TEXT("Cube"),TEXT("CivilConcrete"),FVector(X+Side*520,Py,G),FVector(5,6,1.6),FRotator::ZeroRotator,true);
         }
     for(int I=-17;I<=17;++I)
         Part(TEXT("Cube"),TEXT("Ivory"),FVector(X,Y+I*400,Deck+148),FVector(.13,1.8,.015));
     // Long embankment ramps connect both ends to the rolling terrain.
-    for(int End:{-1,1}) for(int I=0;I<30;++I)
+    TArray<TArray<FVector>> Road,Banks,Markings;
+    for(int End:{-1,1})
     {
-        const double Py=Y+End*(7500+I*520),Ground=GroundHeight(X,Py),Blend=1-I/30.;
-        const double Top=FMath::Lerp(Ground+10,Deck+138,Blend);
-        Part(TEXT("Cube"),TEXT("Concrete"),FVector(X,Py,(Top+Ground)/2-40),FVector(19,5.3,FMath::Max(.1,(Top-Ground)/100+.8)),FRotator::ZeroRotator,true);
-        Part(TEXT("Cube"),TEXT("Slate"),FVector(X,Py,Top),FVector(17.3,5.3,.14));
+        const double EndY=Y+End*39000,EndZ=GroundHeight(X,EndY)+20;
+        auto Top=[&](double D){const double T=FMath::Clamp((D-7250)/31750,0.,1.);return FMath::Lerp(Deck+146,EndZ,T*T*(3-2*T));};
+        for(double D=7250;D<39000;D+=250)
+        {
+            const double Next=FMath::Min(D+250,39000.),Y0=Y+End*D,Y1=Y+End*Next,Z0=Top(D),Z1=Top(Next);
+            TArray<FVector> Q={FVector(X-950,Y0,Z0),FVector(X+950,Y0,Z0),FVector(X+950,Y1,Z1),FVector(X-950,Y1,Z1)};
+            if(End<0)Algo::Reverse(Q);Road.Add(Q);
+            for(int S:{-1,1})
+            {
+                Banks.Add({FVector(X+S*950,Y0,Z0-18),FVector(X+S*950,Y1,Z1-18),FVector(X+S*2700,Y1,GroundHeight(X+S*2700,Y1)),FVector(X+S*2700,Y0,GroundHeight(X+S*2700,Y0))});
+                Beam(FVector(X+S*890,Y0,Z0+70),FVector(X+S*890,Y1,Z1+70),6,TEXT("CivilConcrete"));
+                if(int(D)%1000==250)Beam(FVector(X+S*890,Y0,Z0),FVector(X+S*890,Y0,Z0+75),5,TEXT("Slate"));
+            }
+            if(int((D-7250)/250)%3==0)
+            {
+                TArray<FVector> Mark={FVector(X-7,Y0,Z0+1),FVector(X+7,Y0,Z0+1),FVector(X+7,Y1,Z1+1),FVector(X-7,Y1,Z1+1)};
+                if(End<0)Algo::Reverse(Mark);Markings.Add(Mark);
+            }
+        }
     }
+    RavenSurface(this,Road,TEXT("RoadConcrete"),true);
+    RavenSurface(this,Markings,TEXT("Ivory"),false);
+    // Embankments meet the actual terrain; the road itself is a continuous smooth grade.
+    for(auto& F:Banks)if(FVector::CrossProduct(F[1]-F[0],F[2]-F[0]).Z<0)Algo::Reverse(F);
+    RavenSurface(this,Banks,TEXT("Meadow"),true);
     const FVector B(X+2050,Y-4700,GroundHeight(X+2050,Y-4700));
-    for(int Side:{-1,1})Part(TEXT("Cube"),TEXT("Concrete"),B+FVector(Side*340,0,240),FVector(1.4,10,4.8),FRotator::ZeroRotator,true);
-    Part(TEXT("Cube"),TEXT("Concrete"),B+FVector(0,0,480),FVector(8.2,10,1.3),FRotator::ZeroRotator,true);
+    for(int Side:{-1,1})Part(TEXT("Cube"),TEXT("CivilConcrete"),B+FVector(Side*340,0,240),FVector(1.4,10,4.8),FRotator::ZeroRotator,true);
+    Part(TEXT("Cube"),TEXT("CivilConcrete"),B+FVector(0,0,480),FVector(8.2,10,1.3),FRotator::ZeroRotator,true);
     Part(TEXT("Cube"),TEXT("Slate"),B+FVector(0,440,240),FVector(5.4,.3,4.8),FRotator::ZeroRotator,true);
     Sign(B+FVector(0,-505,355),FRotator(0,-90,0),TEXT("BAUWERK 07 / 1978"),29);
 }
@@ -307,7 +329,7 @@ void ABorn2FlapValley::BuildRelics()
 
 void ABorn2FlapValley::BuildLandmarks()
 {
-    BuildBarn(FVector(-16000,-15500,0),18,1,false);
+    BuildWorkshop();
     BuildBarn(FVector(-27000,-19000,0),-28,.8,false);
     BuildBarn(FVector(-8500,-21000,0),90,.72,false);
     BuildBarn(FVector(27000,-15500,0),-12,1,true);

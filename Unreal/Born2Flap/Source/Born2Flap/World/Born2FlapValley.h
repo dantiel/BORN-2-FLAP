@@ -35,6 +35,9 @@ class BORN2FLAP_API ABorn2FlapValley : public AActor
     void BuildLandmarks();
     void BuildAtmosphere();
     void BuildBarn(FVector Centre, double Yaw, double Scale, bool House);
+    void BuildWorkshop();
+    void BuildFieldDetails();
+    static double FootpathX(double Y);
     void BuildBridge();
     void BuildCastle();
     void BuildRelics();
