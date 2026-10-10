@@ -3,6 +3,7 @@
 #include "Components/HierarchicalInstancedStaticMeshComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/AudioComponent.h"
+#include "Components/PostProcessComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Materials/MaterialInterface.h"
 #include "Sound/SoundWave.h"
@@ -14,6 +15,7 @@
 #include "Misc/Parse.h"
 #include "UnrealClient.h"
 #include "Game/Born2FlapGameMode.h"
+#include "Flight/Born2FlapFlightPawn.h"
 
 namespace
 {
@@ -21,7 +23,7 @@ double Noise(double X,double Y) { return FMath::PerlinNoise2D(FVector2D(X,Y)); }
 double Hill(double X,double Y,double Cx,double Cy,double Rx,double Ry)
 { return FMath::Exp(-FMath::Square((X-Cx)/Rx)-FMath::Square((Y-Cy)/Ry)); }
 constexpr double InnerExtent=192000., InnerStep=600., OuterStep=9600.;
-constexpr int32 CurrentWorldVersion=3;
+constexpr int32 CurrentWorldVersion=6;
 }
 
 ABorn2FlapValley::ABorn2FlapValley()
@@ -72,6 +74,7 @@ FString ABorn2FlapValley::PlaceName(double X,double Y)
     if(FVector2D(X-67000,Y-9500).Size()<6000) return TEXT("LAST SCRAP");
     if(X>33000 && IsWater(X,Y)) return TEXT("RAVEN LAKE");
     if(FMath::Abs(X-18500)<4500) return TEXT("THE UNDERPASS");
+    if(FVector2D(X+15000,Y+15000).Size()<5200) return TEXT("RAVENSTONE ORNITHOPTER WORKS");
     if(X< -10000 && Y< -7000) return TEXT("THE OLD BARNS");
     if(FMath::Abs(Y)<6000 && X>-14000 && X<30000) return TEXT("LONG MEADOW / FLIGHT FIELD");
     return TEXT("RAVENSTONEFIELD");
@@ -82,7 +85,7 @@ void ABorn2FlapValley::BuildWorld()
     for(auto* C:Previous) if(C->ComponentHasTag(TEXT("RavenGenerated"))) C->DestroyComponent();
     Groups.Empty();
     BuildGround(InnerExtent,InnerStep,false); BuildGround(480000,OuterStep,true);
-    BuildRiver(); BuildLandmarks(); PlantForest(); BuildAtmosphere();
+    BuildRiver(); BuildLandmarks(); BuildFieldDetails(); PlantForest(); BuildAtmosphere();
     for(auto& Pair:Groups) Pair.Value->BuildTreeIfOutdated(false,true);
     WorldVersion=CurrentWorldVersion;
     UE_LOG(LogTemp,Display,TEXT("RAVENSTONEFIELD ready: river, lake, 2 islands, bridge, barns, village, watchtower, meadow, relics"));
@@ -92,7 +95,7 @@ void ABorn2FlapValley::BeginPlay()
     Super::BeginPlay();
     if(WorldVersion!=CurrentWorldVersion) BuildWorld();
     // The radio is owned by the GameMode (unified across levels).
-    if(FParse::Param(FCommandLine::Get(),TEXT("B2FRavenTest"))) ValidateWorld();
+    // Validate after the GameMode has initialized the shared radio station.
 }
 void ABorn2FlapValley::BuildGround(double Extent,double Step,bool Outer)
 {
@@ -170,6 +173,7 @@ void ABorn2FlapValley::PlantForest()
     {
         Trees.Add(Group(FString::Printf(TEXT("/Game/Nature/SM_Fir%d"),I),TEXT(""),false,200000));
         Grass.Add(Group(FString::Printf(TEXT("/Game/Nature/SM_Grass%d"),I),TEXT("/Game/Ravenstonefield/Materials/M_DryGrass"),false,16000));
+        Grass.Last()->bDisallowNanite=true;
     }
     auto* Autumn=Group(TEXT("/Game/Ravenstonefield/Meshes/SM_AutumnTree"),TEXT(""),false,200000);
     auto* Dead=Group(TEXT("/Game/Ravenstonefield/Meshes/SM_Deadwood"),TEXT(""),false,110000);
@@ -183,8 +187,10 @@ void ABorn2FlapValley::PlantForest()
     };
     auto Protected=[](double X,double Y)
     {
-        if(X>-15000 && X<36500 && Y>-8500 && Y<RiverCentre(X/100)*100-1900) return true;
-        if(FMath::Abs(X-18500)<1800 && Y>-28000 && Y<34000) return true;
+        if(FVector2D(X+14300,Y+14400).Size()<4800) return true;
+        if(X>-20000 && X<38500 && Y>-14000 && Y<RiverCentre(X/100)*100+1000) return true;
+        if(Y>-30000&&Y<16000&&FMath::Abs(X-FootpathX(Y))<1200)return true;
+        if(FMath::Abs(X-18500)<3300 && Y>-33000 && Y<51000) return true;
         for(const FVector2D& Site:{FVector2D(-16000,-15500),FVector2D(-27000,-19000),FVector2D(-8500,-21000),
                                   FVector2D(27000,-15500),FVector2D(32000,-13500),FVector2D(29000,20500)})
             if(FVector2D(X-Site.X,Y-Site.Y).Size()<3200) return true;
@@ -222,8 +228,44 @@ void ABorn2FlapValley::PlantForest()
         const double X=I<18000?R.FRandRange(-9000,37000):R.FRandRange(-55000,115000);
         const double Y=I<18000?R.FRandRange(-8500,18000):R.FRandRange(-50000,85000);
         if(IsWater(X,Y)||FVector2D(X,Y).Size()<350 || (FMath::Abs(X-18500)<1200 && Y>-28000 && Y<34000)) continue;
+        if(X>-18000&&X<36500&&Y>-12000&&Y<16000) continue; // Dedicated meadow below.
+        if(Y>-30000&&Y<16000&&FMath::Abs(X-FootpathX(Y))<150)continue;
+        if(FVector2D(X+14300,Y+14400).Size()<4800) continue;
         Place(Grass[I%3],FVector(X,Y,GroundHeight(X,Y)-2),FRotator(0,R.FRandRange(0,360),0),R.FRandRange(16,45));
     }
+    TArray<UHierarchicalInstancedStaticMeshComponent*> Sward;
+    for(int I=0;I<3;++I)
+    {
+        Sward.Add(Group(FString::Printf(TEXT("/Game/Nature/SM_Grass%d"),I),TEXT("/Game/Ravenstonefield/Materials/M_ManagedGrass"),false,14000));
+        // Conventional instancing suits these tiny masked clumps and avoids
+        // the Nanite masked-foliage GPU fault seen during the rendered audit.
+        Sward.Last()->bDisallowNanite=true;
+    }
+    int32 MeadowCount=0;
+    // Jittered cells prevent both empty random gaps and visible plantation rows.
+    // Productive grass dominates; seed-bearing margins remain taller than the mown runway.
+    for(double X=-18000;X<36500;X+=80)for(double Y=-12000;Y<16000;Y+=80)
+    {
+        const double PX=X+R.FRandRange(0,80),PY=Y+R.FRandRange(0,80);
+        if(IsWater(PX,PY)||FMath::Abs(PX-18500)<3000||FVector2D(PX+700,PY+520).Size()<250||FVector2D(PX+550,PY+950).Size()<130||FMath::Abs(PX-FootpathX(PY))<150) continue;
+        if(FVector2D(PX+14300,PY+14400).Size()<4300)continue;
+        if(PY>RiverCentre(PX/100)*100-RiverWidth(PX/100)*100-220) continue;
+        const bool Mown=PX>-1500&&PX<14000&&FMath::Abs(PY)<550;
+        const double Patch=.5+.5*Noise(PX*.0012,PY*.0012);
+        const double HeightCm=Mown?R.FRandRange(6,10):R.FRandRange(36,65)+Patch*25;
+        auto* Clump=Sward[MeadowCount%3];
+        if(Clump->GetStaticMesh())
+        {
+            const FBoxSphereBounds B=Clump->GetStaticMesh()->GetBounds();
+            const double S=HeightCm/FMath::Max(B.BoxExtent.Z*2,1.);
+            const FVector Scale(S*1.9,S*1.9,S);
+            const FRotator Rz(0,R.FRandRange(0,360),0);
+            const FVector Offset=FVector(-B.Origin.X,-B.Origin.Y,-B.Origin.Z+B.BoxExtent.Z)*Scale;
+            Clump->AddInstance(FTransform(Rz,FVector(PX,PY,GroundHeight(PX,PY)-1)+Rz.RotateVector(Offset),Scale));
+        }
+        ++MeadowCount;
+    }
+    UE_LOG(LogTemp,Display,TEXT("RavenManagedMeadow clumps=%d; 6-10cm mown launch strip, 24-60cm productive sward, no collision"),MeadowCount);
     UE_LOG(LogTemp,Display,TEXT("RavenVegetation trees=%d; autumn broadleaf, fir, dry grass, deadwood"),Count);
 }
 bool ABorn2FlapValley::HasRadioTrack() const
@@ -241,7 +283,19 @@ void ABorn2FlapValley::SetPhotoView(int32 Index)
     const FVector Positions[]={FVector(-8500,-17000,5900),FVector(32000,-11000,12000),FVector(26100,16800,GroundHeight(29000,20500)+1800),FVector(13400,4800,200),FVector(-18500,-19300,650)};
     const FVector Targets[]={FVector(65000,23000,600),FVector(97000,26000,-100),FVector(29300,20500,GroundHeight(29000,20500)+700),FVector(20500,9800,100),FVector(-15200,-15000,450)};
     const int32 I=Index%5;if(!PhotoCamera)PhotoCamera=GetWorld()->SpawnActor<ACameraActor>();
-    PhotoCamera->SetActorLocationAndRotation(Positions[I],(Targets[I]-Positions[I]).Rotation());
+    FVector Position=Positions[I],Target=Targets[I];
+    if(FParse::Param(FCommandLine::Get(),TEXT("B2FRavenWorkshopCapture")))
+    {
+        if(auto* Bird=Cast<ABorn2FlapFlightPawn>(PC->GetPawn());Bird&&!Bird->IsUIHidden())Bird->ToggleUIHidden();
+        const FRotator R(0,18,0);const FVector C(-16000,-15500,GroundHeight(-16000,-15500)+150);
+        const FVector Views[]={FVector(6200,6700,3200),FVector(1350,550,300),FVector(3050,3800,350),FVector(-1050,-650,580),FVector(5000,5500,8500)};
+        const FVector Aims[]={FVector(700,400,550),FVector(0,-200,560),FVector(3050,1100,210),FVector(650,-300,480),FVector(1100,500,100)};
+        Position=C+R.RotateVector(Views[I]);Target=C+R.RotateVector(Aims[I]);
+        if(Index==5){Position=FVector(-2200,-1600,GroundHeight(-2200,-1600)+145);Target=FVector(7000,0,GroundHeight(7000,0)+80);}
+        TInlineComponentArray<UPostProcessComponent*> Volumes(this);
+        for(auto* V:Volumes)if(V->Priority>100)UE_LOG(LogTemp,Display,TEXT("WorkshopExposure view=%d inside=%d"),Index,V->EncompassesPoint(Position,0,nullptr));
+    }
+    PhotoCamera->SetActorLocationAndRotation(Position,(Target-Position).Rotation());
     auto* C=PhotoCamera->GetCameraComponent();C->SetFieldOfView(I==0?70:65);C->bConstrainAspectRatio=false;
     PC->SetViewTargetWithBlend(PhotoCamera,.7);
 }
@@ -249,13 +303,15 @@ void ABorn2FlapValley::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
     CaptureTime+=DeltaSeconds;
-    if(FParse::Param(FCommandLine::Get(),TEXT("B2FRavenCapture")))
+    if(FParse::Param(FCommandLine::Get(),TEXT("B2FRavenTest"))&&CaptureStage==0&&CaptureTime>1)
+    {ValidateWorld();CaptureStage=1;}
+    if(FParse::Param(FCommandLine::Get(),TEXT("B2FRavenCapture"))||FParse::Param(FCommandLine::Get(),TEXT("B2FRavenWorkshopCapture")))
     {
         if(CaptureStage==0){SetPhotoView(0);CaptureStage=1;CaptureTime=0;}
         if(CaptureTime>14&&CaptureStage%2==1)
         {FScreenshotRequest::RequestScreenshot(FString::Printf(TEXT("RAVENSTONEFIELD_%d.png"),PhotoIndex),false,false);++CaptureStage;CaptureTime=0;}
         else if(CaptureTime>3&&CaptureStage%2==0)
-        {if(PhotoIndex>=4){FPlatformMisc::RequestExit(false);return;}SetPhotoView(PhotoIndex+1);++CaptureStage;CaptureTime=0;}
+        {const int Last=FParse::Param(FCommandLine::Get(),TEXT("B2FRavenWorkshopCapture"))?5:4;if(PhotoIndex>=Last){FPlatformMisc::RequestExit(false);return;}SetPhotoView(PhotoIndex+1);++CaptureStage;CaptureTime=0;}
     }
     if(FParse::Param(FCommandLine::Get(),TEXT("B2FRavenTest"))&&CaptureTime>3)FPlatformMisc::RequestExit(false);
 }
@@ -271,5 +327,18 @@ void ABorn2FlapValley::ValidateWorld()
         const bool Found=GetWorld()->LineTraceSingleByChannel(Hit,FVector(P.X,P.Y,20000),FVector(P.X,P.Y,-2000),ECC_Visibility,Query);
         Pass&=Found&&FMath::Abs(Hit.ImpactPoint.Z-GroundHeight(P.X,P.Y))<5;
     }
+    const FRotator WorkshopRotation(0,18,0);
+    FVector Workshop(-16000,-15500,0);
+    double WorkshopFloor=GroundHeight(Workshop.X,Workshop.Y);
+    for(double X:{-1750.,1750.})for(double Y:{-1000.,1000.})
+    {const FVector Q=Workshop+WorkshopRotation.RotateVector(FVector(X,Y,0));WorkshopFloor=FMath::Max(WorkshopFloor,GroundHeight(Q.X,Q.Y));}
+    Workshop.Z=WorkshopFloor+65;
+    auto WP=[&](FVector V){return Workshop+WorkshopRotation.RotateVector(V);};
+    FHitResult Gallery,Door;
+    const bool GalleryHit=GetWorld()->LineTraceSingleByChannel(Gallery,WP(FVector(0,-500,550)),WP(FVector(0,-500,350)),ECC_Visibility,Query);
+    const bool GalleryOK=GalleryHit&&FMath::Abs(Gallery.ImpactPoint.Z-(Workshop.Z+416))<3;
+    const bool DoorBlocked=GetWorld()->SweepSingleByChannel(Door,WP(FVector(2100,0,300)),WP(FVector(1000,0,300)),WorkshopRotation.Quaternion(),ECC_Visibility,FCollisionShape::MakeBox(FVector(150,300,120)),Query);
+    Pass&=GalleryOK&&!DoorBlocked;
+    UE_LOG(LogTemp,Display,TEXT("RavenWorkshopTest %s: gallery floor=%s; 6m aircraft door envelope=%s"),(GalleryOK&&!DoorBlocked)?TEXT("PASS"):TEXT("FAIL"),GalleryOK?TEXT("PASS"):TEXT("FAIL"),DoorBlocked?TEXT("BLOCKED"):TEXT("CLEAR"));
     UE_LOG(LogTemp,Display,TEXT("RavenWorldTest %s: dry launch, lake water, 2 dry islands, collision samples, TURBORAVEN"),Pass?TEXT("PASS"):TEXT("FAIL"));
 }

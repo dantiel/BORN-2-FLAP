@@ -68,7 +68,7 @@ double SampleStationField(const B2F_WingSection* Shape, int32 Count, double Stat
 // geometric washout — so the wing rests nearly flat and flexes with load. Raise
 // for a floppier look, lower toward 1 to match the raw physics.
 constexpr double AeroBendVisualGain  = 37.0;
-constexpr double AeroTwistVisualGain = 4.4;
+constexpr double AeroTwistVisualGain = 2.0;
 }
 
 void UBorn2FlapWingMesh::InitializeWing(int32 Side, int32 Design)
@@ -177,7 +177,7 @@ void UBorn2FlapWingMesh::ApplyShape(const B2F_WingSection* Shape)
         // Displace along the wing's own flap normal (+Z), which rotates with the
         // shoulder, so the membrane flexes passively with the stroke instead of
         // holding a fixed world-vertical "wrist" against the airflow.
-        Vertices[I]=FVector(Pivot+X*C-Z*S,R.Y,X*S+Z*C+Bend);
+        Vertices[I]=FVector(Pivot+X*C-Z*S,R.Y,X*S+Z*C-Bend);
     }
     for(int32 I=0;I<Triangles.Num();I+=3)
     {
