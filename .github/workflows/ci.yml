@@ -52,3 +52,13 @@ jobs:
         run: python3 Native/tests/aerodynamic_flight.py MathCore/dist-newstyle
       - name: Test aerodynamic RC channel authority and glide controls
         run: python3 Native/tests/rc_controls.py MathCore/dist-newstyle
+
+release-readiness:
+  runs-on: ubuntu-latest
+  steps:
+    - uses: actions/checkout@v4
+    - uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: "3.3"
+    - name: Check release readiness (license + evidence + drift)
+      run: ruby Tools/generate-readiness.rb --check
