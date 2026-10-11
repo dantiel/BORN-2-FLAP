@@ -85,6 +85,7 @@ struct FServoPreset { const TCHAR* Name; float SpeedDegS; float StallTorqueNm; f
 static const FServoPreset ServoPresets[] = {
     { TEXT("Blue Arrow AF D43S-6.0-MG"), 1500.f, 0.17f, 20.f, 6.0f },
     { TEXT("VOTIK PTK 7465 / 7465W MG"),   667.f, 0.56f, 20.f, 8.4f },
+    { TEXT("VOTIK PTK 7465 Plus"),         750.f, 0.74f, 20.f, 7.4f },
     { TEXT("Blue Arrow D0576HT-MG-HV"),   1000.f, 0.41f, 20.f, 7.4f },
     { TEXT("Inservos D0474HT-MG-HV"),      750.f, 0.35f, 20.f, 7.4f },
     { TEXT("KST MR320"),                   750.f, 0.54f, 20.f, 7.4f },
