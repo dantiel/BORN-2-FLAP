@@ -369,9 +369,12 @@ def coastal_terrain_material(name, sand, grass, rock, scale_cm=240.0, normal_str
 
     bc = custom(m, 'return SD.rgb*W.x+GD.rgb*W.y+RD.rgb*W.z;',
                 {'SD': s_c, 'GD': g_c, 'RD': r_c, 'W': wgts}, 3)
-    output(bc, 'BASE_COLOR')
     nb = custom(m, 'return normalize(SD*W.x+GD*W.y+RD*W.z);',
                 {'SD': s_n, 'GD': g_n, 'RD': r_n, 'W': wgts}, 3)
+    if name == 'Headland':
+        from campus_ground_materials import localize
+        bc, nb = localize(m, pos, bc, nb, node, custom)
+    output(bc, 'BASE_COLOR')
     output(nb, 'NORMAL')
     rb = custom(m, 'return SR*W.x+GR*W.y+RR*W.z;',
                 {'SR': s_r, 'GR': g_r, 'RR': r_r, 'W': wgts}, 1)

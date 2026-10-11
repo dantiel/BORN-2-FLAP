@@ -92,7 +92,7 @@ defaultBirdWing = WingShape
   , wsStations =
       [ ShapeStation 0.00 0.000 0.220  9.00 16.0 defaultBirdArmSection defaultBirdArmStructure  -- shoulder
       , ShapeStation 0.45 0.087 0.185  5.00 16.0 defaultBirdArmSection defaultBirdArmStructure  -- elbow
-      , ShapeStation 1.00 0.262 0.090  0.00 16.0 defaultBirdHandSection defaultBirdHandStructure  -- tip
+      , ShapeStation 1.00 0.262 0.090  3.00 16.0 defaultBirdHandSection defaultBirdHandStructure  -- tip
       ]
   }
 

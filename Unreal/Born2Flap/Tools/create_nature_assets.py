@@ -230,4 +230,5 @@ def main():
     u.log('B2F_NATURE_ASSETS_READY')
 
 
-main()
+if __name__ == '__main__':
+    main()

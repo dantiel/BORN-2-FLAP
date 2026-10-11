@@ -1,6 +1,6 @@
 # Shiomori Ornithopter University
 
-The campus is an adapted 1988 seaside hotel on the west (negative-X) side of the bay. From the sea, it appears on the right. Its drafting center is **(-59500, -13700) cm**, rotated -18 degrees, translated to world space by `SITE_OFFSET` (currently (-6000, 21000), i.e. hotel at world **(-65500, 7300) cm**): on the raised west-headland peninsula (the "big wasteland" west of the bay), clearly apart from the beach, promenade and coastal road. The coastal garden, torii and shrine face the volcanic island from the west across the sheltered water; the island and lagoon are untouched.
+The campus is an adapted 1988 seaside hotel on the west (negative-X) side of the bay. From the sea, it appears on the right. Its drafting center is **(-59500, -13700) cm**, rotated -18 degrees, translated by `SITE_OFFSET=(-12000,24000)` to world **(-71500,10300) cm**. This places it 60 m farther west and 30 m farther toward the peninsula than the previous park layout, apart from the beach and town. The inland hangar remains on low ground at **(-73500,-3900) cm**, connected by a graded service route. The coastal garden, torii and shrine face the volcanic island from the west across the sheltered water; the island and lagoon are untouched.
 
 ## Construction
 
@@ -19,7 +19,9 @@ The previous hotel's curtain-wall block, saucer tower, rooftop pool, solid hanga
 
 The module saves `SM_Campus_*` meshes and `M_Campus*` materials under the existing Shiomori asset folders. Repeated architecture is baked into material/zone mesh batches to avoid thousands of per-detail actors. Meshes have complex collision where appropriate; netting and suspended display models do not obstruct flight. All generated actors carry `ShiomoriCampusV2`. Rerunning the targeted script replaces those actors without duplication and asserts that all volcanic actors survive unchanged.
 
-Reused assets: existing Nature fir meshes, level lighting, water, volcanic island and established material-generation/mesh-building helpers. New assets: campus architecture, materials, furnishings, torii/shrine and sculptural/display geometry. No assets purchased or downloaded.
+Reused assets: existing textured Nature trees, firs, ferns, grass and rocks, level lighting, water, volcanic island and mesh-building helpers. New assets include campus architecture and furnishings, plus the CC0 [Periwinkle Plant from Poly Haven](https://polyhaven.com/a/periwinkle_plant), imported as 2K textured meshes with opacity masks, normal maps and four LODs. Powered by Poly Haven. `fetch_campus_plants.py` downloads the source and verifies supplied hashes; `campus_plant_assets.py` imports it. Run the fetch script before rebuilding on a fresh checkout without `Saved/NatureSource`.
+
+`shiomori_park.py` replaces the former colored cube flowers, spherical ornamental trees and floating ground boxes with irregular ground-following beds, low flowering plants, ferns, partly buried rocks and asymmetric tree groups. Tall planting is excluded within 13 m of the torii and from its island-view corridor. Footpaths and shrine access have separate planting clearances. Existing fir assets serve as coastal evergreens; this is not a claim of botanical Japanese pine accuracy.
 
 The available static bird asset was a 100 cm-long kestrel fuselage; a complete large experimental aircraft was unavailable. The hangar therefore uses **labelled 6 m-span experimental study models** with structural spars and membrane silhouettes. These are dimension proxies/display models, not new flyable aircraft. The existing flight planform also documents a 1.44 m-span default bird, substantially smaller than the hangar clearance.
 
@@ -43,7 +45,7 @@ The campus camera/collision test is integrated with the existing weather experie
 ./Unreal/Born2Flap/Tools/test-weather.ps1 -Campus -Weather sunny -DayTime noon
 ```
 
-It captures seven views (bay, front, aerial, rear hangar, torii/island, forecourt and balcony close-up) as `Saved/Screenshots/WindowsEditor/CAMPUS_Shiomori_sunny_0.png` through `_6.png`. It traces the central hangar opening, roof, forecourt, launch field and garden path, alongside existing surf/audio checks. Run the shoreline regression separately with `test-shiomori.ps1 -NoRender`.
+It captures seven views (bay, hotel front, aerial, hangar, torii/island, garden and shrine) as `Saved/Screenshots/WindowsEditor/CAMPUS_Shiomori_sunny_0.png` through `_6.png`. Generated target-point anchors keep cameras and collision probes attached to the current campus layout. The test traces the central hangar opening, roof, forecourt, launch field, garden path, shrine and terrace, alongside existing surf/audio checks. Run the shoreline regression separately with `test-shiomori.ps1 -NoRender`.
 
 Inspect screenshots as well as logs: collision traces cannot establish architectural quality, correct framing or attractive proportions. Interiors are limited to important visible rooms. Most former guest rooms are closed room blocks, not fully furnished or walkable rooms.
 

@@ -6,20 +6,34 @@ lib = u.MaterialEditingLibrary
 def surface_material(name, rgb, roughness=.9, foliage=False):
     asset_path='/Game/Ravenstonefield/Materials/M_'+name
     mat=u.load_asset(asset_path)
-    if mat: return mat
-    mat=u.AssetToolsHelpers.get_asset_tools().create_asset('M_'+name, '/Game/Ravenstonefield/Materials', u.Material, u.MaterialFactoryNew())
+    if mat: lib.delete_all_material_expressions(mat)
+    else: mat=u.AssetToolsHelpers.get_asset_tools().create_asset('M_'+name, '/Game/Ravenstonefield/Materials', u.Material, u.MaterialFactoryNew())
     mat.set_editor_property('two_sided', foliage)
     mat.set_editor_property('used_with_instanced_static_meshes', True)
     mat.set_editor_property('used_with_nanite', True)
     color=lib.create_material_expression(mat,u.MaterialExpressionCustom)
     expression='float n=.93+.045*sin(P.x*.037+sin(P.y*.029))+.025*sin(P.y*.16); return float3(%s)*n;'%','.join(str(x) for x in rgb)
     if name=='FieldTurf':
-        expression='float n=.76+.14*sin(P.x*.0017+sin(P.y*.0021))+.07*sin(P.x*.08)*sin(P.y*.075); float cut=step(-1500,P.x)*step(P.x,14000)*step(abs(P.y),550); return lerp(float3(.12,.22,.035),float3(.19,.27,.055),cut)*n;'
+        expression='float n=.84+.10*sin(P.x*.0017+sin(P.y*.0021)); float cut=step(-1500,P.x)*step(P.x,14000)*step(abs(P.y),550); return G*lerp(float3(.43,.58,.22),float3(.58,.67,.30),cut)*n;'
+    if name=='Footpath': expression='return G*float3(.62,.53,.39);'
     color.set_editor_property('code',expression)
     inp=u.CustomInput();inp.set_editor_property('input_name','P');color.set_editor_property('inputs',[inp])
+    if name in ['FieldTurf','Footpath']:
+        grain=u.CustomInput();grain.set_editor_property('input_name','G');color.set_editor_property('inputs',[inp,grain])
+        tex=lib.create_material_expression(mat,u.MaterialExpressionTextureSample)
+        tex.set_editor_property('texture',u.load_asset('/Game/Nature/Textures/'+('T_aerial_grass_rock_Diffuse' if name=='FieldTurf' else 'T_forest_ground_04_Diffuse')))
+        lib.connect_material_expressions(tex,'RGB',color,'G')
     color.set_editor_property('output_type',u.CustomMaterialOutputType.CMOT_FLOAT3)
     pos=lib.create_material_expression(mat,u.MaterialExpressionWorldPosition)
     lib.connect_material_expressions(pos,'',color,'P');lib.connect_material_property(color,'',u.MaterialProperty.MP_BASE_COLOR)
+    if name=='FieldTurf':
+        mat.set_editor_property('blend_mode',u.BlendMode.BLEND_MASKED)
+        mat.set_editor_property('opacity_mask_clip_value',0.0)
+        edge=lib.create_material_expression(mat,u.MaterialExpressionCustom)
+        edge.set_editor_property('output_type',u.CustomMaterialOutputType.CMOT_FLOAT1)
+        edge.set_editor_property('inputs',[inp])
+        edge.set_editor_property('code','float e=min(min(P.x+18000,36500-P.x),P.y+12000); e=min(e,abs(P.x-18500)-2800); e=min(e,length(P.xy-float2(-14300,-14400))-4300); float r=5500+6000*sin(P.x*.000025)+1500*sin(P.x*.00006); e=min(e,r-P.y-1300); float a=saturate(e/650); return a-frac(sin(dot(floor(P.xy/4),float2(12.9898,78.233)))*43758.5453);')
+        lib.connect_material_expressions(pos,'',edge,'P');lib.connect_material_property(edge,'',u.MaterialProperty.MP_OPACITY_MASK)
     rough=lib.create_material_expression(mat,u.MaterialExpressionConstant);rough.set_editor_property('r',roughness)
     lib.connect_material_property(rough,'',u.MaterialProperty.MP_ROUGHNESS)
     lib.recompile_material(mat);u.EditorAssetLibrary.save_loaded_asset(mat)

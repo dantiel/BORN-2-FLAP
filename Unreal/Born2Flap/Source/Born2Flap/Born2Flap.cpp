@@ -90,13 +90,20 @@ public:
             Brush, ESlateDrawEffect::None, TrackColor);
 
         // Sweeping segment (25% wide), offset driven by the fractional wall clock.
+        // It travels from just left of the track to just right of it, so clip it
+        // to the track's paint geometry — otherwise the segment spills out beside
+        // the centred bar at the start/end of each sweep (asymmetric look).
         const float T = FMath::Fractional((float)FPlatformTime::Seconds());
         const float SegW = Size.X * 0.25f;
         const float X = (T * (Size.X + SegW)) - SegW;
+        const FGeometry BarGeometry = AllottedGeometry.MakeChild(
+            FVector2D(Size.X, H), FSlateLayoutTransform(FVector2f(0.f, Y)));
+        OutDrawElements.PushClip(FSlateClippingZone(BarGeometry));
         FSlateDrawElement::MakeBox(
             OutDrawElements, LayerId + 1,
             AllottedGeometry.ToPaintGeometry(FVector2f(SegW, H), FSlateLayoutTransform(FVector2f(X, Y))),
             Brush, ESlateDrawEffect::None, FillColor);
+        OutDrawElements.PopClip();
 
         return LayerId + 2;
     }

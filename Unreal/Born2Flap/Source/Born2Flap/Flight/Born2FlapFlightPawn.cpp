@@ -988,7 +988,8 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         MuteMouseYaw = PC->IsInputKeyDown(EKeys::LeftMouseButton);
         MuteMouseRoll = PC->IsInputKeyDown(EKeys::RightMouseButton);
         ResetMouse = PC->WasInputKeyJustPressed(EKeys::LeftMouseButton) ||
-                     PC->WasInputKeyJustPressed(EKeys::RightMouseButton);
+                      PC->WasInputKeyJustPressed(EKeys::RightMouseButton) ||
+                      PC->WasInputKeyJustPressed(EKeys::SpaceBar);
         if (RcController && RcController->IsPanelOpen())
         {
             MouseX = MouseY = Wheel = 0;

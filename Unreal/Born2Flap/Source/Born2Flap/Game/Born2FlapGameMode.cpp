@@ -540,17 +540,19 @@ void ABorn2FlapGameMode::PopulatePOIs()
     POIs.Reset();
     if (bCoastLevel)
     {
-        // Shiomori: the launch beach + the six named scenic cameras in the
-        // saved map. Each camera sits at a good vantage, so re-using its XY
-        // gives natural, hand-launchable reset points along the shore.
+        // Shiomori: the launch beach + the four remaining named scenic cameras
+        // in the saved map. Each camera sits at a good vantage, so re-using its
+        // XY gives natural, hand-launchable reset points along the shore. The
+        // old "Tidewalk"/"Shoreline" lookouts sat within ~80 m of the launch
+        // beach and were redundant with poi.shiomori_beach.
         AddPoi(TEXT("poi.shiomori_beach"), 0.0, 0.0);
         static const TCHAR* Views[] = {
-            TEXT("Bay overlook"), TEXT("Tidewalk"), TEXT("Basalt cove"),
-            TEXT("Shoreline"), TEXT("East vegetation"), TEXT("West vegetation") };
+            TEXT("Bay overlook"), TEXT("Basalt cove"),
+            TEXT("East vegetation"), TEXT("West vegetation") };
         static const TCHAR* Keys[] = {
-            TEXT("poi.bay_overlook"), TEXT("poi.tidewalk"), TEXT("poi.basalt_cove"),
-            TEXT("poi.shoreline"), TEXT("poi.east_vegetation"), TEXT("poi.west_vegetation") };
-        for (int32 I = 0; I < 6; ++I)
+            TEXT("poi.bay_overlook"), TEXT("poi.basalt_cove"),
+            TEXT("poi.east_vegetation"), TEXT("poi.west_vegetation") };
+        for (int32 I = 0; I < 4; ++I)
         {
             for (TActorIterator<ACameraActor> It(GetWorld()); It; ++It)
             {
@@ -565,7 +567,11 @@ void ABorn2FlapGameMode::PopulatePOIs()
         // in shiomori_campus.py) — named reset points for the newest landmarks:
         // the hotel forecourt, the torii + shrine park, the far-west pine grove,
         // and the service side (launch field + hangar).
-        AddPoi(TEXT("poi.campus_hotel"), -70600.0, 15000.0);  // founder fountain forecourt
+        // The founder fountain forecourt sits on the hand-placed hotel terrace
+        // (top at Z=900 in world space); the procedural GroundHeight() sampler
+        // only knows the underlying headland (~606), so an explicit Z keeps the
+        // reset point above the terrace instead of inside it (underground).
+        AddPoi(TEXT("poi.campus_hotel"), FVector(-70600.0, 15000.0, 980.0));  // founder fountain forecourt
         AddPoi(TEXT("poi.torii"),        -68500.0, 27000.0);  // gate framing the islet
         AddPoi(TEXT("poi.shrine_park"),  -70000.0, 30200.0);  // hokora + cherry/bonsai
         AddPoi(TEXT("poi.pine_grove"),   -86500.0, 17500.0);  // far-west pine forest

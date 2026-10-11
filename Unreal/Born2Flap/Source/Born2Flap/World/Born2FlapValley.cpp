@@ -288,10 +288,13 @@ void ABorn2FlapValley::SetPhotoView(int32 Index)
     {
         if(auto* Bird=Cast<ABorn2FlapFlightPawn>(PC->GetPawn());Bird&&!Bird->IsUIHidden())Bird->ToggleUIHidden();
         const FRotator R(0,18,0);const FVector C(-16000,-15500,GroundHeight(-16000,-15500)+150);
-        const FVector Views[]={FVector(6200,6700,3200),FVector(1350,550,300),FVector(3050,3800,350),FVector(-1050,-650,580),FVector(5000,5500,8500)};
+        const FVector Views[]={FVector(6200,6700,3200),FVector(1350,550,300),FVector(3600,1900,230),FVector(-1050,-650,580),FVector(5000,5500,8500)};
         const FVector Aims[]={FVector(700,400,550),FVector(0,-200,560),FVector(3050,1100,210),FVector(650,-300,480),FVector(1100,500,100)};
         Position=C+R.RotateVector(Views[I]);Target=C+R.RotateVector(Aims[I]);
         if(Index==5){Position=FVector(-2200,-1600,GroundHeight(-2200,-1600)+145);Target=FVector(7000,0,GroundHeight(7000,0)+80);}
+        if(Index==6){Position=FVector(FootpathX(-7000)-200,-7000,GroundHeight(FootpathX(-7000),-7000)+165);Target=FVector(FootpathX(1000),1000,GroundHeight(FootpathX(1000),1000)+80);}
+        if(Index==7){Position=FVector(-18000,-13000,18000);Target=FVector(3000,2000,100);}
+        if(Index==8){Position=FVector(23500,-7000,5000);Target=FVector(18500,12000,1200);}
         TInlineComponentArray<UPostProcessComponent*> Volumes(this);
         for(auto* V:Volumes)if(V->Priority>100)UE_LOG(LogTemp,Display,TEXT("WorkshopExposure view=%d inside=%d"),Index,V->EncompassesPoint(Position,0,nullptr));
     }
@@ -311,7 +314,7 @@ void ABorn2FlapValley::Tick(float DeltaSeconds)
         if(CaptureTime>14&&CaptureStage%2==1)
         {FScreenshotRequest::RequestScreenshot(FString::Printf(TEXT("RAVENSTONEFIELD_%d.png"),PhotoIndex),false,false);++CaptureStage;CaptureTime=0;}
         else if(CaptureTime>3&&CaptureStage%2==0)
-        {const int Last=FParse::Param(FCommandLine::Get(),TEXT("B2FRavenWorkshopCapture"))?5:4;if(PhotoIndex>=Last){FPlatformMisc::RequestExit(false);return;}SetPhotoView(PhotoIndex+1);++CaptureStage;CaptureTime=0;}
+        {const int Last=FParse::Param(FCommandLine::Get(),TEXT("B2FRavenWorkshopCapture"))?8:4;if(PhotoIndex>=Last){FPlatformMisc::RequestExit(false);return;}SetPhotoView(PhotoIndex+1);++CaptureStage;CaptureTime=0;}
     }
     if(FParse::Param(FCommandLine::Get(),TEXT("B2FRavenTest"))&&CaptureTime>3)FPlatformMisc::RequestExit(false);
 }
@@ -339,6 +342,20 @@ void ABorn2FlapValley::ValidateWorld()
     const bool GalleryOK=GalleryHit&&FMath::Abs(Gallery.ImpactPoint.Z-(Workshop.Z+416))<3;
     const bool DoorBlocked=GetWorld()->SweepSingleByChannel(Door,WP(FVector(2100,0,300)),WP(FVector(1000,0,300)),WorkshopRotation.Quaternion(),ECC_Visibility,FCollisionShape::MakeBox(FVector(150,300,120)),Query);
     Pass&=GalleryOK&&!DoorBlocked;
+    bool RoadOK=true;double MinRoadClearance=1.e9;
+    const double BridgeY=RiverCentre(185)*100;
+    for(int End:{-1,1})for(double D=7375;D<39000;D+=250)
+    {
+        const double EndZ=GroundHeight(18500,BridgeY+End*39000)+20,T=(D-7250)/31750;
+        const double Z=FMath::Lerp(1496.,EndZ,T*T*(3-2*T)),Y=BridgeY+End*D;
+        MinRoadClearance=FMath::Min(MinRoadClearance,Z-GroundHeight(18500,Y));
+        FHitResult Surface;const bool Found=GetWorld()->LineTraceSingleByChannel(Surface,FVector(18500,Y,Z+100),FVector(18500,Y,Z-100),ECC_Visibility,Query);
+        const bool SampleOK=Found&&FMath::Abs(Surface.ImpactPoint.Z-Z)<4;
+        if(!SampleOK)UE_LOG(LogTemp,Warning,TEXT("RavenRoadSample end=%d distance=%.0f found=%d expected=%.1f actual=%.1f"),End,D,Found,Z,Surface.ImpactPoint.Z);
+        RoadOK&=SampleOK;
+    }
+    Pass&=RoadOK&&MinRoadClearance>=0;
+    UE_LOG(LogTemp,Display,TEXT("RavenRoadTest %s: continuous collision, minimum terrain clearance %.1fcm"),RoadOK&&MinRoadClearance>=0?TEXT("PASS"):TEXT("FAIL"),MinRoadClearance);
     UE_LOG(LogTemp,Display,TEXT("RavenWorkshopTest %s: gallery floor=%s; 6m aircraft door envelope=%s"),(GalleryOK&&!DoorBlocked)?TEXT("PASS"):TEXT("FAIL"),GalleryOK?TEXT("PASS"):TEXT("FAIL"),DoorBlocked?TEXT("BLOCKED"):TEXT("CLEAR"));
     UE_LOG(LogTemp,Display,TEXT("RavenWorldTest %s: dry launch, lake water, 2 dry islands, collision samples, TURBORAVEN"),Pass?TEXT("PASS"):TEXT("FAIL"));
 }

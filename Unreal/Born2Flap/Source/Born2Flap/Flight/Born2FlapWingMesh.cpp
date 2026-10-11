@@ -36,29 +36,43 @@ double SampleMembrane(const FVector2D* Poly, int32 Count, double Y)
     }
     return Poly[Count - 1].Y;
 }
-// Catmull-Rom interpolation (C1-smooth) through a uniformly-spaced station
-// array. The solver returns 16 spanwise stations; linear interpolation between
-// them leaves a slope discontinuity at every station boundary that reads as a
-// fold/kink in the spar line outboard. A gentle beam should only ever curve.
+// Monotone cubic (Fritsch–Carlson) interpolation through the solver's 16
+// spanwise stations. Linear interpolation leaves a slope discontinuity at every
+// station boundary (a fold/kink in the spar line); plain Catmull-Rom OVERSHOOTS
+// whenever the deflection/twist field is non-linear, which is what read as the
+// wing STRETCHING in length instead of curving. A clamped beam only ever curves,
+// so a monotone interpolant keeps the membrane between the solver's stations no
+// matter how large the load.
 double SampleStationField(const B2F_WingSection* Shape, int32 Count, double Station,
                           double B2F_WingSection::*Field)
 {
     const double S = FMath::Clamp(Station, 0.0, double(Count - 1));
     const int32 I = FMath::FloorToInt(S);
     const double T = S - I;
-    const int32 I0 = FMath::Clamp(I - 1, 0, Count - 1);
-    const int32 I1 = FMath::Clamp(I,     0, Count - 1);
-    const int32 I2 = FMath::Clamp(I + 1, 0, Count - 1);
-    const int32 I3 = FMath::Clamp(I + 2, 0, Count - 1);
-    const double P0 = Shape[I0].*Field;
-    const double P1 = Shape[I1].*Field;
-    const double P2 = Shape[I2].*Field;
-    const double P3 = Shape[I3].*Field;
+    const int32 Im = FMath::Clamp(I - 1, 0, Count - 1);
+    const int32 Ip = FMath::Clamp(I + 1, 0, Count - 1);
+    const double Pm = Shape[Im].*Field;
+    const double P0 = Shape[I].*Field;
+    const double P1 = Shape[Ip].*Field;
+    const double Pp = Shape[FMath::Clamp(I + 2, 0, Count - 1)].*Field;
+    // One-sided secant slopes of the two segments sharing each endpoint.
+    const double D0 = P0 - Pm;
+    const double D1 = P1 - P0;
+    const double D2 = Pp - P1;
+    // Fritsch–Carlson tangent: harmonic-mean limited so the interpolant cannot
+    // overshoot a local extremum (strictly monotone between stations).
+    const auto Tangent = [](double A, double B) -> double
+    {
+        return (A * B <= 0.0) ? 0.0 : 2.0 * A * B / (A + B);
+    };
+    const double M0 = Tangent(D0, D1);
+    const double M1 = Tangent(D1, D2);
     const double T2 = T * T, T3 = T2 * T;
-    return 0.5 * (2.0 * P1
-        + (-P0 + P2) * T
-        + (2.0 * P0 - 5.0 * P1 + 4.0 * P2 - P3) * T2
-        + (-P0 + 3.0 * P1 - 3.0 * P2 + P3) * T3);
+    const double H00 =  2.0 * T3 - 3.0 * T2 + 1.0;
+    const double H10 =        T3 - 2.0 * T2 + T;
+    const double H01 = -2.0 * T3 + 3.0 * T2;
+    const double H11 =        T3 -       T2;
+    return H00 * P0 + H10 * M0 + H01 * P1 + H11 * M1;
 }
 // Visual exaggeration of the solver's aeroelastic deformation. The solver
 // already yields a physical quasi-static cantilever bend + washout twist; these
@@ -67,7 +81,7 @@ double SampleStationField(const B2F_WingSection* Shape, int32 Count, double Stat
 // scales ONLY the load-driven elastic torsion (the reactive part), NOT the static
 // geometric washout — so the wing rests nearly flat and flexes with load. Raise
 // for a floppier look, lower toward 1 to match the raw physics.
-constexpr double AeroBendVisualGain  = 37.0;
+constexpr double AeroBendVisualGain  = 8.0;
 constexpr double AeroTwistVisualGain = 2.0;
 }
 
@@ -152,6 +166,9 @@ void UBorn2FlapWingMesh::ApplyShape(const B2F_WingSection* Shape)
             const double RootElastic=Shape[0].twist_elastic_rad;
             const double GeoTwist=SampleStationField(Shape,B2F_WING_STATIONS,Station,&B2F_WingSection::twist_geo_rad)-RootGeo;
             const double ElasticTwist=(SampleStationField(Shape,B2F_WING_STATIONS,Station,&B2F_WingSection::twist_elastic_rad)-RootElastic)*AeroTwistVisualGain;
+            // Load-driven elastic torsion deepens washout under positive lift:
+            // twist_elastic_rad is NEGATIVE (nose-down) outboard, so ADD it to the
+            // geometric washout — the outer wing washes out further under load.
             Twist=GeoTwist+ElasticTwist;
             // Passive flap bending: bend_m is the solver's root-clamped cantilever
             // deflection [m] (tip-up positive). *100 maps metres to mesh units; the
@@ -165,19 +182,22 @@ void UBorn2FlapWingMesh::ApplyShape(const B2F_WingSection* Shape)
         const double Chord=Trailing-Leading;                                   // signed (LE forward +, TE aft -)
         const double ChordLen=-Chord;                                          // positive chord length
         const double U=FMath::Clamp(ChordLen>1.e-6?(Leading-R.X)/ChordLen:.5,0.,1.);
-        // The leading-edge spar is the rigid reference: it only *bends* out of
-        // plane (the Bend translation) — it never folds. The aeroelastic twist
-        // therefore rotates the whole section rigidly about the LE spar, so the
-        // membrane washes out behind it with no crease at any chordwise line.
-        const double Pivot=Leading;                                            // leading-edge spar
-        const double X=R.X-Pivot;                                              // 0 at LE, - toward TE
+        // The aeroelastic twist rotates about the *elastic axis* (the spar line),
+        // not the leading edge. Inboard the braced arm-wing's diagonal + mid-chord
+        // spars shift the elastic axis ~0.15c aft of the LE; outboard the unbraced
+        // hand wing twists about its LE spar (elastic axis at the LE). Pivoting at
+        // the elastic axis lets washout "bend back" (TE sweeps up-and-aft) AND
+        // wash the nose down (LE drops), instead of hinging only the TE at the LE.
+        const double ElasticAxisC = 0.15 * (1.0 - FMath::SmoothStep(0.15, 0.60, V));  // chord fraction aft of LE
+        const double Pivot=Leading-ElasticAxisC*ChordLen;                       // elastic axis (spar line)
+        const double X=R.X-Pivot;                                               // 0 at elastic axis, +fwd / -aft
         const double Z=R.Z+4*U*(1-U)*Camber*ChordLen;                          // cambered-up arch (+Z)
         const double TwistRad=Twist;                                           // uniform section rotation
         const double C=FMath::Cos(TwistRad),S=FMath::Sin(TwistRad);
         // Displace along the wing's own flap normal (+Z), which rotates with the
         // shoulder, so the membrane flexes passively with the stroke instead of
         // holding a fixed world-vertical "wrist" against the airflow.
-        Vertices[I]=FVector(Pivot+X*C-Z*S,R.Y,X*S+Z*C-Bend);
+        Vertices[I]=FVector(Pivot+X*C-Z*S,R.Y,X*S+Z*C+Bend);
     }
     for(int32 I=0;I<Triangles.Num();I+=3)
     {
