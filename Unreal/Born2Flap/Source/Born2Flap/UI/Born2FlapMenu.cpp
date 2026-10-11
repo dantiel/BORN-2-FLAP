@@ -11,6 +11,7 @@
 #include "UI/Born2FlapRadio.h"
 #include "Flight/Born2FlapFlightPawn.h"
 #include "Flight/Born2FlapTuning.h"
+#include "Rendering/Born2FlapGraphics.h"
 #include "Input/Born2FlapRcController.h"
 #include "Input/Born2FlapKeybinds.h"
 #include "Kismet/GameplayStatics.h"
@@ -893,6 +894,23 @@ void ABorn2FlapMenu::BuildPreferences(std::vector<FNode>& Out)
                 Rows.push_back(Nd("Toggle", std::move(Props)));
             }
 
+            // GRAPHICS / RENDERER
+            Rows.push_back(Nd("TextBlock", P({ {"text", S("GRAPHICS  /  RENDERER")}, {"tone", S("accent")}, {"size", S("l")} })));
+            Rows.push_back(Nd("TextBlock", P({ {"text", S(FString(TEXT("Hardware Lumen, volumetric fog & clouds and MegaLights. Lower tiers fall back to the software renderer (screen-space / SDF tracing).")))}, {"tone", S("dim")}, {"size", S("xs")}, {"wrap", B(true)} })));
+            {
+                FValue QOpts; QOpts.kind = FValue::Kind::Array;
+                QOpts.arr.push_back(S(FString(TEXT("LOW  /  software Lumen"))));
+                QOpts.arr.push_back(S(FString(TEXT("MEDIUM  /  + volumetric fog & clouds"))));
+                QOpts.arr.push_back(S(FString(TEXT("HIGH  /  + hardware reflections"))));
+                QOpts.arr.push_back(S(FString(TEXT("EPIC  /  + full HW Lumen + MegaLights"))));
+                FProps Props;
+                Props["action"] = S("graphics.quality");
+                Props["label"] = S("RENDERER QUALITY");
+                Props["options"] = std::move(QOpts);
+                Props["value"] = N(Born2FlapGraphics::LoadQuality());
+                Rows.push_back(Nd("Dropdown", std::move(Props)));
+            }
+
             // AUDIO
             Rows.push_back(Nd("TextBlock", P({ {"text", S("AUDIO")}, {"tone", S("accent")}, {"size", S("l")} })));
             Rows.push_back(Nd("TextBlock", P({ {"text", S(FString(TEXT("Raises only the wing-flap voice — wind, surf and music stay untouched.")))}, {"tone", S("dim")}, {"size", S("xs")}, {"wrap", B(true)} })));
@@ -1179,6 +1197,14 @@ void ABorn2FlapMenu::OnAction(const FString& Action, float Value, const FString&
     if (Action == TEXT("menu.preferences"))  { NavPage = 2; PrefsPage = 0; Build(); return; }
     if (Action == TEXT("prefs.page"))        { PrefsPage = FMath::Clamp(FMath::RoundToInt(Value), 0, 2); Build(); return; }
     if (Action == TEXT("settings.page"))     { SettingsPage = FMath::Clamp(FMath::RoundToInt(Value), 0, 3); Build(); return; }
+    // GRAPHICS / RENDERER quality — persisted + applied live (LOW = software fallback).
+    if (Action == TEXT("graphics.quality"))
+    {
+        const int32 Q = FMath::Clamp(FMath::RoundToInt(Value), 0, static_cast<int32>(Born2FlapGraphics::EQuality::Count) - 1);
+        Born2FlapGraphics::SaveQuality(Q);
+        Born2FlapGraphics::Apply(Born2FlapGraphics::ForQuality(static_cast<Born2FlapGraphics::EQuality>(Q)));
+        return;
+    }
     // OPEN WORLDS sub-page: LOCATION / WEATHER & TIME / ROUTE (segmented).
     if (Action == TEXT("menu.page"))         { SelectedPage = FMath::Clamp(FMath::RoundToInt(Value), 0, 2); Build(); return; }
 
