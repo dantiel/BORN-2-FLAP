@@ -131,7 +131,8 @@ gates), weather excludes snow. See `natural-valley-and-rc.md` (RC controls) and
 - **Flight-school lessons.** The 9-step curriculum in `game-design.md`
   (transmitter/neutral, flap frequency, straight flight, coordinated turns,
   launch/landing, wind/gusts, stall/recovery, race lines, manual tuning).
-- **More gate layouts and race seasons.**
+- **Generated racing tracks.** New gate layouts and race seasons on the same
+  neutral ground — authored tracks, not an endless procedural run.
 - **Precision-landing pads** and a **freestyle/trick arena** as separate zones
   of the same neutral ground.
 
@@ -176,12 +177,13 @@ addition — not "another map".
 not from more authored assets but from a handful of procedural rules. They
 transfer directly to flight:
 
-1. **Elevation-driven biome blending.** One contiguous world reads as many
-   because biome is a *continuous function* of elevation, moisture and
-   temperature: meadow → forest → rock → snow → coast, with no hard seams. A
-   single valley already has this latent range (river floor → wooded slope →
-   ridge → distant lake); push the elevation gradient and the biomes reveal
-   themselves.
+1. **Elevation-driven biome blending (an authored tool, not an automatic
+   gradient).** slowroads reads as many worlds because biome is a *continuous
+   function* of elevation, moisture and temperature — meadow → forest → rock →
+   snow → coast, with no hard seams. BORN-2-FLAP deliberately does **not** adopt
+   an automated elevation gradient: biome and seasonal differences are
+   **manually tuned per level**, so each world's register stays singular and
+   curated rather than emergent.
 2. **Dense instancing for perceived richness.** Thousands of cheap instances
    (trees, grass, rock) read as "lush" far more than a few detailed props.
    Unreal's ISM/HISM and Nanite foliage are the native tool; the lesson is
@@ -197,12 +199,12 @@ transfer directly to flight:
    world's register *singular* rather than everything-everywhere.
 
 **Completion tie-in.** These rules are the concrete "what could be developed
-next" for the existing worlds: denser instanced undergrowth and a stronger
-elevation gradient for Ravenstonefield; cliff-ridge lift and a biome transition
-(garden → forest → volcanic rock) for Shiomori Bay; and a procedurally-laid
-endless gate run for Training (the neutral ground stays neutral, but its course
-can extend without a map edge). Proposal #7 above is the purest expression of
-rules 1 + 3 — an infinite cross-country where the horizon keeps generating.
+next" for the existing worlds: denser instanced undergrowth and manually tuned
+biome/seasonal dressing for Ravenstonefield; cliff-ridge lift and a manually
+tuned biome transition (garden → forest → volcanic rock) for Shiomori Bay; and
+generated racing tracks in the existing levels for Training (new gate layouts
+on the same neutral ground — no endless run, no map edge). New-world proposals
+above remain the *deliberate* way to add a genuinely new lesson.
 
 ---
 
