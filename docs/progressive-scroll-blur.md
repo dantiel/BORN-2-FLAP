@@ -36,8 +36,9 @@ target, so the blur now affects the content itself.
 
 | prop          | type   | default    | meaning                                                        |
 |---------------|--------|------------|----------------------------------------------------------------|
-| `edge`        | number | `"auto"`   | safe zone as a normalized half-band `0..0.5`                   |
+| `edge`        | number | `"auto"`   | TOP safe zone as a normalized half-band `0..0.5`               |
 | `edge: "auto"`| string | —          | derive the band from the platform safe-area inset (notch)      |
+| `edgeBottom`  | number | `0.05`     | BOTTOM safe zone half-band (small: no bottom safe-area)        |
 | `blur`        | number | `0.02`     | max blur radius in UV units                                    |
 | `amount`      | number | `0.65`     | progressive-blur falloff width `0..1`                          |
 | `refract`     | number | `0.35`     | refraction warp strength (hammered glass / water) `0..1`       |

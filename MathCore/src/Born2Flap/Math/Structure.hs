@@ -131,7 +131,7 @@ sparMidChordBraceGJ = 3 * sparBendEI sparDMidChord / sparMidLength ^ 3 * sparMid
 -- inboard. Without it the bare hand-wing rod is ~100× softer than the armwing
 -- and the outboard washout saturates into a spurious nose-up fold.
 sparMembraneGJ :: Double
-sparMembraneGJ = 8.0e-2
+sparMembraneGJ = 2.2e-1
 
 -- | Braced arm-wing torsional calibration. The diagonal + mid-chord braces form
 -- a triangulated spar box whose torsional resistance is several times the bare

@@ -17,7 +17,9 @@ inline void RavenSurface(AActor* Owner,const TArray<TArray<FVector>>& Faces,cons
         if(F.Num()<3)continue;
         const int B=V.Num();const FVector Normal=FVector::CrossProduct(F[1]-F[0],F[2]-F[0]).GetSafeNormal();
         for(const FVector& P:F){V.Add(P);N.Add(Normal);UV.Add(FVector2D(P.X/200,P.Y/200+P.Z/200));}
-        for(int I=1;I<F.Num()-1;++I){T.Add(B);T.Add(B+I);T.Add(B+I+1);}
+        // Unreal front faces use clockwise indices; the geometric normal above
+        // follows the authored outward-facing polygon order.
+        for(int I=1;I<F.Num()-1;++I){T.Add(B);T.Add(B+I+1);T.Add(B+I);}
     }
     TArray<FLinearColor> Colors;TArray<FProcMeshTangent> Tangents;
     Mesh->CreateMeshSection_LinearColor(0,V,T,N,UV,Colors,Tangents,Collision);

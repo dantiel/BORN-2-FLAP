@@ -8,6 +8,7 @@ import unreal as u
 here=Path(__file__).resolve().parent
 sys.path.insert(0,str(here))
 import shiomori_campus
+import campus_plant_assets
 source=here/'create_shiomori_map.py'
 tree=ast.parse(source.read_text(encoding='utf-8-sig'))
 definitions=[n for n in tree.body if isinstance(n,(ast.Import,ast.ImportFrom,ast.FunctionDef))]
@@ -16,6 +17,7 @@ scope=dict(__file__=str(source),assets=u.AssetToolsHelpers.get_asset_tools(),lib
 exec(compile(ast.Module(body=definitions,type_ignores=[]),str(source),'exec'),scope)
 scope['foliage_meshes']={key:[m for m in (u.load_asset('/Game/Nature/SM_%s%d'%(key,i)) for i in range(n)) if m]
                          for key,n in [('Grass',3),('Tree',2),('Fir',3),('Rock',4),('Leaf',2),('Fern',1)]}
+scope['foliage_meshes']['Flower']=campus_plant_assets.prepare()
 world=u.EditorLoadingAndSavingUtils.load_map('/Game/Shiomori/Maps/SHIOMORI')
 assert world
 sub=u.get_editor_subsystem(u.EditorActorSubsystem)

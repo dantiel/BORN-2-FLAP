@@ -10,9 +10,9 @@ from collections import defaultdict
 # Architectural drafting coordinates stay stable; translate the whole property
 # onto the west headland only once, after construction. Separate elevations
 # keep the inland hangar low while the hotel occupies a supported terrace.
-SITE_OFFSET = (-6000., 21000.)
+SITE_OFFSET = (-12000., 24000.)
 HOTEL_RISE = 750.
-FIELD_RISE = 180.
+FIELD_RISE = 650.
 HOTEL_CENTER = (-59500., -13700.)
 HOTEL_YAW = -18.
 FLOORS = 12
@@ -27,6 +27,11 @@ TAG = 'ShiomoriCampusV2'
 
 def install(scope):
     import unreal as u
+    if not scope.get('foliage_meshes', {}).get('Flower'):
+        from campus_plant_assets import prepare
+        scope.setdefault('foliage_meshes', {})['Flower'] = prepare()
+    from campus_ground_materials import prepare as prepare_ground
+    prepare_ground(scope)
     rng = random.Random(101026)
     prior_actors={a.get_path_name() for a in u.get_editor_subsystem(u.EditorActorSubsystem).get_all_level_actors()}
     batches = defaultdict(lambda: ([], []))
@@ -61,8 +66,7 @@ def install(scope):
 
     def smooth(a,b,x):
         t=max(0,min(1,(x-a)/(b-a)));return t*t*(3-2*t)
-    def ground(x,y):
-        x+=SITE_OFFSET[0];y+=SITE_OFFSET[1]
+    def analytic_ground(x,y):
         if y < -3000:return 150.
         shore=scope['waterline'](x);d=y-shore
         dune=max(20,40+50*math.sin(x*.00029+1.2)+30*math.sin(x*.00091+4.1)+15*math.sin(x*.0023+.7)+8*math.sin(x*.0047+2.9))
@@ -73,7 +77,18 @@ def install(scope):
         hill=base+(-50+700+220*math.sin(x*.000065+y*.00011)-base)*rise*tip
         return max(base-6,(base-6)+(hill-(base-6))*smooth(-3000,5000,y))
 
+    def ground(x,y):
+        # Match the actual 10 m native terrain triangles, not their curved
+        # analytical source: small flowers otherwise sink into the mesh.
+        x+=SITE_OFFSET[0];y+=SITE_OFFSET[1]
+        ix=math.floor(x/1000)*1000;iy=math.floor(y/1000)*1000
+        fx=(x-ix)/1000;fy=(y-iy)/1000
+        a=analytic_ground(ix,iy);b=analytic_ground(ix+1000,iy)
+        c=analytic_ground(ix,iy+1000);d=analytic_ground(ix+1000,iy+1000)
+        return a+(b-a)*fx+(c-a)*fy if fx+fy<=1 else d+(c-d)*(1-fx)+(b-d)*(1-fy)
+
     materials['Headland']=u.load_asset('/Game/Shiomori/Materials/M_Headland')
+    materials['Grass']=materials['Meadow']=u.load_asset('/Game/Shiomori/Materials/M_CampusLawn')
     rises={key:HOTEL_RISE for key in ('Hotel','Lab','Net','Statue','HotelGround','ForecourtGarden')}
     rises['LaunchGround']=FIELD_RISE
 
@@ -235,10 +250,20 @@ def install(scope):
     # inland hangar and a short service connection to the road's west end.
     box('HotelGround','Paving',(-59300,-12600,158),(17100,10800,16))
     box('LaunchGround','Grass',(-53500,-19300,162),(4800,4300,16))
-    box('HangarGround','Paving',(-60000,-23100,160),(11700,4200,20))
+    box('HangarGround','Paving',(-60000,-29100,160),(11700,4200,20))
     def route(points,width,mat='Paving',zone='Ground'):
         for a,b in zip(points,points[1:]):
             dx,dy=b[0]-a[0],b[1]-a[1]
+            if zone=='ShorePath':
+                length=math.hypot(dx,dy);nx=-dy/length;ny=dx/length
+                steps=max(1,math.ceil(length/100))
+                def edge(t,side):
+                    x=a[0]+dx*t+nx*side*width/2;y=a[1]+dy*t+ny*side*width/2
+                    lift=(a[2]-ground(a[0],a[1]))*(1-t)+(b[2]-ground(b[0],b[1]))*t
+                    return x,y,ground(x,y)+max(6,lift)
+                for j in range(steps):
+                    face((zone,mat),[edge(j/steps,-1),edge((j+1)/steps,-1),edge((j+1)/steps,1),edge(j/steps,1)])
+                continue
             beam(zone,mat,(a[0],a[1],a[2]-12),(b[0],b[1],b[2]-12),width,24)
             if zone=='Ground':
                 length=math.hypot(dx,dy);nx=-dy/length;ny=dx/length
@@ -255,7 +280,18 @@ def install(scope):
     # Switchback service ramp reaches the hotel's rear terrace from inland.
     # (The old road-access dogleg is removed: the campus now sits on the
     # isolated west-headland peninsula, well clear of the coastal road.)
-    route([(-61500,-20700,175),(-66000,-20500,190),(-69000,-18100,520),(-68300,-16100,910),(-62500,-16700,920)],500)
+    service=[(-61500,-26820),(-65500,-26000),(-68000,-23000),(-68300,-18500),(-62500,-16700)]
+    service_points=[]
+    for n,(a,b) in enumerate(zip(service,service[1:])):
+        for i in range(12):
+            t=i/12;x=a[0]+(b[0]-a[0])*t;y=a[1]+(b[1]-a[1])*t
+            z=ground(x,y)+30
+            if n==0:z=max(175,z)
+            if n==3:z=z*(1-t)+920*t
+            service_points.append((x,y,z))
+    service_points.append((-62500,-16700,920));route(service_points,500)
+    # A restrained service lane reconnects the separate property to the town road.
+    route([(-44000-SITE_OFFSET[0],-4400-SITE_OFFSET[1],170),(-50000,-29500,170),(-61500,-29100,170)],450)
     # Solid retaining terrace and a ground-hugging apron of headland material;
     # this prevents a floating platform after moving onto the sloping land.
     box('Terrace','Stone',(-59300,-12600,450),(17100,10800,900))
@@ -269,14 +305,14 @@ def install(scope):
             oa=lerp(outer[k],outer[j],n/24);ob=lerp(outer[k],outer[j],(n+1)/24)
             face(('Terrace','Headland'),[(ia[0],ia[1],900),(oa[0],oa[1],ground(*oa)+4),(ob[0],ob[1],ground(*ob)+4),(ib[0],ib[1],900)])
     # The separate launch lawn is a low supported pad, not a floating carpet.
-    box('Terrace','Headland',(-53500,-19300,230),(4800,4300,220))
+    box('Terrace','Headland',(-53500,-19300,465),(4800,4300,690))
     # Low perimeter stone walls leave entrance/handling gaps.
     for a,b in (((-67500,-7400,185),(-61500,-7400,185)),((-67500,-7400,185),(-67500,-16000,185))):
         beam('ForecourtGarden','Stone',(a[0],a[1],a[2]+35),(b[0],b[1],b[2]+35),65,80)
 
     # Open hangar: 26 x 22 m, clear 16 x 6 m doorway, two 6 m span bays
     # separated by an 8 m central handling aisle. No invisible solid body.
-    hx,hy=-61500,-21900
+    hx,hy=-61500,-27900
     for x in (hx-1300,hx+1300):box('Hangar','Tile',(x,hy,490),(35,2200,640))
     box('Hangar','Tile',(hx,hy-1100,490),(2600,35,640))
     for dx in (-1050,1050):box('Hangar','Panel',(hx+dx,hy+1110,460),(480,30,580))
@@ -308,7 +344,11 @@ def install(scope):
     for z in (300,420,540):beam('HangarProps','Steel',(hx-1120,hy-750,z),(hx-1120,hy+350,z),12)
     text('hangar ID','FLIGHT WORKSHOP  /  02', (hx-950,hy+1190,730),48)
     text('prototype bays','EXPERIMENTAL / 6 m SPAN', (hx-600,hy-1070,510),32)
-    route([(hx,hy+1080,175),(hx,-18600,220),(-54800,-17800,175+FIELD_RISE)],1000)
+    handling=[]
+    for i in range(41):
+        t=i/40;x=hx+(-54800-hx)*t;y=hy+1080+(-17800-hy-1080)*t
+        handling.append((x,y,max(175,ground(x,y)+35,175+FIELD_RISE*t)))
+    route(handling,1000)
     text('launch field','FLIGHT TEST FIELD',(-55300,-16950,190),40)
     for x in (-55000,-52000):box('LaunchGround','Tile',(x,-18000,173),(45,1400,3))
 
@@ -343,7 +383,7 @@ def install(scope):
         kb = kestrel.get_bounds()
         ks = 36.0 / max(kb.box_extent.x * 2.0, 1.0)
         ka = u.EditorLevelLibrary.spawn_actor_from_class(
-            u.StaticMeshActor, u.Vector(sx - 94, sy + 12, 620), u.Rotator(pitch=0, yaw=90, roll=0))
+            u.StaticMeshActor, u.Vector(sx - 94, sy + 12, 620+HOTEL_RISE), u.Rotator(pitch=0, yaw=90, roll=0))
         ka.set_actor_label('Campus founder kestrel')
         ka.set_editor_property('tags', [TAG, 'CampusKestrel'])
         kc = ka.static_mesh_component
@@ -379,7 +419,7 @@ def install(scope):
             t=i/10;x=a[0]+(b[0]-a[0])*t;y=a[1]+(b[1]-a[1])*t
             points.append((x,y,(914*(1-t)+(ground(*b)+14)*t) if a==path[0] else ground(x,y)+14))
         route(points,220,'Paving','ShorePath')
-    for i,(x,y) in enumerate(((-59200,-5000),(-59300,-3500),(-59100,-1200),(-58500,1200),(-57700,2800),(-58300,4300),(-58500,6000))):
+    for i,(x,y) in enumerate(((-59900,-4700),(-60000,-2200),(-59800,500),(-60800,4000),(-60200,6500))):
         z=ground(x,y)
         mesh=scope['foliage_meshes']['Fir'][i%3]
         a=scope['foliage']('Campus coastal pine',(x,y,z),mesh,800+(i%3)*120,ground_z=z)
@@ -420,127 +460,15 @@ def install(scope):
     beam('Shrine','Roof',(qx-195,qy,qz+380),(qx+195,qy,qz+380),25)
     route([(tx,ty,tz),(qx,5000,ground(qx,5000)+14),(qx,qy-380,qz+14)],160,'Stone','ShorePath')
 
-    # ------------------------------------------------------------------ #
-    # Campus decoration: far-west pine forest, hinterland nature, a       #
-    # tended shrine park (cherry, bonsai, lanterns, bronze), ground       #
-    # texture variation and playful painted + overgrown hotel balconies.  #
-    # ------------------------------------------------------------------ #
+    # Asset-based coastal garden replaces primitive blossoms and floating patches.
     deco = random.Random(20261010)
     foliage = scope['foliage']
     fm = scope['foliage_meshes']
-
     def pick(kind):
-        pool = fm.get(kind) or []
+        pool=fm.get(kind) or []
         return pool[deco.randrange(len(pool))] if pool else None
-
-    def plant(kind, x, y, z, h, yaw=None):
-        m = pick(kind)
-        if m is None:
-            return None
-        a = foliage('Campus nature', (x, y, z), m, h,
-                    rot=(0, yaw if yaw is not None else deco.uniform(0, 360), 0), ground_z=z)
-        if a is not None:
-            a.tags = [TAG, 'CampusNature']
-        return a
-
-    def sphere(zone, mat, c, r, seg=7):
-        for j in range(seg):
-            t0 = -math.pi/2 + j*math.pi/seg; t1 = t0 + math.pi/seg
-            for i in range(seg*2):
-                a0 = i*math.tau/(seg*2); a1 = (i+1)*math.tau/(seg*2)
-                face((zone, mat), [(c[0]+r*math.cos(t)*math.cos(a),
-                                    c[1]+r*math.cos(t)*math.sin(a),
-                                    c[2]+r*math.sin(t)) for t, a in ((t0, a0), (t0, a1), (t1, a1), (t1, a0))])
-
-    def avoid(x, y):
-        # Launch field (flight clearance) and open hangar stay unobstructed.
-        return (-55900 <= x <= -51100 and -21450 <= y <= -17150) or \
-               (-62800 <= x <= -60200 and -23000 <= y <= -20800)
-
-    # --- Far-west pine forest on the raised headland beyond the campus. ---
-    for i in range(220):
-        x = deco.uniform(-84000, -70500); y = deco.uniform(-18500, 3500)
-        plant('Fir', x, y, ground(x, y), deco.uniform(650, 1650))
-    for i in range(170):
-        x = deco.uniform(-84000, -70500); y = deco.uniform(-18500, 3500)
-        kind = deco.choice(('Grass', 'Grass', 'Grass', 'Fern', 'Rock'))
-        h = deco.uniform(60, 180) if kind == 'Grass' else deco.uniform(90, 240) if kind == 'Fern' else deco.uniform(40, 140)
-        plant(kind, x, y, ground(x, y), h)
-
-    # --- Hinterland nature behind the campus (flat wasteland, H~150). ---
-    for i in range(120):
-        x = deco.uniform(-76000, -50500); y = deco.uniform(-25500, -24300)
-        kind = deco.choice(('Grass', 'Grass', 'Fern', 'Fir', 'Tree', 'Rock'))
-        h = deco.uniform(70, 200) if kind == 'Grass' else deco.uniform(140, 360) if kind in ('Fir', 'Fern', 'Tree') else deco.uniform(45, 150)
-        plant(kind, x, y, 150, h)
-
-    # --- Ground texture variation: moss/meadow/gravel patches + flowers. ---
-    def patch(mat, x, y, sx, sy):
-        z = ground(x, y)
-        box('GroundDeco', mat, (x, y, z+3), (sx, sy, 7))
-
-    def flower(x, y, z, color, s=1.0):
-        beam('FlowerDeco', 'Grass', (x, y, z), (x, y, z+12*s), 4*s)
-        box('FlowerDeco', color, (x, y, z+16*s), (13*s, 13*s, 12*s))
-
-    prng2 = random.Random(20261011)
-    fcol = ('FlowerRed', 'FlowerYellow', 'FlowerBlue', 'FlowerOrange', 'Blossom')
-    for i in range(24):
-        x = prng2.uniform(-74000, -51500); y = prng2.uniform(-21500, 4000)
-        if avoid(x, y): continue
-        patch(prng2.choice(('Moss', 'Meadow')), x, y, prng2.uniform(900, 2600), prng2.uniform(700, 1900))
-    for i in range(10):
-        x = prng2.uniform(-76000, -50500); y = prng2.uniform(-25600, -24300)
-        patch('Meadow', x, y, prng2.uniform(1200, 3000), prng2.uniform(700, 1600))
-    for i in range(120):
-        x = prng2.uniform(-74000, -51500); y = prng2.uniform(-21500, 4000)
-        if avoid(x, y): continue
-        flower(x, y, ground(x, y), fcol[prng2.randrange(len(fcol))], prng2.uniform(.7, 1.6))
-
-    # --- Shrine park: a tended garden around the hokora and torii path. ---
-    def cherry(x, y, z, s=1.0):
-        beam('Park', 'Wood', (x, y, z), (x, y, z+150*s), 11*s)
-        beam('Park', 'Wood', (x, y, z+60*s), (x-52*s, y, z+140*s), 7*s)
-        beam('Park', 'Wood', (x, y, z+60*s), (x+52*s, y, z+140*s), 7*s)
-        sphere('Park', 'Blossom', (x, y, z+185*s), 85*s)
-        sphere('Park', 'Blossom', (x-42*s, y, z+160*s), 58*s)
-        sphere('Park', 'Blossom', (x+42*s, y, z+160*s), 58*s)
-        sphere('Park', 'BlossomLight', (x, y, z+235*s), 45*s)
-
-    def bonsai(x, y, z, s=1.0):
-        box('Park', 'Stone', (x, y, z+7), (78*s, 52*s, 14*s))
-        box('Park', 'Dark', (x, y, z+19), (66*s, 40*s, 12*s))
-        beam('Park', 'Wood', (x, y, z+24), (x, y, z+52*s), 6*s)
-        beam('Park', 'Wood', (x, y, z+34*s), (x-22*s, y, z+56*s), 4*s)
-        sphere('Park', 'Grass', (x-20*s, y, z+58*s), 32*s)
-        sphere('Park', 'Grass', (x+20*s, y, z+58*s), 32*s)
-        sphere('Park', 'Grass', (x, y, z+66*s), 28*s)
-
-    def toro(x, y, z, s=1.0):
-        box('Park', 'Stone', (x, y, z+8), (64*s, 64*s, 16*s))
-        box('Park', 'Stone', (x, y, z+48), (26*s, 26*s, 80*s))
-        box('Park', 'Stone', (x, y, z+92), (58*s, 58*s, 12*s))
-        box('Park', 'Dark', (x, y, z+118), (28*s, 28*s, 44*s))
-        box('Park', 'Stone', (x, y, z+146), (72*s, 72*s, 10*s))
-        prism('Park', 'Stone', [(-40*s, -40*s), (40*s, -40*s), (40*s, 40*s), (-40*s, 40*s)], 151*s, 20*s, (x, y, z), 0)
-        beam('Park', 'Stone', (x, y, z+171*s), (x, y, z+186*s), 7*s)
-        sphere('Park', 'Stone', (x, y, z+192*s), 8*s)
-
-    cherry_x = [(-59000, 5400), (-58600, 4700), (-58200, 5600), (-57800, 4300),
-                (-57200, 3400), (-56800, 3600), (-56300, 3000), (-56000, 2700),
-                (-58200, 6600), (-58600, 6900), (-57800, 7300)]
-    for x, y in cherry_x:
-        cherry(x, y, ground(x, y), deco.uniform(.9, 1.5))
-    for dx, dy in ((-300, 380), (300, 380), (-320, 620), (0, 780), (320, 620)):
-        bonsai(qx+dx, qy+dy, ground(qx+dx, qy+dy), deco.uniform(.8, 1.3))
-    for x, y in ((-57800, 4800), (-57000, 3300), (-58500, 6200), (-58000, 4000)):
-        toro(x, y, ground(x, y), deco.uniform(.85, 1.2))
-    for i in range(12):
-        x = prng2.uniform(-59500, -55600); y = prng2.uniform(1500, 7600)
-        patch(prng2.choice(('Moss', 'Meadow')), x, y, prng2.uniform(700, 1800), prng2.uniform(500, 1400))
-    for i in range(50):
-        x = prng2.uniform(-59600, -55500); y = prng2.uniform(1200, 7800)
-        flower(x, y, ground(x, y), fcol[prng2.randrange(len(fcol))], prng2.uniform(.6, 1.4))
+    import shiomori_park
+    shiomori_park.install(scope, dict(locals(), HOTEL_RISE=HOTEL_RISE, TAG=TAG))
 
     # Bronze kestrel on a stone pedestal beside the shrine forecourt.
     pscx, pscy = -58200, 5000
@@ -588,6 +516,21 @@ def install(scope):
                         if a2 is not None:
                             a2.tags = [TAG, 'CampusBalconyPlant']
 
+    # Verification anchors travel with the authored property, avoiding stale test coordinates.
+    def anchor(name,p,target=None):
+        a=u.EditorLevelLibrary.spawn_actor_from_class(u.TargetPoint,u.Vector(*p),u.Rotator())
+        a.set_actor_label('Campus '+name);a.tags=[TAG,'CampusAnchor_'+name]
+        if target:
+            d=[target[i]-p[i] for i in range(3)]
+            a.set_actor_rotation(u.Rotator(pitch=math.degrees(math.atan2(d[2],math.hypot(d[0],d[1]))),yaw=math.degrees(math.atan2(d[1],d[0])),roll=0),False)
+    for name,p in [('Hangar',(hx,hy,450)),('Forecourt',(-58000,-9500,0)),('Field',(-53500,-19300,0)),('Path',(-58400,-2000,0)),('Shrine',(qx,qy,0)),('Terrace',(-63000,-10000,0))]:anchor(name,p)
+    island_local=(ISLAND[0]-SITE_OFFSET[0],ISLAND[1]-SITE_OFFSET[1],530)
+    eye=(tx-math.cos(math.radians(sight))*1800,ty-math.sin(math.radians(sight))*1800,ground(tx,ty)+180)
+    views=[((-38000,20000,8500),(-59500,-13700,2400)),((-55000,-6000,1500),(-59500,-13700,2200)),
+           ((-50000,9000,22000),(-59000,-9000,500)),((hx,hy+1900,650),(hx,hy,430)),
+           (eye,island_local),((-61000,-1200,ground(-61000,-1200)+175),(-60000,3000,ground(-60000,3000)+100)),
+           ((qx+1200,qy-1200,ground(qx,qy)+550),(qx,qy,ground(qx,qy)+180))]
+    for i,(p,target) in enumerate(views):anchor('View%d'%i,p,target)
     # Save reusable material-zone meshes. Each actor is tightly scoped/tagged;
     # real triangle collision preserves balconies, hangar openings and paths.
     mesh_count=0;triangle_count=0

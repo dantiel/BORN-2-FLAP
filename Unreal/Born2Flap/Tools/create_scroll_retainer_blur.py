@@ -9,7 +9,8 @@ void. Output is pre-multiplied alpha for the retainer's AlphaComposite blend.
 
 Scalar params (drive the dynamic instance):
 
-    EdgeSize     0..0.5  normalized half-band (the "safe area")
+    EdgeSize     0..0.5  normalized TOP half-band (tucks under header/tabs)
+    EdgeBottom   0..0.5  normalized BOTTOM half-band (small: no bottom safe-area)
     Amount       0..1    progressive-blur falloff width
     BlurRadius   >0      max blur radius in UV units
     Refract      0..1    refraction warp strength (hammered glass / water)
@@ -54,7 +55,8 @@ def conn(a, b, pin, output=''):
 
 uv = expr('TextureCoordinate')
 
-edge = scalar('EdgeSize', 0.24)
+edge = scalar('EdgeSize', 0.10)
+edge_bottom = scalar('EdgeBottom', 0.05)
 amount = scalar('Amount', 0.65)
 blur_radius = scalar('BlurRadius', 0.02)
 refract = scalar('Refract', 0.35)
@@ -65,25 +67,27 @@ void = scalar('Void', 0.9)
 # Output float4 = (blur, alpha, warp, unused).
 math_n = expr('Custom', code='''
 float2 p = UV;
-float e = clamp(EdgeSize, 0.001, 0.5);
+float eTop = clamp(EdgeSize, 0.001, 0.5);
+float eBot = clamp(EdgeBottom, 0.001, 0.5);
 float s = max(RefractScale, 0.001);
 float n1 = sin(p.y*s*3.7 + sin(p.x*s*2.3)) * cos(p.x*s*2.9 + p.y*s*1.7);
 float n2 = sin(p.y*s*8.1 + p.x*s*5.3);
 float noise = 0.5 + 0.5*(n1*0.6 + n2*0.4);
-float band = max(saturate(1.0 - p.y/e), saturate(1.0 - (1.0-p.y)/e));
+float band = max(saturate(1.0 - p.y/eTop), saturate(1.0 - (1.0-p.y)/eBot));
 float blur = smoothstep(0.0, 1.0, saturate((band - (1.0-Amount)) / max(Amount, 0.001)));
 float warp = (noise - 0.5) * Refract * 0.08 * blur;
 float alpha = 1.0 - blur * Void;
 return float4(blur, alpha, warp, 0.0);
 ''', output_type=u.CustomMaterialOutputType.CMOT_FLOAT4)
 pins = []
-for nm in ['UV', 'EdgeSize', 'Amount', 'Refract', 'RefractScale', 'Void']:
+for nm in ['UV', 'EdgeSize', 'EdgeBottom', 'Amount', 'Refract', 'RefractScale', 'Void']:
     cpin = u.CustomInput()
     cpin.set_editor_property('input_name', nm)
     pins.append(cpin)
 math_n.set_editor_property('inputs', pins)
 conn(uv, math_n, 'UV')
 conn(edge, math_n, 'EdgeSize')
+conn(edge_bottom, math_n, 'EdgeBottom')
 conn(amount, math_n, 'Amount')
 conn(refract, math_n, 'Refract')
 conn(refract_scale, math_n, 'RefractScale')

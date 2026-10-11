@@ -141,12 +141,12 @@ FString ToneOf(const FProps& Props)
     return it == Props.end() ? FString() : Str(it->second);
 }
 
-// The "safe-area bar" band, normalized to the primary display height. Used as
-// the default progressive-blur edge so the dissolve respects the notch /
-// home-indicator inset instead of hiding the interaction surface behind glass.
+// The TOP "safe-area bar" band, normalized to the primary display height. Used
+// as the default progressive-blur top edge so the dissolve respects the notch /
+// title-safe inset and tucks under the panel header + tabs (opaque overlays).
 float AutoSafeAreaEdge()
 {
-    float Edge = 0.24f;
+    float Edge = 0.10f;
     if (FSlateApplication::IsInitialized())
     {
         FDisplayMetrics Metrics;
@@ -157,6 +157,14 @@ float AutoSafeAreaEdge()
             Edge = FMath::Clamp(Inset / H, 0.02f, 0.5f);
     }
     return Edge;
+}
+
+// The BOTTOM dissolve band. There is no bottom safe-area (home indicator) on
+// desktop — only a small floating footer button — so keep it small instead of
+// mirroring the top band. The dissolve then hugs the panel's bottom edge.
+float AutoSafeAreaBottomEdge()
+{
+    return 0.05f;
 }
 
 // Does a widget (or any descendant) contain a scrollable region? A ScrollBlur
@@ -552,7 +560,7 @@ UWidget* UBorn2FlapUIRenderer::CreateInstance(const std::string& Type)
         T == TEXT("Gauge") || T == TEXT("Banner") || T == TEXT("Button") ||
         T == TEXT("Slider") || T == TEXT("Toggle") || T == TEXT("Select") ||
         T == TEXT("Segment") || T == TEXT("Dropdown") || T == TEXT("NumberBox") || T == TEXT("Field") ||
-        T == TEXT("Section") ||
+        T == TEXT("Caption") || T == TEXT("Section") ||
         T == TEXT("Divider") || T == TEXT("ScrollBlur"))
     {
         return BuildComponent(T);
@@ -881,6 +889,25 @@ UBorn2FlapComposite* UBorn2FlapUIRenderer::BuildComponent(const FString& Type)
         C->Parts.Add(TEXT("text"), Text);
         return C;
     }
+    if (Type == TEXT("Caption"))
+    {
+        // A floating header pill (mirrors the Panel's title caption) — used by
+        // scroll pages so the header overlays the scroll instead of pushing it
+        // down, letting content dissolve underneath it.
+        UBorn2FlapComposite* C = NewComposite(this, TEXT("Caption"));
+        C->SetPadding(FMargin(0.f));
+        UBorder* Pill = NewObject<UBorder>(this);
+        Pill->SetBrush(FSlateRoundedBoxBrush(FLinearColor(.04f,.065f,.075f,.88f),3.f,FLinearColor(.6f,.48f,.27f,.7f),1.f));
+        Pill->SetPadding(FMargin(12,6));
+        UTextBlock* Title = NewObject<UTextBlock>(this);
+        Title->SetFont(theme::Font(TEXT("s"), 12, true));
+        Title->SetColorAndOpacity(FSlateColor(theme::FG_DIM()));
+        Pill->SetContent(Title);
+        C->SetContent(Pill);
+        C->Parts.Add(TEXT("title"), Title);
+        C->Parts.Add(TEXT("pill"), Pill);
+        return C;
+    }
     if (Type == TEXT("Button"))
     {
         UBorn2FlapComposite* C = NewComposite(this, TEXT("Button"));
@@ -1197,11 +1224,13 @@ void UBorn2FlapUIRenderer::ApplyCompositeProps(UBorn2FlapComposite* C, const FPr
     else if (Type == TEXT("ScrollBlur"))
     {
         // Progressive content blur via the retainer effect material. `edge` is
-        // the safe zone as a normalized half-band (0..0.5); "auto" (or absent)
-        // derives it from the platform safe-area inset so the dissolve never
-        // hides the notch / home-indicator surface. `blur` is the max blur
-        // radius in UV units; `amount` widens the blur falloff; `refract` /
-        // `refractScale` tune the hammered-glass warp; `void` sets the dissolve.
+        // the TOP safe zone as a normalized half-band (0..0.5); "auto" (or
+        // absent) derives it from the title-safe inset so the dissolve tucks
+        // under the panel header + tabs. `edgeBottom` is the BOTTOM half-band —
+        // smaller by default since there is no bottom safe-area to hide behind.
+        // `blur` is the max blur radius in UV units; `amount` widens the blur
+        // falloff; `refract` / `refractScale` tune the hammered-glass warp;
+        // `void` sets the dissolve.
         URetainerBox* Retainer = Cast<URetainerBox>(C->Part(TEXT("retainer")));
         if (Retainer)
         {
@@ -1212,6 +1241,13 @@ void UBorn2FlapUIRenderer::ApplyCompositeProps(UBorn2FlapComposite* C, const FPr
                 if (E.kind != FValue::Kind::String)
                     Edge = FMath::Clamp((float)E.AsNumber(Edge), 0.0f, 0.5f);
                 // "auto" keeps the safe-area-derived default.
+            }
+            float EdgeBottom = AutoSafeAreaBottomEdge();
+            if (Props.count("edgeBottom"))
+            {
+                const FValue& E = Props.at("edgeBottom");
+                if (E.kind != FValue::Kind::String)
+                    EdgeBottom = FMath::Clamp((float)E.AsNumber(EdgeBottom), 0.0f, 0.5f);
             }
 
             auto PropFloat = [&](const char* Key, float Dflt) -> float
@@ -1227,6 +1263,7 @@ void UBorn2FlapUIRenderer::ApplyCompositeProps(UBorn2FlapComposite* C, const FPr
                 Params[Name] = V;
             };
             SParam("EdgeSize",     Edge);
+            SParam("EdgeBottom",   EdgeBottom);
             SParam("Amount",       PropFloat("amount", 0.65f));
             SParam("BlurRadius",   PropFloat("blur", 0.02f));
             SParam("Refract",      PropFloat("refract", 0.35f));
@@ -1335,6 +1372,13 @@ void UBorn2FlapUIRenderer::ApplyCompositeProps(UBorn2FlapComposite* C, const FPr
             if (Text) Text->SetColorAndOpacity(FSlateColor(ToneColor));
         }
         StyleText(Text, Props);
+    }
+    else if (Type == TEXT("Caption"))
+    {
+        UTextBlock* Title = Cast<UTextBlock>(C->Part(TEXT("title")));
+        if (Props.count("text") && Title) SetText(Title, Props.at("text"));
+        else if (Props.count("label") && Title) SetText(Title, Props.at("label"));
+        if (!Tone.IsEmpty() && Title) Title->SetColorAndOpacity(FSlateColor(ToneColor));
     }
     else if (Type == TEXT("Button"))
     {

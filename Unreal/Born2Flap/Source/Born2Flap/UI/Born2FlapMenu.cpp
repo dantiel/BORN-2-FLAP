@@ -49,24 +49,34 @@ FNode Nd(const char* Type, FProps Props = {}, std::vector<FNode> Children = {})
     return N_;
 }
 
-// A scroll page: the ScrollBlur fills the whole content area while the tab bar
-// and footer float above it (top / bottom). The dissolve band runs underneath
-// them, and the scroll content's internal `pad` lets the first/last rows scroll
-// clear of it.
-FNode ScrollPage(FNode Tabs, FNode Scroll, FNode Footer)
+// A scroll page: the ScrollBlur fills the whole content area (top to bottom)
+// while the header caption, tab bar and footer float above it as overlays. The
+// dissolve bands run underneath them — so the content scrolls under the header
+// and tabs instead of clipping at a hard edge below them.
+FNode ScrollPage(FNode Header, FNode Tabs, FNode Scroll, FNode Footer)
 {
     return Nd("Overlay", P({}), {
         std::move(Scroll),
-        Nd("Overlay", P({ {"visible", B(true)}, {"valign", S("top")} }), { std::move(Tabs) }),
+        Nd("Overlay", P({ {"visible", B(true)}, {"valign", S("top")} }), {
+            Nd("VerticalBox", P({ {"spacing", N(12)}, {"visible", B(true)} }), {
+                Nd("Overlay", P({ {"align", S("left")}, {"visible", B(true)} }), { std::move(Header) }),
+                std::move(Tabs),
+            }),
+        }),
         Nd("Overlay", P({ {"visible", B(true)}, {"valign", S("bottom")} }), { std::move(Footer) }),
     });
 }
 
-FNode ScrollPage(FNode Tabs, FNode Scroll)
+FNode ScrollPage(FNode Header, FNode Tabs, FNode Scroll)
 {
     return Nd("Overlay", P({}), {
         std::move(Scroll),
-        Nd("Overlay", P({ {"visible", B(true)}, {"valign", S("top")} }), { std::move(Tabs) }),
+        Nd("Overlay", P({ {"visible", B(true)}, {"valign", S("top")} }), {
+            Nd("VerticalBox", P({ {"spacing", N(12)}, {"visible", B(true)} }), {
+                Nd("Overlay", P({ {"align", S("left")}, {"visible", B(true)} }), { std::move(Header) }),
+                std::move(Tabs),
+            }),
+        }),
     });
 }
 
@@ -319,23 +329,21 @@ void ABorn2FlapMenu::Build()
 
     if (NavPage == 2)
     {
-        PaneTitle = Born2Flap::I18n::T("menu.settings");
         BuildPreferences(PaneChildren);
         ContentPane = Nd("SizeBox", P({ {"width", N(1040)}, {"height", N(860)} }),
         {
-            Nd("Panel", P({ {"title", S(PaneTitle)}, {"bg", S("solid")}, {"padding", N(26)}, {"spacing", N(12)} }), std::move(PaneChildren))
+            Nd("Panel", P({ {"bg", S("solid")}, {"padding", N(26)}, {"spacing", N(12)} }), std::move(PaneChildren))
         });
     }
     else if (NavPage == 1)
     {
-        PaneTitle = Born2Flap::I18n::T("menu.flight_desk");
         // ---- FLIGHT DESK page: the integrated tuning panel ----
         // Always reachable (home screen or in-level). Edits live in Settings and
         // are mirrored into the bird when one is present.
         BuildFlightDesk(PaneChildren);
         ContentPane = Nd("SizeBox", P({ {"width", N(1040)}, {"height", N(860)} }),
         {
-            Nd("Panel", P({ {"title", S(PaneTitle)}, {"bg", S("solid")}, {"padding", N(26)}, {"spacing", N(12)} }), std::move(PaneChildren))
+            Nd("Panel", P({ {"bg", S("solid")}, {"padding", N(26)}, {"spacing", N(12)} }), std::move(PaneChildren))
         });
     }
     else
@@ -504,8 +512,8 @@ void ABorn2FlapMenu::Build()
 void ABorn2FlapMenu::BuildFlightDesk(std::vector<FNode>& Out)
 {
     // The hosting Panel sits at root path {1,1,0}; its single child is the
-    // ScrollPage Overlay: [0]=ScrollBlur, [1]=tabs Select, [2]=footer. Rows
-    // hang off the ScrollBlur's VBox at {1,1,0,0,0,0}.
+    // ScrollPage Overlay: [0]=ScrollBlur, [1]=header+tabs overlay, [2]=footer.
+    // Rows hang off the ScrollBlur's VBox at {1,1,0,0,0,0}.
     // The desk is purely the hangar — choose the aircraft and tune it. Global
     // preferences (camera, audio, input, replay) live in SETTINGS → GENERAL.
     static const TArray<int32> VBox{ 1, 1, 0, 0, 0, 0 };
@@ -672,6 +680,7 @@ void ABorn2FlapMenu::BuildFlightDesk(std::vector<FNode>& Out)
     Rows.back().props["visible"]=B(false);
 
     Out.push_back(ScrollPage(
+        Nd("Caption", P({ {"text", S(Born2Flap::I18n::T("menu.flight_desk"))} })),
         std::move(Tabs),
         Nd("ScrollBlur", P({ {"pad", N(200)} }), { Nd("VerticalBox", P({ { "spacing", N(12)} }), std::move(Rows)) }),
         std::move(Footer)));
@@ -806,7 +815,9 @@ void ABorn2FlapMenu::BuildPreferences(std::vector<FNode>& Out)
             Rows.push_back(Nd("Stat", P({ {"label", S(AxisLabel)}, {"value", N(Axes[I])}, {"tone", S(Avail[I] ? "info" : "dim")} })));
         }
 
-        Out.push_back(ScrollPage(std::move(Tabs),
+        Out.push_back(ScrollPage(
+            Nd("Caption", P({ {"text", S(Born2Flap::I18n::T("menu.settings"))} })),
+            std::move(Tabs),
             Nd("ScrollBlur", P({ {"pad", N(200)} }), { Nd("VerticalBox", P({ { "spacing", N(12)} }), std::move(Rows)) })));
     }
     else if (PrefsPage == 1)
@@ -985,7 +996,9 @@ void ABorn2FlapMenu::BuildPreferences(std::vector<FNode>& Out)
                 Rows.push_back(Nd("Button", std::move(Props)));
             }
 
-            Out.push_back(ScrollPage(std::move(Tabs),
+            Out.push_back(ScrollPage(
+                Nd("Caption", P({ {"text", S(Born2Flap::I18n::T("menu.settings"))} })),
+                std::move(Tabs),
                 Nd("ScrollBlur", P({ {"pad", N(200)} }), { Nd("VerticalBox", P({ { "spacing", N(12)} }), std::move(Rows)) })));
         }
     }
@@ -1021,7 +1034,9 @@ void ABorn2FlapMenu::BuildPreferences(std::vector<FNode>& Out)
             Props["tone"] = S("danger");
             Rows.push_back(Nd("Button", std::move(Props)));
         }
-        Out.push_back(ScrollPage(std::move(Tabs),
+        Out.push_back(ScrollPage(
+            Nd("Caption", P({ {"text", S(Born2Flap::I18n::T("menu.settings"))} })),
+            std::move(Tabs),
             Nd("ScrollBlur", P({ {"pad", N(200)} }), { Nd("VerticalBox", P({ { "spacing", N(10)} }), std::move(Rows)) })));
     }
 }
