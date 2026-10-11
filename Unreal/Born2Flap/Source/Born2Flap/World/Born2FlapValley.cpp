@@ -79,6 +79,32 @@ FString ABorn2FlapValley::PlaceName(double X,double Y)
     if(FMath::Abs(Y)<6000 && X>-14000 && X<30000) return TEXT("LONG MEADOW / FLIGHT FIELD");
     return TEXT("RAVENSTONEFIELD");
 }
+double ABorn2FlapValley::TopHeight(double X,double Y)
+{
+    const double G=GroundHeight(X,Y);
+    double H=G;
+    // Forest canopy: the fir/oak stands read as a ~12 m low obstacle so wind
+    // piles against the treeline. Mirrors PlantForest's density field (same
+    // noise threshold and dry-land gating — G>=70 already excludes water since
+    // WaterHeight is -120); the windward edge is where lift lives. The flight
+    // meadow stays cleared so the launch field stays calm.
+    const bool Cleared = X>-20000 && X<38500 && Y>-14000 && Y<RiverCentre(X/100.)*100.+1000.;
+    if(!Cleared && G>=70 && Noise(X*.000047,Y*.000047)>=-.14)
+        H+=1200.;
+    // Key structures read as tall obstacles for windward upwash. Positions and
+    // rough tops mirror Born2FlapRavenLandmarks (barns, panel housing, the
+    // ornithopter works, Raven Watch) — keep them in step together.
+    const auto Bump=[&](double Cx,double Cy,double Rx,double Ry,double Top)
+    { H=FMath::Max(H,G+Top*FMath::Exp(-FMath::Square((X-Cx)/Rx)-FMath::Square((Y-Cy)/Ry))); };
+    for(const FVector2D& S:{FVector2D(-27000,-19000),FVector2D(-8500,-21000),
+        FVector2D(27000,-15500),FVector2D(32000,-13500),FVector2D(34000,-20000)})
+        Bump(S.X,S.Y,1400.,900.,800.);
+    for(int Block=0;Block<4;++Block)
+        Bump(-46000.+Block*5500.,-37000.-(Block%2)*5200.,2200.,700.,1500.+(Block%2)*300.);
+    Bump(-16000.,-15500.,3500.,2500.,1000.);   // Ravenstone Ornithopter Works
+    Bump(29000.,20500.,3200.,3200.,1650.);     // Raven Watch gatehouse
+    return H;
+}
 void ABorn2FlapValley::BuildWorld()
 {
     TArray<UActorComponent*> Previous; GetComponents(Previous);

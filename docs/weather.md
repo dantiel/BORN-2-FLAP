@@ -40,6 +40,36 @@ The coastline formula and break timing are shared with the surf audio. Wind
 changes breaker strength while persistent swell remains during calm weather.
 This is a procedural coastal approximation, not a fluid-dynamics solver.
 
+## Wind and terrain/building interaction
+
+The atmospheric field is layered; it matters which parts of "wind hitting
+terrain, houses or trees" are *simulated* versus *authored*:
+
+- **Drifting thermals** (`Born2FlapWind::Sample`, `World/Born2FlapWind.cpp`)
+  are buoyant updraft columns that wander with time. They are **not tied to
+  terrain** — they do not know about sun-baked rock or south-facing slopes.
+- **Windward lift** (`Born2FlapWind::WindwardLift`, `World/Born2FlapWind.cpp`)
+  is the general, *direction-aware* orographic/obstacle updraft. It probes the
+  upwind side of a point over log-spaced distances and turns the steepest relief
+  ratio (rise/run) into vertical velocity, fading as the bird climbs above the
+  obstacle. Near probes feel walls, buildings and trees; far probes feel
+  ridgelines and foothills.
+- **Obstacle-top samplers** feed `WindwardLift` per level:
+  - `Born2FlapBay::TopHeight` (`World/Born2FlapBayTerrain.cpp`) = terrain plus
+    the promenade sea wall (the former hard-coded `P.Y=-1400` Gaussian is now
+    derived from this step).
+  - `ABorn2FlapValley::TopHeight` (`World/Born2FlapValley.cpp`) = terrain plus
+    an approximate ~12 m forest canopy (same noise field as `PlantForest`) plus
+    the barns, panel housing, ornithopter works and Raven Watch.
+- **Shiomori wind exposure** (`Born2FlapBay::WindExposure`,
+  `World/Born2FlapBayTerrain.cpp`) is *direction-aware* and still produces
+  **shelter** (wind reduction in the lee of headlands/buildings); it now
+  composes with `WindwardLift` so windward faces lift and lee sides shelter.
+
+**Wiring** (`Born2FlapWeather::Wind`, `World/Born2FlapWeatherProfiles.cpp`):
+Shiomori layers `WindwardLift` over `WindExposure`; Ravenstonefield layers it
+over thermals. Training stays neutral (no lift, no shelter).
+
 ## Development and verification
 
 Profiles and allowed combinations live in `World/Born2FlapWeatherProfiles.cpp`.
