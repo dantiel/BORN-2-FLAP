@@ -22,9 +22,12 @@ comes only from the motion term (a flap stroke or pitch flick spikes the wing's
 angular velocity and gates the hiss in bursts). Because the SAME excitation
 drives it, a fast glide and a quick pitch flick sound like flapping — the
 flutter is present in glide, flap and manoeuvre alike, not gated to the stroke.
-The glide's signature is a continuous aero *whistle* — a narrowband tone pitched
-by airspeed (≈380 + 46·speed Hz) with a slow vibrato and band-limited breath —
-plus a steady, flat-envelope air *whoosh* (broadband noise, airspeed-gated). Its
+The glide's signature is a steady, flat-envelope air *whoosh* (broadband noise,
+airspeed-gated) plus a LOW, soft *wind-breath* — a gentle airflow body pitched by
+airspeed (≈170 + 16·speed Hz, dropped well below the membrane) with a slow vibrato
+and mostly band-limited breath. The earlier high narrowband "feather-slot whistle"
+(≈380 + 46·speed Hz with 2×/3× partials) was removed: it read as a whining
+window-gap, like air forced through a small hole. Its
 only rhythmic content is a SUBTLE wingbeat pump — a ±10 % amplitude swell at the
 measured flap rate that is carried entirely by the whoosh/paper noise bed (never
 a tonal pulse), so a flapping wing breathes gently without the hard on/off knock

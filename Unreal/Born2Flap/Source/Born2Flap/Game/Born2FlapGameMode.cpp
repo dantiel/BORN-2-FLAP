@@ -565,15 +565,16 @@ void ABorn2FlapGameMode::PopulatePOIs()
         }
         // The adapted-hotel campus on the west headland (SITE_OFFSET=-12000,24000
         // in shiomori_campus.py) — named reset points for the newest landmarks:
-        // the hotel forecourt, the torii + shrine park, the far-west pine grove,
-        // and the service side (launch field + hangar).
+        // the hotel forecourt, the shrine park garden (kept off the hokora and
+        // torii themselves), the beach before the volcanic islet, the far-west
+        // pine grove, and the service side (launch field + hangar).
         // The founder fountain forecourt sits on the hand-placed hotel terrace
         // (top at Z=900 in world space); the procedural GroundHeight() sampler
         // only knows the underlying headland (~606), so an explicit Z keeps the
         // reset point above the terrace instead of inside it (underground).
         AddPoi(TEXT("poi.campus_hotel"), FVector(-70600.0, 15000.0, 980.0));  // founder fountain forecourt
-        AddPoi(TEXT("poi.torii"),        -68500.0, 27000.0);  // gate framing the islet
-        AddPoi(TEXT("poi.shrine_park"),  -70000.0, 30200.0);  // hokora + cherry/bonsai
+        AddPoi(TEXT("poi.shrine_park"),  -71500.0, 24000.0);  // garden on the approach, not the hokora
+        AddPoi(TEXT("poi.island_beach"), -44800.0,  9500.0);  // beach before the volcanic islet
         AddPoi(TEXT("poi.pine_grove"),   -86500.0, 17500.0);  // far-west pine forest
         AddPoi(TEXT("poi.launch_field"), -67300.0,  7050.0);  // flight test field
         AddPoi(TEXT("poi.hangar"),       -71000.0, -4000.0);  // workshop apron

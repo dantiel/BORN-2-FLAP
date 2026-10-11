@@ -294,7 +294,7 @@ def build_materials(wing_tex, body_tex):
     connect(time, '', tmul, 'A')
     connect(tspeed, '', tmul, 'B')
     osc = node(wing, 'Sine')
-    connect(tmul, '', osc, 'Input')
+    connect(tmul, '', osc, '')
     osc_amp = node(wing, 'Constant', r=0.4)
     osc_scaled = node(wing, 'Multiply')
     connect(osc, '', osc_scaled, 'A')

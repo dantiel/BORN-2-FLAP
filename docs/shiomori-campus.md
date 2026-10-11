@@ -27,6 +27,29 @@ The available static bird asset was a 100 cm-long kestrel fuselage; a complete l
 
 ## Rebuild
 
+For the imported shrine, install the source files once with
+`python Unreal/Born2Flap/Tools/fetch_shrine_assets.py`, then run
+`python Unreal/Born2Flap/Tools/flatten_shrine_glb.py`. The flattening step bakes
+node transforms into a single mesh while retaining material slots, UVs and
+textures; it does not replace the artist's surfaces with generic colors.
+`fetch_campus_plants.py` supplies the flowering plants and photographed grass,
+pine-needle litter and mossy rock textures. Imported `.uasset` files are portable
+and do not require these download steps to play the level.
+
+The torii is **Japanese Torii gate Game Asset by Bazylonator** and the small
+hokora is **Small Japanese Shrine by SamRi**, both CC BY 4.0, obtained from
+Ai2's public Objaverse mirror. Source links, license links and adaptation notes
+are in `Content/ThirdParty/Shiomori-assets.txt`; that directory is configured
+for loose-file staging in packaged builds. The larger GreenG shrine was
+reviewed but rejected because its long raised corridor does not fit this site.
+
+The former primitive gate and shrine are removed during the tagged rebuild.
+The island-facing approach is now a ribbon of irregular, bevelled mossy slabs
+set in pine-needle litter, with photographic litter patches beneath evergreen
+groups. The final approach aligns with the gate opening. Ground sampling
+matches the native terrain's 10 m triangle interpolation so small flowers and
+slabs sit on the rendered surface rather than its underlying analytical curve.
+
 Close the running game/editor first to prevent map locks. Back up the current map, then run from the repository root:
 
 ```powershell
@@ -61,3 +84,27 @@ Inspect screenshots as well as logs: collision traces cannot establish architect
 Remaining deliberate placeholders: the founder's likeness, the experimental aircraft study models, and closed/unfurnished guest-room interiors. Imported firs are reused as the coastal evergreens; no new botanical pine asset was acquired.
 
 The final seven captures, passing logs and rebuild manifest are preserved locally in `.setup/campus-20261010/verified/` so future tests do not overwrite this evidence. Review the [hotel front](../.setup/campus-20261010/verified/CAMPUS_Shiomori_sunny_1.png), [aerial layout](../.setup/campus-20261010/verified/CAMPUS_Shiomori_sunny_2.png), [daylit hangar](../.setup/campus-20261010/verified/CAMPUS_Shiomori_sunny_3.png) and [torii framing the island](../.setup/campus-20261010/verified/CAMPUS_Shiomori_sunny_4.png).
+
+### Park and imported shrine verification, 11 October 2026
+
+- The saved campus now has 1,667 tagged actors, including 1,522 planted assets;
+  all 143 volcanic actors remain unchanged. Hotel center: (-71500,10300) cm.
+- One imported torii, 480 cm high and 524.45 cm wide, and one imported hokora,
+  360 cm high and 205.94 cm wide. Original primitive shrine batches are absent.
+  The shrine faces its approach; the torii retains the clear island view.
+- Seven rendered views inspected. `CampusTest PASS`, `WeatherExperienceTest PASS`,
+  soundscape waveform check PASS and `ShiomoriTest PASS`. The 6 m handling
+  envelope, hotel terrace, path, launch field and shrine collision probes pass.
+- Repeatable D3D12 `NodeAndClusterCull` startup page faults were avoided by
+  `r.Nanite.AsyncRasterization=0` in DefaultEngine.ini. Nanite remains enabled;
+  this changes scheduling, not geometric quality. It is a tested workaround on
+  this machine, not a proven driver/engine root-cause fix or a cross-GPU benchmark.
+- The render check also exposed a disconnected Sine input in the existing
+  insect-wing material. Its connection and generator were repaired; the final
+  run has no material compilation errors. Existing insect Nanite usage warnings
+  remain outside the campus asset work.
+- Evidence: `.setup/shiomori-park-20261010/verified/`, including seven PNGs,
+  both passing logs, the rebuild report and numeric asset audit. The model
+  flattening utility uses NumPy. `-B2FCampusPlacementOnly` may be supplied to
+  the rebuild command when only geometry/placement changed and all campus
+  materials already exist; omit it after editing material definitions.

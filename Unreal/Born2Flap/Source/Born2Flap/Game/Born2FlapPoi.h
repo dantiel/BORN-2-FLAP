@@ -37,7 +37,7 @@ namespace Born2FlapPoi
             for (const TCHAR* K : { TEXT("poi.shiomori_beach"), TEXT("poi.bay_overlook"),
                                     TEXT("poi.basalt_cove"),
                                     TEXT("poi.east_vegetation"), TEXT("poi.west_vegetation"),
-                                    TEXT("poi.campus_hotel"), TEXT("poi.torii"), TEXT("poi.shrine_park"),
+                                    TEXT("poi.campus_hotel"), TEXT("poi.island_beach"), TEXT("poi.shrine_park"),
                                     TEXT("poi.pine_grove"), TEXT("poi.launch_field"), TEXT("poi.hangar") })
             {
                 FBorn2FlapPoi P; P.Key = K; Out.Add(P);

@@ -112,11 +112,12 @@ module Born2Flap
             "flutter" => clamp01(glide_sep + 0.7 * motion_sep),
             "tone" => clamp01(1.0 - t.phase_error_rad.abs / 0.5),
             "whoosh" => clamp01(t.airspeed / 22.0),
-            # "whistle" — the continuous aero tone (air over feather slots) that
-            # dominates a fast glide: a uniform whistle rather than a knock. It is
-            # ∝ airspeed and eases a touch while flapping hard (the downstroke
-            # thump already fills the band).
-            "whistle" => clamp01(t.airspeed / 18.0) * (0.7 + 0.3 * (1.0 - flap_drive)),
+            # "whistle" — a LOW, soft airstream body (see the synth's wind-breath
+            # reshape): a gentle ∝-airspeed ramp that only swells at high speed and
+            # eases while flapping hard (the downstroke thump already fills the
+            # band). The old /18 ramp with a high narrowband tone read as a whining
+            # window-gap.
+            "whistle" => clamp01(t.airspeed / 26.0) * (0.7 + 0.3 * (1.0 - flap_drive)),
             "brightness" => clamp01(t.airspeed / 40.0),
             # "crack" is the papery-whoosh blend weight — the early-attack hiss the
             # wing's direct lift response makes ("phi activates early"), a broad
