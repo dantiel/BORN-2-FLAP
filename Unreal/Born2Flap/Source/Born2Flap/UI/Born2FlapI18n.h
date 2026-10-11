@@ -135,7 +135,7 @@ static const Entry En[] =
         { "poi.east_vegetation", "EAST VEGETATION" },
         { "poi.west_vegetation", "WEST VEGETATION" },
         { "poi.campus_hotel", "HOTEL CAMPUS" },
-        { "poi.torii", "TORII GATE" },
+        { "poi.island_beach", "ISLAND BEACH" },
         { "poi.shrine_park", "SHRINE PARK" },
         { "poi.pine_grove", "WEST PINE GROVE" },
         { "poi.launch_field", "FLIGHT TEST FIELD" },
@@ -366,7 +366,7 @@ static const Entry De[] =
         { "poi.east_vegetation", "OST-VEGETATION" },
         { "poi.west_vegetation", "WEST-VEGETATION" },
         { "poi.campus_hotel", "HOTEL-CAMPUS" },
-        { "poi.torii", "TORII-TOR" },
+        { "poi.island_beach", "INSELSTRAND" },
         { "poi.shrine_park", "SCHREIN-PARK" },
         { "poi.pine_grove", "WESTLICHER KIEFERNHAIN" },
         { "poi.launch_field", "FLUGTESTFELD" },
@@ -1588,4 +1588,3 @@ static const Entry Zh[] =
         return T(TCHAR_TO_UTF8(*Key));
     }
 }
-

@@ -1262,8 +1262,11 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     VisualRoot->SetRelativeRotation(FRotator::ZeroRotator);
     // A 2-servo ornithopter has one actuator per wing: the flap hinge. The wing
     // rotates around that single axis; pitch and roll are already encoded in
-    // LeftFlap/RightFlap (stroke-centre shift / differential), so there is no
-    // separate shoulder-pitch (incidence) term.
+    // LeftFlap/RightFlap (stroke-centre shift / differential). The mount angle is
+    // a common flap/glide trim: it tilts the whole wing nose-up/nose-down about
+    // the span axis (Pitch), so it must also show in the rendered bird. Positive
+    // mount incidence = nose-up = positive Unreal pitch.
+    const float MountPitch = float(Tuning.mount_angle_deg);
     // Grounded anti-sink: hold the wings near the +16° neutral dihedral so a
     // residual flap cannot dip the tips below the body plane and into the sand.
     // The clamp only bites once the bird is settled (not while flying), so it
@@ -1277,10 +1280,10 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         FlapL = FMath::Clamp(LeftFlap, -12.f, 12.f);
         FlapR = FMath::Clamp(RightFlap, -12.f, 12.f);
     }
-    if (RavenLeftShoulder) RavenLeftShoulder->SetRelativeRotation(FRotator(0, 0, FlapL + 16));
-    if (RavenRightShoulder) RavenRightShoulder->SetRelativeRotation(FRotator(0, 0, -FlapR - 16));
-    LeftShoulder->SetRelativeRotation(FRotator(0, 0, FlapL + 16));
-    RightShoulder->SetRelativeRotation(FRotator(0, 0, -FlapR - 16));
+    if (RavenLeftShoulder) RavenLeftShoulder->SetRelativeRotation(FRotator(MountPitch, 0, FlapL + 16));
+    if (RavenRightShoulder) RavenRightShoulder->SetRelativeRotation(FRotator(MountPitch, 0, -FlapR - 16));
+    LeftShoulder->SetRelativeRotation(FRotator(MountPitch, 0, FlapL + 16));
+    RightShoulder->SetRelativeRotation(FRotator(MountPitch, 0, -FlapR - 16));
     if(MembraneLeftShoulder) MembraneLeftShoulder->SetRelativeRotation(LeftShoulder->GetRelativeRotation());
     if(MembraneRightShoulder) MembraneRightShoulder->SetRelativeRotation(RightShoulder->GetRelativeRotation());
     // Tail-elevator trim, visible in the rendered bird: pitch the tail fan.

@@ -9,7 +9,7 @@ def install(scope, api):
     fm=scope['foliage_meshes'];tag=api['TAG'] if 'TAG' in api else 'ShiomoriCampusV2'
     tx,ty=api['tx'],api['ty'];sight=math.radians(api['sight'])
     direction=(math.cos(sight),math.sin(sight))
-    paths=api['path']+[(api['qx'],5000),(api['qx'],api['qy']-380)]
+    paths=api['path']+api['shrine_path'][1:]
     def segment_distance(x,y,a,b):
         dx,dy=b[0]-a[0],b[1]-a[1];t=max(0,min(1,((x-a[0])*dx+(y-a[1])*dy)/max(1,dx*dx+dy*dy)))
         return math.hypot(x-a[0]-t*dx,y-a[1]-t*dy)

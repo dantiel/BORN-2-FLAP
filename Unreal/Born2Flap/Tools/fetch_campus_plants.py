@@ -15,11 +15,11 @@ def main():
     ROOT.joinpath(name).mkdir(parents=True,exist_ok=True)
     ROOT.joinpath(name,'source.json').write_text(json.dumps({'source':'https://polyhaven.com/a/'+name,'license':'CC0','gltf':entry,'opacity':opacity},indent=2))
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:list(pool.map(fetch,jobs))
-    ground='leafy_grass'
-    files=json.loads(read('https://api.polyhaven.com/files/'+ground))
-    jobs=[(ROOT/ground/(channel+'.jpg'),files[channel]['2k']['jpg']) for channel in ('Diffuse','nor_dx','Rough')]
-    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:list(pool.map(fetch,jobs))
-    ROOT.joinpath(ground,'source.json').write_text(json.dumps({'source':'https://polyhaven.com/a/'+ground,'license':'CC0','files':dict((p.name,info) for p,info in jobs)},indent=2))
+    for ground in ('leafy_grass','forrest_ground_03','mossy_rock'):
+        files=json.loads(read('https://api.polyhaven.com/files/'+ground))
+        jobs=[(ROOT/ground/(channel+'.jpg'),files[channel]['2k']['jpg']) for channel in ('Diffuse','nor_dx','Rough')]
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:list(pool.map(fetch,jobs))
+        ROOT.joinpath(ground,'source.json').write_text(json.dumps({'source':'https://polyhaven.com/a/'+ground,'license':'CC0','files':dict((p.name,info) for p,info in jobs)},indent=2))
     print('CAMPUS_PLANT_SOURCES_READY')
 
 if __name__=='__main__':main()

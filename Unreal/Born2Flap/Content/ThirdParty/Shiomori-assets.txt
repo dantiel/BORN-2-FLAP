@@ -1,0 +1,44 @@
+SHIOMORI CAMPUS ASSET ATTRIBUTION
+
+Japanese Torii gate Game Asset by Bazylonator
+https://sketchfab.com/3d-models/e12d2fa1b2b94928b8b87cb7787e2462
+Creative Commons Attribution 4.0: https://creativecommons.org/licenses/by/4.0/
+Changes: node transforms baked, scaled and oriented for the coastal setting;
+Unreal material conversion, collision and generated LODs.
+
+Small Japanese Shrine by SamRi (Samiri)
+https://sketchfab.com/3d-models/b78796a957a24cb092092a15efcec040
+Creative Commons Attribution 4.0: https://creativecommons.org/licenses/by/4.0/
+Changes: mesh parts combined with original materials and UVs retained; scaled
+and placed on the peninsula; Unreal material conversion, collision and LODs.
+
+These two files were obtained from Ai2's public Objaverse archive.
+https://huggingface.co/datasets/allenai/objaverse
+Dataset attribution: Deitke et al., Objaverse: A Universe of Annotated 3D Objects,
+2022. Database license: https://opendatacommons.org/licenses/by/1-0/
+The individual objects retain the authors' CC-BY 4.0 licenses above.
+
+Powered by Poly Haven. CC0 photographic assets:
+https://polyhaven.com/a/periwinkle_plant
+https://polyhaven.com/a/leafy_grass
+https://polyhaven.com/a/forrest_ground_03
+https://polyhaven.com/a/mossy_rock
+https://polyhaven.com/a/forest_ground_04
+https://polyhaven.com/a/fir_sapling_medium
+https://polyhaven.com/a/grass_medium_01
+https://polyhaven.com/a/rock_moss_set_01
+https://polyhaven.com/a/island_tree_01
+https://polyhaven.com/a/jacaranda_tree
+https://polyhaven.com/a/fern_02
+https://creativecommons.org/publicdomain/zero/1.0/
+
+Founder character: Game ready Pirate Hunter / Viking / Medieval man
+Author: Chenuka Wijesundara (chenuka_wy)
+https://sketchfab.com/3d-models/9f51d396733b451bab550b406b067805
+CC BY 4.0: https://creativecommons.org/licenses/by/4.0/
+Jacket: Gambeson by Leon Steiner
+https://sketchfab.com/3d-models/gambeson-0fc44d2876ed449ca9473e78c83a8d39
+CC BY 4.0: https://creativecommons.org/licenses/by/4.0/
+Retrieved through Ai2 Objaverse: https://huggingface.co/datasets/allenai/objaverse
+Changes: skeletal pose baked for a 2.8 m bronze sculpture; bronze material
+adaptation retaining original normal maps and masked hair. Original rig retained.
