@@ -125,6 +125,24 @@ def main():
                     LIB.set_metadata_tag(alias, 'B2F_LODVersion', '2')
                     LIB.save_loaded_asset(alias)
 
+    # Nanite: the rock clusters are the only Nature meshes suitable for the
+    # GPU-driven geometry path (opaque; masked two-sided foliage cannot Nanite).
+    # Rocks scatter densely, so moving them to Nanite removes a large chunk of
+    # per-instance CPU raster work. The CPU mesh stays as the Nanite fallback
+    # (allow_cpu_access is already set), which also keeps collision intact.
+    for i in range(4):
+        rock = u.load_asset('/Game/Nature/SM_Rock%d' % i)
+        if not rock:
+            continue
+        try:
+            nanite = u.StaticMeshNaniteSettings()
+            nanite.set_editor_property('enabled', True)
+            MESH.set_nanite_settings(rock, nanite)
+            LIB.save_loaded_asset(rock)
+            u.log('B2F_NANITE SM_Rock%d' % i)
+        except Exception as e:
+            u.log_warning('B2F_NANITE failed SM_Rock%d: %s' % (i, e))
+
     # Repair cutout foliage: the glTF's BLEND material is unsuitable for dense foliage.
     for source, alpha_name in [('fir_sapling_medium', 'twigs_alpha.png'), ('grass_medium_01', 'Alpha.png'),
                                ('jacaranda_tree', 'leaves_alpha.png'), ('island_tree_01', 'leaves_alpha.png'),

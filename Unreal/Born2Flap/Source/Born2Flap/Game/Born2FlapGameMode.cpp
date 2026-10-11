@@ -32,6 +32,7 @@
 #include "Racing/Born2FlapRacing.h"
 #include "Water/Born2FlapWaterDirector.h"
 #include "Water/Born2FlapSurf.h"
+#include "Rendering/Born2FlapGraphics.h"
 #include "Audio/Born2FlapSoundscape.h"
 #include "GameFramework/PlayerController.h"
 #include "Engine/GameViewportClient.h"
@@ -245,6 +246,10 @@ FVector ABorn2FlapGameMode::WindAt(const FVector& P,double Time) const
 void ABorn2FlapGameMode::BeginPlay()
 {
     Super::BeginPlay();
+    // Apply the saved renderer quality tier before any world geometry/atmosphere
+    // spawns, so the very first frame is already in the right Lumen/volumetric
+    // configuration (and HW ray tracing is armed before scene construction).
+    Born2FlapGraphics::ApplySavedOrDefault();
     // F10-while-menu-open capture (see FMenuKeyInputProcessor). The pointer
     // is wired to bMenuOpen so the processor only consumes F10 when the menu is
     // actually on screen — otherwise Escape stays free for the F8 flight desk.
