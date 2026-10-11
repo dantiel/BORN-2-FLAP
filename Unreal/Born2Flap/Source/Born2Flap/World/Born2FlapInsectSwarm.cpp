@@ -21,11 +21,11 @@ auto ABorn2FlapInsectSwarm::Species(EInsectType Type) -> const FSpecies*
 {
     static const FSpecies Table[] = {
         // Name,        Color,                         BodyScale,              WingScale,              SwarmMin, SwarmMax, HeroScale, Speed, Agility, FlapRate, FlapAmp, Wings, Swarm, Heroes, Opaque, Buzzer
-        { TEXT("Butterfly"), FLinearColor(1.00f, 0.55f, 0.15f), FVector(1.0f, 1.0f, 1.4f), FVector(1.2f, 0.9f, 0.05f), 0.35f, 0.60f, 1.00f, 90.f,  2.0f, 6.f,  55.f, 4, 120, 3, false, false },
-        { TEXT("Dragonfly"), FLinearColor(0.15f, 0.85f, 0.80f), FVector(0.6f, 0.6f, 1.6f), FVector(1.0f, 0.35f, 0.04f), 0.45f, 0.70f, 1.40f, 220.f, 3.0f, 28.f, 30.f, 4, 100, 2, false, false },
-        { TEXT("LunarMoth"), FLinearColor(0.92f, 0.94f, 0.85f), FVector(1.3f, 1.3f, 1.0f), FVector(1.4f, 1.1f, 0.05f), 0.60f, 0.90f, 1.30f, 70.f,  1.2f, 4.f,  50.f, 2,  90, 2, false, false },
-        { TEXT("Mantis"),    FLinearColor(0.35f, 0.70f, 0.25f), FVector(0.5f, 0.7f, 1.6f), FVector(1.3f, 0.4f, 0.04f), 0.50f, 0.80f, 1.60f, 60.f,  1.5f, 9.f,  35.f, 4,  80, 2, false, false },
-        { TEXT("BummerBug"), FLinearColor(0.25f, 0.18f, 0.12f), FVector(1.6f, 1.6f, 1.2f), FVector(0.9f, 0.8f, 0.15f), 0.90f, 1.40f, 2.40f, 140.f, 1.0f, 40.f, 18.f, 2,  60, 2, true,  true  },
+        { TEXT("Butterfly"), FLinearColor(1.00f, 0.55f, 0.15f), FVector(1.0f, 1.0f, 1.4f), FVector(1.2f, 0.9f, 0.05f), 0.40f, 0.75f, 1.00f, 90.f,  2.0f, 6.f,  55.f, 4, 180, 6, false, false },
+        { TEXT("Dragonfly"), FLinearColor(0.15f, 0.85f, 0.80f), FVector(0.6f, 0.6f, 1.6f), FVector(1.0f, 0.35f, 0.04f), 0.50f, 0.85f, 1.40f, 220.f, 3.0f, 28.f, 30.f, 4, 150, 5, false, false },
+        { TEXT("LunarMoth"), FLinearColor(0.92f, 0.94f, 0.85f), FVector(1.3f, 1.3f, 1.0f), FVector(1.4f, 1.1f, 0.05f), 0.65f, 1.00f, 1.30f, 70.f,  1.2f, 4.f,  50.f, 2, 130, 4, false, false },
+        { TEXT("Mantis"),    FLinearColor(0.35f, 0.70f, 0.25f), FVector(0.5f, 0.7f, 1.6f), FVector(1.3f, 0.4f, 0.04f), 0.55f, 0.95f, 1.60f, 60.f,  1.5f, 9.f,  35.f, 4, 120, 4, false, false },
+        { TEXT("BummerBug"), FLinearColor(0.25f, 0.18f, 0.12f), FVector(1.6f, 1.6f, 1.2f), FVector(0.9f, 0.8f, 0.15f), 0.95f, 1.50f, 2.40f, 140.f, 1.0f, 40.f, 18.f, 2,  90, 3, true,  true  },
     };
     return &Table[(int32)Type];
 }
@@ -66,6 +66,11 @@ FVector ABorn2FlapInsectSwarm::PickVegetationHome(FRandomStream& R) const
         { -44500.0,  44500.0,  -6500.0, -5400.0, 1.3f }, // backshore scrub
         { -44000.0,  44000.0, -19500.0, -12700.0, 1.0f }, // cultivated fields
         { -48000.0,  48000.0, -34000.0, -19600.0, 0.8f }, // hinterland woodland
+        // The Shiomori campus headland (adapted hotel + coastal garden + shrine
+        // park + hangar apron) sits far WEST of the main beach at X≈-71.5k..-53k,
+        // so it needs its own weighted zones or the insects never visit it.
+        { -72000.0, -53000.0, -30000.0, 11500.0, 2.2f }, // campus headland + garden + shrine park + apron
+        { -53500.0, -45000.0,   2000.0, 19000.0, 1.2f }, // island approach + sheltered lagoon corridor
     };
     float Total = 0.f;
     for (const FVegZone& Z : Zones) Total += Z.Weight;
