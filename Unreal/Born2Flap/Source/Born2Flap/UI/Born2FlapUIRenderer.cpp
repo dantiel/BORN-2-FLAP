@@ -156,7 +156,10 @@ float AutoSafeAreaEdge()
         if (Inset > 0.f)
             Edge = FMath::Clamp(Inset / H, 0.02f, 0.5f);
     }
-    return Edge;
+    // Extend the dissolve band slightly PAST the safe-area inset so a visible
+    // frosted band shows just below the header/tabs — otherwise the blur hides
+    // entirely behind the opaque overlays and cannot be perceived.
+    return FMath::Clamp(Edge + 0.05f, 0.02f, 0.5f);
 }
 
 // The BOTTOM dissolve band. There is no bottom safe-area (home indicator) on
@@ -320,13 +323,13 @@ void ArtSegment(UButton* Button, bool Selected, int32 Index, int32 Count)
     const FVector4 Radii(First ? R : 0.f, Last ? R : 0.f, Last ? R : 0.f, First ? R : 0.f);
 
     FButtonStyle Style;
-    Style.Normal    = FSlateRoundedBoxBrush(Selected ? FLinearColor(.22f,.055f,.035f,.9f) : FLinearColor::Transparent, Radii);
-    Style.Hovered   = FSlateRoundedBoxBrush(Selected ? FLinearColor(.3f,.065f,.04f,.98f) : FLinearColor(.13f,.17f,.18f,.6f), Radii);
-    Style.Pressed   = FSlateRoundedBoxBrush(FLinearColor(.35f,.075f,.045f,1.f), Radii);
+    Style.Normal    = FSlateRoundedBoxBrush(Selected ? FLinearColor(.22f,.055f,.035f,.72f) : FLinearColor::Transparent, Radii);
+    Style.Hovered   = FSlateRoundedBoxBrush(Selected ? FLinearColor(.3f,.065f,.04f,.8f) : FLinearColor(.13f,.17f,.18f,.4f), Radii);
+    Style.Pressed   = FSlateRoundedBoxBrush(FLinearColor(.35f,.075f,.045f,.9f), Radii);
     Style.Disabled  = Style.Normal;
     Style.Disabled.TintColor = FLinearColor(.5f,.5f,.5f,.65f);
     Style.NormalForeground = Style.HoveredForeground = Style.PressedForeground = theme::FG();
-    Style.NormalPadding = Style.PressedPadding = FMargin(12.f, 8.f);
+    Style.NormalPadding = Style.PressedPadding = FMargin(20.f, 13.f);
     Button->SetStyle(Style);
     Button->SetBackgroundColor(FLinearColor::White);
     if (auto* Label = Cast<UTextBlock>(Button->GetContent()))
@@ -1035,8 +1038,8 @@ UBorn2FlapComposite* UBorn2FlapUIRenderer::BuildComponent(const FString& Type)
         // The shared track behind the cells — one rounded pill with a single
         // outline; the cells themselves carry no border (see ArtSegment).
         C->SetBrush(FSlateRoundedBoxBrush(
-            FLinearColor(.015f,.04f,.05f,.85f), theme::Radius(8.f),
-            FLinearColor(.56f,.46f,.28f,.4f), 1.f));
+            FLinearColor(.015f,.04f,.05f,.4f), theme::Radius(8.f),
+            FLinearColor(.56f,.46f,.28f,.26f), 1.f));
         UHorizontalBox* Track = NewObject<UHorizontalBox>(this);
         C->SetContent(Track);
         C->Parts.Add(TEXT("options"), Track);

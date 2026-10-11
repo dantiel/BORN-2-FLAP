@@ -18,6 +18,19 @@ struct FBorn2FlapDayTime
 struct FBorn2FlapConditions
 {
     FString Weather, Time;
+    // Wind overrides (per-level, persisted). Negative = "auto": follow the
+    // weather/time profile defaults. Explicit non-negative values are the
+    // player's further tuning on top of those defaults.
+    //   WindDir      — compass heading the wind blows toward, degrees 0..360
+    //   WindSpeed    — multiplier on base horizontal wind strength
+    //   WindGust     — multiplier on gust turbulence magnitude
+    //   WindRandom   — multiplier on heading drift / directional wander
+    //   WindThermal  — multiplier on thermal updraft strength
+    float WindDir = -1.f;
+    float WindSpeed = -1.f;
+    float WindGust = -1.f;
+    float WindRandom = -1.f;
+    float WindThermal = -1.f;
 };
 namespace Born2FlapWeather
 {
@@ -34,6 +47,9 @@ namespace Born2FlapWeather
     FString TravelOptions(const FString& Level, const FBorn2FlapConditions& Conditions);
     FVector Wind(const FString& Level, const FBorn2FlapConditions& Conditions, const FVector& P, double Time);
     float Exposure(const FBorn2FlapConditions& Conditions);
+    // The level's base wind heading in degrees (used as the "auto" direction
+    // default and by the menu to label the wind-direction override).
+    float DefaultWindDirection(const FString& Level);
 }
 
 class UInstancedStaticMeshComponent;

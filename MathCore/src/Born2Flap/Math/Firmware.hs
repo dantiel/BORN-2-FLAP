@@ -182,7 +182,7 @@ data FirmwareParams = FirmwareParams
   { fwProfile       :: !FlightProfile
   , fwServoSpeedMs  :: !Double  -- ^ ms per 60° stroke (25..250); servo selection
   , fwFlapBaseFreqDh:: !Double  -- ^ deci-Hz (10..200), CH6 frequency ceiling
-  , fwMountIncidenceDeg :: !Double  -- ^ wing mount incidence added to wing alpha [deg]
+  , fwMountIncidenceDeg :: !Double  -- ^ wing mount angle [deg]; trims the flap-stroke centre like the tail elevator (no direct alpha incidence)
   , fwRudderYawWeight :: !Double  -- 0..100
   , fwRudderRollWeight:: !Double  -- 0..100
   , fwAnchorGain      :: !Double  -- 0..100 beat-locking stiffness
@@ -387,7 +387,11 @@ flappingBranch coupled prof aileronNorm elevatorNorm rc params state dt =
       -- The glide branch retains its differential held-wing positions.
       aileronCmd = 0
       elevatorCmd = elevatorNorm * profElevatorScale prof * 0.01 * steerMaxDeg
-      flapCentreTrim = profTailElevatorAngleDeg prof
+      -- Mount angle and tail elevator angle are aerodynamically identical in the
+      -- current coarse model: both shift the common-mode flap-stroke centre. They
+      -- stay separate fields because a future fine-grained model will treat a
+      -- physical wing-mount tilt differently from a tail-elevator trim.
+      flapCentreTrim = profTailElevatorAngleDeg prof + fwMountIncidenceDeg params
 
       -- Elevator → ferocity asymmetry.
       elevFerScale = profElevatorFerocityMix prof * 0.01 * (ferocityMax - ferocityMin)

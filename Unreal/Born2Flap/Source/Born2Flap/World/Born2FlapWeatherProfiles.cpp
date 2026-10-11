@@ -51,7 +51,16 @@ FBorn2FlapConditions Validate(const FString& Level,const FBorn2FlapConditions& C
 {
     const auto D=Defaults(Level);
     const FString Weather=WeatherOptions(Level).Contains(C.Weather) ? C.Weather : D.Weather;
-    return {Weather,TimeOptions(Level,Weather).Contains(C.Time) ? C.Time : D.Time};
+    FBorn2FlapConditions R=C;   // preserve the wind overrides
+    R.Weather=Weather;
+    R.Time=TimeOptions(Level,Weather).Contains(C.Time) ? C.Time : D.Time;
+    // Clamp explicit wind overrides to sane ranges; keep negative as "auto".
+    if(R.WindDir>=0.f)     R.WindDir=FMath::Fmod(R.WindDir+360.f,360.f);
+    if(R.WindSpeed>=0.f)   R.WindSpeed=FMath::Clamp(R.WindSpeed,0.f,5.f);
+    if(R.WindGust>=0.f)    R.WindGust=FMath::Clamp(R.WindGust,0.f,8.f);
+    if(R.WindRandom>=0.f)  R.WindRandom=FMath::Clamp(R.WindRandom,0.f,8.f);
+    if(R.WindThermal>=0.f) R.WindThermal=FMath::Clamp(R.WindThermal,0.f,5.f);
+    return R;
 }
 const FBorn2FlapWeather& Profile(const FString& Id)
 {
@@ -69,6 +78,11 @@ FBorn2FlapConditions Load(const FString& Level)
     const FString Section=TEXT("Born2Flap.Weather.")+Level;
     GConfig->GetString(*Section,TEXT("Weather"),C.Weather,GGameUserSettingsIni);
     GConfig->GetString(*Section,TEXT("Time"),C.Time,GGameUserSettingsIni);
+    GConfig->GetFloat(*Section,TEXT("WindDir"),C.WindDir,GGameUserSettingsIni);
+    GConfig->GetFloat(*Section,TEXT("WindSpeed"),C.WindSpeed,GGameUserSettingsIni);
+    GConfig->GetFloat(*Section,TEXT("WindGust"),C.WindGust,GGameUserSettingsIni);
+    GConfig->GetFloat(*Section,TEXT("WindRandom"),C.WindRandom,GGameUserSettingsIni);
+    GConfig->GetFloat(*Section,TEXT("WindThermal"),C.WindThermal,GGameUserSettingsIni);
     return Validate(Level,C);
 }
 void Save(const FString& Level,const FBorn2FlapConditions& C)
@@ -77,29 +91,55 @@ void Save(const FString& Level,const FBorn2FlapConditions& C)
     const FString Section=TEXT("Born2Flap.Weather.")+Level;
     GConfig->SetString(*Section,TEXT("Weather"),*Valid.Weather,GGameUserSettingsIni);
     GConfig->SetString(*Section,TEXT("Time"),*Valid.Time,GGameUserSettingsIni);
+    GConfig->SetFloat(*Section,TEXT("WindDir"),Valid.WindDir,GGameUserSettingsIni);
+    GConfig->SetFloat(*Section,TEXT("WindSpeed"),Valid.WindSpeed,GGameUserSettingsIni);
+    GConfig->SetFloat(*Section,TEXT("WindGust"),Valid.WindGust,GGameUserSettingsIni);
+    GConfig->SetFloat(*Section,TEXT("WindRandom"),Valid.WindRandom,GGameUserSettingsIni);
+    GConfig->SetFloat(*Section,TEXT("WindThermal"),Valid.WindThermal,GGameUserSettingsIni);
     GConfig->Flush(false,GGameUserSettingsIni);
 }
 FString TravelOptions(const FString& Level,const FBorn2FlapConditions& C)
 {
     const auto Valid=Validate(Level,C);
     // Unreal options are delimited by '?', not web-style '&'.
-    return FString::Printf(TEXT("Level=%s?SkipMenu=1?Weather=%s?DayTime=%s"),*Level,*Valid.Weather,*Valid.Time);
+    FString Options=FString::Printf(TEXT("Level=%s?SkipMenu=1?Weather=%s?DayTime=%s"),*Level,*Valid.Weather,*Valid.Time);
+    auto Add=[&](const TCHAR* Key,float Value){ if(Value>=0.f) Options+=FString::Printf(TEXT("?%s=%s"),Key,*FString::SanitizeFloat(Value)); };
+    Add(TEXT("WindDir"),Valid.WindDir);
+    Add(TEXT("WindSpeed"),Valid.WindSpeed);
+    Add(TEXT("WindGust"),Valid.WindGust);
+    Add(TEXT("WindRandom"),Valid.WindRandom);
+    Add(TEXT("WindThermal"),Valid.WindThermal);
+    return Options;
 }
 float Exposure(const FBorn2FlapConditions& C)
 {
     return DayTime(C.Time).Exposure + FMath::Log2(FMath::Max(.25f,Profile(C.Weather).Sunlight))*.5f;
 }
+float DefaultWindDirection(const FString& Level)
+{
+    return Level==TEXT("Shiomori") ? -85.f : (Level==TEXT("Training") ? 15.f : 35.f);
+}
+
 FVector Wind(const FString& Level,const FBorn2FlapConditions& C,const FVector& P,double Time)
 {
     const auto& W=Profile(C.Weather);
     const auto& D=DayTime(C.Time);
-    const double Strength=W.WindSpeed*(Level==TEXT("Training") ? .5 : 1.)*(D.Night ? .65 : 1.);
-    const double Heading=FMath::DegreesToRadians(Level==TEXT("Shiomori") ? -85. : (Level==TEXT("Training") ? 15. : 35.));
-    const double Drift=.12*FMath::Sin(Time*.018);
+    // Explicit (>=0) overrides layer on top of the weather/time defaults;
+    // negative values mean "auto" (follow the profile).
+    const double SpeedScale   = C.WindSpeed>=0.   ? (double)C.WindSpeed   : 1.;
+    const double GustScale    = C.WindGust>=0.    ? (double)C.WindGust    : 1.;
+    const double RandomScale  = C.WindRandom>=0.  ? (double)C.WindRandom  : 1.;
+    const double ThermalScale = C.WindThermal>=0. ? (double)C.WindThermal : 1.;
+    const double Strength=W.WindSpeed*(Level==TEXT("Training") ? .5 : 1.)*(D.Night ? .65 : 1.)*SpeedScale;
+    const double HeadingDeg = C.WindDir>=0. ? (double)C.WindDir : (double)DefaultWindDirection(Level);
+    const double Heading=FMath::DegreesToRadians(HeadingDeg);
+    // Directional wander: a slow deterministic swing plus a perlin drift, both
+    // scaled by the randomness override.
+    const double Drift=.12*RandomScale*FMath::Sin(Time*.018)+.06*RandomScale*FMath::PerlinNoise1D((float)(Time*.05));
     const double GX=FMath::PerlinNoise3D(FVector(P.X*.0008,P.Y*.0008,Time*.18));
     const double GY=FMath::PerlinNoise3D(FVector(P.X*.0008+71,P.Y*.0008-24,Time*.15+18));
-    FVector Result(FMath::Cos(Heading+Drift)*Strength+GX*W.Gust,
-                   FMath::Sin(Heading+Drift)*Strength+GY*W.Gust,0);
+    FVector Result(FMath::Cos(Heading+Drift)*Strength+GX*W.Gust*GustScale,
+                   FMath::Sin(Heading+Drift)*Strength+GY*W.Gust*GustScale,0);
     if(Level==TEXT("Shiomori"))
     {
         Result*=Born2FlapBay::WindExposure(P,Result);
@@ -107,7 +147,7 @@ FVector Wind(const FString& Level,const FBorn2FlapConditions& C,const FVector& P
             FMath::Exp(-FMath::Max(0.,P.Z-150)/650.)*(1-FMath::SmoothStep(43000.,46000.,FMath::Abs(P.X)));
     }
     else if(Level!=TEXT("Training"))
-        Result.Z=Born2FlapWind::Sample(P,Time).Z*W.Thermals*(D.Night ? .02 : (D.Id==TEXT("noon") ? 1. : .45));
+        Result.Z=Born2FlapWind::Sample(P,Time).Z*W.Thermals*ThermalScale*(D.Night ? .02 : (D.Id==TEXT("noon") ? 1. : .45));
     return Result;
 }
 }

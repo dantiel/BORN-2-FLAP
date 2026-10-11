@@ -166,7 +166,10 @@ advanceFirmwareVehicle coupled rc params servo battery wingScale dt bodyVel body
 
           -- 3. Actual flap deviation → wing physics.
           input = VehicleInput dt bodyVel bodyRates 0 (crsfToNorm (rcAileron rc)) elevatorNorm 0
-          wingIncidenceRad = radians (fwMountIncidenceDeg params)
+          -- No direct incidence twist: a 2-servo ornithopter has no such actuator.
+          -- The mount angle instead trims the flap stroke centre in the mixer (see
+          -- flappingBranch's flapCentreTrim), identically to the tail elevator.
+          wingIncidenceRad = 0
           strokeL = radians leftFlapDeg
           strokeR = radians rightFlapDeg
           rateL = radians (servoRateDegPerSec nextServoL)

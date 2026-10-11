@@ -94,7 +94,7 @@ static const FRow Rows[] =
     { ETuningField::StrokeFerocity,     TEXT("STROKE FEROCITY"),       TEXT("%"),             0.f,  100.f, 0, TEXT("How aggressively the stroke accelerates through centre. Low = soft/round; high = crisp snap; very high = violent.") },
     { ETuningField::AileronScale,       TEXT("AILERON SCALE"),         TEXT("%"),             0.f,  100.f, 0, TEXT("Roll authority. Low = gentle banking; high = very responsive roll.") },
     { ETuningField::ElevatorScale,      TEXT("ELEVATOR SCALE"),        TEXT("%"),             0.f,  100.f, 0, TEXT("Pitch authority from the ruddervators. Low = subtle pitch; high = very strong pitch response.") },
-    { ETuningField::MountAngle,         TEXT("VERTICAL MOUNT ANGLE"), TEXT("°"),           -15.f,   15.f, 0, TEXT("Wing mount incidence added to the wing's angle of attack. Negative = nose-down bias; positive = nose-up bias.") },
+    { ETuningField::MountAngle,         TEXT("VERTICAL MOUNT ANGLE"), TEXT("°"),           -15.f,   15.f, 0, TEXT("Wing mount trim shifting the flap-stroke centre (same aero effect as the tail elevator). Negative = nose-down; positive = nose-up. Separate from the tail elevator for future fine-grained use.") },
 };
 
 FORCEINLINE const FRow& Row(ETuningField Field)

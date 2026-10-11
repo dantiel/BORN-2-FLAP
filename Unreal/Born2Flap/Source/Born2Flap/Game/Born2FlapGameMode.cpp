@@ -96,11 +96,11 @@ namespace
 struct FMenuWorld { const TCHAR* Id; const TCHAR* Title; const TCHAR* Story; };
 const FMenuWorld MenuWorlds[] = {
     { TEXT("Ravenstonefield"), TEXT("RAVENSTONEFIELD"),
-      TEXT("A highland valley of black basalt columns rising from amber bracken. Ravens ride the thermals between the spires, and the wind carries heather and cold stone. An old ornithopter field, flown by generations of wing-builders.") },
+      TEXT("A highland valley of black basalt columns rising from amber bracken, cut by cold streams that silver in the low light. Ravens ride the thermals between the spires, and the wind carries heather, wet stone and the smell of old iron. At the valley's mouth sits an ornithopter field flown by generations of wing-builders — a meadow workshop, a raven roost and a wind-vane that has pointed the same way for a century. Fly the meadow, thread the basalt, and learn what the valley teaches about lift.") },
     { TEXT("Shiomori"), TEXT("SHIOMORI BAY"),
-      TEXT("A broad pale beach arcing around a sheltered bay of dark, glassy water. Salt-cured rock, wind-bent grass and a low tide-walk of basalt stretch inland toward hazy, sunlit hills. Quiet enough that you notice what the sky is doing.") },
+      TEXT("A broad pale beach arcing around a sheltered bay of dark, glassy water, where the tide draws a slow walk of basalt out toward hazy, sunlit hills. Salt-cured rock and wind-bent grass give way inland to a pine-draped headland and a university campus that clings to the cliff above the surf. It is quiet enough that you notice what the sky is doing — and what the sea is answering. Follow the shoreline, skim the terrace roofs, and ride the bay's offshore wind.") },
     { TEXT("Training"), TEXT("TRAINING"),
-      TEXT("A flat grass course marked with floating sky-gates. The field where every pilot learns to fold the wing, hold the line and thread the gates against the clock.") },
+      TEXT("A flat grass course marked with floating sky-gates, ringed by the hum of a weather station and the chalk lines of a hundred practice rounds. This is the field where every pilot learns to fold the wing, hold the line and thread the gates against the clock. Start on the launch pad, hit the gates in order, and mind the wind arrow — the course rewards a clean line more than a fast one.") },
 };
 constexpr int32 MenuWorldCount = 3;
 }  // namespace
@@ -163,6 +163,19 @@ void ABorn2FlapGameMode::InitGame(const FString &MapName, const FString &Options
     if(DayTime.IsEmpty()) FParse::Value(FCommandLine::Get(),TEXT("B2FDayTime="),DayTime);
     if(!Weather.IsEmpty()) Conditions.Weather=Weather.ToLower();
     if(!DayTime.IsEmpty()) Conditions.Time=DayTime.ToLower();
+    // Wind overrides (set by the menu's wind sliders). Empty = "auto" (the
+    // weather/time profile defaults); Load() above already seeded the persisted
+    // values, so these URL options only layer explicit overrides on top.
+    FString WindDir=UGameplayStatics::ParseOption(Options,TEXT("WindDir"));
+    FString WindSpeed=UGameplayStatics::ParseOption(Options,TEXT("WindSpeed"));
+    FString WindGust=UGameplayStatics::ParseOption(Options,TEXT("WindGust"));
+    FString WindRandom=UGameplayStatics::ParseOption(Options,TEXT("WindRandom"));
+    FString WindThermal=UGameplayStatics::ParseOption(Options,TEXT("WindThermal"));
+    if(!WindDir.IsEmpty())     Conditions.WindDir=(float)FCString::Atof(*WindDir);
+    if(!WindSpeed.IsEmpty())   Conditions.WindSpeed=(float)FCString::Atof(*WindSpeed);
+    if(!WindGust.IsEmpty())    Conditions.WindGust=(float)FCString::Atof(*WindGust);
+    if(!WindRandom.IsEmpty())  Conditions.WindRandom=(float)FCString::Atof(*WindRandom);
+    if(!WindThermal.IsEmpty()) Conditions.WindThermal=(float)FCString::Atof(*WindThermal);
     Conditions=Born2FlapWeather::Validate(GetLevelId(),Conditions);
     if(FParse::Param(FCommandLine::Get(),TEXT("B2FWeatherMenuTest")) &&
        !UGameplayStatics::ParseOption(Options,TEXT("Weather")).IsEmpty())
@@ -985,6 +998,33 @@ void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, c
         return;
     }
 
+    // Wind overrides (per selected world). The sliders write an explicit value
+    // on top of the weather/time profile; a reset returns every field to -1
+    // ("auto", follow the profile default). Saved + carried into level travel.
+    if (Action.StartsWith(TEXT("wind.")))
+    {
+        const FString Level = MenuWorlds[MenuWorldIndex].Id;
+        if (FBorn2FlapConditions* C = MenuLevelConditions.Find(Level))
+        {
+            if (Action == TEXT("wind.reset"))
+            {
+                C->WindDir = C->WindSpeed = C->WindGust = C->WindRandom = C->WindThermal = -1.f;
+            }
+            else
+            {
+                const float V = Value;
+                if      (Action == TEXT("wind.dir"))     C->WindDir = V;
+                else if (Action == TEXT("wind.speed"))   C->WindSpeed = V;
+                else if (Action == TEXT("wind.gust"))    C->WindGust = V;
+                else if (Action == TEXT("wind.random"))  C->WindRandom = V;
+                else if (Action == TEXT("wind.thermal")) C->WindThermal = V;
+            }
+            *C = Born2FlapWeather::Validate(Level, *C);
+            Born2FlapWeather::Save(Level, *C);
+        }
+        return;
+    }
+
     if (Action == TEXT("menu.resume")) { CloseMainMenu(); return; }
     if (Action == TEXT("menu.settings"))
     {
@@ -1335,6 +1375,21 @@ FString ABorn2FlapGameMode::BuildBrainTelemetry() const
             TimeOpts.Add(MakeShareable(new FJsonValueString(S)));
         WObj->SetArrayField(TEXT("weathers"), WeatherOpts);
         WObj->SetArrayField(TEXT("times"), TimeOpts);
+
+        // Wind config: effective values for the menu sliders (an explicit
+        // override when >= 0, otherwise the weather/time profile "auto" default)
+        // plus a flag that shows the reset button only when the player tuned it.
+        auto EffectiveWind = [](float Override, float AutoDefault)
+        { return (double)(Override >= 0.f ? Override : AutoDefault); };
+        WObj->SetNumberField(TEXT("wind_dir"),     EffectiveWind(C.WindDir, Born2FlapWeather::DefaultWindDirection(W.Id)));
+        WObj->SetNumberField(TEXT("wind_speed"),   EffectiveWind(C.WindSpeed, 1.f));
+        WObj->SetNumberField(TEXT("wind_gust"),    EffectiveWind(C.WindGust, 1.f));
+        WObj->SetNumberField(TEXT("wind_random"),  EffectiveWind(C.WindRandom, 1.f));
+        WObj->SetNumberField(TEXT("wind_thermal"), EffectiveWind(C.WindThermal, 1.f));
+        WObj->SetBoolField(TEXT("wind_custom"),
+            C.WindDir >= 0.f || C.WindSpeed >= 0.f || C.WindGust >= 0.f ||
+            C.WindRandom >= 0.f || C.WindThermal >= 0.f);
+
         WorldArr.Add(MakeShareable(new FJsonValueObject(WObj)));
     }
     Root->SetArrayField(TEXT("worlds"), WorldArr);
