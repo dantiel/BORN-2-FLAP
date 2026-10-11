@@ -20,6 +20,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "World/Born2FlapWeather.h"
 #include "Born2FlapInsectSwarm.generated.h"
 
 class UInstancedStaticMeshComponent;
@@ -66,6 +67,10 @@ private:
         int32 HeroCount;             // how many close-up heroes
         bool bOpaqueWings;           // bummer bug elytra are solid, not membrane
         bool bBuzzer;                // erratic brumming motion
+        float RainTol;               // 0..1: fraction that keeps flying in rain
+        float NightAct;              // relative activity at night (moths surge)
+        float SunAct;                // relative activity in daylight
+        float WindTol;               // 0..1: tolerance to wind (dragonflies ride it)
     };
 
     struct FBoid
@@ -106,6 +111,7 @@ private:
     FVector WindAt(const FVector& P, double Time) const;
     FVector PickPerch(const FVector& Home) const;
     FVector PickVegetationHome(FRandomStream& R) const;
+    float WeatherActivity(EInsectType Type) const;
 
     void BuildSwarm();
     void BuildHeroes();
@@ -126,8 +132,18 @@ private:
     UStaticMesh* SpeckMesh = nullptr;
     UStaticMesh* WingMesh = nullptr;
     UStaticMesh* BodyMesh = nullptr;
+    UMaterialInterface* SpeckMaterial = nullptr;
     UMaterialInterface* WingMaterial = nullptr;
     UMaterialInterface* BodyMaterial = nullptr;
+
+    // Weather state — population and behaviour follow the level's chosen
+    // conditions (rain grounds the frail fliers, night wakes the moths, wind
+    // herds everyone low into the shelter of the vegetation).
+    FBorn2FlapWeather Weather;
+    bool bIsNight = false;
+    float FlightCeiling = 1400.f;
+    int32 SwarmCounts[(int32)EInsectType::Count] = {};
+    int32 HeroCounts[(int32)EInsectType::Count] = {};
 
     bool bReady = false;
     static constexpr float HomeRadius = 1500.f;      // each insect's little territory around its plant
