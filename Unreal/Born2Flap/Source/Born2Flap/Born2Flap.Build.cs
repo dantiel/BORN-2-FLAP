@@ -24,14 +24,28 @@ public class Born2Flap : ModuleRules
             { PublicSystemLibraries.AddRange(new[] { "dinput8.lib", "dxguid.lib", "ole32.lib" });
             RuntimeDependencies.Add("$(ProjectDir)/Binaries/ThirdParty/born2flap_math.dll", StagedFileType.NonUFS); }
 
-        if (Target.Platform == UnrealTargetPlatform.IOS ||
-            Target.Platform == UnrealTargetPlatform.Android)
+        if (Target.Platform == UnrealTargetPlatform.IOS)
         {
-            // Haskell MathCore embedded as WASM: wasm3 (no-JIT interpreter) +
-            // the static b2f_math_* adapter are built into one static lib by
-            // Tools/build-wasm3-ios.sh. dlopen is forbidden on these platforms,
-            // so Born2FlapMathBridge binds the symbols directly. See
-            // docs/ios-port.md and Native/src/born2flap_math_wasm.cpp.
+            // Haskell MathCore cross-compiled to native arm64-apple-ios by
+            // ghc-ios 9.14.1 (Novavero-AI). The RTS + base + math core live in
+            // one self-contained static archive; dlopen is forbidden on iOS, so
+            // Born2FlapMathBridge binds the b2f_math_* symbols directly.
+            // Build with Tools/build-math-ios.sh. GHC's Iconv encoder needs
+            // libiconv; everything else links from libSystem.
+            string IosMathLib = Path.GetFullPath(Path.Combine(ModuleDirectory,
+                "../../../../MathCore/dist-newstyle/libborn2flap_math-ios.a"));
+            if (File.Exists(IosMathLib))
+            {
+                PublicAdditionalLibraries.Add(IosMathLib);
+                PublicSystemLibraries.Add("iconv");
+            }
+        }
+
+        if (Target.Platform == UnrealTargetPlatform.Android)
+        {
+            // Android has no native GHC cross-compiler yet, so the math core is
+            // embedded as WASM: wasm3 (no-JIT interpreter) + the static
+            // b2f_math_* adapter in one static lib by Tools/build-wasm3-android.sh.
             string WasmBackendLib = Path.GetFullPath(Path.Combine(ModuleDirectory,
                 "../../../../Native/lib/libborn2flap_math_wasm.a"));
             if (File.Exists(WasmBackendLib))

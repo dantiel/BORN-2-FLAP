@@ -7,6 +7,13 @@
 # mobile platforms forbid dlopen of third-party dylibs, so the whole GHC
 # runtime is statically linked into the app binary.
 #
+# LINK REQUIREMENT: when this archive is linked into the app, add `-liconv`
+# (GHC's Iconv text-encoding codec pulls iconv_open/iconv/iconv_close). Nothing
+# else is needed — the ghc-ios RTS already carries iOS-correct
+# mprotectForLinker (no-op under W^X) and osReserveHeapMemory, so no RTS
+# link-time overrides are required. Verified: a minimal main() links to a
+# genuine `platform IOS, minos 15.0` binary with just `-liconv`.
+#
 # The compiler is the Novavero-AI/ghc-ios toolchain — a GHC 9.14.1 cross
 # compiler for aarch64-apple-ios (BSD-3-Clause). It ships as a prebuilt tarball:
 #   https://github.com/Novavero-AI/ghc-ios/releases
