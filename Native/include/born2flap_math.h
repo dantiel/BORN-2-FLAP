@@ -13,7 +13,7 @@
 extern "C" {
 #endif
 
-#define B2F_MATH_ABI_VERSION 10u
+#define B2F_MATH_ABI_VERSION 11u
 
 typedef struct B2F_MathContext B2F_MathContext;
 
@@ -68,6 +68,7 @@ typedef struct B2F_BodyState {
     double delta_time_s;
     double linear_velocity_m_s[3];
     double angular_velocity_rad_s[3];
+    double ground_clearance_m;   /* body-origin height above the surface below [m] (ABI v11) */
 } B2F_BodyState;
 
 typedef struct B2F_FirmwareConfig {

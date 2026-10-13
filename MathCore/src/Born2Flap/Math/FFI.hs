@@ -85,7 +85,7 @@ b2f_math_get_wing_forces contextPointer capacity leftPointer rightPointer
     failure :: SomeException -> IO Int32
     failure _ = pure 0
 b2f_math_abi_version :: IO Word32
-b2f_math_abi_version = pure 10
+b2f_math_abi_version = pure 11
 
 b2f_math_runtime_init :: IO Int32
 b2f_math_runtime_init = pure 1
@@ -132,6 +132,7 @@ peekInput pointer = do
         , rollCommand = roll
         , pitchCommand = pitch
         , yawCommand = yaw
+        , groundClearanceM = 1e9  -- legacy path carries no ground info
         }
     _ -> error "unreachable input layout"
 
@@ -288,7 +289,7 @@ applyTuning t ctx =
         , profElevatorScale = clampRange 0 100 (tgElevatorScale t)
         }
       -- Size the wing to the bird. Reference: 450 g → scale 1.0 (the default
-      -- 1.44 m-span bird). A MILDER m^(1/4) scaling keeps a 10–25 g micro bird
+      -- 1.10 m-span kestrel). A MILDER m^(1/4) scaling keeps a 10–25 g micro bird
       -- at ≥0.4× span (area ≥0.16×) instead of collapsing to 0.25× — so its
       -- wings still generate real lift/thrust, while the hinge torque
       -- (∝ wingScale³) still drops enough for a real micro-servo to drive them.
@@ -336,7 +337,8 @@ b2f_math_step_firmware_vehicle contextPointer pilotPointer bodyPointer outputPoi
       let rc = pilotToRc pilot
           (output, nextState) = stepFirmwareVehicle (piCoupled pilot) rc (fwcParams context)
                                   (fwcServo context) (fwcBattery context) (fwcWingScale context)
-                                  (bodyDelta body) (bodyVel body) (bodyRates body) (fwcState context)
+                                  (bodyDelta body) (bodyVel body) (bodyRates body)
+                                  (bodyGroundClearance body) (fwcState context)
       if outputFlags output /= 0
         then pure 0
         else do
@@ -367,15 +369,16 @@ data BodyState = BodyState
   { bodyDelta :: !Double
   , bodyVel :: !Vec3
   , bodyRates :: !Vec3
+  , bodyGroundClearance :: !Double  -- ^ body-origin height above the surface below [m] (ABI v11)
   }
 
 peekBody :: Ptr () -> IO BodyState
 peekBody pointer = do
-  values <- mapM (peekElemOff (castPtr pointer :: Ptr CDouble)) [0 .. 6]
+  values <- mapM (peekElemOff (castPtr pointer :: Ptr CDouble)) [0 .. 7]
   case map (\(CDouble value) -> value) values of
-    [dt, lvx, lvy, lvz, avx, avy, avz] ->
-      pure (BodyState dt (Vec3 lvx lvy lvz) (Vec3 avx avy avz))
-    _ -> pure (BodyState 0 zeroVec zeroVec)
+    [dt, lvx, lvy, lvz, avx, avy, avz, ground] ->
+      pure (BodyState dt (Vec3 lvx lvy lvz) (Vec3 avx avy avz) ground)
+    _ -> pure (BodyState 0 zeroVec zeroVec 0)
 
 pokeFwOutput :: Ptr () -> VehicleOutput -> FirmwareVehicleState -> IO ()
 pokeFwOutput pointer output state = do

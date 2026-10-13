@@ -24,17 +24,18 @@ main = do
   let strip moment = StripResult emptyStrip (Vec3 0 0 1) moment 0 0
       leftTorque = hingeTorque (-1) [strip (Vec3 (-2) 90 0)]
       rightTorque = hingeTorque 1 [strip (Vec3 2 90 0)]
+      wingI = shapeFlapInertia referenceWingMassKg airDensity defaultBirdWing
   if leftTorque == 2 && rightTorque == 2 then pure ()
     else fail "mirrored flap hinges must project signed X torque, ignoring pitch torque"
   let fwStep dt vel s = stepFirmwareVehicle True defaultRcChannels defaultFirmwareParams
-                        defaultServoSpec defaultBatterySpec 1.0 dt vel (Vec3 0 0 0) s
+                        defaultServoSpec defaultBatterySpec 1.0 dt vel (Vec3 0 0 0) 1000 s
       badCases = [(0, Vec3 5 0 0), (0/0, Vec3 5 0 0), (0.01, Vec3 (1/0) 0 0)]
   mapM_ (\(dt, vel) -> let (o,s) = fwStep dt vel defaultFirmwareVehicleState
                        in if outputFlags o /= 0 && s == defaultFirmwareVehicleState
                           then pure () else fail "firmware failure must preserve all state") badCases
   let flap = defaultRcChannels {rcThrottle = 1811}
       batteryStep battery s = stepFirmwareVehicle True flap defaultFirmwareParams defaultServoSpec
-                               battery 1.0 (1/240) (Vec3 5 0 0) (Vec3 0 0 0) s
+                               battery 1.0 (1/240) (Vec3 5 0 0) (Vec3 0 0 0) 1000 s
       (_, full) = batteryStep defaultBatterySpec defaultFirmwareVehicleState
       (_, empty) = batteryStep defaultBatterySpec (defaultFirmwareVehicleState {fvBatterySoc = 0})
       loaded = defaultFirmwareVehicleState {fvLeftHingeTorqueNm = 0.5, fvRightHingeTorqueNm = 0.5}
@@ -108,7 +109,7 @@ main = do
      && last twistDefl < 0 && and (zipWith (<=) bendDefl (tail bendDefl))
     then pure ()
     else fail "cantilever beam must bend tip-up under up-load and twist nose-down under nose-down moment"
-  let input = VehicleInput (1 / 240) (Vec3 5 0 0) (Vec3 0 0 0) 0.7 0 0 0
+  let input = VehicleInput (1 / 240) (Vec3 5 0 0) (Vec3 0 0 0) 0.7 0 0 0 1000
       samples = take 1200 (tail (iterate (\(_, state) -> stepVehicle input state)
                                    (zeroVehicleOutput, defaultVehicle)))
       outputs = map fst samples
@@ -214,15 +215,15 @@ main = do
   let servo = defaultServoSpec
       battery = defaultBatterySpec
       voltage = batteryNominalVoltage battery
-      (a1, s1) = stepServo servo battery 120 0 1.0 voltage (1 / 240) defaultServoState
-      (a2, s2) = stepServo servo battery 120 0 1.0 voltage (1 / 240) s1
+      (a1, s1) = stepServo servo battery 120 0 wingI voltage (1 / 240) defaultServoState
+      (a2, s2) = stepServo servo battery 120 0 wingI voltage (1 / 240) s1
   if a2 > a1 && a2 <= 120
     then pure ()
     else fail "unloaded servo must slew toward its target"
   -- Servo: load exceeding stall torque back-drives it (the wing wins).
   -- A strong NEGATIVE load pushes the servo away from a positive target.
   let stall = servoStallTorqueNm servo
-      (back, _) = stepServo servo battery 120 (negate stall * 2) 1.0 voltage (1 / 240) defaultServoState
+      (back, _) = stepServo servo battery 120 (negate stall * 2) wingI voltage (1 / 240) defaultServoState
   if back < 0
     then pure ()
     else fail "overloaded servo must be back-driven by the aerodynamic load"
@@ -231,15 +232,26 @@ main = do
       dtClosed = 1 / 240
       bodyVel = Vec3 5 0 0
       (out1, st1) = stepFirmwareVehicle True flapRcClosed defaultFirmwareParams
-                     defaultServoSpec defaultBatterySpec 1.0 dtClosed bodyVel (Vec3 0 0 0)
+                     defaultServoSpec defaultBatterySpec 1.0 dtClosed bodyVel (Vec3 0 0 0) 1000
                      defaultFirmwareVehicleState
       (out2, _) = stepFirmwareVehicle True flapRcClosed defaultFirmwareParams
-                     defaultServoSpec defaultBatterySpec 1.0 dtClosed bodyVel (Vec3 0 0 0) st1
+                     defaultServoSpec defaultBatterySpec 1.0 dtClosed bodyVel (Vec3 0 0 0) 1000 st1
       finite value = not (isNaN value || isInfinite value)
   if finite (z (totalForceN out2)) && finite (x (totalMomentNm out2))
      && totalMechanicalPowerW out2 >= 0
     then pure ()
     else fail "firmware-vehicle closed loop must produce finite loads"
+  -- Ground effect: proximity to the surface (normalised by wingspan) boosts
+  -- flapping lift AND forward thrust, while a distant wing feels neither.
+  let geInput h = VehicleInput (1 / 240) (Vec3 5 0 0) (Vec3 0 0 0) 0 0 0 0 h
+      strokeRateDown = -3.0
+      (highGe, _) = stepWingWithStroke True (-1) 0 strokeRateDown (geInput 1000) 1.0 0 initialStrips
+      (lowGe, _)  = stepWingWithStroke True (-1) 0 strokeRateDown (geInput 0.05) 1.0 0 initialStrips
+      liftOf = sum . map (z . resultForce)
+      thrustOf = sum . map (x . resultForce)
+  if liftOf lowGe > liftOf highGe && thrustOf lowGe > thrustOf highGe
+    then pure ()
+    else fail "ground effect must raise flapping lift and forward thrust"
   -- Logical pilot input: maps faithfully onto the firmware's CRSF channel space.
   let rcFull = pilotToRc (pilot4 1 0 0 0)
   if rcThrottle rcFull == 1811 && rcAileron rcFull == 992 && rcRudder rcFull == 992
@@ -260,7 +272,7 @@ main = do
       dtFw = 1 / 240
       bodyVelFw = Vec3 5 0 0
       stepFw s = stepFirmwareVehicle True (pilotToRc pilotFlap) defaultFirmwareParams
-                   defaultServoSpec defaultBatterySpec 1.0 dtFw bodyVelFw (Vec3 0 0 0) s
+                   defaultServoSpec defaultBatterySpec 1.0 dtFw bodyVelFw (Vec3 0 0 0) 1000 s
       goFw 0 s peak = (s, peak)
       goFw n s peak =
         let (_, s') = stepFw s
@@ -284,7 +296,7 @@ main = do
       skewMoment roll =
         let rc = pilotToRc (pilot4 0.72 roll 0 0)
             tick (_,s) = stepFirmwareVehicle True rc skewParams skewServo skewBattery 1.0
-                          (1/240) (Vec3 8 0 (-1)) (Vec3 0 0 0) s
+                          (1/240) (Vec3 8 0 (-1)) (Vec3 0 0 0) 1000 s
             samples = drop 481 $ take 1921 $ iterate tick (zeroVehicleOutput,defaultFirmwareVehicleState)
         in sum (map (x . totalMomentNm . fst) samples) / fromIntegral (length samples)
       leftSkewMoment = skewMoment (-0.5)
@@ -340,7 +352,7 @@ main = do
       stabOff = defaultFirmwareVehicleState { fvStabilized = False, fvWindPhaseNoise = 1.0 }
       flyFrom s = snd (stepFirmwareVehicle True flapRcClosed defaultFirmwareParams
                        defaultServoSpec defaultBatterySpec 1.0 (1 / 240)
-                       (Vec3 5 0 0) (Vec3 0 0 0) s)
+                       (Vec3 5 0 0) (Vec3 0 0 0) 1000 s)
       steadyOn = iterate flyFrom stabOn !! 2400
       steadyOff = iterate flyFrom stabOff !! 2400
       kOn = fwKGainMod (fvFirmware steadyOn)

@@ -48,10 +48,12 @@ data StructureProfile = StructureProfile
   , stTauTwist :: !Double  -- ^ torsion relaxation time constant [s]
   } deriving stock (Eq, Show)
 
--- | Physical spar inventory of the kestrel membrane wing (kestrelwing.svg):
+-- | Physical spar inventory of the kestrel membrane wing (kestrelwing.svg),
+-- scaled 1.27× to the 1.10 m bird with the two main spars upgraded for the
+-- bigger servo:
 --
---   inner base mainspar  Ø 1.6 mm  — inboard LE, first 175 mm of inner wing
---   outer hand mainspar  Ø 1.2 mm  — outboard LE, rest of the span
+--   inner base mainspar  Ø 2.0 mm  — inboard LE, full arm wing (to the elbow)
+--   outer hand mainspar  Ø 1.6 mm  — outboard LE, hand wing only
 --   diagonal spar        Ø 0.8 mm  — LE→TE brace (twist), inner wing only
 --   mid chord spar       Ø 0.6 mm  — chordwise brace (extend + twist), inner wing
 --
@@ -79,15 +81,18 @@ sparTwistScale :: Double
 sparTwistScale = 1.0
 
 sparDInnerMain, sparDOuterMain, sparDDiagonal, sparDMidChord :: Double
-sparDInnerMain = 1.6e-3
-sparDOuterMain = 1.2e-3
+sparDInnerMain = 2.0e-3
+sparDOuterMain = 1.6e-3
 sparDDiagonal  = 0.80e-3
 sparDMidChord  = 0.60e-3
 
--- | Inboard length of the 1.6 mm inner main spar [m], before it splices into the
--- 1.2 mm outer hand spar.
+-- | Inboard length of the 2.0 mm inner main spar [m], before it splices into the
+-- 1.6 mm outer hand spar. Reference kestrel construction: inner spar 222 mm
+-- (+ 32 mm servo arm = 254 mm to the elbow), outer LE spar 310 mm, total wing
+-- 550 mm base→tip. The thick spar runs the inboard arm wing; the planform elbow
+-- (frac 0.45 ≈ 248 mm) matches the 222 mm spar + 32 mm servo arm.
 sparInnerLengthM :: Double
-sparInnerLengthM = 175e-3
+sparInnerLengthM = 222e-3
 
 sparBendEI, sparTorsionGJ :: Double -> Double
 sparBendEI d = sparYoungsModulus * pi * d ^ 4 / 64
@@ -99,11 +104,11 @@ sparMainDiameter spanM frac
   | frac < sparInnerFraction spanM = sparDInnerMain
   | otherwise = sparDOuterMain
 
--- | Span fraction where the 1.6 mm inner spar splices into the 1.2 mm outer hand.
+-- | Span fraction where the 2.0 mm inner spar splices into the 1.6 mm outer hand.
 sparInnerFraction :: Double -> Double
 sparInnerFraction spanM = clamp 0 1 (sparInnerLengthM / spanM)
 
--- | Spanwise flap-bending stiffness [N·m²]: the LE main spar (1.6 mm inner → 1.2 mm
+-- | Spanwise flap-bending stiffness [N·m²]: the LE main spar (2.0 mm inner → 1.6 mm
 -- outer hand) bends the wing out of plane.
 sparBendEISpanwise :: Double -> Double -> Double
 sparBendEISpanwise spanM frac = sparBendScale * sparBendEI (sparMainDiameter spanM frac)
@@ -113,8 +118,8 @@ sparBendEISpanwise spanM frac = sparBendScale * sparBendEI (sparMainDiameter spa
 sparBraceGJ :: Double
 sparBraceGJ = 3 * sparBendEI sparDDiagonal / sparDiagLength ^ 3 * sparChordLever ^ 2
   where
-    sparDiagLength = 168e-3   -- [m] path length of the "diagonal spar"
-    sparChordLever = 166e-3   -- [m] chordwise offset of the brace
+    sparDiagLength = 213e-3   -- [m] path length of the "diagonal spar"
+    sparChordLever = 211e-3   -- [m] chordwise offset of the brace
 
 -- | Mid-chord-brace effective torsional stiffness [N·m²]. A chordwise brace
 -- keeps the section extended and couples the trailing edge to the diagonal
@@ -122,8 +127,8 @@ sparBraceGJ = 3 * sparBendEI sparDDiagonal / sparDiagLength ^ 3 * sparChordLever
 sparMidChordBraceGJ :: Double
 sparMidChordBraceGJ = 3 * sparBendEI sparDMidChord / sparMidLength ^ 3 * sparMidLever ^ 2
   where
-    sparMidLength = 139e-3   -- [m] chordwise path length (mid chord spar)
-    sparMidLever  = 135e-3   -- [m] chordwise offset it acts through
+    sparMidLength = 177e-3   -- [m] chordwise path length (mid chord spar)
+    sparMidLever  = 171e-3   -- [m] chordwise offset it acts through
 
 -- | Tensioned-membrane torsional stiffness [N·m²]: the membrane spans the chord
 -- everywhere and resists the trailing edge swinging under twist. This is the
@@ -152,7 +157,7 @@ sparTwistGJSpanwise spanM frac =
       then sparTorsionGJ sparDInnerMain + sparBraceScale * (sparBraceGJ + sparMidChordBraceGJ) + sparMembraneGJ
       else sparTorsionGJ sparDOuterMain + sparMembraneGJ
 
--- | Bird armwing (kestrel inner wing): 1.6 mm main spar + diagonal & mid-chord
+-- | Bird armwing (kestrel inner wing): 2.0 mm main spar + diagonal & mid-chord
 -- braces. Stiff in bending, moderately stiff in torsion.
 defaultBirdArmStructure :: StructureProfile
 defaultBirdArmStructure = StructureProfile
@@ -162,7 +167,7 @@ defaultBirdArmStructure = StructureProfile
   , stTauTwist = 0.03
   }
 
--- | Bird handwing (kestrel outer hand): 1.2 mm main spar, no braces outboard —
+-- | Bird handwing (kestrel outer hand): 1.6 mm main spar, no braces outboard —
 -- so it is much softer in torsion, the source of washout-under-load.
 defaultBirdHandStructure :: StructureProfile
 defaultBirdHandStructure = StructureProfile
