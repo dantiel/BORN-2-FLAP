@@ -36,6 +36,8 @@ articulation and its aerodynamics are simulated.
 | **Servo ornithopters** | Direct-drive servo wings with articulation, fighting the aero hinge torque like the real prototypes. |
 | **Wing slots** | Modular wing geometry — slot in span, chord, sweep and camber to build your own planform. |
 | **Everything on the channel** | The whole workshop becomes flyable — each prototype, each upgrade, each wild idea. |
+| **New worlds** | More skies to master — new biomes, terrain and weather, each a fresh flying environment. |
+| **New models** | The fleet keeps growing — new machines and wing designs delivered as free updates. |
 
 Planned features — scope and order may evolve. The flying never stops.
 
