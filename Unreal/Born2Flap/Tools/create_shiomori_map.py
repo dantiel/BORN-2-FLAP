@@ -350,6 +350,9 @@ def coastal_terrain_material(name, sand, grass, rock, scale_cm=240.0, normal_str
 ''' % (relief_strength, relief_strength, ns_strength, ns_strength),
                     {'NX': nz_gx, 'NY': nz_gy, 'W': nz_w, 'TN': sand_grain(sn)}, 3)
     s_n = relief
+    if name == 'Headland':
+        from east_strand_material import blend
+        s_c, s_n, s_r = blend(m, pos, s_c, s_n, s_r, node, custom)
 
     # Grass and rock stay triplanar (they cover the sloped inland/seaward faces).
     g_c = tri_color(gd); g_n = tri_normal(gn); g_r = tri_scalar(gr)
@@ -364,7 +367,8 @@ def coastal_terrain_material(name, sand, grass, rock, scale_cm=240.0, normal_str
     # Shared blend weights (s=sand, g=grass, r=rock). The sand band now reaches
     # the dune line before grass takes over, with a wide, soft ramp so the beach
     # strand flows onto the headland with no hard patch edge.
-    wgts = custom(m, '''float veg=smoothstep(140.0+V*18.0, 360.0+V*30.0, P.z);
+    wgts = custom(m, '''float east=smoothstep(40000,46000,P.x);
+  float veg=smoothstep(lerp(140,80,east)+V*lerp(18,45,east), lerp(360,520,east)+V*lerp(30,65,east), P.z);
   float steep=1.0-N.z;
   float rock=smoothstep(0.30, 0.60, steep);
   float s=1.0-veg;
@@ -459,8 +463,10 @@ float2 r=P.xy*.025;
 n+=float2(sin(r.x*1.7+r.y*1.1+T*3.4),cos(r.y*2.1-r.x*.8-T*3.0))*.014;
 return normalize(float3(n,1.0));''',{'P':p,'T':t})
     output(n,'NORMAL')
-    # Deterministic Gerstner spectrum (8 components: 1 swell + 3 wind + 4 detail)
-    # driven entirely by the global ocean MPC, so the rendered surface stays in
+    # Deterministic Gerstner spectrum (16 components: 2 swell + 14 wind/detail).
+    # De-harmonised lengths and a broad directional spread (+-~65 deg) so the open
+    # sea reads as uneven cross-chop instead of repeating parallel diagonals.
+    # Driven entirely by the global ocean MPC, so the rendered surface stays in
     # lock-step with AShiomoriWaterDirector / Born2FlapWater.cpp SampleWaveHeight.
     def _mpc(name):
         return node(m, 'CollectionParameter', collection=mpc, parameter_name=name)
@@ -469,11 +475,11 @@ return normalize(float3(n,1.0));''',{'P':p,'T':t})
  float ampScale=lerp(0.35,1.6,Sea/6.0);
  float d2r=0.01745329251;
  float H=0.0;
- float lenF[8]={1.0,0.32,0.19,0.13,0.088,0.059,0.043,0.030};
- float ampF[8]={1.00,0.45,0.28,0.16,0.090,0.055,0.035,0.022};
- float dirOff[8]={0.0,-8.0,7.0,-12.0,18.0,-22.0,28.0,-35.0};
- float phase[8]={0.0,1.3,2.7,4.1,5.2,0.9,3.3,4.7};
- for(int i=0;i<8;i++)
+ float lenF[16]={1.0,0.5,0.33,0.22,0.151,0.107,0.079,0.059,0.045,0.034,0.0265,0.0205,0.016,0.0125,0.0098,0.0076};
+ float ampF[16]={1.00,0.42,0.30,0.21,0.15,0.105,0.075,0.054,0.038,0.027,0.019,0.0135,0.0095,0.0067,0.0047,0.0033};
+ float dirOff[16]={0.0,-8.0,12.0,-20.0,28.0,-35.0,45.0,-55.0,65.0,-50.0,40.0,-30.0,50.0,-60.0,22.0,-15.0};
+ float phase[16]={0.0,1.7,3.1,4.4,5.7,1.1,2.4,3.7,5.0,0.6,1.9,3.2,4.5,5.8,0.9,2.2};
+ for(int i=0;i<16;i++)
  {
   float L=Wl*lenF[i];
   float A=Amp*ampF[i]*ampScale;
@@ -544,7 +550,7 @@ def sand_material(name, diffuse, normal, rough=0.8, rough_tex=None, tiling_cm=30
         ppos = node(m, 'WorldPosition')
         pnx = node(m, 'Multiply'); wire(ppos, pnx, 'A'); pnx.set_editor_property('const_b', 0.00009)
         pnz = node(m, 'Noise', levels=2, output_min=-1.0, output_max=1.0); wire(pnx, pnz, '')
-        pebble_blend = custom(m, 'return smoothstep(%g + N*%g, %g, abs(P.x));'
+        pebble_blend = custom(m, 'return (1-smoothstep(30000,34000,P.x))*smoothstep(%g + N*%g, %g, abs(P.x));'
                               % (peb_start, (peb_end - peb_start) * 0.16, peb_end),
                               {'P': ppos, 'N': pnz}, 1)
         bc = custom(m, 'return lerp(A.rgb, B.rgb, W);',
@@ -588,6 +594,14 @@ return normalize(float3(lerp(0.0, r.x, %.6g), lerp(0.0, r.y, %.6g), 1.0));
         n = custom(m, 'return normalize(lerp(A, B, W));',
                    {'A': n, 'B': pebble_n, 'W': pebble_blend}, 3)
     output(n, 'NORMAL')
+    if name == 'Sand':
+        from east_strand_material import blend
+        rb = lib.get_material_property_input_node(m, u.MaterialProperty.MP_ROUGHNESS)
+        # Existing roughness samples use the R output; make it explicit before
+        # passing the expression into a custom float input.
+        rb = custom(m, 'return R.r;', {'R': rb}, 1)
+        bc, n, rb = blend(m, p, bc, n, rb, node, custom)
+        output(bc, 'BASE_COLOR'); output(n, 'NORMAL'); output(rb, 'ROUGHNESS')
     material_usage_flags(m)
     lib.recompile_material(m)
     assert ela.save_asset(path), 'Failed to save ' + path
@@ -1372,7 +1386,7 @@ def sand_ripple(x, y):
 
 def beach_visual_height(x, y):
     # Cosmetic only: ramp the dry sand's inland edge down to the first tidewalk
-    # tread top (Z=25) and butt it against that tread's seaward face (y=-1200) so
+    # tread top (Z=50) and butt it against that tread's seaward face (y=-1200) so
     # the sand connects to the stairs with no gap and no floating cut-off edge.
     # beach_height() remains the collision and ground source of truth.
     z = beach_height(x, y)
@@ -1380,7 +1394,7 @@ def beach_visual_height(x, y):
     d_inland = y + 1200.0
     if d_inland < blend:
         t = max(0.0, d_inland) / blend
-        z = 25.0 + (z - 25.0) * t
+        z = 50.0 + (z - 50.0) * t
     return z + sand_ripple(x, y)
 
 
@@ -1407,7 +1421,7 @@ def headland_height(x, y):
     else:
         base = max(-1750.0, -50.0 - 0.04 * d)
     if y < -1200:
-        base = max(0.0, min(150.0, math.ceil((-y - 1200.0) / 100.0) * 25.0))
+        base = max(0.0, min(300.0, math.ceil((-y - 1200.0) / 100.0) * 50.0))
     inner = (54000.0 if x < 0 else 50750.0) - 3500.0 * math.exp(-((y - 26000.0) / 14000.0) ** 2)
     rise = _smoothstep(inner - 5000.0, inner + 14000.0, abs(x))
     tip = 1.0 - _smoothstep(40000.0, 68000.0, y)
@@ -1733,13 +1747,13 @@ place_mesh('Open bay', (0, 0, 0), ocean_mesh, mats['Water'])
 place_mesh('Distant mountains behind', (0, 0, 0), mountains_behind, mats['Mountain'], collision=False)
 place_mesh('Distant mountains east', (0, 0, 0), mountains_east, mats['Mountain'], collision=False)
 place_mesh('Distant mountains west', (0, 0, 0), mountains_west, mats['Mountain'], collision=False)
-part('Raised promenade', (0, -2400, 50), (90000, 1200, 200), 'Sterile')
-part('Industrial hinterland', (0, -27000, -100), (150000, 48000, 500), 'Industry')
+part('Raised promenade', (0, -2400, 150), (90000, 1200, 300), 'Sterile')
+part('Industrial hinterland', (0, -27000, 150), (150000, 48000, 300), 'Industry')
 # Six continuous, shallow stair treads run the entire beach edge.
 for i in range(6):
-    h = (i + 1) * 25
+    h = (i + 1) * 50
     part('Tidewalk stair %02d' % i, (0, -1250 - i * 100, h / 2), (90000, 100, h), 'Concrete')
-part('Promenade edge', (0, -1880, 153), (90000, 24, 6), 'Concrete', collision=False)
+part('Promenade edge', (0, -1880, 303), (90000, 24, 6), 'Concrete', collision=False)
 # A gently curving service road: the promenade and buildings stay straight, but
 # the road weaves like a real coastal drive (a chain of rotated asphalt slabs).
 def road_y(x):
@@ -1753,14 +1767,14 @@ for i in range(len(road_xs) - 1):
     dx, dy = x1 - x0, y1 - y0
     seg = math.hypot(dx, dy)
     yaw = math.degrees(math.atan2(dy, dx))
-    part('Service road', ((x0 + x1) / 2.0, (y0 + y1) / 2.0, 149), (seg + 60, 1400, 18), 'Road', rot=(0, yaw, 0))
+    part('Service road', ((x0 + x1) / 2.0, (y0 + y1) / 2.0, 299), (seg + 60, 1400, 18), 'Road', rot=(0, yaw, 0))
     if i % 3 == 0:
-        part('Road dash', ((x0 + x1) / 2.0, (y0 + y1) / 2.0, 160), (520, 16, 2), 'Ivory', rot=(0, yaw, 0), collision=False)
+        part('Road dash', ((x0 + x1) / 2.0, (y0 + y1) / 2.0, 310), (520, 16, 2), 'Ivory', rot=(0, yaw, 0), collision=False)
 # Open, cloud-like art shelters: slim white piers beneath a cluster of soft,
 # translucent white puffs. One puff keeps the counted "Shelter floating roof" tag.
 for j, x in enumerate(range(-40000, 41000, 10000)):
     for dx in (-360, 360):
-        part('Shelter swept pier', (x + dx, -2920, 335), (24, 40, 370), 'Sterile', rot=(0, 0, -8 if dx < 0 else 8))
+        part('Shelter swept pier', (x + dx, -2920, 485), (24, 40, 370), 'Sterile', rot=(0, 0, -8 if dx < 0 else 8))
     puffs = [(0, 0, 62), (-290, -130, 44), (290, -130, 44), (-170, 130, 36),
              (170, 130, 36), (0, -210, 30), (0, 210, 28)]
     for i, (dx, dy, r) in enumerate(puffs):
@@ -1771,10 +1785,10 @@ for j, x in enumerate(range(-40000, 41000, 10000)):
         # so the cube (proven to collide) sits invisibly inside the puff. The
         # central puff keeps the counted "Shelter floating roof" tag.
         part('Shelter floating roof' if i == 0 else 'Shelter glass panel',
-             (x + dx, -2750 + dy, 540), (r * 6, r * 4.4, r * 1.2), 'Glass', 'Sphere',
+             (x + dx, -2750 + dy, 690), (r * 6, r * 4.4, r * 1.2), 'Glass', 'Sphere',
              collision=False)
         pad = u.EditorLevelLibrary.spawn_actor_from_class(
-            u.StaticMeshActor, u.Vector(x + dx, -2750 + dy, 540), u.Rotator())
+            u.StaticMeshActor, u.Vector(x + dx, -2750 + dy, 690), u.Rotator())
         pad.set_actor_label('Shelter landing pad')
         pad.set_actor_hidden_in_game(True)
         pc = pad.static_mesh_component
@@ -1784,15 +1798,15 @@ for j, x in enumerate(range(-40000, 41000, 10000)):
         pad.set_actor_scale3d(u.Vector((r * 6) / (2 * pb.x), (r * 4.4) / (2 * pb.y),
                                        (r * 1.2) / (2 * pb.z)))
         count += 1
-    part('Picnic table', (x, -2740, 235), (320, 100, 12), 'Wood')
+    part('Picnic table', (x, -2740, 385), (320, 100, 12), 'Wood')
     for dx in (-115, 115):
-        part('Table trestle', (x + dx, -2740, 196), (18, 85, 80), 'Sterile')
+        part('Table trestle', (x + dx, -2740, 346), (18, 85, 80), 'Sterile')
     for dy in (-115, 115):
-        part('Picnic bench', (x, -2740 + dy, 202), (360, 36, 12), 'Wood')
+        part('Picnic bench', (x, -2740 + dy, 352), (360, 36, 12), 'Wood')
         for dx in (-135, 135):
-            part('Bench leg', (x + dx, -2740 + dy, 176), (14, 28, 45), 'Sterile')
-    part('Wayfinding kiosk', (x + 480, -2900, 270), (55, 45, 240), 'Sterile')
-    part('Kiosk face', (x + 480, -2875, 294), (44, 4, 135), 'Cloud', collision=False)
+            part('Bench leg', (x + dx, -2740 + dy, 326), (14, 28, 45), 'Sterile')
+    part('Wayfinding kiosk', (x + 480, -2900, 420), (55, 45, 240), 'Sterile')
+    part('Kiosk face', (x + 480, -2875, 444), (44, 4, 135), 'Cloud', collision=False)
 # Sterile white buildings behind the promenade; the yard and industrial accents
 # (vents, tanks) keep a muted, grey-yellowed concrete tone.
 for j, x in enumerate(range(-43000, 44000, 6500)):
@@ -1803,14 +1817,14 @@ for j, x in enumerate(range(-43000, 44000, 6500)):
     w = rng.uniform(4200, 5600)
     h = rng.uniform(850, 1700)
     y = -8500 - rng.uniform(0, 2500)
-    part('Quiet warehouse %02d' % j, (x, y, 145 + h / 2), (w, 4600, h + 10), 'Sterile')
-    part('Warehouse pale roof', (x, y, 160 + h), (w + 120, 4780, 60), 'Sterile')
+    part('Quiet warehouse %02d' % j, (x, y, 295 + h / 2), (w, 4600, h + 10), 'Sterile')
+    part('Warehouse pale roof', (x, y, 310 + h), (w + 120, 4780, 60), 'Sterile')
     for dx in (-w * .32, 0, w * .32):
-        part('Warehouse loading door', (x + dx, y + 2310, 430), (760, 20, 550), 'Window')
-    part('Rooftop ventilation', (x + 600, y, 270 + h), (650, 500, 240), 'Industry')
+        part('Warehouse loading door', (x + dx, y + 2310, 580), (760, 20, 550), 'Window')
+    part('Rooftop ventilation', (x + 600, y, 420 + h), (650, 500, 240), 'Industry')
     if j % 3 == 0:
         for dx in (0, 600):
-            part('Utility tank', (x + dx, y - 3100, 745), (460, 460, 1210), 'Industry', 'Cylinder')
+            part('Utility tank', (x + dx, y - 3100, 895), (460, 460, 1210), 'Industry', 'Cylinder')
 # Natural woodland hinterland between the fields and the distant mountains: a
 # soft meadow-to-forest gradient that fills the flat ground instead of the old
 # green hill "blobs". Broadleaf and fir stand in loose groves with grass between.
@@ -1821,7 +1835,7 @@ for i in range(700):
     kind = wrng.choice(('Grass', 'Grass', 'Grass', 'Fir', 'Fir', 'Tree'))
     mesh = _pick_mesh(foliage_meshes[kind], wrng)
     h = wrng.uniform(80, 220) if kind == 'Grass' else wrng.uniform(120, 340) if kind == 'Fir' else wrng.uniform(500, 1100)
-    foliage('Hinterland woodland', (x, y, 150), mesh, h, rot=(0, wrng.uniform(0, 360), 0), ground_z=150)
+    foliage('Hinterland woodland', (x, y, 300), mesh, h, rot=(0, wrng.uniform(0, 360), 0), ground_z=300)
 # Backshore scrub: real coastal vegetation instead of green spheres.
 for i in range(180):
     x = rng.uniform(-44500, 44500)
@@ -1829,7 +1843,7 @@ for i in range(180):
     kind = rng.choice(('Grass', 'Grass', 'Grass', 'Fir', 'Rock'))
     mesh = _pick_mesh(foliage_meshes[kind], rng)
     h = rng.uniform(60, 260) if kind == 'Grass' else rng.uniform(120, 320) if kind == 'Fir' else rng.uniform(50, 160)
-    foliage('Backshore scrub', (x, y, 150), mesh, h, rot=(0, rng.uniform(0, 360), 0), ground_z=150)
+    foliage('Backshore scrub', (x, y, 300), mesh, h, rot=(0, rng.uniform(0, 360), 0), ground_z=300)
 # Lush satsumaimo (sweet potato) fields behind the warehouses: tilled-earth
 # ridges running east-west, each crested with sprawling heart-leafed vines so the
 # plots read as a real cultivated field from above. The old smooth white furrows
@@ -1842,26 +1856,26 @@ FIELD_Y0 = -13300.0
 FIELD_SPACING = 620.0
 for row in range(FIELD_ROWS):
     y = FIELD_Y0 - row * FIELD_SPACING
-    place_mesh('Sweet potato ridge %02d' % row, (0, y, 150), sp_ridge, mats['Earth'], collision=False)
+    place_mesh('Sweet potato ridge %02d' % row, (0, y, 300), sp_ridge, mats['Earth'], collision=False)
 for i in range(3000):
     row = srng.randint(0, FIELD_ROWS - 1)
     y = FIELD_Y0 - row * FIELD_SPACING + srng.uniform(-110, 110)
     x = srng.uniform(-44000, 44000)
-    foliage('Sweet potato plant', (x, y, 192),
+    foliage('Sweet potato plant', (x, y, 342),
             sweet_potato_plant, srng.uniform(14, 24),
-            rot=(0, srng.uniform(0, 360), 0), ground_z=192)
+            rot=(0, srng.uniform(0, 360), 0), ground_z=342)
 for i in range(160):
     fx = srng.uniform(-44500, 44500)
     fy = srng.choice((-12750, -19450)) + srng.uniform(-400, 400)
-    foliage('Field fern', (fx, fy, 150),
+    foliage('Field fern', (fx, fy, 300),
             _pick_mesh(foliage_meshes['Fern'], srng), srng.uniform(120, 300),
-            rot=(0, srng.uniform(0, 360), 0), ground_z=150)
+            rot=(0, srng.uniform(0, 360), 0), ground_z=300)
 for i in range(130):
     tx = srng.uniform(-44000, 44000)
     ty = srng.choice((-12900, -19150)) + srng.uniform(-500, 500)
-    foliage('Field hedgerow', (tx, ty, 150),
+    foliage('Field hedgerow', (tx, ty, 300),
             _pick_mesh(foliage_meshes['Tree'], srng), srng.uniform(700, 1300),
-            rot=(0, srng.uniform(0, 360), 0), ground_z=150)
+            rot=(0, srng.uniform(0, 360), 0), ground_z=300)
 # Layered coastal thickets: a soft gradient from marram grass through low bushes
 # and saplings into a full treeline, so each far end of the beach closes into a
 # lush wood instead of a sparse scatter. Mossy boulders break up the understory.

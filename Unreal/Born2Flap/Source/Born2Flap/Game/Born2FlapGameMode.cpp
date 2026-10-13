@@ -215,7 +215,7 @@ double ABorn2FlapGameMode::GroundHeight(double X, double Y) const
                 Hit.GetActor()->ActorHasTag(TEXT("ShiomoriVolcanic"))) return Hit.ImpactPoint.Z;
         }
         if(Born2FlapBay::Contains(X,Y)) return Born2FlapBay::Height(X,Y);
-        if(FMath::Abs(X)<=75000 && Y>=-51000 && Y<=-3000) return 150;
+        if(FMath::Abs(X)<=75000 && Y>=-51000 && Y<=-3000) return 300;
         if(FMath::Abs(X)>45000 || Y<-3500) return -1750;
         if(Y>=-1200)
         {
@@ -230,7 +230,7 @@ double ABorn2FlapGameMode::GroundHeight(double X, double Y) const
             if(D<0) return Dune*(-D/2500.)-50*FMath::Square((D+2500)/2500);
             return FMath::Max(-1750.,-50-.04*D);
         }
-        return FMath::Clamp(FMath::CeilToDouble((-Y-1200)/100.)*25.,0.,150.);
+        return FMath::Clamp(FMath::CeilToDouble((-Y-1200)/100.)*50.,0.,300.);
     }
     return bNatureLevel ? ABorn2FlapValley::GroundHeight(X, Y) : 0;
 }
@@ -757,13 +757,16 @@ void ABorn2FlapGameMode::Tick(float DeltaSeconds)
             UE_LOG(LogTemp,Display,TEXT("Water mask: center=%d sea=%d rock=%d near=%d"),MaskCenter,MaskSea,MaskRock,MaskNear);
             const double WindNear=WindAt(FVector(0,-1400,350),0).Z,WindOff=WindAt(FVector(0,6000,350),0).Z;
             UE_LOG(LogTemp,Display,TEXT("Wind at probes: near=%.3f offshore=%.3f"),WindNear,WindOff);
+            // Upwash transect across the tidewalk sea wall (x=0, bird 3.5 m up).
+            for(double Y : {-4000.,-3000.,-2000.,-1500.,-1250.,-1000.,0.,2000.,4000.,6000.})
+                UE_LOG(LogTemp,Display,TEXT("Upwash transect y=%.0f lift=%.2f m/s"),Y,WindAt(FVector(0,Y,350),0).Z);
             bool Pass=MaskCenter && MaskSea && MaskRock && MaskNear;
             Pass &= WindNear>.3 && WindOff<.01;
             {
                 FHitResult Hit;
                 bool HitGround=GetWorld()->LineTraceSingleByChannel(Hit,FVector(2000,3000,700),FVector(2000,3000,-700),ECC_Visibility);
                 Pass &= HitGround && FMath::Abs(Hit.ImpactPoint.Z-GroundHeight(2000,3000))<150;
-                for(const FVector& P : {FVector(2000,-1750,150),FVector(2000,-2500,150)})
+                for(const FVector& P : {FVector(2000,-1750,300),FVector(2000,-2500,300)})
                 {
                     HitGround=GetWorld()->LineTraceSingleByChannel(Hit,P+FVector(0,0,700),P-FVector(0,0,700),ECC_Visibility);
                     Pass &= HitGround && FMath::Abs(Hit.ImpactPoint.Z-P.Z)<3;
@@ -827,6 +830,25 @@ void ABorn2FlapGameMode::Tick(float DeltaSeconds)
                 UE_LOG(LogTemp,Display,TEXT("CliffLift onshore=%.2f offshore=%.2f"),On,Off);
             }
             const double Open=Born2FlapBay::WindExposure(FVector(0,65000,400),FVector(-1,0,0));
+            bool EastShorePass=true;
+            for(double X:{61000.,75000.,90000.})
+            {
+                for(double Offset:{-8500.,-2500.,0.,3000.})
+                {
+                    const double Y=Born2FlapBay::EastShoreEdge(X)+Offset,H=Born2FlapBay::Height(X,Y);
+                    FHitResult Hit;
+                    const bool Found=GetWorld()->LineTraceSingleByChannel(Hit,FVector(X,Y,6000),FVector(X,Y,-4000),ECC_Visibility);
+                    const double Error=Found?FMath::Abs(Hit.ImpactPoint.Z-H):9999;
+                    Pass &= Found && Error<100;
+                    EastShorePass &= Found && Error<100;
+                    UE_LOG(LogTemp,Display,TEXT("EastShoreTransect x=%.0f offset=%.0f height=%.1f hit=%d error=%.1f"),X,Offset,H,Found,Error);
+                }
+            }
+            if(FParse::Param(FCommandLine::Get(),TEXT("B2FEastShoreCollisionTest")))
+            {
+                UE_LOG(LogTemp,Display,TEXT("EastShoreCollisionTest %s: twelve terrain/shore/seabed probes"),EastShorePass?TEXT("PASS"):TEXT("FAIL"));
+                FPlatformMisc::RequestExitWithStatus(false,EastShorePass?0:1);return;
+            }
             const double Above=Born2FlapBay::WindExposure(FVector(34000,20000,15000),FVector(-1,0,0));
             Pass &= Sheltered<Open-.05 && Above>Sheltered+.05;
             UE_LOG(LogTemp,Display,TEXT("Bay wind exposure: sheltered=%.2f open=%.2f above=%.2f"),Sheltered,Open,Above);
