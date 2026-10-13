@@ -15,6 +15,9 @@ double CliffEdge(double X);
 double CliffMask(double X);
 double CliffHeight(double X,double Y,double Original);
 double CliffLift(const FVector& Position,const FVector& HorizontalWind);
+double EastShoreMask(double X,double Y);
+double EastShoreEdge(double X);
+double EastShoreHeight(double X,double Y,double Original);
 }
 
 UCLASS()
@@ -28,4 +31,5 @@ private:
     void BuildLand();
     void PlantWoodland();
     void BuildCliffDetails();
+    void BuildEastShore();
 };

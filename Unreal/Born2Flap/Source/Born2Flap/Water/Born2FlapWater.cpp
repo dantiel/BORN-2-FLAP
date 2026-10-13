@@ -22,7 +22,7 @@ namespace Born2FlapWater
 
 float FOceanParameters::SampleWaveHeight(const FVector2D& P, float Time) const
 {
-    // Deterministic, cheap Gerstner spectrum (8 components). Must match the
+    // Deterministic, cheap Gerstner spectrum (16 components). Must match the
     // HLSL in create_shiomori_map.py's water_material() custom node exactly so
     // gameplay water height and the rendered surface agree.
     //
@@ -33,17 +33,17 @@ float FOceanParameters::SampleWaveHeight(const FVector2D& P, float Time) const
     //   height = sum_i A_i * cos(k_i * dot(P,D_i) - w_i * T + phase[i])
     //            where k_i = 2*pi / L_i
     //
-    static constexpr float LenF[8]    = { 1.0f, 0.32f, 0.19f, 0.13f, 0.088f, 0.059f, 0.043f, 0.030f };
-    static constexpr float AmpF[8]    = { 1.00f, 0.45f, 0.28f, 0.16f, 0.090f, 0.055f, 0.035f, 0.022f };
-    static constexpr float DirOff[8]  = { 0.0f, -8.0f, 7.0f, -12.0f, 18.0f, -22.0f, 28.0f, -35.0f };
-    static constexpr float Phase[8]   = { 0.0f, 1.3f, 2.7f, 4.1f, 5.2f, 0.9f, 3.3f, 4.7f };
+    static constexpr float LenF[16]    = { 1.0f, 0.5f, 0.33f, 0.22f, 0.151f, 0.107f, 0.079f, 0.059f, 0.045f, 0.034f, 0.0265f, 0.0205f, 0.016f, 0.0125f, 0.0098f, 0.0076f };
+    static constexpr float AmpF[16]    = { 1.00f, 0.42f, 0.30f, 0.21f, 0.15f, 0.105f, 0.075f, 0.054f, 0.038f, 0.027f, 0.019f, 0.0135f, 0.0095f, 0.0067f, 0.0047f, 0.0033f };
+    static constexpr float DirOff[16]  = { 0.0f, -8.0f, 12.0f, -20.0f, 28.0f, -35.0f, 45.0f, -55.0f, 65.0f, -50.0f, 40.0f, -30.0f, 50.0f, -60.0f, 22.0f, -15.0f };
+    static constexpr float Phase[16]   = { 0.0f, 1.7f, 3.1f, 4.4f, 5.7f, 1.1f, 2.4f, 3.7f, 5.0f, 0.6f, 1.9f, 3.2f, 4.5f, 5.8f, 0.9f, 2.2f };
 
     const float AmpScale = SeaStateScale();
     const float Wl = FMath::Max(1.0f, SwellLength);
     const float Cs = FMath::Max(0.0f, SwellSpeed);
 
     float H = 0.0f;
-    for (int32 i = 0; i < 8; ++i)
+    for (int32 i = 0; i < 16; ++i)
     {
         const float L = Wl * LenF[i];
         const float A = SwellAmplitude * AmpF[i] * AmpScale;

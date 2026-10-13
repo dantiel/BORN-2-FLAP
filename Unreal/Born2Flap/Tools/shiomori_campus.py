@@ -69,11 +69,11 @@ def install(scope):
     def smooth(a,b,x):
         t=max(0,min(1,(x-a)/(b-a)));return t*t*(3-2*t)
     def analytic_ground(x,y):
-        if y < -3000:return 150.
+        if y < -3000:return 300.
         shore=scope['waterline'](x);d=y-shore
         dune=max(20,40+50*math.sin(x*.00029+1.2)+30*math.sin(x*.00091+4.1)+15*math.sin(x*.0023+.7)+8*math.sin(x*.0047+2.9))
         base=dune if d<=-2500 else dune*(-d/2500)-50*((d+2500)/2500)**2 if d<0 else max(-1750,-50-.04*d)
-        if y < -1200:base=max(0,min(150,math.ceil((-y-1200)/100)*25))
+        if y < -1200:base=max(0,min(300,math.ceil((-y-1200)/100)*50))
         inner=54000-3500*math.exp(-((y-26000)/14000)**2)
         rise=smooth(inner-5000,inner+14000,abs(x));tip=1-smooth(40000,68000,y)
         hill=base+(-50+700+220*math.sin(x*.000065+y*.00011)-base)*rise*tip

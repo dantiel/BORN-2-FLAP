@@ -64,3 +64,6 @@ _analyze*.py
 _analyze_shot.py
 # Build logs
 *.log
+
+# Windows PowerShell redirect artifacts
+$null

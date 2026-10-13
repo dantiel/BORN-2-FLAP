@@ -242,7 +242,8 @@ void ABorn2FlapWeather::CheckExperienceTest()
 {
     const bool Campus=FParse::Param(FCommandLine::Get(),TEXT("B2FCampusTest"));
     const bool Cliffs=FParse::Param(FCommandLine::Get(),TEXT("B2FCliffTest"));
-    const int32 CaptureCount=Campus?7:FParse::Param(FCommandLine::Get(),TEXT("B2FVolcanicTest"))?5:3;
+    const bool EastShore=FParse::Param(FCommandLine::Get(),TEXT("B2FEastShoreTest"));
+    const int32 CaptureCount=Campus?7:(Cliffs||EastShore)?4:FParse::Param(FCommandLine::Get(),TEXT("B2FVolcanicTest"))?5:3;
     if(Elapsed>1 && !ExperienceCamera)
     {
         // Offscreen windows never gain focus. Keep the test mix audible rather
@@ -265,7 +266,7 @@ void ABorn2FlapWeather::CheckExperienceTest()
                 View->GetCameraComponent()->SetFieldOfView(55);
             }
         }
-        if(Campus || Cliffs)
+        if(Campus || Cliffs || EastShore)
             if(auto* Bird=Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this,0)))
                 if(!Bird->IsUIHidden()) Bird->ToggleUIHidden();
         UGameplayStatics::GetPlayerController(this,0)->SetViewTarget(View);
@@ -290,11 +291,31 @@ void ABorn2FlapWeather::CheckExperienceTest()
     }
     if(ExperienceCamera && Cliffs)
     {
-        const int32 Index=FMath::Clamp(int32((Elapsed-2)/4),0,2);
-        const FVector Eyes[]={FVector(-70000,55500,3000),FVector(-71000,45900,2750),FVector(-56000,39000,9000)};
-        const FVector Targets[]={FVector(-73000,47500,1150),FVector(-69000,50500,1100),FVector(-73500,41500,1100)};
+        const int32 Index=FMath::Clamp(int32((Elapsed-2)/4),0,3);
+        const FVector GroundEye(-72500,46000,Born2FlapBay::Height(-72500,46000)+170);
+        const FVector Eyes[]={FVector(-70000,55500,3000),FVector(-71000,45900,2750),FVector(-56000,39000,9000),GroundEye};
+        const FVector Targets[]={FVector(-73000,47500,1150),FVector(-69000,50500,1100),FVector(-73500,41500,1100),GroundEye+FVector(3000,900,-150)};
         ExperienceCamera->SetActorLocationAndRotation(Eyes[Index],(Targets[Index]-Eyes[Index]).Rotation());
         CastChecked<ACameraActor>(ExperienceCamera)->GetCameraComponent()->SetFieldOfView(70);
+
+    }
+    if(ExperienceCamera && EastShore)
+    {
+        const int32 Index=FMath::Clamp(int32((Elapsed-2)/4),0,3);
+        const double Y=Born2FlapBay::EastShoreEdge(73500)-2200;
+        const FVector Close(73500,Y,Born2FlapBay::Height(73500,Y)+170);
+        const FVector Wood(66000,27000,Born2FlapBay::Height(66000,27000)+190);
+        const FVector Eyes[]={FVector(76000,57000,1500),Close,FVector(45000,43000,9000),Wood};
+        const FVector Targets[]={FVector(73000,48500,150),Close+FVector(3200,1100,-130),FVector(73000,35000,300),Wood+FVector(-1800,-3500,0)};
+        ExperienceCamera->SetActorLocationAndRotation(Eyes[Index],(Targets[Index]-Eyes[Index]).Rotation());
+        CastChecked<ACameraActor>(ExperienceCamera)->GetCameraComponent()->SetFieldOfView(70);
+        if(FParse::Param(FCommandLine::Get(),TEXT("B2FEastStrandTest")))
+        {
+            // Inspect both ends of the old coarse-sand patch and the woodland toe.
+            const FVector StrandEyes[]={FVector(40500,6500,260),FVector(46000,8500,420),FVector(42000,16000,3600),FVector(49500,16000,1100)};
+            const FVector StrandTargets[]={FVector(47000,7000,100),FVector(41000,7500,50),FVector(47500,7000,150),FVector(45000,9000,100)};
+            ExperienceCamera->SetActorLocationAndRotation(StrandEyes[Index],(StrandTargets[Index]-StrandEyes[Index]).Rotation());
+        }
     }
     if(FParse::Param(FCommandLine::Get(),TEXT("B2FBirdWaterTest")) && ExperienceCapture==2 && Elapsed>12)
     {
@@ -306,7 +327,7 @@ void ABorn2FlapWeather::CheckExperienceTest()
     {
         const bool BirdView=FParse::Param(FCommandLine::Get(),TEXT("B2FBirdWaterTest"));
         const bool Volcanic=FParse::Param(FCommandLine::Get(),TEXT("B2FVolcanicTest"));
-        FScreenshotRequest::RequestScreenshot(FString::Printf(TEXT("%s_%s_%s_%d.png"),Campus ? TEXT("CAMPUS") : Volcanic ? TEXT("VOLCANIC") : BirdView ? TEXT("BIRD_WATER") : TEXT("EXPERIENCE"),*Level,*Conditions.Weather,ExperienceCapture),false,false);
+        FScreenshotRequest::RequestScreenshot(FString::Printf(TEXT("%s_%s_%s_%d.png"),EastShore ? TEXT("EAST_SHORE") : Campus ? TEXT("CAMPUS") : Volcanic ? TEXT("VOLCANIC") : BirdView ? TEXT("BIRD_WATER") : TEXT("EXPERIENCE"),*Level,*Conditions.Weather,ExperienceCapture),false,false);
         ++ExperienceCapture;
     }
     if(Elapsed>15 && !bTestDone)
