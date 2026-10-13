@@ -9,6 +9,10 @@ namespace Born2FlapBay
 bool Contains(double X,double Y);
 double Height(double X,double Y);
 double WindExposure(const FVector& Position,const FVector& Direction);
+double CliffEdge(double X);
+double CliffMask(double X);
+double CliffHeight(double X,double Y,double Original);
+double CliffLift(const FVector& Position,const FVector& HorizontalWind);
 }
 
 UCLASS()
@@ -21,4 +25,5 @@ public:
 private:
     void BuildLand();
     void PlantWoodland();
+    void BuildCliffDetails();
 };

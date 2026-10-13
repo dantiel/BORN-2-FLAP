@@ -11,6 +11,11 @@ import random
 from pathlib import Path
 import unreal as u
 
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from project_guard import require_project
+require_project()
+
 rng = random.Random(290928)
 assets = u.AssetToolsHelpers.get_asset_tools()
 lib = u.MaterialEditingLibrary
@@ -492,7 +497,7 @@ return normalize(float3(n,1.0));''',{'P':p,'T':t})
 
 def sand_material(name, diffuse, normal, rough=0.8, rough_tex=None, tiling_cm=300.0,
                   relief_scale=0.02, relief_strength=0.6, normal_strength=0.6,
-                  tint=None, caustic=False):
+                  tint=None, caustic=False, pebble=None):
     """Beach sand: tiled grain normal plus a large-scale wind/sea/footprint
     relief so the surface reads as naturally uneven, not a flat smooth plane."""
     path = '/Game/Shiomori/Materials/M_' + name
@@ -524,6 +529,26 @@ def sand_material(name, diffuse, normal, rough=0.8, rough_tex=None, tiling_cm=30
         add = node(m, 'Add'); wire(one, add, 'A'); wire(sc, add, 'B')
         mul2 = node(m, 'Multiply'); wire(bc, mul2, 'A'); wire(add, mul2, 'B')
         bc = mul2
+    # Stone/pebble strand: a value-noise-wobbled ramp on |x| grades the fine sand
+    # into coarser, darker stone pebbles toward the beach ends, so the sand hands
+    # off to the headland rock with no hard straight seam.
+    pebble_blend = None
+    pebble_n = None
+    if pebble is not None:
+        pd, pn, _, peb_tint, peb_start, peb_end = pebble
+        pc = sample_tex(m, pd, ('world', 95.0))
+        if peb_tint is not None:
+            pt = node(m, 'Constant3Vector', constant=u.LinearColor(*peb_tint))
+            pm = node(m, 'Multiply'); wire(pc, pm, 'A'); wire(pt, pm, 'B'); pc = pm
+        pebble_n = sample_tex(m, pn, ('world', 95.0), normal=True)
+        ppos = node(m, 'WorldPosition')
+        pnx = node(m, 'Multiply'); wire(ppos, pnx, 'A'); pnx.set_editor_property('const_b', 0.00009)
+        pnz = node(m, 'Noise', levels=2, output_min=-1.0, output_max=1.0); wire(pnx, pnz, '')
+        pebble_blend = custom(m, 'return smoothstep(%g + N*%g, %g, abs(P.x));'
+                              % (peb_start, (peb_end - peb_start) * 0.16, peb_end),
+                              {'P': ppos, 'N': pnz}, 1)
+        bc = custom(m, 'return lerp(A.rgb, B.rgb, W);',
+                    {'A': bc, 'B': pc, 'W': pebble_blend}, 3)
     output(bc, 'BASE_COLOR')
     if rough_tex is not None:
         output(sample_tex(m, rough_tex, ('world', tiling_cm)), 'ROUGHNESS', 'R')
@@ -559,6 +584,9 @@ return normalize(float3(lerp(0.0, r.x, %.6g), lerp(0.0, r.y, %.6g), 1.0));
     wire(nz_gy, n, 'NY')
     wire(nz_w, n, 'W')
     wire(ns, n, 'TN', 'RGB')
+    if pebble is not None:
+        n = custom(m, 'return normalize(lerp(A, B, W));',
+                   {'A': n, 'B': pebble_n, 'W': pebble_blend}, 3)
     output(n, 'NORMAL')
     material_usage_flags(m)
     lib.recompile_material(m)
@@ -940,7 +968,8 @@ if sand_d2:
 # --------------------------------------------------------------------------- #
 mats = {}
 mats['Sand'] = sand_material('Sand', sand_d, sand_n, rough_tex=sand_r, tiling_cm=300.0,
-                             normal_strength=0.65)
+                             normal_strength=0.65,
+                             pebble=(basalt_d, basalt_n, basalt_r, (0.55, 0.55, 0.56), 36000.0, 44800.0))
 mats['WetSand'] = sand_material('WetSand', sand_d, sand_n, rough=0.35, tiling_cm=300.0,
                                 normal_strength=0.5, tint=(0.74, 0.68, 0.56), caustic=True)
 mats['Concrete'] = concrete_material('Concrete', worn_d, worn_n, worn_r,
@@ -1353,6 +1382,40 @@ def beach_visual_height(x, y):
         t = max(0.0, d_inland) / blend
         z = 25.0 + (z - 25.0) * t
     return z + sand_ripple(x, y)
+
+
+def _smoothstep(a, b, x):
+    t = max(0.0, min(1.0, (x - a) / (b - a)))
+    return t * t * (3.0 - 2.0 * t)
+
+
+def headland_height(x, y):
+    # Runtime enclosing headlands (Born2FlapBayTerrain.cpp Height). The baked
+    # beach mesh stops at |x|=45000; beyond it the C++ actor raises these low
+    # land tongues. Keep in sync so build-time foliage roots on the runtime
+    # ground. (Only the Y>=-3000 coastal branch is needed here.)
+    shore = 10000 + 520 * math.sin(x * 0.00030 + 1.7) + 300 * math.sin(x * 0.00105 + 4.2) \
+        + 160 * math.sin(x * 0.0024 + 0.6) + 85 * math.sin(x * 0.0056 + 2.3) \
+        + 45 * math.sin(x * 0.013 + 5.1)
+    dune = max(20.0, 40.0 + 50 * math.sin(x * 0.00029 + 1.2) + 30 * math.sin(x * 0.00091 + 4.1)
+               + 15 * math.sin(x * 0.0023 + 0.7) + 8 * math.sin(x * 0.0047 + 2.9))
+    d = y - shore
+    if d <= -2500:
+        base = dune
+    elif d < 0:
+        base = dune * (-d / 2500.0) - 50.0 * ((d + 2500.0) / 2500.0) ** 2
+    else:
+        base = max(-1750.0, -50.0 - 0.04 * d)
+    if y < -1200:
+        base = max(0.0, min(150.0, math.ceil((-y - 1200.0) / 100.0) * 25.0))
+    inner = (54000.0 if x < 0 else 50750.0) - 3500.0 * math.exp(-((y - 26000.0) / 14000.0) ** 2)
+    rise = _smoothstep(inner - 5000.0, inner + 14000.0, abs(x))
+    tip = 1.0 - _smoothstep(40000.0, 68000.0, y)
+    inland = _smoothstep(-3000.0, 5000.0, y)
+    hill_amp = 700.0 if x < 0 else 900.0
+    headland_top = -50.0 + hill_amp + 220.0 * math.sin(x * 0.000065 + y * 0.00011)
+    hill = base + (headland_top - base) * (rise * tip)
+    return max(base - 6.0, (base - 6.0) + (hill - (base - 6.0)) * inland)
 
 
 def make_beach():
@@ -1838,6 +1901,35 @@ for side in (-1, 1):
         foliage('Coastal forest west' if side<0 else 'Coastal forest east',
                 (x,y,0), _pick_mesh(foliage_meshes['Fir'], vrng), vrng.uniform(500,820),
                 rot=(0,vrng.uniform(0,360),0), ground_z=beach_height(x,y))
+# Seaward headland woodland: the low land tongue east of the beach (between the
+# coastal treeline and the volcanic shoal) is generated at runtime but was left
+# bare. Plant loose, wind-shaped groves of fir and broadleaf on it so the outer
+# beach closes into a wooded headland instead of a bald sand/rock shelf. Roots
+# follow headland_height() (kept in sync with Born2FlapBayTerrain.cpp).
+hrng = random.Random(771503)
+for i in range(320):
+    x = hrng.uniform(45600, 54800)
+    y = hrng.uniform(3800, 16600)
+    z = headland_height(x, y)
+    if z < 22.0 or z > 600.0:
+        continue
+    r = hrng.random()
+    if r < 0.14:
+        # Occasional wind-bent grass pocket on the lower shelf.
+        mesh = _pick_mesh(foliage_meshes['Grass'], hrng)
+        foliage('Headland grass east', (x, y, 0), mesh, hrng.uniform(40, 90),
+                rot=(0, hrng.uniform(0, 360), 0), ground_z=z - 3)
+    elif r < 0.24:
+        # Small mossy stones scattered across the stony upper shelf.
+        mesh = _pick_mesh(foliage_meshes['Rock'], hrng)
+        foliage('Headland rock east', (x, y, 0), mesh, hrng.uniform(30, 80),
+                rot=(0, hrng.uniform(0, 360), 0), ground_z=z - 3)
+    else:
+        kind = 'Tree' if hrng.random() < 0.4 else 'Fir'
+        mesh = _pick_mesh(foliage_meshes[kind], hrng)
+        h = hrng.uniform(340, 900) if kind == 'Fir' else hrng.uniform(520, 1250)
+        foliage('Headland woodland east', (x, y, 0), mesh, h,
+                rot=(0, hrng.uniform(0, 360), 0), ground_z=z - 6)
 # Beach dune grasses: marram-like clumps that cluster on the slight elevations
 # (dune crests) the onshore wind has built. They keep off the wet foreshore and
 # the tidewalk, growing sparse on the flats and denser toward the higher berms
@@ -1950,3 +2042,5 @@ radio()
 u.EditorAssetLibrary.make_directory('/Game/Shiomori/Maps')
 assert u.EditorLoadingAndSavingUtils.save_map(world, '/Game/Shiomori/Maps/SHIOMORI')
 u.log('SHIOMORI_MAP_READY actors=' + str(count))
+if '-ExecutePythonScript=' in u.SystemLibrary.get_command_line():
+    u.SystemLibrary.execute_console_command(None,'quit')

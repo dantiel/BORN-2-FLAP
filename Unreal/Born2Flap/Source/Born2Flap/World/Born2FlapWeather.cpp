@@ -1,4 +1,5 @@
 #include "World/Born2FlapWeather.h"
+#include "World/Born2FlapBayTerrain.h"
 #include "Game/Born2FlapGameMode.h"
 #include "Components/InstancedStaticMeshComponent.h"
 #include "Components/BoxComponent.h"
@@ -240,6 +241,7 @@ void ABorn2FlapWeather::Tick(float DeltaSeconds)
 void ABorn2FlapWeather::CheckExperienceTest()
 {
     const bool Campus=FParse::Param(FCommandLine::Get(),TEXT("B2FCampusTest"));
+    const bool Cliffs=FParse::Param(FCommandLine::Get(),TEXT("B2FCliffTest"));
     const int32 CaptureCount=Campus?7:FParse::Param(FCommandLine::Get(),TEXT("B2FVolcanicTest"))?5:3;
     if(Elapsed>1 && !ExperienceCamera)
     {
@@ -263,7 +265,7 @@ void ABorn2FlapWeather::CheckExperienceTest()
                 View->GetCameraComponent()->SetFieldOfView(55);
             }
         }
-        if(Campus)
+        if(Campus || Cliffs)
             if(auto* Bird=Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this,0)))
                 if(!Bird->IsUIHidden()) Bird->ToggleUIHidden();
         UGameplayStatics::GetPlayerController(this,0)->SetViewTarget(View);
@@ -285,6 +287,14 @@ void ABorn2FlapWeather::CheckExperienceTest()
         for(TActorIterator<AActor> It(GetWorld());It;++It)if(It->ActorHasTag(CameraTag))
         {ExperienceCamera->SetActorLocationAndRotation(It->GetActorLocation(),It->GetActorRotation());break;}
         CastChecked<ACameraActor>(ExperienceCamera)->GetCameraComponent()->SetFieldOfView(Index==0?70:Index==4?65:75);
+    }
+    if(ExperienceCamera && Cliffs)
+    {
+        const int32 Index=FMath::Clamp(int32((Elapsed-2)/4),0,2);
+        const FVector Eyes[]={FVector(-70000,55500,3000),FVector(-71000,45900,2750),FVector(-56000,39000,9000)};
+        const FVector Targets[]={FVector(-73000,47500,1150),FVector(-69000,50500,1100),FVector(-73500,41500,1100)};
+        ExperienceCamera->SetActorLocationAndRotation(Eyes[Index],(Targets[Index]-Eyes[Index]).Rotation());
+        CastChecked<ACameraActor>(ExperienceCamera)->GetCameraComponent()->SetFieldOfView(70);
     }
     if(FParse::Param(FCommandLine::Get(),TEXT("B2FBirdWaterTest")) && ExperienceCapture==2 && Elapsed>12)
     {

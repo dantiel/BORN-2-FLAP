@@ -8,7 +8,7 @@ module Born2Flap
       # catalog; the view renders the selected world's card + weather/time
       # selects + FLY/PREV/NEXT and (when opened in-level) RESUME/FLIGHT DESK.
       class Menu < ViewController
-        view :panel, template: "menu.umghaml"
+        view :panel, template: "menu.umghaml", theme: "menu.umgss"
 
         def panel_locals(locals = {})
           worlds = locals[:worlds] || []

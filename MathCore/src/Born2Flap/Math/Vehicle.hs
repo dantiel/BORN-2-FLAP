@@ -12,6 +12,9 @@ module Born2Flap.Math.Vehicle
   , StripResult(..)
   , stripCount
   , wingRootHeight
+  , airDensity
+  , flapJetCoeff
+  , flapDampingCd
   , emptyStrip
   , initialStrips
   , stepWingWithStroke
@@ -41,6 +44,31 @@ import Born2Flap.Math.Structure
 import Born2Flap.Math.Waveform
   ( OscillatorState(..), defaultOscillator, advanceOscillator
   , limiarFromFerocities, shapeWaveWithDerivative )
+
+-- | Air density [kg/m³] across the whole flight envelope. Tuned a touch thin
+-- (≈ 850 m ASL) so the air reads light and the bird fast; flap thrust is
+-- boosted separately via 'flapJetCoeff' so wing beats still bite hard.
+airDensity :: Double
+airDensity = 1.05
+
+-- | Momentum-jet thrust factor for the flapping downstroke (dimensionless).
+-- The downstroke accelerates a chord-scale column of air; C_T ≈ 2 is typical.
+-- Raised so wing beats deliver clear propulsive effect even in the thinner air.
+flapJetCoeff :: Double
+flapJetCoeff = 3.5
+
+-- | Flat-plate pressure-drag coefficient for the wing's OWN flap motion — the
+-- broad surface sweeping normal to itself through air. A thin airfoil moving
+-- edge-on has Cd ≈ 0.02, but a wing moving normal to its own surface is a flat
+-- plate with Cd ≈ 1.2. This is the "air resistance" a wing feels when it moves
+-- up/down (flap stroke or differential-dihedral roll); without it the surface
+-- slices through air as if there were none.
+flapDampingCd :: Double
+-- A rotating CAMBERED wing presents more area to the air than a translating
+-- flat plate (radial flow + camber scoop), so its effective coefficient sits
+-- a little above the translating-plate value (~1.2) -- still well inside the
+-- physical bluff-body range (flat plate perpendicular to flow ~ 1.17 to 1.28).
+flapDampingCd = 1.45
 
 data VehicleInput = VehicleInput
   { stepSeconds :: !Double
@@ -147,10 +175,10 @@ stepVehicleUnchecked input state
           wingForce = foldr (addVec . resultForce) zeroVec wingResults
           wingMoment = foldr (addVec . resultMoment) zeroVec wingResults
           speed = magnitude (bodyVelocityMS input)
-          bodyDrag = scaleVec (-0.5 * 1.225 * 0.032 * speed) (bodyVelocityMS input)
+          bodyDrag = scaleVec (-0.5 * airDensity * 0.032 * speed) (bodyVelocityMS input)
           tailArm = Vec3 (-0.48) 0 0
           tailVelocity = addVec (bodyVelocityMS input) (crossVec rates tailArm)
-          tailQArea = 0.5 * 1.225 * 0.035 * magnitude tailVelocity * magnitude tailVelocity
+          tailQArea = 0.5 * airDensity * 0.035 * magnitude tailVelocity * magnitude tailVelocity
           -- Fixed tailplane incidence: a small, always-on DOWN force (negative z
           -- lift) proportional to dynamic pressure, providing pitch trim; the
           -- stick adds control lift on top of it.
@@ -288,7 +316,7 @@ stepStrip flapping side stroke strokeRate input incidenceRad wp index old =
       cd = lerp attachedCd separatedCd relaxed
       sideCd = 0.018 + 0.08 * relaxed
       area = chord * dr
-      q = 0.5 * 1.225 * planarSpeed * planarSpeed
+      q = 0.5 * airDensity * planarSpeed * planarSpeed
       lift = q * area * cl
       drag = q * area * cd
       flowX = chordVelocity / safeSpeed
@@ -297,7 +325,7 @@ stepStrip flapping side stroke strokeRate input incidenceRad wp index old =
       -- reverse flow. In particular a passive falling wing cannot add energy.
       chordForce = scaleVec (-drag * flowX - lift * flowZ) chordAxis
       normalForce = scaleVec (-drag * flowZ + lift * flowX) normal
-      spanDrag = scaleVec (-0.5 * 1.225 * area * sideCd * abs spanVelocity * spanVelocity) spanAxis
+      spanDrag = scaleVec (-0.5 * airDensity * area * sideCd * abs spanVelocity * spanVelocity) spanAxis
       -- Flapping thrust (momentum theory): the downstroke sheds a backward jet,
       -- so the wing receives a forward reaction proportional to the flap-induced
       -- dynamic pressure and the strip area. Only on the downstroke (strokeRate
@@ -309,10 +337,21 @@ stepStrip flapping side stroke strokeRate input incidenceRad wp index old =
       -- 0.70 left a 49 g kestrel with NEGATIVE cruise thrust (measured -0.23 N
       -- at 6 m/s) and it could never accelerate to flying speed.
       flapThrust = if flapping && strokeRate < 0
-                      then 0.5 * 1.225 * area * (radius * strokeRate) * (radius * strokeRate) * 2.5
+                      then 0.5 * airDensity * area * (radius * strokeRate) * (radius * strokeRate) * flapJetCoeff
                       else 0
       thrustForce = Vec3 flapThrust 0 0
-      force = addVec (addVec chordForce (addVec normalForce spanDrag)) thrustForce
+      -- Flat-plate pressure drag on the wing surface moving normal to itself.
+      -- This is the "air resistance" a broad wing feels when it sweeps up/down
+      -- (flap stroke or differential-dihedral roll): independent of the
+      -- angle-of-attack lift/drag machinery, which uses a thin-edge section
+      -- drag and would otherwise let the wing slice through air almost free.
+      -- Opposes the wing surface's FULL normal velocity -- flap stroke plus the
+      -- body's own translation/rotation -- so a rolling body also drags the wing
+      -- through the air (and the reaction at the shoulder rolls the fuselage).
+      flapDampingForce = scaleVec (-0.5 * airDensity * area * flapDampingCd
+                                    * normalVelocity * abs normalVelocity) normal
+      force = addVec (addVec chordForce (addVec normalForce spanDrag))
+                     (addVec thrustForce flapDampingForce)
       -- Explicit differencing of BODY acceleration as an added-mass force
       -- creates a delayed feedback loop at contacts. Omit this term until an
       -- implicit fluid/body inertia solve is available; do not clamp it into

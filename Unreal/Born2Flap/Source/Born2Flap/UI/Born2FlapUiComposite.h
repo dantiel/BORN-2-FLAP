@@ -6,6 +6,7 @@
 
 #include "CoreMinimal.h"
 #include "Components/Border.h"
+#include "Layout/Margin.h"
 #include "Born2FlapUiComposite.generated.h"
 
 class UPanelWidget;
@@ -41,6 +42,11 @@ public:
     // without re-sending the whole text. Keys: value, unit, label, options,
     // selected, open, on, off, min, max, step, decimals.
     UPROPERTY() TMap<FString, FString> State;
+
+    // Outer margin — space reserved in the PARENT slot around this component,
+    // set by the semantic `margin` prop. Distinct from `padding` (inner inset).
+    UPROPERTY() FMargin Margin = FMargin(0.f);
+    UPROPERTY() bool bHasMargin = false;
 
     UWidget* Part(const FString& Key) const { return Parts.FindRef(Key); }
     UPanelWidget* ContentPanel() const { return Content; }

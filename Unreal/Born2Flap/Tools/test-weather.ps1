@@ -2,12 +2,13 @@ param(
     [string]$EngineRoot='V:\UE_5.8',
     [ValidateSet('Shiomori','Ravenstonefield','Training')][string]$Level='Shiomori',
     [string]$Weather='parhelion', [string]$DayTime='morning',
-    [switch]$All, [switch]$Menu, [switch]$Experience, [switch]$BirdWater, [switch]$Volcanic, [switch]$Campus
+    [switch]$All, [switch]$Menu, [switch]$Experience, [switch]$BirdWater, [switch]$Volcanic, [switch]$Campus, [switch]$Cliffs
 )
 $ErrorActionPreference='Stop'
 if($BirdWater){$Experience=$true;$Level='Shiomori'}
 if($Volcanic){$Experience=$true;$Level='Shiomori'}
 if($Campus){$Experience=$true;$Level='Shiomori'}
+if($Cliffs){$Experience=$true;$Level='Shiomori'}
 $project=(Resolve-Path (Join-Path $PSScriptRoot '../Born2Flap.uproject')).Path
 $cases=, @($Level,$Weather,$DayTime)
 if($All){$cases=@(
@@ -28,6 +29,7 @@ foreach($case in $cases){
     if($BirdWater){$arguments+='-B2FBirdWaterTest'}
     if($Volcanic){$arguments+='-B2FVolcanicTest'}
     if($Campus){$arguments+='-B2FCampusTest'}
+    if($Cliffs){$arguments+='-B2FCliffTest'}
     $process=Start-Process -FilePath (Join-Path $EngineRoot 'Engine/Binaries/Win64/UnrealEditor-Cmd.exe') -ArgumentList $arguments -WindowStyle Hidden -PassThru
     if(!$process.WaitForExit(180000)){Stop-Process -Id $process.Id;throw "Weather test timed out: $log"}
     $marker=if($Menu){'WeatherMenuTest PASS'}elseif($Experience){'WeatherExperienceTest PASS'}else{'WeatherTest PASS'}

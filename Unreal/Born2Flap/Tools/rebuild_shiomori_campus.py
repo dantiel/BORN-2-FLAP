@@ -7,6 +7,8 @@ import unreal as u
 
 here=Path(__file__).resolve().parent
 sys.path.insert(0,str(here))
+from project_guard import require_project
+require_project()
 import shiomori_campus
 import campus_plant_assets
 source=here/'create_shiomori_map.py'
