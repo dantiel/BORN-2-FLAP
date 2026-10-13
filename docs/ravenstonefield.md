@@ -1,6 +1,9 @@
 # RAVENSTONEFIELD
 
-A worn autumn river basin for BORN 2 FLAP. Low hills, cold green water,
+> **Design intent & narrative:** see [world-design.md](world-design.md) — what
+> this world *is*, why it exists, and what could be developed next.
+
+A worn autumn river basin for BORN 2 FLAP.
 copper foliage, weathered timber and overbuilt concrete. The long meadow is
 the quiet centre of the level; landmarks reward flight along the river.
 

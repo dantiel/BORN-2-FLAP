@@ -79,6 +79,16 @@ double WindExposure(const FVector& P,const FVector& Direction)
         *FMath::Clamp(-Direction.GetSafeNormal2D().Y,0.,1.);
     return FMath::Clamp(1.-.46*Obstruction-.18*Interior-.25*ForestLee,.32,1.);
 }
+double TopHeight(double X,double Y)
+{
+    double H=Height(X,Y);
+    // The promenade sea wall (Y≈-1400): an ~8 m face rising from the beach to
+    // the promenade across the central shore. Wind piles against its landward
+    // face; the former hard-coded Gaussian upwash is now derived from this step.
+    const double Wall=800.*FMath::SmoothStep(-1400.,-1000.,Y)
+        *(1.-FMath::SmoothStep(43000.,46000.,FMath::Abs(X)));
+    return H+Wall;
+}
 }
 
 ABorn2FlapBayTerrain::ABorn2FlapBayTerrain()

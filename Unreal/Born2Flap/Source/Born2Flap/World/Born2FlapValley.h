@@ -19,6 +19,8 @@ class BORN2FLAP_API ABorn2FlapValley : public AActor
     void BuildWorld();
     // Centimetres; samples the same triangulation as the collision mesh.
     static double GroundHeight(double X, double Y);
+    // Terrain + forest canopy + structures: the top the wind piles against.
+    static double TopHeight(double X, double Y);
     static bool IsWater(double X, double Y);
     static constexpr double WaterHeight = -120;
     static FString PlaceName(double X, double Y);

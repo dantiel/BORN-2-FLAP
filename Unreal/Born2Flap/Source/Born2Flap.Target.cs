@@ -8,6 +8,11 @@ public class Born2FlapTarget : TargetRules
         Type = TargetType.Game;
         DefaultBuildSettings = BuildSettingsVersion.V7;
         IncludeOrderVersion = EngineIncludeOrderVersion.Latest;
+        // The macOS linker tweak below (disable-linkonceodr-outlining) changes
+        // AdditionalLinkerArguments, which is forbidden when sharing build
+        // products with UnrealGame. An installed engine forbids a unique build
+        // environment, so override the build environment to force the setting.
+        bOverrideBuildEnvironment = true;
         // macOS LTO (LTCG) can hang the linker indefinitely on this project —
         // disable it for deterministic, terminating builds.
         bAllowLTCG = false;

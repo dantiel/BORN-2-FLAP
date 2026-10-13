@@ -1,5 +1,9 @@
 # Waldtal und direkter RC-Senderanschluss
 
+> **Design-Intention & Narrative:** siehe [world-design.md](world-design.md) —
+> was diese Welt *ist*, warum es sie gibt und was hier als Nächstes entstehen
+> könnte. Hinweis: „Waldtal“ heißt im aktuellen Menü **Ravenstonefield**.
+
 Das Spiel startet im Waldtal. **F4** wechselt zwischen Waldtal und dem erhaltenen
 Uebungsgelaende mit Toren. Beim Wechsel beginnt ein neuer Flug an der Startstelle.
 Mit `Tools/play.ps1 -Level Training` laesst sich das alte Level direkt starten.

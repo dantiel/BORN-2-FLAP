@@ -34,20 +34,21 @@ bool FBorn2FlapMathBridge::Load()
 {
     Unload();
 #if PLATFORM_IOS || PLATFORM_ANDROID
-    // Static WASM backend: the b2f_math_* symbols are linked directly from
-    // libborn2flap_math_wasm.a (wasm3 + adapter). dlopen is forbidden here.
+    // Static backend: the b2f_math_* symbols are linked directly (native GHC
+    // via libborn2flap_math-ios.a on iOS; wasm3 + adapter on Android).
+    // dlopen is forbidden here.
     {
         const uint32 FoundVersion = ::b2f_math_abi_version();
         if (FoundVersion != B2F_MATH_ABI_VERSION)
         {
-            Status = FString::Printf(TEXT("Physics ABI %u; expected %u. Rebuild the WASM backend."),
+            Status = FString::Printf(TEXT("Physics ABI %u; expected %u. Rebuild the math backend."),
                                      FoundVersion, B2F_MATH_ABI_VERSION);
             UE_LOG(LogTemp, Error, TEXT("%s"), *Status);
             return false;
         }
         if (::b2f_math_runtime_init() == 0)
         {
-            Status = TEXT("Haskell (WASM) runtime initialization failure");
+            Status = TEXT("Haskell runtime initialization failure");
             UE_LOG(LogTemp, Error, TEXT("%s"), *Status);
             return false;
         }
@@ -69,12 +70,12 @@ bool FBorn2FlapMathBridge::Load()
         Context = ::b2f_math_create_firmware_vehicle(&FlightConfig);
         if (!Context)
         {
-            Status = TEXT("Haskell (WASM) backend could not create a firmware vehicle context");
+            Status = TEXT("Haskell backend could not create a firmware vehicle context");
             UE_LOG(LogTemp, Error, TEXT("%s"), *Status);
             return false;
         }
 
-        Status = TEXT("Haskell firmware backend ready (WASM)");
+        Status = TEXT("Haskell firmware backend ready (static)");
         UE_LOG(LogTemp, Display, TEXT("%s"), *Status);
         return true;
     }
