@@ -804,6 +804,28 @@ void ABorn2FlapGameMode::Tick(float DeltaSeconds)
                 UE_LOG(LogTemp,Display,TEXT("BayLand collision: hit=%d heightErrorCm=%.1f"),Found,Found?FMath::Abs(Hit.ImpactPoint.Z-H):9999.);
             }
             const double Sheltered=Born2FlapBay::WindExposure(FVector(34000,20000,400),FVector(-1,0,0));
+            // New outer-campus escarpment: visible geometry, collision and
+            // aerodynamic support must agree, including calm/offshore cases.
+            for(double X:{-80000.,-72000.,-64000.})
+            {
+                const double Edge=Born2FlapBay::CliffEdge(X);
+                for(double Offset:{-2400.,-500.,500.,1700.})
+                {
+                    const double H=Born2FlapBay::Height(X,Edge+Offset);
+                    FHitResult Hit;
+                    const bool Found=GetWorld()->LineTraceSingleByChannel(Hit,FVector(X,Edge+Offset,6000),FVector(X,Edge+Offset,-4000),ECC_Visibility);
+                    const double Error=Found?FMath::Abs(Hit.ImpactPoint.Z-H):9999;
+                    Pass &= Found && Error<100;
+                    UE_LOG(LogTemp,Display,TEXT("CliffTransect x=%.0f offset=%.0f height=%.1f hit=%d error=%.1f"),X,Offset,H,Found,Error);
+                }
+                // The eroded face starts 8 m inland; sample above its crest,
+                // not above the lower ledge in the middle of the escarpment.
+                const FVector P(X,Edge+450,Born2FlapBay::Height(X,Edge-1100)+350);
+                const double On=Born2FlapBay::CliffLift(P,FVector(0,-4,0));
+                const double Off=Born2FlapBay::CliffLift(P,FVector(0,4,0));
+                Pass &= On>2 && Off==0 && Born2FlapBay::CliffLift(P,FVector::ZeroVector)==0;
+                UE_LOG(LogTemp,Display,TEXT("CliffLift onshore=%.2f offshore=%.2f"),On,Off);
+            }
             const double Open=Born2FlapBay::WindExposure(FVector(0,65000,400),FVector(-1,0,0));
             const double Above=Born2FlapBay::WindExposure(FVector(34000,20000,15000),FVector(-1,0,0));
             Pass &= Sheltered<Open-.05 && Above>Sheltered+.05;

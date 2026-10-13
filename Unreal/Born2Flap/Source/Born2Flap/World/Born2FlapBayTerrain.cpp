@@ -55,7 +55,7 @@ double Height(double X,double Y)
     const double HillAmp=X<0?700.:900.;
     const double HeadlandTop=-50.+HillAmp+220*FMath::Sin(X*.000065+Y*.00011);
     const double Hill=FMath::Lerp(Base,HeadlandTop,Rise*Tip);
-    return FMath::Max(Base-6,FMath::Lerp(Base-6,Hill,Inland));
+    return CliffHeight(X,Y,FMath::Max(Base-6,FMath::Lerp(Base-6,Hill,Inland)));
 }
 double WindExposure(const FVector& P,const FVector& Direction)
 {
@@ -73,7 +73,11 @@ double WindExposure(const FVector& P,const FVector& Direction)
     const double Interior=(1-FMath::SmoothStep(16000.,42000.,P.Y))*
         (1-FMath::SmoothStep(1200.,5500.,P.Z))*
         (1-FMath::SmoothStep(39000.,65000.,FMath::Abs(P.X)));
-    return FMath::Clamp(1.-.46*Obstruction-.18*Interior,.38,1.);
+    const double ForestLee=CliffMask(P.X)*FMath::SmoothStep(27000.,34000.,P.Y)
+        *(1-FMath::SmoothStep(41500.,45000.,P.Y))
+        *(1-FMath::SmoothStep(Height(P.X,P.Y)+900,Height(P.X,P.Y)+2300,P.Z))
+        *FMath::Clamp(-Direction.GetSafeNormal2D().Y,0.,1.);
+    return FMath::Clamp(1.-.46*Obstruction-.18*Interior-.25*ForestLee,.32,1.);
 }
 }
 
@@ -87,7 +91,7 @@ void ABorn2FlapBayTerrain::BeginPlay()
     for(TActorIterator<AActor> It(GetWorld());It;++It)
         if(It->ActorHasTag(TEXT("Distant mountains behind")) || It->ActorHasTag(TEXT("Distant mountains east")) || It->ActorHasTag(TEXT("Distant mountains west")))
         { It->SetActorHiddenInGame(true);It->SetActorEnableCollision(false); }
-    BuildLand();PlantWoodland();
+    BuildLand();PlantWoodland();BuildCliffDetails();
 }
 void ABorn2FlapBayTerrain::BuildLand()
 {
@@ -96,6 +100,7 @@ void ABorn2FlapBayTerrain::BuildLand()
     // the old valley material as a fallback if the Shiomori map hasn't cooked it.
     auto* Material=LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Shiomori/Materials/M_Headland"));
     if(!Material) Material=LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Nature/M_ValleyGround"));
+    auto* CliffMaterial=LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Shiomori/Materials/M_BayCliffs"));
     int32 Sections=0;
     for(int X=-180000;X<180000;X+=20000)
     for(int Y=-180000;Y<80000;Y+=20000)
@@ -104,10 +109,12 @@ void ABorn2FlapBayTerrain::BuildLand()
         // central quads, so the back connects to the existing flat hinterland.
         if(X>=-40000 && X<40000 && Y>=-20000) continue;
         TArray<FVector> V,N;TArray<int32> T;TArray<FVector2D> UV;TArray<FLinearColor> C;
-        constexpr int Grid=20;
+        const bool CliffTile=X>=-100000 && X<-40000 && Y>=20000;
+        const int Grid=CliffTile?(Y==40000?400:100):20;
+        const double Step=20000./Grid;
         for(int I=0;I<=Grid;++I) for(int J=0;J<=Grid;++J)
         {
-            const double PX=X+I*1000.,PY=Y+J*1000.;
+            const double PX=X+I*Step,PY=Y+J*Step;
             const double H=Born2FlapBay::Height(PX,PY);
             const FVector Normal=FVector(-(Born2FlapBay::Height(PX+50,PY)-Born2FlapBay::Height(PX-50,PY))/100,
                 -(Born2FlapBay::Height(PX,PY+50)-Born2FlapBay::Height(PX,PY-50))/100,1).GetSafeNormal();
@@ -117,7 +124,7 @@ void ABorn2FlapBayTerrain::BuildLand()
         }
         for(int I=0;I<Grid;++I) for(int J=0;J<Grid;++J)
         {
-            if(!Born2FlapBay::Contains(X+(I+.5)*1000,Y+(J+.5)*1000)) continue;
+            if(!Born2FlapBay::Contains(X+(I+.5)*Step,Y+(J+.5)*Step)) continue;
             const int A=I*(Grid+1)+J,B=A+Grid+1;
             T.Append({A,A+1,B,A+1,B+1,B});
         }
@@ -125,7 +132,7 @@ void ABorn2FlapBayTerrain::BuildLand()
         auto* Mesh=NewObject<UProceduralMeshComponent>(this);
         Mesh->SetupAttachment(RootComponent);Mesh->SetCollisionProfileName(TEXT("BlockAll"));
         Mesh->bUseComplexAsSimpleCollision=true;Mesh->bUseAsyncCooking=false;
-        Mesh->RegisterComponent();Mesh->SetMaterial(0,Material);
+        Mesh->RegisterComponent();Mesh->SetMaterial(0,(CliffTile && CliffMaterial)?CliffMaterial:Material);
         Mesh->CreateMeshSection_LinearColor(0,V,T,N,UV,C,{},true);
         ++Sections;
     }

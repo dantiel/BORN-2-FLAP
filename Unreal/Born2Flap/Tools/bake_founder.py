@@ -9,7 +9,10 @@ def bake():
     ROOT.mkdir(parents=True,exist_ok=True)
     source=ROOT/'Founder_rigged.glb'
     url='https://huggingface.co/datasets/allenai/objaverse/resolve/main/glbs/000-122/'+UID+'.glb'
-    if not source.exists():urllib.request.urlretrieve(url,source)
+    if not source.exists():
+        archived=ROOT.parents[2]/'SourceAssets/Founder/Founder_rigged.glb'
+        if archived.exists():source.write_bytes(archived.read_bytes())
+        else:urllib.request.urlretrieve(url,source)
     metadata=json.load(urllib.request.urlopen('https://api.sketchfab.com/v3/models/'+UID))
     assert metadata['license']['slug']=='by'
     metadata.update(download_source=url,sha256=hashlib.sha256(source.read_bytes()).hexdigest())
@@ -46,9 +49,22 @@ def bake():
             world[i]=t@world[i]
             for ch in doc['nodes'][i].get('children',[]):move(ch)
         move(joint)
-    # Relaxed right arm; left forearm presents the kestrel above an open hand.
-    aim(14,15,[-.6,-.8,0]);aim(15,16,[-.25,.45,.85])
-    aim(38,39,[.28,-.96,.02]);aim(39,40,[.10,-.9,.3])
+    # Anatomical left hand cradles the transmitter at the waist; anatomical
+    # right arm lifts the bird clear of the shoulder and head.
+    aim(14,15,[-.55,-.82,-.16]);aim(15,16,[.20,-.35,-.91])
+    aim(16,25,[.65,0,-.76])
+    aim(38,39,[.78,.35,-.52]);aim(39,40,[.35,.87,-.34])
+    aim(40,49,[0,.16,-.99])
+    # Supinate the right wrist: keep the fingers' direction but turn the palm
+    # upward under the bird instead of presenting the back of the hand.
+    axis=world[49][:3,3]-world[40][:3,3];axis/=np.linalg.norm(axis)
+    rotation=2*np.outer(axis,axis)-np.eye(3) # half turn about the hand's long axis
+    twist=np.eye(4);twist[:3,:3]=rotation
+    twist[:3,3]=world[40][:3,3]-rotation@world[40][:3,3]
+    def twist_hand(i):
+        world[i]=twist@world[i]
+        for child in doc['nodes'][i].get('children',[]):twist_hand(child)
+    twist_hand(40)
     def append(a,kind):
         while len(data)%4:data.append(0)
         chunk=a.astype('<f4').tobytes();off=len(data);data.extend(chunk)
@@ -71,11 +87,15 @@ def bake():
     for p,xyz,normals in parts:
         a=p['attributes'];a['POSITION']=append((xyz-origin)*scale,'VEC3');a['NORMAL']=append(normals,'VEC3')
         for key in ['JOINTS_0','WEIGHTS_0','TANGENT']:a.pop(key,None)
-    hand=(world[16][:3,3]-origin)*scale
-    (ROOT/'pose.json').write_text(json.dumps(dict(height_cm=280,left_hand_gltf_m=hand.tolist()),indent=2))
+    def socket(i):
+        x,y,z=(world[i][:3,3]-origin)*scale*100
+        return [-float(x),-float(z),float(y)] # glTF -> UE, founder yaw 180
+    pose=dict(height_cm=280,left_hand=socket(16),right_hand=socket(40),neck=socket(10))
+    (ROOT/'pose.json').write_text(json.dumps(pose,indent=2))
+    (Path(__file__).parent/'founder_pose.json').write_text(json.dumps(pose,indent=2))
     doc['meshes']=[dict(name='Founder',primitives=[p for p,_,_ in parts])];doc['nodes']=[dict(name='Founder',mesh=0)];doc['scenes']=[dict(nodes=[0])];doc['scene']=0
     doc.pop('skins',None);doc.pop('animations',None);doc['buffers']=[dict(byteLength=len(data))]
     enc=json.dumps(doc,separators=(',',':')).encode();enc+=b' '*((-len(enc))%4);data+=b'\0'*((-len(data))%4)
     (ROOT/'Founder_posed.glb').write_bytes(struct.pack('<III',0x46546c67,2,28+len(enc)+len(data))+struct.pack('<II',len(enc),0x4e4f534a)+enc+struct.pack('<II',len(data),0x004e4942)+data)
-    print('FOUNDER_POSED',len(points),'vertices, hand',hand)
+    print('FOUNDER_POSED',len(points),'vertices, sockets',pose)
 if __name__=='__main__':bake()

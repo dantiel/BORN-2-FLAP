@@ -142,9 +142,11 @@ FVector Wind(const FString& Level,const FBorn2FlapConditions& C,const FVector& P
                    FMath::Sin(Heading+Drift)*Strength+GY*W.Gust*GustScale,0);
     if(Level==TEXT("Shiomori"))
     {
+        const double CliffUp=Born2FlapBay::CliffLift(P,Result);
         Result*=Born2FlapBay::WindExposure(P,Result);
         Result.Z=.85*(Strength/3.2)*FMath::Exp(-FMath::Square((P.Y+1400)/650.))*
             FMath::Exp(-FMath::Max(0.,P.Z-150)/650.)*(1-FMath::SmoothStep(43000.,46000.,FMath::Abs(P.X)));
+        Result.Z+=CliffUp;
     }
     else if(Level!=TEXT("Training"))
         Result.Z=Born2FlapWind::Sample(P,Time).Z*W.Thermals*ThermalScale*(D.Night ? .02 : (D.Id==TEXT("noon") ? 1. : .45));

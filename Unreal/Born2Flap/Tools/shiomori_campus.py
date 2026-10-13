@@ -1,7 +1,7 @@
 """Repeatable adapted hotel campus. Centimetres; west=-X, sea=+Y.
 Generated assets are persistent; geometry is batched by material and zone.
-The founder is a bronze figure with tricorn, long hair and a kestrel
-familiar cast from the authored bird mesh; no real name is used.
+The founder is an attributed, posed adventurer cast in bronze, with long hair
+and a complete kestrel baked from the flight model's geometry.
 """
 import math
 import random
@@ -349,7 +349,7 @@ def install(scope):
     text('launch field','FLIGHT TEST FIELD',(-55300,-16950,190),40)
     for x in (-55000,-52000):box('LaunchGround','Tile',(x,-18000,173),(45,1400,3))
 
-    # Forecourt fountain with provisional bronze founder, facing the sea.
+    # Preserve the former fountain as the founder's bronze forecourt monument.
     sx,sy=hp(-600,4700,0)[:2]
     ring=[(math.cos(i*math.tau/40)*530,math.sin(i*math.tau/40)*530) for i in range(40)]
     prism('Statue','Stone',ring,165,35,(sx,sy,0))
@@ -360,10 +360,13 @@ def install(scope):
     from founder_assets import prepare as prepare_founder, place as place_founder
     founder,kestrel=prepare_founder(scope,materials['Bronze'])
     # 2.8 m heroic bronze on the preserved hotel fountain pedestal.
-    place_founder(founder,'Campus founder adventurer',(sx,sy,315+HOTEL_RISE),height=280,yaw=90)
-    # Complete airframe in level glide, supported just above the presenting hand.
-    place_founder(kestrel,'Campus founder kestrel',(sx-51.5,sy+19.7,533+HOTEL_RISE),scale=.70,yaw=90,material=materials['Bronze'])
-    text('founder plaque','OBI-WAN DA VINCI ANAKIN CHRONISTER RODRIGUEZ\nFOUNDER  /  ORNITHOPTER PIONEER',(sx-84,sy+92,278),12)
+    place_founder(founder,'Campus founder adventurer',(sx,sy,315+HOTEL_RISE),height=280,yaw=180)
+    from founder_props import install as install_founder_props
+    bird_position=install_founder_props(scope,(sx,sy,315+HOTEL_RISE),materials)
+    # Anatomical right hand holds the kestrel; left holds the neck-strapped RC.
+    if kestrel:
+        place_founder(kestrel, 'Campus founder kestrel', bird_position, scale=.70, yaw=90, material=materials['Bronze'])
+    text('founder plaque','OBI-WAN DA VINCI\nANAKIN CHRONISTER RODRIGUEZ\nFOUNDER / ORNITHOPTER PIONEER',(sx-80,sy+92,284),9)
 
     # Inherited resort planting beds break up the forecourt without filling
     # the flight field or turning the campus into a forest.
@@ -440,7 +443,8 @@ def install(scope):
     pscx, pscy = -58200, 5000
     pscz = ground(pscx, pscy)
     box('Park', 'Stone', (pscx, pscy, pscz+40), (150, 120, 80))
-    place_founder(kestrel,'Campus shrine kestrel',(pscx,pscy,pscz+100),scale=.46,yaw=100,material=materials['Bronze'])
+    if kestrel:
+        place_founder(kestrel,'Campus shrine kestrel',(pscx,pscy,pscz+100),scale=.46,yaw=100,material=materials['Bronze'])
 
     # --- Playful hotel: painted mural bands + overgrown balcony plants. ---
     mural_colors = ('FlowerRed', 'FlowerYellow', 'FlowerBlue', 'FlowerOrange', 'Blossom')
@@ -481,7 +485,7 @@ def install(scope):
     for name,p in [('Hangar',(hx,hy,450)),('Forecourt',(-58000,-9500,0)),('Field',(-53500,-19300,0)),('Path',(-58400,-2000,0)),('Shrine',(qx,qy,0)),('Terrace',(-63000,-10000,0))]:anchor(name,p)
     island_local=(ISLAND[0]-SITE_OFFSET[0],ISLAND[1]-SITE_OFFSET[1],530)
     eye=(tx-math.cos(math.radians(sight))*1800,ty-math.sin(math.radians(sight))*1800,ground(tx,ty)+180)
-    views=[((-38000,20000,8500),(-59500,-13700,2400)),((sx+460,sy+680,540+HOTEL_RISE),(sx,sy,460+HOTEL_RISE)),
+    views=[((-38000,20000,8500),(-59500,-13700,2400)),((sx+380,sy+620,650+HOTEL_RISE),(sx,sy+15,465+HOTEL_RISE)),
            ((-50000,9000,22000),(-59000,-9000,500)),((hx,hy+1900,650),(hx,hy,430)),
            (eye,island_local),((-61300,-4900,ground(-61300,-4900)+170),(-60500,-1000,ground(-60500,-1000)+80)),
            ((qx+380,qy-600,ground(qx,qy)+210),(qx,qy,ground(qx,qy)+180))]

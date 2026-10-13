@@ -153,8 +153,10 @@ def install(scope):
     for gx,gy in ((ix-205,iy+564),(ix-300,iy+300),(ix+200,iy+100),
                   (ix-417,iy-1900),(ix-860,iy-1229),(ix+513,iy-1410)):
         plant_grass(gx,gy)
-    # Sparse eastern-shoal vegetation anchored to the flat slabs above, so the
-    # plants root on rock instead of vanishing into the swell.
+    # Eastern-shoal vegetation anchored to the flat slabs above, so the plants
+    # root on rock instead of vanishing into the swell. The wasteland reads as a
+    # stony, wind-scrubbed ledge: scattered grass and fern pockets, small
+    # embedded stones and a few stunted, wind-bent trees.
     def plant_shoal_tree(x,y,hgt):
         nonlocal trees
         z=height(x,y)
@@ -168,15 +170,37 @@ def install(scope):
         nonlocal grass
         h=height(x,y)
         if h is None or h<=-40:return
-        mesh=rng.choice(scope['foliage_meshes']['Grass'])
+        pool=scope['foliage_meshes']['Grass']+scope['foliage_meshes']['Fern']
+        mesh=rng.choice(pool)
         if mesh is None:return
-        a=scope['foliage']('Shoal grass pocket',(x,y,0),mesh,rng.uniform(35,60),
+        tag='Shoal fern' if 'Fern' in mesh.get_name() else 'Shoal grass pocket'
+        a=scope['foliage'](tag,(x,y,0),mesh,rng.uniform(30,70),
                            rot=(0,rng.uniform(0,360),0),ground_z=h-2)
-        a.set_editor_property('tags',['ShiomoriVolcanic','Shoal grass pocket'])
+        a.set_editor_property('tags',['ShiomoriVolcanic',tag])
         grass+=1
+    def plant_shoal_stone(x,y,size):
+        h=height(x,y)
+        if h is None or h<=-40:return
+        pool=scope['foliage_meshes']['Rock']
+        if not pool:return
+        mesh=rng.choice(pool)
+        a=scope['foliage']('Shoal stone',(x,y,0),mesh,size,
+                           rot=(0,rng.uniform(0,360),0),ground_z=h-3)
+        a.set_editor_property('tags',['ShiomoriVolcanic','Shoal stone'])
+    # Sample points on the central slabs and the low ring ledges (skipping the
+    # open water between them where nothing can root).
+    def shoal_points():
+        r=rng.uniform(0,800) if rng.random()<.55 else rng.uniform(2300,2700)
+        ang=rng.uniform(0,math.tau)
+        return sx+math.cos(ang)*r,sy+math.sin(ang)*r
     for gx,gy in east_ledges:
         plant_shoal_grass(gx,gy)
+    for _ in range(24):
+        plant_shoal_grass(*shoal_points())
+    for _ in range(34):
+        plant_shoal_stone(*shoal_points(),rng.uniform(24,66))
     if len(east_ledges)>1:
         plant_shoal_tree(east_ledges[0][0],east_ledges[0][1]+60,260)
+        plant_shoal_tree(east_ledges[1][0]+30,east_ledges[1][1]-40,230)
         plant_shoal_tree(east_ledges[2][0]-40,east_ledges[2][1],210)
     u.log('LAVA_REEFS_READY rocks=%d grass=%d trees=%d'%(len(rocks),grass,trees))

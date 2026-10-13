@@ -32,7 +32,8 @@ module Born2Flap
         progress: { umg: "ProgressBar",    html: ["progress", nil],   rn: "ProgressBar" },
         image:    { umg: "Image",          html: ["img", nil],        rn: "Image" },
         list:     { umg: "ListView",       html: ["ul", nil],         rn: "FlatList" },
-        scroll:   { umg: "ScrollBlur",     html: ["div", "scroll"],   rn: "ScrollView" },
+        scroll:   { umg: "ScrollBox",      html: ["div", "scroll"],   rn: "ScrollView" },
+        scrollbox:{ umg: "ScrollBox",      html: ["div", "scrollbox"], rn: "ScrollView" },
         gauge:    { umg: "Gauge",          html: ["div", "gauge"],    rn: "View" },
         spacer:   { umg: "Spacer",         html: ["div", "spacer"],   rn: "View" }
       }.freeze

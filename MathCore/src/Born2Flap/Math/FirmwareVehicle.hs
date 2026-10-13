@@ -28,7 +28,7 @@ import Born2Flap.Math.Resonance
 import Born2Flap.Math.Vehicle
   ( VehicleInput(..), VehicleOutput(..)
   , StripState(..), StripResult(..), initialStrips
-  , stepWingWithStroke, wingRootHeight
+  , stepWingWithStroke, wingRootHeight, airDensity
   , addVec, crossVec, scaleVec, magnitude, zeroVec, radians )
 
 data FirmwareVehicleState = FirmwareVehicleState
@@ -193,7 +193,7 @@ advanceFirmwareVehicle coupled rc params servo battery wingScale dt bodyVel body
           speed = magnitude bodyVel
           -- Frontal area scales with the planform scale squared (geometric
           -- similarity): a small bird must not carry a full-size body's drag.
-          bodyDrag = scaleVec (-0.5 * 1.225 * 0.011 * wingScale * wingScale * speed) bodyVel
+          bodyDrag = scaleVec (-0.5 * airDensity * 0.011 * wingScale * wingScale * speed) bodyVel
           -- Two real inverted-V panels, 12 degrees down, with mixed ruddervators.
           -- Each panel sees its own local flow and produces force at its own arm;
           -- the resulting pitch/yaw/roll coupling is geometric, not an added torque.
@@ -273,7 +273,7 @@ tailSurface area incidence chordVelocity normalVelocity =
       alpha = incidence + atan2 (-normalVelocity) chordVelocity
       cl = 1.1 * sin (2 * alpha)
       cd = 0.025 + 0.14 * cl * cl + 0.8 * sin alpha * sin alpha
-      q = 0.5 * 1.225 * area * speed * speed
+      q = 0.5 * airDensity * area * speed * speed
       u = chordVelocity / max 1.0e-9 speed
       w = normalVelocity / max 1.0e-9 speed
   in (q * (-cd * u - cl * w), q * (-cd * w + cl * u))

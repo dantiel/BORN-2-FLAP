@@ -10,6 +10,7 @@ namespace
 const FVector2D MembraneLE[13] = {
     FVector2D(0.0000, 8.9537), FVector2D(8.3333, 1.8829), FVector2D(16.6667, 0.4742),
     FVector2D(25.0000, 0.2523), FVector2D(33.3333, 0.0303), FVector2D(41.6667, -0.1917),
+    
     FVector2D(50.0000, -0.8824), FVector2D(58.3333, -1.7554), FVector2D(66.6667, -2.6284),
     FVector2D(75.0000, -3.5014), FVector2D(83.3333, -4.3744), FVector2D(91.6667, -5.2475),
     FVector2D(100.0000, -6.1205),
@@ -81,8 +82,8 @@ double SampleStationField(const B2F_WingSection* Shape, int32 Count, double Stat
 // scales ONLY the load-driven elastic torsion (the reactive part), NOT the static
 // geometric washout — so the wing rests nearly flat and flexes with load. Raise
 // for a floppier look, lower toward 1 to match the raw physics.
-constexpr double AeroBendVisualGain  = 24.0;
-constexpr double AeroTwistVisualGain = 5.0;
+constexpr double AeroBendVisualGain  = 44.0;
+constexpr double AeroTwistVisualGain = 9.0;
 }
 
 void UBorn2FlapWingMesh::InitializeWing(int32 Side, int32 Design)

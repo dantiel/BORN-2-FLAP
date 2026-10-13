@@ -86,6 +86,27 @@ FMargin ParseMargin(const FValue& V)
     return FMargin(Num(V, 10.0));
 }
 
+// A composite's own `margin` prop reserves space in its PARENT slot (outer
+// spacing) — distinct from `padding` (inner inset). Applied after the parent
+// container's layout so an explicit node margin wins over sibling spacing.
+void ApplyChildMargin(UWidget* Child)
+{
+    UBorn2FlapComposite* C = Cast<UBorn2FlapComposite>(Child);
+    if (!C || !C->bHasMargin || !Child->Slot)
+        return;
+    const FMargin M = C->Margin;
+    if (UVerticalBoxSlot* VSlot = Cast<UVerticalBoxSlot>(Child->Slot))
+        VSlot->SetPadding(M);
+    else if (UHorizontalBoxSlot* HSlot = Cast<UHorizontalBoxSlot>(Child->Slot))
+        HSlot->SetPadding(M);
+    else if (UOverlaySlot* OSlot = Cast<UOverlaySlot>(Child->Slot))
+        OSlot->SetPadding(M);
+    else if (UScrollBoxSlot* SBSlot = Cast<UScrollBoxSlot>(Child->Slot))
+        SBSlot->SetPadding(M);
+    else if (UCanvasPanelSlot* CanvasSlot = Cast<UCanvasPanelSlot>(Child->Slot))
+        CanvasSlot->SetOffsets(M);
+}
+
 EHorizontalAlignment ParseHAlign(const FValue& V)
 {
     const FString S = Str(V);
@@ -159,7 +180,7 @@ float AutoSafeAreaEdge()
     // Extend the dissolve band slightly PAST the safe-area inset so a visible
     // frosted band shows just below the header/tabs — otherwise the blur hides
     // entirely behind the opaque overlays and cannot be perceived.
-    return FMath::Clamp(Edge + 0.05f, 0.02f, 0.5f);
+    return FMath::Clamp(Edge + 0.07f, 0.02f, 0.5f);
 }
 
 // The BOTTOM dissolve band. There is no bottom safe-area (home indicator) on
@@ -293,7 +314,7 @@ void ArtButton(UButton* Button, bool Selected, bool Tab)
     const FVector2D Size(Tab ? 165 : 365, Tab ? 38 : 44);
     const FMargin Slice(Tab ? .15f : .08f,.35f);
     const FLinearColor Gold(.52f,.40f,.22f,.7f);
-    Style.Normal = FSlateRoundedBoxBrush(Selected ? FLinearColor(.22f,.055f,.035f,.88f) : FLinearColor(.025f,.045f,.055f,.65f),4.f,Gold,1.f);
+    Style.Normal = FSlateRoundedBoxBrush(Selected ? FLinearColor(.22f,.055f,.035f,.88f) : FLinearColor(.025f,.045f,.055f,.5f),4.f,Gold,1.f);
     Style.Hovered = FSlateRoundedBoxBrush(FLinearColor(.13f,.17f,.18f,.94f),4.f,FLinearColor(.85f,.67f,.37f,1.f),1.f);
     Style.Pressed = FSlateRoundedBoxBrush(FLinearColor(.3f,.065f,.04f,.96f),4.f,Gold,1.f);
     Style.Disabled = Style.Normal;
@@ -323,8 +344,8 @@ void ArtSegment(UButton* Button, bool Selected, int32 Index, int32 Count)
     const FVector4 Radii(First ? R : 0.f, Last ? R : 0.f, Last ? R : 0.f, First ? R : 0.f);
 
     FButtonStyle Style;
-    Style.Normal    = FSlateRoundedBoxBrush(Selected ? FLinearColor(.22f,.055f,.035f,.72f) : FLinearColor::Transparent, Radii);
-    Style.Hovered   = FSlateRoundedBoxBrush(Selected ? FLinearColor(.3f,.065f,.04f,.8f) : FLinearColor(.13f,.17f,.18f,.4f), Radii);
+    Style.Normal    = FSlateRoundedBoxBrush(Selected ? FLinearColor(.22f,.055f,.035f,.5f) : FLinearColor::Transparent, Radii);
+    Style.Hovered   = FSlateRoundedBoxBrush(Selected ? FLinearColor(.3f,.065f,.04f,.62f) : FLinearColor(.13f,.17f,.18f,.28f), Radii);
     Style.Pressed   = FSlateRoundedBoxBrush(FLinearColor(.35f,.075f,.045f,.9f), Radii);
     Style.Disabled  = Style.Normal;
     Style.Disabled.TintColor = FLinearColor(.5f,.5f,.5f,.65f);
@@ -564,7 +585,7 @@ UWidget* UBorn2FlapUIRenderer::CreateInstance(const std::string& Type)
         T == TEXT("Slider") || T == TEXT("Toggle") || T == TEXT("Select") ||
         T == TEXT("Segment") || T == TEXT("Dropdown") || T == TEXT("NumberBox") || T == TEXT("Field") ||
         T == TEXT("Caption") || T == TEXT("Section") ||
-        T == TEXT("Divider") || T == TEXT("ScrollBlur"))
+        T == TEXT("Divider") || T == TEXT("ScrollBlur") || T == TEXT("ScrollBox"))
     {
         return BuildComponent(T);
     }
@@ -578,7 +599,6 @@ UWidget* UBorn2FlapUIRenderer::CreateInstance(const std::string& Type)
     if (Type == "ProgressBar")   return NewObject<UProgressBar>(this);
     if (Type == "Image")         return NewObject<UImage>(this);
     if (Type == "Spacer")        return NewObject<USpacer>(this);
-    if (Type == "ScrollBox")     return NewObject<UScrollBox>(this);
     if (Type == "SizeBox")       return NewObject<USizeBox>(this);
     if (Type == "WindArrow")     return NewObject<UBorn2FlapWindArrow>(this);
 
@@ -641,6 +661,7 @@ void UBorn2FlapUIRenderer::AppendChild(UWidget* Parent, int32 Index, UWidget* Ch
                     if (UScrollBoxSlot* Slot = Cast<UScrollBoxSlot>(Child->Slot))
                         Slot->SetPadding(FMargin(0.f, Pad, 0.f, Pad));
             }
+            ApplyChildMargin(Child);
         }
         return;
     }
@@ -654,6 +675,7 @@ void UBorn2FlapUIRenderer::AppendChild(UWidget* Parent, int32 Index, UWidget* Ch
         return;
     Panel->InsertChildAt(Index, Child);
     ApplyStoredLayout(Panel);
+    ApplyChildMargin(Child);
 }
 
 void UBorn2FlapUIRenderer::RemoveChild(UWidget* Parent, int32 Index)
@@ -1038,8 +1060,8 @@ UBorn2FlapComposite* UBorn2FlapUIRenderer::BuildComponent(const FString& Type)
         // The shared track behind the cells — one rounded pill with a single
         // outline; the cells themselves carry no border (see ArtSegment).
         C->SetBrush(FSlateRoundedBoxBrush(
-            FLinearColor(.015f,.04f,.05f,.4f), theme::Radius(8.f),
-            FLinearColor(.56f,.46f,.28f,.26f), 1.f));
+            FLinearColor(.015f,.04f,.05f,.2f), theme::Radius(8.f),
+            FLinearColor(.56f,.46f,.28f,.16f), 1.f));
         UHorizontalBox* Track = NewObject<UHorizontalBox>(this);
         C->SetContent(Track);
         C->Parts.Add(TEXT("options"), Track);
@@ -1126,7 +1148,7 @@ UBorn2FlapComposite* UBorn2FlapUIRenderer::BuildComponent(const FString& Type)
         C->Parts.Add(TEXT("spacer"), Sp);
         return C;
     }
-    if (Type == TEXT("ScrollBlur"))
+    if (Type == TEXT("ScrollBlur") || Type == TEXT("ScrollBox"))
     {
         // A ScrollBox wrapped in a URetainerBox so the *content* is genuinely
         // post-processed: the retainer effect material (M_ScrollRetainerBlur)
@@ -1145,7 +1167,9 @@ UBorn2FlapComposite* UBorn2FlapUIRenderer::BuildComponent(const FString& Type)
         if (ScrollRetainerMat.IsValid())
         {
             UMaterialInstanceDynamic* MID = UMaterialInstanceDynamic::Create(ScrollRetainerMat.Get(), this);
-            Retainer->SetEffectMaterial(MID);
+            // Blur is opt-in: the effect material is bound in ApplyCompositeProps
+            // only when the semantic `scroll_blur` prop is set, so a plain
+            // ScrollBox stays a passthrough scroll region by default.
             // Cache the dynamic instance so per-prop scalar updates reach it
             // (the retainer only exposes GetEffectMaterial once built).
             MaterialCache.Add(Retainer, MID);
@@ -1189,6 +1213,11 @@ void UBorn2FlapUIRenderer::ApplyCompositeProps(UBorn2FlapComposite* C, const FPr
         C->SetRenderOpacity(Num(Props.at("opacity"), 1.0));
     if (Props.count("padding"))
         C->SetPadding(ParseMargin(Props.at("padding")));
+    if (Props.count("margin"))
+    {
+        C->Margin = ParseMargin(Props.at("margin"));
+        C->bHasMargin = true;
+    }
     if (Props.count("action"))
         C->Action = Str(Props.at("action"));
     if(Props.count("tooltip")) C->SetToolTipText(FText::FromString(Str(Props.at("tooltip"))));
@@ -1226,17 +1255,21 @@ void UBorn2FlapUIRenderer::ApplyCompositeProps(UBorn2FlapComposite* C, const FPr
     }
     else if (Type == TEXT("ScrollBlur"))
     {
-        // Progressive content blur via the retainer effect material. `edge` is
-        // the TOP safe zone as a normalized half-band (0..0.5); "auto" (or
-        // absent) derives it from the title-safe inset so the dissolve tucks
-        // under the panel header + tabs. `edgeBottom` is the BOTTOM half-band —
-        // smaller by default since there is no bottom safe-area to hide behind.
-        // `blur` is the max blur radius in UV units; `amount` widens the blur
-        // falloff; `refract` / `refractScale` tune the hammered-glass warp;
-        // `void` sets the dissolve.
+        // Progressive content blur via the retainer effect material, now
+        // *opt-in*: the Ruby Brain sets the semantic `scroll_blur: true` prop
+        // (via UMGSS or inline) to enable it. Without it the composite is a
+        // plain scroll box (a RetainerBox with no effect material is a
+        // passthrough). `edge` is the TOP dissolve half-band (0..0.5); "auto"
+        // (or absent) derives it from the title-safe inset. `edge_bottom`
+        // (alias `edgeBottom`) is the BOTTOM half-band. `blur` / `amount` /
+        // `refract` / `refractScale` / `void` tune the material.
         URetainerBox* Retainer = Cast<URetainerBox>(C->Part(TEXT("retainer")));
+        const bool bBlur = Props.count("scroll_blur") && Props.at("scroll_blur").AsBool(false);
         if (Retainer)
         {
+            UMaterialInstanceDynamic* MID = bBlur ? GetOrCreateDynamicMaterial(Retainer) : nullptr;
+            Retainer->SetEffectMaterial(MID);
+
             float Edge = AutoSafeAreaEdge();
             if (Props.count("edge"))
             {
@@ -1246,33 +1279,37 @@ void UBorn2FlapUIRenderer::ApplyCompositeProps(UBorn2FlapComposite* C, const FPr
                 // "auto" keeps the safe-area-derived default.
             }
             float EdgeBottom = AutoSafeAreaBottomEdge();
-            if (Props.count("edgeBottom"))
+            const char* EdgeBottomKey = Props.count("edge_bottom") ? "edge_bottom" : "edgeBottom";
+            if (Props.count(EdgeBottomKey))
             {
-                const FValue& E = Props.at("edgeBottom");
+                const FValue& E = Props.at(EdgeBottomKey);
                 if (E.kind != FValue::Kind::String)
                     EdgeBottom = FMath::Clamp((float)E.AsNumber(EdgeBottom), 0.0f, 0.5f);
             }
 
-            auto PropFloat = [&](const char* Key, float Dflt) -> float
+            if (MID)
             {
-                auto it = Props.find(Key);
-                return it == Props.end() ? Dflt : (float)it->second.AsNumber(Dflt);
-            };
+                auto PropFloat = [&](const char* Key, float Dflt) -> float
+                {
+                    auto it = Props.find(Key);
+                    return it == Props.end() ? Dflt : (float)it->second.AsNumber(Dflt);
+                };
 
-            FProps Params;
-            auto SParam = [&Params](const char* Name, float Value)
-            {
-                FValue V; V.kind = FValue::Kind::Number; V.num = Value;
-                Params[Name] = V;
-            };
-            SParam("EdgeSize",     Edge);
-            SParam("EdgeBottom",   EdgeBottom);
-            SParam("Amount",       PropFloat("amount", 0.65f));
-            SParam("BlurRadius",   PropFloat("blur", 0.02f));
-            SParam("Refract",      PropFloat("refract", 0.35f));
-            SParam("RefractScale", PropFloat("refractScale", 6.0f));
-            SParam("Void",         PropFloat("void", 0.9f));
-            SetMaterialParams(Retainer, Params);
+                FProps Params;
+                auto SParam = [&Params](const char* Name, float Value)
+                {
+                    FValue V; V.kind = FValue::Kind::Number; V.num = Value;
+                    Params[Name] = V;
+                };
+                SParam("EdgeSize",     Edge);
+                SParam("EdgeBottom",   EdgeBottom);
+                SParam("Amount",       PropFloat("amount", 0.65f));
+                SParam("BlurRadius",   PropFloat("blur", 0.02f));
+                SParam("Refract",      PropFloat("refract", 0.35f));
+                SParam("RefractScale", PropFloat("refractScale", 6.0f));
+                SParam("Void",         PropFloat("void", 0.9f));
+                SetMaterialParams(Retainer, Params);
+            }
         }
         if (Props.count("pad"))
             C->State.Add(TEXT("pad"), FString::SanitizeFloat((float)Props.at("pad").AsNumber(0.0)));
