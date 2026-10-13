@@ -115,6 +115,14 @@ steerMaxDeg = 60
 angularMultiplier = 2
 neutralAngleDeg = 100
 
+-- | Differential-dihedral roll is physically weak: raising one wing only tilts
+-- its lift inward and trims a little sink-induced alpha (the 2-servo invariant),
+-- so a full-stick glide roll produces a much smaller moment than the wing's own
+-- roll damping and the body barely rolls. This is a game-feel amplifier on the
+-- dihedral roll authority (analogous to flapDampingCd), not a new actuator.
+rollAuthorityGain :: Double
+rollAuthorityGain = 2.0
+
 ampMaxDeg, freqMinHz, servoSpeedMsDefault :: Double
 ampMaxDeg = 55
 freqMinHz = 0.5
@@ -328,7 +336,7 @@ computeServoMixer coupled rc params state dt
     -- positive aileron must increase the RIGHT flap deviation.
     common = negate (profGlideAngleDeg prof + elevator * profElevatorScale prof * 0.01 * steerMaxDeg)
     differential = (aileron + rudder * fwRudderYawWeight params * 0.01)
-                   * profAileronScale prof * 0.01 * steerMaxDeg
+                   * profAileronScale prof * 0.01 * steerMaxDeg * rollAuthorityGain
     left = clamp (-80) 80 (common - differential)
     right = clamp (-80) 80 (common + differential)
     rudderMix = clamp (-1) 1 (rudder * fwRudderYawWeight params * 0.01
