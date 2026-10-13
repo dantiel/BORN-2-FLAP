@@ -721,6 +721,11 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
     Pilot.throttle_mode = bCoupledThrottle ? 1.0 : 0.0;
     B2F_BodyState State{};
     State.delta_time_s = MathDt;
+    // Ground effect: body-origin height above the surface below (terrain +
+    // rocks/buildings via GroundHeight), in metres. The math core normalises
+    // this by wingspan and applies per-strip lift/drag/thrust corrections.
+    State.ground_clearance_m = FMath::Max(0.0,
+        WindMode ? (BodyPos.Z - WindMode->GroundHeight(BodyPos.X, BodyPos.Y)) / 100.0 : 1000.0);
     Accumulator = FMath::Min(Accumulator + DeltaSeconds, .1);
     FVector ForceSum = FVector::ZeroVector, MomentSum = FVector::ZeroVector;
     int32 Steps = 0;

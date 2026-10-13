@@ -57,18 +57,55 @@ airDensity = 1.05
 flapJetCoeff :: Double
 flapJetCoeff = 3.5
 
--- | Flat-plate pressure-drag coefficient for the wing's OWN flap motion — the
--- broad surface sweeping normal to itself through air. A thin airfoil moving
--- edge-on has Cd ≈ 0.02, but a wing moving normal to its own surface is a flat
--- plate with Cd ≈ 1.2. This is the "air resistance" a wing feels when it moves
--- up/down (flap stroke or differential-dihedral roll); without it the surface
--- slices through air as if there were none.
+-- | Lumped pressure-drag coefficient for the wing's OWN flap motion — the broad
+-- surface sweeping normal to itself through air. A thin airfoil moving edge-on
+-- has Cd ≈ 0.02, but a wing moving normal to its own surface is a flat plate
+-- (Cd ≈ 1.2), and a rotating cambered wing additionally sweeps added-mass /
+-- radial momentum flux, so its effective lumped value sits well above the bare
+-- translating-plate figure. This is the "air resistance" a wing feels when it
+-- moves up/down (flap stroke or differential-dihedral roll); without it the
+-- surface slices through air as if there were none.
+--
+-- The roll/flap hinge torque is ½·ρ·Cd·ω²·∫chord·r³dr — so it scales with the
+-- FOURTH power of span. When the reference was corrected 0.72 m → 0.55 m
+-- half-span, ∫chord·r³dr dropped to ×0.449 and the wings read as frictionless
+-- again. Cd is therefore re-tuned to hold the SAME absolute hinge torque at the
+-- 1.10 m full-span size (1.45 / 0.449 ≈ 3.23), not to chase the bare flat-plate
+-- figure.
 flapDampingCd :: Double
--- A rotating CAMBERED wing presents more area to the air than a translating
--- flat plate (radial flow + camber scoop), so its effective coefficient sits
--- a little above the translating-plate value (~1.2) -- still well inside the
--- physical bluff-body range (flat plate perpendicular to flow ~ 1.17 to 1.28).
-flapDampingCd = 1.45
+flapDampingCd = 3.2
+
+-- | Ground-effect constants (dimensionless). Ground effect is the image-vortex
+-- cushion a wing feels close to a surface. For a GLIDING wing it only boosts
+-- lift (higher effective aspect ratio → less downwash → more Cl at the same
+-- incidence). For a FLAPPING wing it does something a fixed wing cannot: the
+-- stroke's pressure unloads against the ground, so the down/up-stroke shed a
+-- stronger jet (more thrust) while the stroke's own flat-plate pressure drag
+-- falls away — which is why a bird both lifts AND accelerates in ground effect.
+groundEffectLiftGain :: Double
+groundEffectLiftGain = 0.30
+
+-- | Fraction of induced + stroke pressure drag removed at the deck (flapping).
+groundEffectDragRelief :: Double
+groundEffectDragRelief = 0.55
+
+-- | Extra downstroke thrust at the deck (flapping).
+groundEffectThrustGain :: Double
+groundEffectThrustGain = 0.40
+
+-- | Upstroke thrust recovery in ground effect, as a fraction of the downstroke
+-- jet. The normally-feathered upstroke only pushes off the ground cushion.
+groundEffectUpstrokeRecover :: Double
+groundEffectUpstrokeRecover = 0.25
+
+-- | Strength 0..1 of ground effect at a strip height @h@ above the surface,
+-- normalised by the total wingspan @b@. 1 on the deck, ~0.08 by one span, so
+-- the effect lives on the scale the wing actually spans.
+groundEffectFactor :: Double -> Double -> Double
+groundEffectFactor h b
+  | b <= 0.01 = 0
+  | h <= 0    = 1
+  | otherwise = exp (-2.5 * h / b)
 
 data VehicleInput = VehicleInput
   { stepSeconds :: !Double
@@ -78,6 +115,7 @@ data VehicleInput = VehicleInput
   , rollCommand :: !Double
   , pitchCommand :: !Double
   , yawCommand :: !Double
+  , groundClearanceM :: !Double  -- ^ body-origin height above the surface below [m] (ground effect)
   } deriving stock (Eq, Show)
 
 data VehicleOutput = VehicleOutput
@@ -243,6 +281,12 @@ stepStrip flapping side stroke strokeRate input incidenceRad wp index old =
       camberPrev = stripCamber old
       aeroTwist = stripTwistAero old
       bend = stripBendM old
+      -- Ground effect: proximity to the surface below, normalised by the total
+      -- wingspan (2 × half-span). Each strip sees its OWN flap height, so the
+      -- downstroke pushes the tip into the cushion and the upstroke lifts it
+      -- back out — the effect is strongest at the bottom of the beat.
+      stripHeightM = wingRootHeight + radius * sin dihedral + bend
+      ge = groundEffectFactor (groundClearanceM input + stripHeightM) (2 * wsSpanM wp)
       velocity = bodyVelocityMS input
       rates = bodyRatesRadS input
       -- Use section velocity through air throughout (not a mixture of air
@@ -310,14 +354,18 @@ stepStrip flapping side stroke strokeRate input incidenceRad wp index old =
       camberNext = relaxCamber dt (spMembraneTau profile) camberPrev
                      (membraneCamberTarget profile attachedCl)
       aspectRatio = shapeAspectRatio wp
-      inducedCd = cl * cl / (pi * 0.82 * aspectRatio)
+      -- Induced drag is the classic ground-effect victim: the image vortex
+      -- cancels downwash, so the trailing wake tilts less and the bird glides
+      -- faster. Only while FLAPPING — a gliding wing gains lift, not speed.
+      inducedRelief = if flapping then max 0 (1 - groundEffectDragRelief * ge) else 1
+      inducedCd = cl * cl / (pi * 0.82 * aspectRatio) * inducedRelief
       attachedCd = 0.016 + inducedCd
       separatedCd = 0.20 + 1.20 * sin alphaEff * sin alphaEff
       cd = lerp attachedCd separatedCd relaxed
       sideCd = 0.018 + 0.08 * relaxed
       area = chord * dr
       q = 0.5 * airDensity * planarSpeed * planarSpeed
-      lift = q * area * cl
+      lift = q * area * cl * (1 + groundEffectLiftGain * ge)
       drag = q * area * cd
       flowX = chordVelocity / safeSpeed
       flowZ = normalVelocity / safeSpeed
@@ -336,8 +384,15 @@ stepStrip flapping side stroke strokeRate input incidenceRad wp index old =
       -- column of air comparable to the wing chord, so C_T ≈ 2 is typical —
       -- 0.70 left a 49 g kestrel with NEGATIVE cruise thrust (measured -0.23 N
       -- at 6 m/s) and it could never accelerate to flying speed.
-      flapThrust = if flapping && strokeRate < 0
-                      then 0.5 * airDensity * area * (radius * strokeRate) * (radius * strokeRate) * flapJetCoeff
+      -- The downstroke jet is amplified in ground effect (the stroke pressure
+      -- pushes off the surface) and — uniquely — the normally-feathered
+      -- upstroke recovers a fraction of that jet too, so the bird accelerates
+      -- in the cushion where a gliding wing only gains lift.
+      flapThrust = if flapping
+                      then let jet = 0.5 * airDensity * area * (radius * strokeRate) * (radius * strokeRate) * flapJetCoeff
+                           in if strokeRate < 0
+                                then jet * (1 + groundEffectThrustGain * ge)
+                                else jet * groundEffectUpstrokeRecover * ge
                       else 0
       thrustForce = Vec3 flapThrust 0 0
       -- Flat-plate pressure drag on the wing surface moving normal to itself.
@@ -348,7 +403,12 @@ stepStrip flapping side stroke strokeRate input incidenceRad wp index old =
       -- Opposes the wing surface's FULL normal velocity -- flap stroke plus the
       -- body's own translation/rotation -- so a rolling body also drags the wing
       -- through the air (and the reaction at the shoulder rolls the fuselage).
-      flapDampingForce = scaleVec (-0.5 * airDensity * area * flapDampingCd
+      -- The stroke's flat-plate pressure drag also unloads in ground effect:
+      -- the air can no longer escape under the wing, so less pressure work is
+      -- lost sweeping the surface down. This is the drag-reduction half of the
+      -- flapping ground-effect pair (the thrust half is flapThrust above).
+      flapDampingRelief = if flapping then max 0 (1 - groundEffectDragRelief * ge) else 1
+      flapDampingForce = scaleVec (-0.5 * airDensity * area * flapDampingCd * flapDampingRelief
                                     * normalVelocity * abs normalVelocity) normal
       force = addVec (addVec chordForce (addVec normalForce spanDrag))
                      (addVec thrustForce flapDampingForce)
@@ -412,7 +472,7 @@ applyStructure wingScale wp input results =
       dr = spanM / fromIntegral stripCount
       fracs = [ (fromIntegral i + 0.5) / fromIntegral stripCount | i <- [0 .. count - 1] ]
       structures = map (shapeStructure wp) fracs
-      -- Spanwise spar stiffness (2 mm inner → 1.2 mm outer hand; braces inboard)
+      -- Spanwise spar stiffness (2.0 mm inner → 1.6 mm outer hand; braces inboard)
       -- replaces the interpolated station structure for EI/GJ. The station
       -- structure still supplies the relaxation time constants below.
       s4 = wingScale * wingScale * wingScale * wingScale

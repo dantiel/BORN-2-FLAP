@@ -81,6 +81,8 @@ defaultServoState = ServoState 0 0
 --   * @loadTorqueNm@ — aerodynamic hinge torque the wing exerts on the servo
 --                     shaft, signed by the torque the load applies: positive
 --                     tries to rotate the shaft in the positive-angle direction.
+--   * @wingInertia@ — wing moment of inertia about the flap hinge [kg·m²],
+--                     derived from the planform (structural + added mass).
 --   * @voltage@     — battery terminal voltage (drives the voltage factor)
 --   * @dt@          — timestep
 --
@@ -91,7 +93,7 @@ defaultServoState = ServoState 0 0
 -- speed. This is the physical "struggle".
 stepServo :: ServoSpec -> BatterySpec -> Double -> Double -> Double -> Double -> Double
           -> ServoState -> (Double, ServoState)
-stepServo servo battery targetDeg loadTorqueNm wingScale voltage dt state
+stepServo servo battery targetDeg loadTorqueNm wingInertia voltage dt state
   | dt <= 0 = (servoAngleDeg state, state)
   | otherwise =
       let voltFactor = clampRate 0 1 (voltage / max 0.01 (batteryNominalVoltage battery))
@@ -119,14 +121,13 @@ stepServo servo battery targetDeg loadTorqueNm wingScale voltage dt state
           -- The servo accelerates its *rate* toward the requested rate, but
           -- that acceleration is limited by the torque still available after
           -- the aerodynamic hinge load is overcome: α_max = (stallT − load)/I.
-          -- A wing's moment of inertia about the flap hinge scales as I ∝ m·L²
-          -- = wingScale⁵; a heavier wing does NOT make the servo respond more
-          -- slowly in time — it demands MORE TORQUE to reach the same angular
-          -- acceleration. So a strong (high-torque) servo flings a heavy wing
-          -- just as fast as a weak servo flings a light one, and servo power
-          -- genuinely shows up in how quickly the stroke reverses.
-          wingInertia = 0.0016 * (wingScale ** 5)   -- reference wing ≈0.0016 kg·m² at hinge
-          servoInertia = 0.0016                     -- rotor+geartrain reflected to the flap hinge
+          -- @wingInertia@ is the DERIVED moment of inertia of one wing about
+          -- the flap hinge (structural mass + entrained-air added mass), computed
+          -- from the planform by @shapeFlapInertia@ and passed in by the caller.
+          -- A heavier wing does NOT make the servo respond more slowly in time
+          -- — it demands MORE TORQUE to reach the same angular acceleration, so
+          -- servo power genuinely shows up in how quickly the stroke reverses.
+          servoInertia = 0.0016                     -- rotor+geartrain reflected to the flap hinge [kg·m²]
           inertia = servoInertia + wingInertia
           -- The torque available to accelerate the rate. When tracking, the
           -- servo's spare torque (stallT − load) drives it; when overpowered,
