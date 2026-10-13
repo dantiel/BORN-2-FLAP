@@ -383,6 +383,34 @@ void ABorn2FlapMenu::Build()
         PaneChildren.push_back(Nd("Select", P({ {"label", S("Weather")}, {"options", WeatherLabels}, {"value", N(Weathers.IndexOfByKey(C.Weather))}, {"action", S(TEXT("weather.") + Level)} })));
         PaneChildren.push_back(Nd("Select", P({ {"label", S("Time of day")}, {"options", TimeLabels}, {"value", N(Times.IndexOfByKey(C.Time))}, {"action", S(TEXT("daytime.") + Level)} })));
         PaneChildren.push_back(Nd("TextBlock", P({ {"text", S(FString::Printf(TEXT("Wind %.1f m/s | %s"), Speed, W.Gust < .5f ? TEXT("gentle gusts") : TEXT("variable breeze")))}, {"size", S("s")} })));
+        // WIND overrides — direction / strength / gusts / randomness / thermals.
+        // Each slider shows the *effective* value: the player's explicit override
+        // when one was saved (>= 0), otherwise the weather/time profile default
+        // (1× = auto; direction = the level's base heading). Reset returns all
+        // five to "auto". Persisted per level and carried into level travel.
+        {
+            const bool bWindCustom = C.WindDir >= 0.f || C.WindSpeed >= 0.f || C.WindGust >= 0.f || C.WindRandom >= 0.f || C.WindThermal >= 0.f;
+            const float WindDirEff    = C.WindDir     >= 0.f ? C.WindDir     : Born2FlapWeather::DefaultWindDirection(Level);
+            const float WindSpeedEff  = C.WindSpeed   >= 0.f ? C.WindSpeed   : 1.f;
+            const float WindGustEff   = C.WindGust    >= 0.f ? C.WindGust    : 1.f;
+            const float WindRandomEff = C.WindRandom  >= 0.f ? C.WindRandom  : 1.f;
+            const float WindThermalEff= C.WindThermal >= 0.f ? C.WindThermal : 1.f;
+            auto WindSlider = [&](const char* Label, const char* Action, float Value_, float Min, float Max, float Step, const char* Unit, const char* Help)
+            {
+                return Nd("Slider", P({
+                    {"label", S(Label)}, {"action", S(Action)}, {"value", N(Value_)},
+                    {"min", N(Min)}, {"max", N(Max)}, {"step", N(Step)}, {"unit", S(Unit)}, {"tooltip", S(Help)}
+                }));
+            };
+            PaneChildren.push_back(Nd("TextBlock", P({ {"text", S("WIND")}, {"size", S("xs")}, {"tone", S("dim")} })));
+            PaneChildren.push_back(WindSlider("DIRECTION",  "wind.dir",     WindDirEff,     0.f, 360.f, 5.f,  "°", "Compass heading the wind blows toward. Auto follows the weather profile."));
+            PaneChildren.push_back(WindSlider("STRENGTH",   "wind.speed",   WindSpeedEff,   0.f, 5.f,   0.1f, "×", "Multiplier on base horizontal wind strength."));
+            PaneChildren.push_back(WindSlider("GUSTS",      "wind.gust",    WindGustEff,    0.f, 8.f,   0.1f, "×", "Multiplier on gust turbulence magnitude."));
+            PaneChildren.push_back(WindSlider("RANDOMNESS", "wind.random",  WindRandomEff,  0.f, 8.f,   0.1f, "×", "Multiplier on heading drift / directional wander."));
+            PaneChildren.push_back(WindSlider("THERMALS",   "wind.thermal", WindThermalEff, 0.f, 5.f,   0.1f, "×", "Multiplier on thermal updraft strength."));
+            if (bWindCustom)
+                PaneChildren.push_back(Nd("Button", P({ {"label", S("RESET WIND TO WEATHER DEFAULT")}, {"action", S("wind.reset")}, {"tone", S("dim")} })));
+        }
         // Travel destinations: a scrollable list of this world's points of
         // interest. Choosing one makes it the reset start point the FLY button
         // travels to. It replaces the old in-world beacon/cycling UI.
@@ -1244,6 +1272,32 @@ void ABorn2FlapMenu::OnAction(const FString& Action, float Value, const FString&
                 if(!FParse::Param(FCommandLine::Get(),TEXT("B2FWeatherMenuTest"))) Born2FlapWeather::Save(Level,*C);
                 Build();
             }
+        }
+        return;
+    }
+    // Wind overrides (per displayed world): direction / strength / gusts /
+    // randomness / thermals. Sliders write an explicit value; reset returns
+    // every field to -1 ("auto"). Persisted + carried into level travel.
+    if (Action.StartsWith(TEXT("wind.")))
+    {
+        const FString Level = Worlds[SelectedWorld].Id;
+        if (FBorn2FlapConditions* C = LevelConditions.Find(Level))
+        {
+            if (Action == TEXT("wind.reset"))
+            {
+                C->WindDir = C->WindSpeed = C->WindGust = C->WindRandom = C->WindThermal = -1.f;
+            }
+            else
+            {
+                if      (Action == TEXT("wind.dir"))     C->WindDir = Value;
+                else if (Action == TEXT("wind.speed"))   C->WindSpeed = Value;
+                else if (Action == TEXT("wind.gust"))    C->WindGust = Value;
+                else if (Action == TEXT("wind.random"))  C->WindRandom = Value;
+                else if (Action == TEXT("wind.thermal")) C->WindThermal = Value;
+            }
+            *C = Born2FlapWeather::Validate(Level, *C);
+            if (!FParse::Param(FCommandLine::Get(), TEXT("B2FWeatherMenuTest"))) Born2FlapWeather::Save(Level, *C);
+            Build();
         }
         return;
     }

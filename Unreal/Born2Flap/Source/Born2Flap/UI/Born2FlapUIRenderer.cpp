@@ -420,6 +420,12 @@ void UBorn2FlapUIRenderer::EmitAction(const FString& Action, double Value, const
 {
     if (Action.IsEmpty())
         return;
+    // Re-entrancy guard: applying props to a freshly-built control must not
+    // re-fire its semantic action. USlider::SetValue broadcasts OnValueChanged,
+    // so a slider whose action handler rebuilds the tree (wind overrides) would
+    // otherwise recurse Build -> SetValue -> action -> Build until stack over.
+    if (bApplyingProps)
+        return;
     OnComponentAction.Broadcast(Action, (float)Value, Text);
 }
 
@@ -1193,6 +1199,11 @@ UBorn2FlapComposite* UBorn2FlapUIRenderer::BuildComponent(const FString& Type)
 
 void UBorn2FlapUIRenderer::ApplyCompositeProps(UBorn2FlapComposite* C, const FProps& Props)
 {
+    // While a control's props are applied programmatically, its setters may
+    // broadcast value-changed delegates (USlider::SetValue does). Suppress the
+    // resulting semantic actions so a rebuild cannot re-enter Build().
+    TGuardValue<bool> Guard(bApplyingProps, true);
+
     const FString Type = C->SemanticType;
     const FString Tone = ToneOf(Props);
     const FLinearColor ToneColor = theme::Tone(Tone, theme::FG());
