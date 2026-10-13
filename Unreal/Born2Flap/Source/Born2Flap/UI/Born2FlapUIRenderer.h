@@ -188,6 +188,13 @@ private:
     TMap<UWidget*, UMaterialInstanceDynamic*> MaterialCache;
     TMap<UPanelWidget*, FLayoutState> LayoutState;
 
+    // Guards against re-entrant component actions during programmatic prop
+    // application. USlider::SetValue fires OnValueChanged (unlike most UMG
+    // setters), so rebuilding a slider whose action handler rebuilds the tree
+    // (e.g. the wind-override sliders) would otherwise recurse infinitely:
+    //   Build -> SetValue -> OnValueChanged -> action -> Build -> ...
+    bool bApplyingProps = false;
+
     // Keeps UBorn2FlapActionRelay instances alive (they are plain UObjects
     // created with this renderer as Outer, otherwise GC would collect them).
     UPROPERTY() TArray<TObjectPtr<UBorn2FlapActionRelay>> Relays;
