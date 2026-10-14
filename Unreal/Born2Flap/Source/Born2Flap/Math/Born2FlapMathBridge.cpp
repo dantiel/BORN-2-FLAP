@@ -5,6 +5,7 @@
 
 namespace
 {
+#if !PLATFORM_IOS && !PLATFORM_ANDROID
 FString MathLibraryName()
 {
 #if PLATFORM_WINDOWS
@@ -21,6 +22,7 @@ FunctionType LoadExport(void* Handle, const TCHAR* Name)
 {
     return reinterpret_cast<FunctionType>(FPlatformProcess::GetDllExport(Handle, Name));
 }
+#endif
 }
 
 FBorn2FlapMathBridge::FBorn2FlapMathBridge() = default;
@@ -79,7 +81,7 @@ bool FBorn2FlapMathBridge::Load()
         UE_LOG(LogTemp, Display, TEXT("%s"), *Status);
         return true;
     }
-#endif
+#else
     const FString LibraryPath = FPaths::Combine(
         FPaths::ProjectDir(), TEXT("Binaries"), TEXT("ThirdParty"), MathLibraryName());
     // Pin one loader reference for the process: GHC cannot be stopped/restarted
@@ -165,6 +167,7 @@ bool FBorn2FlapMathBridge::Load()
     Status = TEXT("Haskell firmware backend ready");
     UE_LOG(LogTemp, Display, TEXT("%s: %s"), *Status, *LibraryPath);
     return true;
+#endif
 }
 
 void FBorn2FlapMathBridge::Unload()
