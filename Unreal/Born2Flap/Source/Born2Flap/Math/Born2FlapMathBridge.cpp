@@ -62,7 +62,7 @@ bool FBorn2FlapMathBridge::Load()
 
         B2F_FirmwareConfig FlightConfig{};
         FlightConfig.servo_no_load_speed_deg_s = 1200;
-        FlightConfig.servo_stall_torque_nm = 8;
+        FlightConfig.servo_stall_torque_nm = 20;
         FlightConfig.servo_backdrive_deg_s_nm = 20;
         FlightConfig.battery_voltage = 11.1;
         FlightConfig.battery_resistance_ohm = .08;
@@ -148,7 +148,7 @@ bool FBorn2FlapMathBridge::Load()
     // not a force multiplier. The firmware still feels every aerodynamic load.
     B2F_FirmwareConfig FlightConfig{};
     FlightConfig.servo_no_load_speed_deg_s = 1200;
-    FlightConfig.servo_stall_torque_nm = 8;
+    FlightConfig.servo_stall_torque_nm = 20;
     FlightConfig.servo_backdrive_deg_s_nm = 20;
     FlightConfig.battery_voltage = 11.1;
     FlightConfig.battery_resistance_ohm = .08;

@@ -317,6 +317,13 @@ void ABorn2FlapWeather::CheckExperienceTest()
             ExperienceCamera->SetActorLocationAndRotation(StrandEyes[Index],(StrandTargets[Index]-StrandEyes[Index]).Rotation());
         }
     }
+    if(ExperienceCamera && FParse::Param(FCommandLine::Get(),TEXT("B2FSandDetailTest")))
+    {
+        const int32 Index=FMath::Clamp(int32((Elapsed-2)/4),0,3);
+        const FVector Eyes[]={FVector(0,3000,95),FVector(-5000,4000,190),FVector(0,3000,800),FVector(0,6500,160)};
+        const FVector Targets[]={FVector(120,3200,20),FVector(-4200,4500,35),FVector(0,3800,0),FVector(700,9000,-30)};
+        ExperienceCamera->SetActorLocationAndRotation(Eyes[Index],(Targets[Index]-Eyes[Index]).Rotation());
+    }
     if(FParse::Param(FCommandLine::Get(),TEXT("B2FBirdWaterTest")) && ExperienceCapture==2 && Elapsed>12)
     {
         const FVector Position=UGameplayStatics::GetPlayerPawn(this,0)->GetActorLocation();

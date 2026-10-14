@@ -67,7 +67,7 @@ class BORN2FLAP_API UBorn2FlapActionRelay : public UObject
 
 public:
     TWeakObjectPtr<UBorn2FlapUIRenderer> Renderer;
-    UBorn2FlapComposite* Composite = nullptr;
+    UPROPERTY() TObjectPtr<UBorn2FlapComposite> Composite = nullptr;
     int32 OptionIndex = INDEX_NONE;
 
     UFUNCTION()
@@ -148,6 +148,7 @@ public:
     void HandleNumberCommitted(UBorn2FlapComposite* C, const FText& Text, ETextCommit::Type Commit);
     void EmitAction(const FString& Action, double Value, const FString& Text);
 
+    bool TestActivateAction(const FString& Action, float Value = 0);
     virtual void BeginDestroy() override;
 
 private:

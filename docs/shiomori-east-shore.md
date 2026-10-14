@@ -108,3 +108,24 @@ the woodland edge. Captures are `.setup/east-shore/strand-ground.png` and
 `.setup/east-shore/strand-transition.png`. No terrain geometry or collision was
 changed. These additional material samples have not been performance-profiled.
 The outer EastShore render check also passed after the shared material rebuild; shoreline and woodland captures were inspected.
+
+### Close sand relief (2026-10-14)
+
+`sand_surface.py` now combines the original bright 300 cm authored sand texture
+with warped, differently rotated height-noise scales, gradient normals and a
+small bounded view-dependent texture offset. There is no stretched directional
+noise or periodic ridge train. Fine normal detail is added at 65 cm texture
+scale and fades by pixel footprint. Colour, normals and roughness share the
+same offset, and BC5 XY normal data is decoded once with reconstructed Z.
+The beach, wet sand and headland sand use this common shading.
+
+This is material relief, not displaced collision geometry or a moving sand
+simulation. Parallax is deliberately restrained to avoid stretched patches at
+grazing angles. The other agent's input was preserved before editing in
+`.setup/east-shore/sand-surface-other-agent.py`. The original pre-change close
+capture is `.setup/east-shore/sand-before.png`.
+
+Use `test-weather.ps1 -SandDetail -Weather sunny -DayTime noon` (or `sunset`)
+for low, standing, elevated and shoreline inspection cameras. Material rebuild:
+`rebuild_east_strand.py`; it also refreshes the headland-derived EastShore graph.
+Final validation: editor build succeeded; sunny/noon and sunny/sunset SandDetail render checks passed without material compiler errors. Close and standing views were inspected under both lighting conditions. Final captures: sand-final-noon.png and sand-final-sunset.png in .setup/east-shore. No performance benchmark or Shipping package was produced.

@@ -115,11 +115,14 @@ steerMaxDeg = 60
 angularMultiplier = 2
 neutralAngleDeg = 100
 
--- | Differential-dihedral roll is physically weak: raising one wing only tilts
--- its lift inward and trims a little sink-induced alpha (the 2-servo invariant),
--- so a full-stick glide roll produces a much smaller moment than the wing's own
--- roll damping and the body barely rolls. This is a game-feel amplifier on the
--- dihedral roll authority (analogous to flapDampingCd), not a new actuator.
+-- | Differential-dihedral roll authority. The wings are the ONLY surface with
+-- aerodynamic authority, and in roll they have COMPLETE authority: a symmetric
+-- stroke produces no net roll (left/right lateral forces cancel), while ANY
+-- flap-centre asymmetry tilts the left and right lift vectors oppositely and the
+-- resulting lateral force at the spanwise arm rolls the fuselage immediately.
+-- The raw 2-servo dihedral tilt is a little gentle, so this gain amplifies the
+-- flap-centre deviation into a strong, immediate game-feel roll — it is NOT a
+-- new actuator, it is the wing's own asymmetry doing the work.
 rollAuthorityGain :: Double
 rollAuthorityGain = 2.0
 
@@ -390,10 +393,14 @@ flappingBranch coupled prof aileronNorm elevatorNorm rc params state dt =
       amplitude = throttlePct * min ampMaxDeg amplitudeSpeedCap
 
       -- Steering commands (deg).
-      -- Powered roll comes from differential stroke timing/skew. A static
-      -- differential dihedral here opposed that roll as the wing load changed.
-      -- The glide branch retains its differential held-wing positions.
-      aileronCmd = 0
+      -- Roll comes from an asymmetric flap-CENTRE deviation (differential
+      -- dihedral), identical to the glide branch: positive aileron raises the
+      -- right wing stroke centre and lowers the left, tilting the lift to
+      -- roll right. The timing/skew terms below add a further dynamic roll
+      -- term (gated by profAileronSkewMix, 0 by default) on top of this static
+      -- centre shift.
+      aileronCmd = (aileronNorm + rudderNorm * fwRudderYawWeight params * 0.01)
+                   * profAileronScale prof * 0.01 * steerMaxDeg * rollAuthorityGain
       elevatorCmd = elevatorNorm * profElevatorScale prof * 0.01 * steerMaxDeg
       -- Mount angle and tail elevator angle are aerodynamically identical in the
       -- current coarse model: both shift the common-mode flap-stroke centre. They

@@ -73,7 +73,7 @@ sparShearModulus = 5e9
 -- | Out-of-plane (flap) bending calibration. Stressed-skin + truss action make
 -- the wing far stiffer than the bare LE rod. Set to 1 for the raw rod value.
 sparBendScale :: Double
-sparBendScale = 88.0
+sparBendScale = 60.0
 
 -- | Torsional calibration. The braces' bending is the real resistance, already
 -- physical (set to 1 for the raw value); raising it over-stiffens the twist.
