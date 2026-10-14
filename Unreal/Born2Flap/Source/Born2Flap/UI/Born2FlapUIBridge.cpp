@@ -270,12 +270,20 @@ void ABorn2FlapUIBridge::WriteTelemetry()
             Pawn->GetBattery() * 100.0f, Pawn->GetEffort(), *Status);
     }
 
-    TSharedPtr<FJsonObject> Telemetry;
-    if (FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Json), Telemetry) && Telemetry.IsValid())
+    // Inject pending UI events. The serialize→deserialize→serialize round-trip
+    // is only necessary when an event is actually queued (a user click — rare).
+    // Skipping it every frame removes a full JSON re-parse + re-serialize of the
+    // ~10 KB telemetry from the game thread. When there are no events the
+    // `ui_events` field is simply absent; the Ruby Brain treats that as `[]`.
+    if (PendingEvents.Num() > 0)
     {
-        Telemetry->SetArrayField(TEXT("ui_events"), PendingEvents);
-        Json.Reset();
-        FJsonSerializer::Serialize(Telemetry.ToSharedRef(), TJsonWriterFactory<>::Create(&Json));
+        TSharedPtr<FJsonObject> Telemetry;
+        if (FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Json), Telemetry) && Telemetry.IsValid())
+        {
+            Telemetry->SetArrayField(TEXT("ui_events"), PendingEvents);
+            Json.Reset();
+            FJsonSerializer::Serialize(Telemetry.ToSharedRef(), TJsonWriterFactory<>::Create(&Json));
+        }
     }
 
     // Atomic telemetry write: the Ruby Brain reads this file every ~16 ms while
