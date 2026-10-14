@@ -22,6 +22,7 @@
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
 #include "UI/Born2FlapI18n.h"
+#include "UI/Born2FlapLoading.h"
 #include "PhysicalMaterials/PhysicalMaterial.h"
 #include "UObject/ConstructorHelpers.h"
 #include "Input/Born2FlapRcController.h"
@@ -83,9 +84,19 @@ ABorn2FlapFlightPawn::ABorn2FlapFlightPawn()
     Body->BodyInstance.bUseCCD = true;
     // Chaos scales the mass geometry, not the three diagonal tensor entries.
     // (8,1.5,2) accidentally modelled a several-metre fuselage and ~1.7 kg m2
-    // pitch inertia. This approximation distributes mass across the wings:
-    // the resulting body tensor is about (.039,.046,.046) kg m2 at .45 kg.
-    Body->BodyInstance.InertiaTensorScale = FVector(1, 3, 3);
+    // pitch inertia.
+    //
+    // The bird's mass lives in the FUSELAGE, not the wings: a 450 g airframe is
+    // ~440 g of body near the roll axis plus ~10 g of wing structure out at the
+    // span. Roll must therefore feel like a light fuselage rotating on the
+    // wings — not the whole mass spread to the wingtips. The wings' own flap
+    // inertia (planform mass + entrained air) already lives in the math core's
+    // flap DOF and Newton-3rd recoil; the body roll inertia is only the
+    // near-axis fuselage (~.004) plus the wings rolling with it (~.004), i.e.
+    // ~.008 kg m2 — 5x lighter than the old .039.
+    // Holding Y/Z equal while re-scaling X keeps pitch/yaw at ~.046 and drops
+    // only the roll entry (.039 -> .008).
+    Body->BodyInstance.InertiaTensorScale = FVector(1.26f, 1.36f, 1.36f);
     BuildGeometry();
     CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
     CameraBoom->SetupAttachment(Body);
@@ -142,11 +153,12 @@ ABorn2FlapFlightPawn::ABorn2FlapFlightPawn()
         SkyDome->SetStaticMesh(SphereMesh.Object);
     }
     AutoPossessPlayer = EAutoReceiveInput::Player0;
-    // Default hangar tuning = the prototype flight hardware (3S 1.3 Ah, 8 Nm
-    // servo) plus the simulator's controller base. LoadFlightPreferences may
+    // Default hangar tuning = the prototype flight hardware (3S 1.3 Ah, 20 Nm
+    // servo — sized to hold against the flapping air load without back-driving)
+    // plus the simulator's controller base. LoadFlightPreferences may
     // override these before the first ApplyTuning.
     Tuning.servo_no_load_speed_deg_s = 1200;
-    Tuning.servo_stall_torque_nm = 8;
+    Tuning.servo_stall_torque_nm = 20;
     Tuning.servo_backdrive_deg_s_nm = 20;
     Tuning.battery_voltage = 11.1;
     Tuning.battery_resistance_ohm = 0.08;
@@ -469,7 +481,14 @@ void ABorn2FlapFlightPawn::ResetFlight(bool bSafety)
     if (bSafety)
         ++SafetyResets;
     // Recreate all firmware/servo/aeroelastic/battery/history state. RTS stays pinned.
+    // Surface the backend load on the loading screen (during a level load the
+    // loader is active) so the flight-core phase reads there instead of as a
+    // stuck "core stopped" status in the HUD once the loader has dropped.
+    if (Born2Flap::Loading::State().IsActive())
+        Born2Flap::Loading::Report(0.70f, TEXT("LOADING FLIGHT CORE"));
     bHealthy = MathBridge && MathBridge->Load();
+    if (Born2Flap::Loading::State().IsActive())
+        Born2Flap::Loading::Report(0.80f, TEXT("FLIGHT CORE READY"));
     if (bHealthy)
         ApplyTuning();
     bFlying = bReturning = false;

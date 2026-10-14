@@ -15,6 +15,7 @@
 $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
 require "born2flap"
 require "json"
+require "born2flap/ui/session"
 
 telemetry_path = ARGV[0]
 frames_path    = ARGV[1]
@@ -34,10 +35,23 @@ TRUNCATE_AT = 8 * 1024 * 1024  # rotate the frames file; remount resyncs the hos
 
 def read_telemetry(path)
   return nil if path.nil? || path == "-"
-  text = File.read(path)
-  line = text.lines.map(&:strip).reject(&:empty?).last
-  return nil unless line
-  JSON.parse(line, symbolize_names: true)
+  # UE writes the telemetry as a PRETTY-PRINTED JSON document (multi-line), not
+  # NDJSON, and it truncates + rewrites the file every tick. Parse the WHOLE
+  # document — not the last line — and retry briefly because a read can land
+  # mid-write and see an empty or torn object. Reading only the last line
+  # returned the trailing "}" and permanently failed, so the Brain authored the
+  # menu from an empty hash ("world" / "WORLD 1 OF 1") and prev/next seemed dead
+  # because the new world_index was never observed.
+  4.times do
+    text = File.read(path)
+    next if text.strip.empty?
+    begin
+      return JSON.parse(text, symbolize_names: true)
+    rescue JSON::ParserError
+      sleep 0.004
+    end
+  end
+  nil
 rescue StandardError
   nil
 end
@@ -56,7 +70,9 @@ def open_sink(path)
 end
 
 sink = open_sink(frames_path)
-bus = Born2Flap::EventBus.new
+brain = Born2Flap::Brain.new
+session = Born2Flap::UI::Session.new(brain)
+bus = brain.bus
 root = Born2Flap::UI::Root.new(bus: bus)
 transport = Born2Flap::UI::Transport.new(bus: bus, io: sink)
 
@@ -67,10 +83,13 @@ iteration = 0
 
 loop do
   raw = read_telemetry(telemetry_path)
-  telemetry = sanitize(raw) if raw
+  telemetry = session.update(raw) if raw
 
-  current_tree = telemetry ? Born2Flap::UI::Dashboard.build(telemetry)
-                           : (current_tree || Born2Flap::UI::Dashboard.build({}))
+  brain.tick(telemetry)
+  screen = brain.view_model[:screen]
+
+  current_tree = telemetry ? Born2Flap::UI::Dashboard.build(telemetry, screen: screen)
+                           : (current_tree || Born2Flap::UI::Dashboard.build({}, screen: screen))
 
   root.render(current_tree)
   frames_bytes += transport.flush

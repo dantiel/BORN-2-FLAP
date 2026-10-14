@@ -25,6 +25,8 @@
 
 class IFileHandle;
 class UBorn2FlapUIRenderer;
+class FJsonObject;
+class FJsonValue;
 
 UCLASS()
 class BORN2FLAP_API ABorn2FlapUIBridge : public AActor
@@ -64,15 +66,22 @@ public:
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 private:
+    void RunUITest(float DeltaSeconds);
+    float UITestElapsed=0;
+    int32 UITestStage=0;
+    bool bUITestPassed=true;
     void OpenSource();
     void SpawnBrain();
     void DrainSource();
     void WriteTelemetry();
     void ApplyFrame(const TArray<uint8>& Bytes);
+    void DispatchCommand(const FJsonObject& Cmd);
 
     UPROPERTY() TObjectPtr<UBorn2FlapUIRenderer> Renderer;
     IFileHandle* FileHandle = nullptr;
     int64 FileOffset = 0;
+    int64 NextEventId = 1;
+    TArray<TSharedPtr<FJsonValue>> PendingEvents;
     FProcHandle BrainProcess;
     TArray<uint8> LineBuffer;
 };

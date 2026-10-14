@@ -39,7 +39,8 @@ module Born2Flap
             wind_random: (world[:wind_random] || 1).to_f,
             wind_thermal: (world[:wind_thermal] || 1).to_f,
             wind_custom: world[:wind_custom] ? true : false,
-            menu_inlevel: locals[:menu_inlevel] ? true : false
+            menu_inlevel: locals[:menu_inlevel] ? true : false,
+            subtitle: "ORNITHOPTER FLIGHT SIMULATOR"
           }
         end
       end

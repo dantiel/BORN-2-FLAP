@@ -195,7 +195,7 @@ USceneComponent* Born2FlapRaven::Build(AActor* Owner, USceneComponent* Parent,
         // roots are 2 cm apart instead of spreading a body-width apart.
         for (int Side : {-1, 1})
         {
-            auto* Shoulder = Node(*FString::Printf(TEXT("RavenShoulder%d"), Side), RavenRoot, FVector(3, Side * 1.0, 6));
+            auto* Shoulder = Node(*FString::Printf(TEXT("RavenShoulder%d"), Side), RavenRoot, FVector(3, Side * 1.0, 4));
             if (Side < 0) OutLeftShoulder = Shoulder; else OutRightShoulder = Shoulder;
             auto* Wing = NewObject<UBorn2FlapWingMesh>(Owner, *FString::Printf(TEXT("RavenWing%d_%d"), Side, Design));
             Owner->AddInstanceComponent(Wing);

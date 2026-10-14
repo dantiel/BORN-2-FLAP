@@ -310,46 +310,9 @@ def coastal_terrain_material(name, sand, grass, rock, scale_cm=240.0, normal_str
                 'return normalize(N+detail*%f);' % normal_strength)
         return custom(m, code, dict(args, T=t), 3)
 
-    # Beach-matched sand: world-XY planar at the same 300 cm tiling as M_Sand.
-    # TextureObject + Texture2DSample avoids TextureSample output-pin ambiguity.
-    def sand_color(tex):
-        t = node(m, 'TextureObject', texture=tex)
-        return custom(m, 'return Texture2DSample(T,TSampler,P.xy/300.0).rgb;',
-                      {'P': pos, 'T': t}, 3)
-
-    def sand_scalar(tex):
-        t = node(m, 'TextureObject', texture=tex)
-        return custom(m, 'return Texture2DSample(T,TSampler,P.xy/300.0).r;',
-                      {'P': pos, 'T': t}, 1)
-
-    def sand_grain(tex):
-        t = node(m, 'TextureObject', texture=tex)
-        code = ('float3 tn=Texture2DSample(T,TSampler,P.xy/300.0).rgb;'
-                'return normalize(float3(tn.x*2.0-1.0, tn.y*2.0-1.0, saturate(tn.z*2.0-1.0)+0.25));')
-        return custom(m, code, {'P': pos, 'T': t}, 3)
-
-    s_c = sand_color(sd)
-    s_r = sand_scalar(sr)
-
-    # Identical irregular relief + wind streaks to M_Sand (grain normal perturbed
-    # by two decorrelated value noises and a shore-elongated wind noise).
-    relief_scale = 0.02
-    relief_strength = 0.6
-    ns_strength = 0.65
-    gx = node(m, 'Multiply'); wire(pos, gx, 'A'); gx.set_editor_property('const_b', relief_scale)
-    nz_gx = node(m, 'Noise', levels=2, output_min=-1.0, output_max=1.0); wire(gx, nz_gx, '')
-    gy = node(m, 'Multiply'); wire(pos, gy, 'A'); gy.set_editor_property('const_b', relief_scale * 1.7)
-    nz_gy = node(m, 'Noise', levels=2, output_min=-1.0, output_max=1.0); wire(gy, nz_gy, '')
-    wv = node(m, 'Constant3Vector', constant=u.LinearColor(0.0009, 0.006, 0.006))
-    ws = node(m, 'Multiply'); wire(pos, ws, 'A'); wire(wv, ws, 'B')
-    nz_w = node(m, 'Noise', levels=2, output_min=-1.0, output_max=1.0); wire(ws, nz_w, '')
-    relief = custom(m, '''float rx=NX*%.6g + W*0.2;
-  float ry=NY*%.6g + W*0.55;
-  float3 r=normalize(float3(TN.x+rx, TN.y+ry, 1.0));
-  return normalize(float3(lerp(0.0, r.x, %.6g), lerp(0.0, r.y, %.6g), 1.0));
-''' % (relief_strength, relief_strength, ns_strength, ns_strength),
-                    {'NX': nz_gx, 'NY': nz_gy, 'W': nz_w, 'TN': sand_grain(sn)}, 3)
-    s_n = relief
+    # Shared close-up sand shading keeps the beach/headland boundary seamless.
+    from sand_surface import surface
+    s_c, s_n, s_r = surface(m, sd, sn, sr, node, custom)
     if name == 'Headland':
         from east_strand_material import blend
         s_c, s_n, s_r = blend(m, pos, s_c, s_n, s_r, node, custom)
@@ -504,13 +467,23 @@ return normalize(float3(n,1.0));''',{'P':p,'T':t})
 def sand_material(name, diffuse, normal, rough=0.8, rough_tex=None, tiling_cm=300.0,
                   relief_scale=0.02, relief_strength=0.6, normal_strength=0.6,
                   tint=None, caustic=False, pebble=None):
-    """Beach sand: tiled grain normal plus a large-scale wind/sea/footprint
-    relief so the surface reads as naturally uneven, not a flat smooth plane."""
+    """Beach sand: macro albedo + authored normal, an aperiodic height field
+    (parallax + fake AO + gradient normal), and a fine grain — shared verbatim
+    with the headlands so the strand reads as one continuous surface.
+
+    `relief_scale` is retained for map-generator callers but superseded: the
+    grain/undulation scales now live together in sand_surface.surface().
+    """
     path = '/Game/Shiomori/Materials/M_' + name
     m = u.load_asset(path) if ela.does_asset_exist(path) else assets.create_asset(
         'M_' + name, '/Game/Shiomori/Materials', u.Material, u.MaterialFactoryNew())
     lib.delete_all_material_expressions(m)
-    bc = sample_tex(m, diffuse, ('world', tiling_cm))
+    m.set_editor_property('tangent_space_normal', False)
+    from sand_surface import surface
+    bc, sand_normal, sand_rough = surface(
+        m, diffuse, normal, rough_tex, node, custom, wet=caustic,
+        macro_cm=tiling_cm, relief_strength=relief_strength,
+        normal_strength=normal_strength)
     if tint is not None:
         t = node(m, 'Constant3Vector', constant=u.LinearColor(*tint))
         mul = node(m, 'Multiply')
@@ -556,40 +529,9 @@ def sand_material(name, diffuse, normal, rough=0.8, rough_tex=None, tiling_cm=30
         bc = custom(m, 'return lerp(A.rgb, B.rgb, W);',
                     {'A': bc, 'B': pc, 'W': pebble_blend}, 3)
     output(bc, 'BASE_COLOR')
-    if rough_tex is not None:
-        output(sample_tex(m, rough_tex, ('world', tiling_cm)), 'ROUGHNESS', 'R')
-    else:
-        output(node(m, 'Constant', r=rough), 'ROUGHNESS')
-    ns = sample_tex(m, normal, ('world', tiling_cm), normal=True)
+    output(sand_rough, 'ROUGHNESS')
     p = node(m, 'WorldPosition')
-    # Irregular (non-sinusoidal) relief via UE value-noise nodes: fine grain
-    # (two decorrelated samples for x/y) plus coarse wind streaks elongated
-    # along the shore (X) so the sand reads wind-and-sea-trodden, not sine.
-    gx = node(m, 'Multiply'); wire(p, gx, 'A'); gx.set_editor_property('const_b', relief_scale)
-    nz_gx = node(m, 'Noise', levels=2, output_min=-1.0, output_max=1.0); wire(gx, nz_gx, '')
-    gy = node(m, 'Multiply'); wire(p, gy, 'A'); gy.set_editor_property('const_b', relief_scale * 1.7)
-    nz_gy = node(m, 'Noise', levels=2, output_min=-1.0, output_max=1.0); wire(gy, nz_gy, '')
-    wv = node(m, 'Constant3Vector', constant=u.LinearColor(0.0009, 0.006, 0.006))
-    ws = node(m, 'Multiply'); wire(p, ws, 'A'); wire(wv, ws, 'B')
-    nz_w = node(m, 'Noise', levels=2, output_min=-1.0, output_max=1.0); wire(ws, nz_w, '')
-    code = '''float rx=NX*%.6g + W*0.2;
-float ry=NY*%.6g + W*0.55;
-float3 tn=normalize(float3(TN.x*2.0-1.0, TN.y*2.0-1.0, saturate(TN.z*2.0-1.0)+0.25));
-float3 r=normalize(float3(tn.x+rx, tn.y+ry, 1.0));
-return normalize(float3(lerp(0.0, r.x, %.6g), lerp(0.0, r.y, %.6g), 1.0));
-''' % (relief_strength, relief_strength, normal_strength, normal_strength)
-    n = node(m, 'Custom', code=code,
-             output_type=u.CustomMaterialOutputType.CMOT_FLOAT3)
-    pins = []
-    for k in ('NX', 'NY', 'W', 'TN'):
-        pin = u.CustomInput()
-        pin.set_editor_property('input_name', k)
-        pins.append(pin)
-    n.set_editor_property('inputs', pins)
-    wire(nz_gx, n, 'NX')
-    wire(nz_gy, n, 'NY')
-    wire(nz_w, n, 'W')
-    wire(ns, n, 'TN', 'RGB')
+    n = sand_normal
     if pebble is not None:
         n = custom(m, 'return normalize(lerp(A, B, W));',
                    {'A': n, 'B': pebble_n, 'W': pebble_blend}, 3)

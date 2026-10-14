@@ -28,6 +28,7 @@
 #include "Components/ScrollBox.h"
 #include "Components/ScrollBoxSlot.h"
 #include "Components/SizeBox.h"
+#include "Components/ScaleBox.h"
 #include "Components/RetainerBox.h"
 #include "Engine/Texture2D.h"
 #include "Materials/MaterialInstanceDynamic.h"
@@ -605,6 +606,7 @@ UWidget* UBorn2FlapUIRenderer::CreateInstance(const std::string& Type)
     if (Type == "ProgressBar")   return NewObject<UProgressBar>(this);
     if (Type == "Image")         return NewObject<UImage>(this);
     if (Type == "Spacer")        return NewObject<USpacer>(this);
+    if (Type == "ScaleBox") { auto* Scale=NewObject<UScaleBox>(this); Scale->SetStretch(EStretch::ScaleToFit); Scale->SetStretchDirection(EStretchDirection::DownOnly); return Scale; }
     if (Type == "SizeBox")       return NewObject<USizeBox>(this);
     if (Type == "WindArrow")     return NewObject<UBorn2FlapWindArrow>(this);
 
@@ -673,6 +675,7 @@ void UBorn2FlapUIRenderer::AppendChild(UWidget* Parent, int32 Index, UWidget* Ch
     }
     // Single-child content widgets (SizeBox / Border) host their child via
     // SetContent rather than an indexed child list.
+    if (UScaleBox* Scale=Cast<UScaleBox>(Parent)) { Scale->SetContent(Child); return; }
     if (USizeBox* SB = Cast<USizeBox>(Parent)) { SB->SetContent(Child); return; }
     if (UBorder* B = Cast<UBorder>(Parent))    { B->SetContent(Child); return; }
 
@@ -2003,4 +2006,19 @@ void UBorn2FlapUIRenderer::ApplyStoredLayoutToChild(UPanelWidget* Panel, int32 I
         if (S->bV) HSlot->SetVerticalAlignment(S->V);
         if (S->bSpacing) HSlot->SetPadding(FMargin(0.f, 0.f, (Index == N - 1) ? 0.f : S->Spacing, 0.f));
     }
+}
+// Rendered integration tests exercise the same relays as UMG input delegates.
+bool UBorn2FlapUIRenderer::TestActivateAction(const FString& Action, float Value)
+{
+    for(int32 I=Relays.Num()-1;I>=0;--I) {
+        auto* R=Relays[I].Get();
+        if(!R || !R->Composite || R->Composite->Action!=Action) continue;
+        const FString Type=R->Composite->SemanticType;
+        if(Type==TEXT("Select") || Type==TEXT("Segment")) {
+            if(R->OptionIndex!=FMath::RoundToInt(Value)) continue;
+        }
+        if(Type==TEXT("Slider")) R->OnSlider(Value); else R->OnClick();
+        return true;
+    }
+    return false;
 }

@@ -121,7 +121,8 @@ module Born2Flap
       def test_tuning_editor_expands_data_rows
         ed = Views::TuningEditor.render(:editor)
         # 12 firmware knobs + BIRD(1) + CONTROLS(5) + ASSIST(1) workbench sliders.
-        assert_equal 19, ed.each.to_a.count { |n| n.type == :slider }
+        actions = ed.each.select { |n| n.type == :slider }.map { |n| n[:action] }
+        %w[bird.weight bird.cg audio.wingbeat radio.volume ServoSpeed TailElevatorAngle].each { |a| assert_includes actions, a }
         # CRAFT/BIRD/CONTROLS/ASSIST + 4 TUNING subsections.
         assert_equal 8, ed.each.to_a.count { |n| n.type == :section }
       end

@@ -33,6 +33,7 @@ module Born2Flap
         @bus.subscribe(:ui_patch) { |payload| @buffer.concat(HostConfig.translate(payload[:patch])) }
         @bus.subscribe(:ui_effect) { |payload| @buffer.concat(payload[:ops]) }
         @bus.subscribe(:audio_effect) { |payload| @buffer.concat(payload[:ops]) }
+        @bus.subscribe(:command) { |payload| @buffer << [:command, payload[:name], payload[:payload] || {}] }
       end
 
       # Drain the event bus (running the collectors) and emit a single NDJSON

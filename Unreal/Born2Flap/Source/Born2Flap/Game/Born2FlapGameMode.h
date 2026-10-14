@@ -3,6 +3,8 @@
 #include "GameFramework/GameModeBase.h"
 #include "Born2FlapPoi.h"
 #include "World/Born2FlapWeather.h"
+#include "UI/Born2FlapMenuSettings.h"
+#include "Input/Born2FlapRcController.h"
 #include "Born2FlapGameMode.generated.h"
 
 class UBorn2FlapRadioStation;
@@ -14,6 +16,7 @@ class AStaticMeshActor;
 class UMaterialInstanceDynamic;
 class UTexture2D;
 class IInputProcessor;
+class FJsonObject;
 
 UCLASS()
 class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
@@ -64,6 +67,10 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     // renderer into game logic. Mirrors ABorn2FlapMenu::OnAction + the POI
     // overlay handler so the Ruby path and the native path share one behaviour.
     void HandleBrainAction(const FString& Action, float Value, const FString& Text);
+    // Route an imperative command (the Ruby Brain's outbound channel) into game
+    // logic. Non-time-critical flow control only; the per-tick simulation stays
+    // in C++. Extend this dispatch table to expose new hooks for Ruby modding.
+    void HandleBrainCommand(const FString& Name, const TSharedPtr<FJsonObject>& Payload);
     // Full JSON telemetry for the Brain: panel visibility + menu catalog + POI
     // list + radio + RC + splash + flight readouts (single source of truth).
     FString BuildBrainTelemetry() const;
@@ -72,6 +79,8 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     const TMap<FString, FBorn2FlapConditions>& GetMenuLevelConditions() const { return MenuLevelConditions; }
 
   private:
+    born2flap::FMenuSettings BrainPreferences;
+    TUniquePtr<FBorn2FlapRcController> BrainRc;
     void PopulatePOIs();
     void AddPoi(const FString& Key, double X, double Y, float Clearance = 80.f);
     void AddPoi(const FString& Key, const FVector& Position, float Yaw = 0.f);

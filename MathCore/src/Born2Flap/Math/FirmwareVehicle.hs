@@ -203,9 +203,13 @@ advanceFirmwareVehicle coupled rc params servo battery wingScale dt bodyVel body
           -- Frontal area scales with the planform scale squared (geometric
           -- similarity): a small bird must not carry a full-size body's drag.
           bodyDrag = scaleVec (-0.5 * airDensity * 0.011 * wingScale * wingScale * speed) bodyVel
-          -- Two real inverted-V panels, 12 degrees down, with mixed ruddervators.
-          -- Each panel sees its own local flow and produces force at its own arm;
-          -- the resulting pitch/yaw/roll coupling is geometric, not an added torque.
+          -- Two real inverted-V panels with mixed ruddervators. Each panel sees
+          -- its own local flow and produces force at its own arm; the resulting
+          -- pitch/yaw coupling is geometric, not an added torque. A shallow cant
+          -- (12°) keeps the differential ruddervator a pure YAW surface: roll is
+          -- the wings' job (differential-dihedral lift tilt via the flap-centre
+          -- deviation in the mixer), never the tail's. The tail only damps and
+          -- steers yaw/pitch.
           cant = radians 12
           -- A direct flap-power/ruddervator mix balances the wing drive's changing
           -- pitching moment. Glide returns to its shallow incidence; no attitude,

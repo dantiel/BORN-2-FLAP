@@ -15,6 +15,7 @@ module Born2Flap.Math.Vehicle
   , airDensity
   , flapJetCoeff
   , flapDampingCd
+  , flapUpstrokeDampingFraction
   , emptyStrip
   , initialStrips
   , stepWingWithStroke
@@ -53,27 +54,43 @@ airDensity = 1.05
 
 -- | Momentum-jet thrust factor for the flapping downstroke (dimensionless).
 -- The downstroke accelerates a chord-scale column of air; C_T ≈ 2 is typical.
--- Raised so wing beats deliver clear propulsive effect even in the thinner air.
+-- Raised so wing beats deliver clear propulsive effect even in the thinner air,
+-- and kept proportional to 'flapDampingCd': a wing that bites harder against the
+-- air must also shed a proportionally stronger backward jet, otherwise the extra
+-- pressure drag only loads the servo and slows the bird instead of propelling it.
 flapJetCoeff :: Double
-flapJetCoeff = 3.5
+flapJetCoeff = 5.5
 
 -- | Lumped pressure-drag coefficient for the wing's OWN flap motion — the broad
 -- surface sweeping normal to itself through air. A thin airfoil moving edge-on
 -- has Cd ≈ 0.02, but a wing moving normal to its own surface is a flat plate
 -- (Cd ≈ 1.2), and a rotating cambered wing additionally sweeps added-mass /
--- radial momentum flux, so its effective lumped value sits well above the bare
--- translating-plate figure. This is the "air resistance" a wing feels when it
--- moves up/down (flap stroke or differential-dihedral roll); without it the
--- surface slices through air as if there were none.
+-- radial momentum flux, so its effective lumped value sits a touch above the
+-- bare translating-plate figure. This is the "air resistance" a wing feels when
+-- it moves up/down (flap stroke or differential-dihedral roll).
 --
--- The roll/flap hinge torque is ½·ρ·Cd·ω²·∫chord·r³dr — so it scales with the
--- FOURTH power of span. When the reference was corrected 0.72 m → 0.55 m
--- half-span, ∫chord·r³dr dropped to ×0.449 and the wings read as frictionless
--- again. Cd is therefore re-tuned to hold the SAME absolute hinge torque at the
--- 1.10 m full-span size (1.45 / 0.449 ≈ 3.23), not to chase the bare flat-plate
--- figure.
+-- CRITICAL: the flap hinge torque this force produces is ½·ρ·Cd·ω²·∫chord·r³dr.
+-- At the servo's 1200°/s peak rate (ω ≈ 20.9 rad/s) the integral ≈ 0.0072 m⁴,
+-- so hinge torque ≈ 1.67·Cd [N·m]. Raising Cd to chase ROLL AUTHORITY therefore
+-- back-fires: Cd=50 → ~83 N·m, which back-drives even a 20 N·m servo into its
+-- ±80° end-stop and latches it there, and the same huge normal force bends the
+-- wing to its saturation clamp (the "deformed and stuck" failure). Roll authority
+-- must NOT come from flat-plate drag — it belongs to the differential-dihedral
+-- LIFT tilt (aileronCmd shifting the stroke centre) and to the V-tail, both of
+-- which use lift, not drag. Keep Cd physical so the wing BITES the air via lift
+-- while its flap motion merely sees normal flat-plate resistance.
 flapDampingCd :: Double
-flapDampingCd = 3.2
+flapDampingCd = 3.0
+
+-- | Fraction of 'flapDampingCd' the wing keeps on the UPSTROKE during flapping.
+-- A real bird feathers the recovery stroke so the downstroke (power stroke) bites
+-- full-pressure air while the upstroke sheds nearly all of it; that asymmetry is
+-- what turns the symmetric pressure drag into NET lift + roll authority instead of
+-- a loss term that merely loads the servo. In glide (differential-dihedral roll)
+-- there is no flapping, so BOTH wings keep the full Cd and roll authority stays
+-- symmetric. Only the flapping upstroke sheds damping.
+flapUpstrokeDampingFraction :: Double
+flapUpstrokeDampingFraction = 0.35
 
 -- | Ground-effect constants (dimensionless). Ground effect is the image-vortex
 -- cushion a wing feels close to a surface. For a GLIDING wing it only boosts
@@ -408,8 +425,23 @@ stepStrip flapping side stroke strokeRate input incidenceRad wp index old =
       -- lost sweeping the surface down. This is the drag-reduction half of the
       -- flapping ground-effect pair (the thrust half is flapThrust above).
       flapDampingRelief = if flapping then max 0 (1 - groundEffectDragRelief * ge) else 1
-      flapDampingForce = scaleVec (-0.5 * airDensity * area * flapDampingCd * flapDampingRelief
-                                    * normalVelocity * abs normalVelocity) normal
+      -- Asymmetric stroke damping: full Cd on the downstroke (and always in
+      -- glide, where a roll command sweeps both wings and needs symmetric bite),
+      -- reduced Cd on the flapping upstroke so the recovery sheds pressure drag.
+      strokeCd = if flapping && strokeRate > 0
+                    then flapDampingCd * flapUpstrokeDampingFraction
+                    else flapDampingCd
+      -- Ground-effect relief removes only the LATERAL (side) pressure drag of
+      -- the flapping plate, never the vertical lift reaction: pushing air down
+      -- near the deck must still produce full lift (the cushion). The stroke's
+      -- pressure drag IS the stroke's lift (its vertical component), so
+      -- relieving the whole vector made net lift invert at the deck once Cd
+      -- grew large — a bird losing lift exactly where it should lift hardest.
+      flapDampingMag = -0.5 * airDensity * area * strokeCd
+                       * normalVelocity * abs normalVelocity
+      flapDampingForce = addVec
+          (scaleVec (flapDampingMag * flapDampingRelief) (Vec3 0 (vy normal) 0))
+          (scaleVec flapDampingMag (Vec3 0 0 (vz normal)))
       force = addVec (addVec chordForce (addVec normalForce spanDrag))
                      (addVec thrustForce flapDampingForce)
       -- Explicit differencing of BODY acceleration as an added-mass force
@@ -482,7 +514,7 @@ applyStructure wingScale wp input results =
       sectionMoments = map resultSectionMoment results
       (targetBend, targetSlope) = integrateFlapBeam forces bendingEIs dr
       targetTwist = integrateTwist sectionMoments twistGJs dr
-      maxBend = 0.08 * wsSpanM wp
+      maxBend = 0.12 * wsSpanM wp
       maxTwist = radians 15
       update result structure bend slope twist =
         let old = resultState result
