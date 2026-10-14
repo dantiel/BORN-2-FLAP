@@ -41,7 +41,11 @@ module Born2Flap
                             source.match?(/%[A-Za-z_]\w*[^\n]*=/)
 
         context = Context.new(locals)
-        program = Compiler.compile(source)
+        # The compiled program depends only on `source` (locals become methods
+        # on Context at eval time), so memoize it. Templates are re-evaluated
+        # every Brain tick; re-compiling the same source each frame was pure
+        # per-tick waste.
+        program = (@compile_cache ||= {})[source] ||= Compiler.compile(source)
         context.instance_eval(program, '(umghaml-template)', 1)
       end
 
