@@ -15,3 +15,9 @@ ScrollBox
   scroll_blur: true
   edge: 0.12
   edge_bottom: 0.15
+
+ScrollPage
+  safe_top: 145
+  safe_bottom: 80
+  edge: 0.24
+  edge_bottom: 0.15

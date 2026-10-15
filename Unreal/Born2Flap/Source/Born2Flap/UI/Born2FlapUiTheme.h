@@ -88,6 +88,19 @@ FORCEINLINE FSlateFontInfo FontPx(float Px, bool bBold = false)
         LoadObject<UFontFace>(nullptr, TEXT("/Game/UI/ChakraPetchRegular.ChakraPetchRegular")));
     static TStrongObjectPtr<UFontFace> Bold = TStrongObjectPtr<UFontFace>(
         LoadObject<UFontFace>(nullptr, TEXT("/Game/UI/ChakraPetchBold.ChakraPetchBold")));
+
+    // Fallback faces for the scripts Chakra Petch does not cover: Droid Sans
+    // Fallback carries CJK (ja/ko/zh) + Cyrillic (ru) + Hangul/Kana, Roboto
+    // covers Latin-ext / Greek / Cyrillic. Slate walks the typeface's ordered
+    // font list until a glyph is found, so translated text renders instead of
+    // tofu. Loaded once and held strongly for the program lifetime.
+    static TStrongObjectPtr<UFontFace> FallbackCJK = TStrongObjectPtr<UFontFace>(
+        LoadObject<UFontFace>(nullptr, TEXT("/Engine/EngineFonts/Faces/DroidSansFallback.DroidSansFallback")));
+    static TStrongObjectPtr<UFontFace> FallbackLatin = TStrongObjectPtr<UFontFace>(
+        LoadObject<UFontFace>(nullptr, TEXT("/Engine/EngineFonts/Faces/RobotoRegular.RobotoRegular")));
+    static TStrongObjectPtr<UFontFace> FallbackLatinBold = TStrongObjectPtr<UFontFace>(
+        LoadObject<UFontFace>(nullptr, TEXT("/Engine/EngineFonts/Faces/RobotoBold.RobotoBold")));
+
     const UFontFace* Face = bBold ? Bold.Get() : Regular.Get();
     if (Face)
     {
@@ -95,12 +108,22 @@ FORCEINLINE FSlateFontInfo FontPx(float Px, bool bBold = false)
         // so it cannot serve as FSlateFontInfo::FontObject — Slate's
         // GetCompositeFont() would fall through to the LastResort font and render
         // tofu. Wrap the face in a FCompositeFont whose default typeface carries
-        // the face asset via FFontData instead.
-        FSlateFontInfo Info;
+        // the face asset via FFontData instead. Append the fallback faces so
+        // non-Latin scripts resolve through the same composite.
         TSharedPtr<FCompositeFont> CompFont = MakeShared<FCompositeFont>();
-        FTypefaceEntry& Entry = CompFont->DefaultTypeface.Fonts.AddDefaulted_GetRef();
-        Entry.Name = NAME_None;
-        Entry.Font = FFontData(Face);
+
+        auto AddFace = [&CompFont](const UFontFace* F)
+        {
+            if (!F) return;
+            FTypefaceEntry& E = CompFont->DefaultTypeface.Fonts.AddDefaulted_GetRef();
+            E.Name = NAME_None;
+            E.Font = FFontData(F);
+        };
+        AddFace(Face);
+        AddFace(FallbackCJK.Get());
+        AddFace(bBold ? FallbackLatinBold.Get() : FallbackLatin.Get());
+
+        FSlateFontInfo Info;
         Info.CompositeFont = CompFont;
         Info.Size = FMath::RoundToInt(Px);
         return Info;

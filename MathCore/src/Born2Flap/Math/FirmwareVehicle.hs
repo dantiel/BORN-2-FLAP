@@ -15,12 +15,14 @@ module Born2Flap.Math.FirmwareVehicle
   ( FirmwareVehicleState(..)
   , defaultFirmwareVehicleState
   , stepFirmwareVehicle
+  , stepFirmwareVehicleWithInertia
   , hingeTorque
   ) where
 
 import Born2Flap.Math.Types (Vec3(..))
 import Born2Flap.Math.Firmware
 import Born2Flap.Math.Servo
+import Born2Flap.Math.RollDynamics (stepRoll)
 import Born2Flap.Math.Planform
   ( defaultBirdWing, scaleWing, shapeFlapInertia, referenceWingMassKg )
 import Born2Flap.Math.Simulation
@@ -30,7 +32,7 @@ import Born2Flap.Math.Resonance
 import Born2Flap.Math.Vehicle
   ( VehicleInput(..), VehicleOutput(..)
   , StripState(..), StripResult(..), initialStrips
-  , stepWingWithStroke, wingRootHeight, airDensity
+  , stepCoupledWing, wingLoadsWithStroke, wingRootHeight, airDensity
   , addVec, crossVec, scaleVec, magnitude, zeroVec, radians )
 
 data FirmwareVehicleState = FirmwareVehicleState
@@ -85,18 +87,44 @@ stepFirmwareVehicle
   -> Double -> Vec3 -> Vec3 -> Double
   -> FirmwareVehicleState
   -> (VehicleOutput, FirmwareVehicleState)
-stepFirmwareVehicle coupled rc params servo battery wingScale dt bodyVel bodyRates groundClearance state
+stepFirmwareVehicle coupled rc params servo battery wingScale =
+  stepFirmwareVehicleWithInertia (0.008 * wingScale ** 4) coupled rc params servo battery wingScale
+
+-- Host inertia is the dry, locked-wing roll inertia used by the rigid-body
+-- integrator. Added air enters the coupled mass matrix, never the host tensor.
+stepFirmwareVehicleWithInertia
+  :: Double -> Bool -> RcChannels -> FirmwareParams -> ServoSpec -> BatterySpec -> Double
+  -> Double -> Vec3 -> Vec3 -> Double -> FirmwareVehicleState
+  -> (VehicleOutput, FirmwareVehicleState)
+stepFirmwareVehicleWithInertia hostInertia coupled rc params servo battery wingScale dt bodyVel bodyRates groundClearance state
+  | not (finite hostInertia) || hostInertia <= 0 = (zeroOutput 2, state)
   | not (finite dt) || dt <= 0 || dt > 0.05 = (zeroOutput 1, state)
   | not (all finite (components bodyVel ++ components bodyRates ++
       [rcAileron rc, rcElevator rc, rcThrottle rc, rcRudder rc, rcArm rc, rcFreq rc, rcProfile rc])) =
       (zeroOutput 2, state)
   | otherwise = case runSimulation transaction state of
-      Left flag -> (zeroOutput flag, state)
+      Left flag | dt > 1/7680 -> subdivide flag
+                | otherwise -> (zeroOutput flag, state)
       Right result -> result
   where
+    -- Sharp stall/feather transitions can make one implicit step non-convergent.
+    -- Retry two smaller physical steps, including body recoil feedback; never
+    -- silently accept an unconverged solve or commit only half of a step.
+    subdivide flag =
+      let half = dt/2
+          run = stepFirmwareVehicleWithInertia hostInertia coupled rc params servo battery wingScale half bodyVel
+          (a, middle) = run bodyRates groundClearance state
+          middleRates = Vec3 (x bodyRates + half*x (totalMomentNm a)/hostInertia) (y bodyRates) (z bodyRates)
+          (b, final) = run middleRates groundClearance middle
+          average u v = scaleVec 0.5 (addVec u v)
+      in if outputFlags a /= 0 || outputFlags b /= 0 then (zeroOutput flag,state)
+         else (b { totalForceN = average (totalForceN a) (totalForceN b)
+                 , totalMomentNm = average (totalMomentNm a) (totalMomentNm b)
+                 , totalMechanicalPowerW = 0.5*(totalMechanicalPowerW a+totalMechanicalPowerW b)
+                 , maxSeparation = max (maxSeparation a) (maxSeparation b) }, final)
     transaction = do
       old <- getState
-      let (output, next) = advanceFirmwareVehicle coupled rc params servo battery wingScale dt bodyVel bodyRates groundClearance old
+      let (output, next) = advanceFirmwareVehicle hostInertia coupled rc params servo battery wingScale dt bodyVel bodyRates groundClearance old
           values = components (totalForceN output) ++ components (totalMomentNm output) ++
             [totalMechanicalPowerW output, maxSeparation output, fvBatterySoc next,
              fvLeftHingeTorqueNm next, fvRightHingeTorqueNm next,
@@ -116,9 +144,9 @@ hingeTorque :: Double -> [StripResult] -> Double
 hingeTorque side = (* side) . sum . map (\r -> x (resultMoment r) + wingRootHeight * y (resultForce r))
 
 advanceFirmwareVehicle
-  :: Bool -> RcChannels -> FirmwareParams -> ServoSpec -> BatterySpec -> Double
+  :: Double -> Bool -> RcChannels -> FirmwareParams -> ServoSpec -> BatterySpec -> Double
   -> Double -> Vec3 -> Vec3 -> Double -> FirmwareVehicleState -> (VehicleOutput, FirmwareVehicleState)
-advanceFirmwareVehicle coupled rc params servo battery wingScale dt bodyVel bodyRates groundClearance state
+advanceFirmwareVehicle hostInertia coupled rc params servo battery wingScale dt bodyVel bodyRates groundClearance state
   | otherwise =
       let -- 1. Firmware mixer: RC → wing servo commands (flap deviation deg).
           (mix, nextFw) = computeServoMixer coupled rc params (fvFirmware state) dt
@@ -130,21 +158,45 @@ advanceFirmwareVehicle coupled rc params servo battery wingScale dt bodyVel body
           wingMass = referenceWingMassKg * wingScale ** 3
           wingInertia = shapeFlapInertia wingMass airDensity (scaleWing wingScale defaultBirdWing)
      
-          -- 2. Servo struggle: track the commanded flap deviation against the
-          --    hinge torque the wings produced LAST step (explicit one-step
-          --    feedback delay — standard, stable game-loop coupling).
+          dryWingInertia = shapeFlapInertia wingMass 0 (scaleWing wingScale defaultBirdWing)
+          lockedInertia = hostInertia + 2 * (wingInertia - dryWingInertia)
           currentA = min 10 ((abs (fvLeftHingeTorqueNm state) + abs (fvRightHingeTorqueNm state))
                        / max 0.01 (servoStallTorqueNm servo / 5))
           liveBattery = battery { batteryStateOfCharge = fvBatterySoc state }
           voltage = batteryVoltageUnderLoad liveBattery currentA
-          (leftFlapDeg, nextServoL) = stepServo servo battery
-                                        (mixLeftFlapDevDeg mix)
-                                        (fvLeftHingeTorqueNm state)
-                                        wingInertia voltage dt (fvServoLeft state)
-          (rightFlapDeg, nextServoR) = stepServo servo battery
-                                         (mixRightFlapDevDeg mix)
-                                         (fvRightHingeTorqueNm state)
-                                         wingInertia voltage dt (fvServoRight state)
+          oldL = fvServoLeft state
+          oldR = fvServoRight state
+          angleL = radians (servoAngleDeg oldL)
+          angleR = radians (servoAngleDeg oldR)
+          oldRates = Vec3 (x bodyRates) (radians (servoRateDegPerSec oldL)) (radians (servoRateDegPerSec oldR))
+          motorL = servoDriveTorque servo battery voltage dt (mixLeftFlapDevDeg mix)
+                     (fvLeftHingeTorqueNm state) wingInertia oldL
+          motorR = servoDriveTorque servo battery voltage dt (mixRightFlapDevDeg mix)
+                     (fvRightHingeTorqueNm state) wingInertia oldR
+          evaluate rates =
+            let p = x rates; l = y rates; r = z rates
+                wingInput = input { bodyRatesRadS = Vec3 p (y bodyRates) (z bodyRates) }
+                left = stepCoupledWing (mixIsFlapping mix) (-1) angleL l wingInput wingScale (fvLeftStrips state)
+                right = stepCoupledWing (mixIsFlapping mix) 1 angleR r wingInput wingScale (fvRightStrips state)
+            in (left,right)
+          aeroAt rates =
+            let wingInput = input { bodyRatesRadS = Vec3 (x rates) (y bodyRates) (z bodyRates) }
+                ls = wingLoadsWithStroke (mixIsFlapping mix) (-1) angleL (y rates) wingInput wingScale (fvLeftStrips state)
+                rs = wingLoadsWithStroke (mixIsFlapping mix) 1 angleR (z rates) wingInput wingScale (fvRightStrips state)
+            in Vec3 (sum (zipWith (\l r -> x (resultMoment l) + x (resultMoment r)) ls rs) + x tailMoment)
+                    (hingeTorque (-1) ls) (hingeTorque 1 rs)
+          aero0 = aeroAt oldRates
+          loads rates =
+            let aero = aeroAt rates
+                drag load rate = servoBackdriveTorque servo battery voltage load rate
+            in addVec aero (Vec3 0 (motorL (y rates) + drag (y aero0) (y rates))
+                                   (motorR (z rates) + drag (z aero0) (z rates)))
+          solved = stepRoll dt lockedInertia wingInertia reflectedDriveInertia oldRates (angleL,angleR) loads
+          -- NaN triggers transactional rollback if Newton cannot converge.
+          ratesNext = case solved of Just rates -> rates; Nothing -> Vec3 (0/0) (0/0) (0/0)
+          makeServo angle rate = ServoState ((angle+dt*rate)*180/pi) (rate*180/pi)
+          nextServoL = makeServo angleL (y ratesNext)
+          nextServoR = makeServo angleR (z ratesNext)
 
           -- 2b. ONDAS A-injection: golden-angle phase-envelope strobe at reversal.
           prevPhase = oscPhase (fwOscillator (fvFirmware state))
@@ -175,16 +227,7 @@ advanceFirmwareVehicle coupled rc params servo battery wingScale dt bodyVel body
 
           -- 3. Actual flap deviation → wing physics.
           input = VehicleInput dt bodyVel bodyRates 0 (crsfToNorm (rcAileron rc)) elevatorNorm 0 groundClearance
-          -- No direct incidence twist: a 2-servo ornithopter has no such actuator.
-          -- The mount angle instead trims the flap stroke centre in the mixer (see
-          -- flappingBranch's flapCentreTrim), identically to the tail elevator.
-          wingIncidenceRad = 0
-          strokeL = radians leftFlapDeg
-          strokeR = radians rightFlapDeg
-          rateL = radians (servoRateDegPerSec nextServoL)
-          rateR = radians (servoRateDegPerSec nextServoR)
-          (leftResults, leftNext) = stepWingWithStroke (mixIsFlapping mix) (-1) strokeL rateL input wingScale wingIncidenceRad (fvLeftStrips state)
-          (rightResults, rightNext) = stepWingWithStroke (mixIsFlapping mix) 1 strokeR rateR input wingScale wingIncidenceRad (fvRightStrips state)
+          ((leftResults, leftNext), (rightResults, rightNext)) = evaluate ratesNext
           wingResults = leftResults ++ rightResults
 
           -- 4. Generalized torque conjugate to each wing's flap coordinate.
@@ -236,18 +279,13 @@ advanceFirmwareVehicle coupled rc params servo battery wingScale dt bodyVel body
           panels = map tailPanel [-1,1]
           tailForce = foldr (addVec . fst) zeroVec panels
           tailMoment = foldr (addVec . snd) zeroVec panels
-          -- Inertial recoil (Newton's 3rd law): when the servo accelerates a
-          -- wing about its flap hinge, the body receives the equal-and-opposite
-          -- reaction torque about the same (roll) axis. Left hinge = -X, right
-          -- = +X, so the net body roll torque is I·(α_L − α_R): symmetric
-          -- flapping cancels, a differential roll command recoils the fuselage.
-          prevRateL = radians (servoRateDegPerSec (fvServoLeft state))
-          prevRateR = radians (servoRateDegPerSec (fvServoRight state))
-          alphaL = (rateL - prevRateL) / dt
-          alphaR = (rateR - prevRateR) / dt
-          recoilRoll = wingInertia * (alphaL - alphaR)
           force = addVec wingForce (addVec bodyDrag tailForce)
-          moment = addVec (Vec3 recoilRoll 0 0) (addVec wingMoment tailMoment)
+          aeroMoment = addVec wingMoment tailMoment
+          -- Equivalent host torque reproduces the solved roll impulse in
+          -- Chaos. Recoil and added-air inertia are already in the solve;
+          -- adding either again here would double count them.
+          moment = Vec3 (hostInertia * (x ratesNext - x bodyRates) / dt)
+                        (y aeroMoment) (z aeroMoment)
 
           separations = map (stripSeparation . resultState) wingResults
           maximumSeparation = maximum (0 : separations)

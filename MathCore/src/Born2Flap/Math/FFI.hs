@@ -85,7 +85,7 @@ b2f_math_get_wing_forces contextPointer capacity leftPointer rightPointer
     failure :: SomeException -> IO Int32
     failure _ = pure 0
 b2f_math_abi_version :: IO Word32
-b2f_math_abi_version = pure 11
+b2f_math_abi_version = pure 12
 
 b2f_math_runtime_init :: IO Int32
 b2f_math_runtime_init = pure 1
@@ -335,7 +335,7 @@ b2f_math_step_firmware_vehicle contextPointer pilotPointer bodyPointer outputPoi
            [piThrottle pilot, piRoll pilot, piPitch pilot, piYaw pilot]
         then pure () else ioError (userError "nonfinite pilot input")
       let rc = pilotToRc pilot
-          (output, nextState) = stepFirmwareVehicle (piCoupled pilot) rc (fwcParams context)
+          (output, nextState) = stepFirmwareVehicleWithInertia (bodyRollInertia body) (piCoupled pilot) rc (fwcParams context)
                                   (fwcServo context) (fwcBattery context) (fwcWingScale context)
                                   (bodyDelta body) (bodyVel body) (bodyRates body)
                                   (bodyGroundClearance body) (fwcState context)
@@ -369,16 +369,17 @@ data BodyState = BodyState
   { bodyDelta :: !Double
   , bodyVel :: !Vec3
   , bodyRates :: !Vec3
+  , bodyRollInertia :: !Double
   , bodyGroundClearance :: !Double  -- ^ body-origin height above the surface below [m] (ABI v11)
   }
 
 peekBody :: Ptr () -> IO BodyState
 peekBody pointer = do
-  values <- mapM (peekElemOff (castPtr pointer :: Ptr CDouble)) [0 .. 7]
+  values <- mapM (peekElemOff (castPtr pointer :: Ptr CDouble)) [0 .. 8]
   case map (\(CDouble value) -> value) values of
-    [dt, lvx, lvy, lvz, avx, avy, avz, ground] ->
-      pure (BodyState dt (Vec3 lvx lvy lvz) (Vec3 avx avy avz) ground)
-    _ -> pure (BodyState 0 zeroVec zeroVec 0)
+    [dt, lvx, lvy, lvz, avx, avy, avz, ground, inertia] ->
+      pure (BodyState dt (Vec3 lvx lvy lvz) (Vec3 avx avy avz) inertia ground)
+    _ -> pure (BodyState 0 zeroVec zeroVec 0 0)
 
 pokeFwOutput :: Ptr () -> VehicleOutput -> FirmwareVehicleState -> IO ()
 pokeFwOutput pointer output state = do

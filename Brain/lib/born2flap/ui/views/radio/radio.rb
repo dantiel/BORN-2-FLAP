@@ -10,6 +10,7 @@ module Born2Flap
 
         def panel_locals(locals = {})
           playing = locals[:radio_playing] != false
+          muted = locals[:radio_muted] == true
           cover = (locals[:radio_cover] || "").to_s
           cover = "/Game/UI/Elements/RadioOn.RadioOn" if cover.empty?
           {
@@ -17,7 +18,8 @@ module Born2Flap
             radio_track: (locals[:radio_track] || "").to_s,
             radio_cover: cover,
             radio_volume: (locals[:radio_volume] || 0.5).to_f,
-            play_icon: playing ? "PLAYING" : "PAUSED"
+            play_icon: muted ? "MUTED" : (playing ? "PLAYING" : "PAUSED"),
+            play_action: muted ? "radio.mute" : "radio.play"
           }
         end
       end

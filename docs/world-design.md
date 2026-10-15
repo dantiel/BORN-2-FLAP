@@ -26,6 +26,7 @@ the lesson *and* the mood of an existing world, it is a reskin, not a world.
 | Ravenstonefield | quiet autumn nature | free flight — flap, glide, turn, land |
 | Shiomori Bay | civilization meets the sacred | coastal wind, updraft, precision around architecture |
 | Training | the neutral gymnasium | gates, racing, precision, repeatability |
+| Neon Abyss *(planned)* | dreamlike neon cosmic festival | weightless aether flight — swim, drift, capture in motion |
 
 > **Naming note:** the natural valley world is called **Ravenstonefield** in the
 > current menu (`/Game/Ravenstonefield/Maps/RAVENSTONEFIELD`, preview label

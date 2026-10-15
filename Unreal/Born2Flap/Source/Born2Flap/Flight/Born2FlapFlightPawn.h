@@ -118,6 +118,7 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
         {
         case 2:  return 106.f;   // common kestrel (falcon): nose +28.5 -> tail -77.5
         case 1:  return 144.f;   // prototype: beak +59 -> tail plate -85
+        case 3:  return 90.f;    // neon turtle: nose +43 -> hind-fin tip -46
         default: return 182.f;   // ravencrow: beak +70 -> tail tip -112
         }
     }
@@ -162,6 +163,10 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     // Tail fans pivot here so the tail-elevator trim is visible in the bird.
     UPROPERTY() TObjectPtr<USceneComponent> RavenTailPivot;
     UPROPERTY() TObjectPtr<USceneComponent> MembraneTailPivot;
+    UPROPERTY() TObjectPtr<USceneComponent> TurtleRoot;
+    UPROPERTY() TObjectPtr<USceneComponent> TurtleLeftShoulder;
+    UPROPERTY() TObjectPtr<USceneComponent> TurtleRightShoulder;
+    UPROPERTY() TObjectPtr<USceneComponent> TurtleTailPivot;
     UPROPERTY(VisibleAnywhere) TObjectPtr<USpringArmComponent> CameraBoom;
     UPROPERTY(VisibleAnywhere) TObjectPtr<UCameraComponent> Camera;
     UPROPERTY() TObjectPtr<UStaticMeshComponent> SkyDome;

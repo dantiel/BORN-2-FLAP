@@ -21,6 +21,9 @@ module Born2Flap.Math.Servo
   , ServoState(..)
   , defaultServoState
   , stepServo
+  , servoDriveTorque
+  , servoBackdriveTorque
+  , reflectedDriveInertia
   , batteryVoltageUnderLoad
   ) where
 
@@ -75,6 +78,36 @@ data ServoState = ServoState
 defaultServoState :: ServoState
 defaultServoState = ServoState 0 0
 
+-- Reflected rotor/gearing inertia is relative to the case, not additional
+-- wing mass. It belongs on the joint diagonal, not in body recoil.
+reflectedDriveInertia :: Double
+reflectedDriveInertia = 0.0016
+
+-- | Convert the existing position/speed controller's demand into bounded
+-- motor torque. The fixed-base calculation is only a controller reference;
+-- actual motion is integrated by the coupled body/joint mass matrix.
+-- This preserves the established servo response without prescribing actual
+-- joint acceleration independently of the moving fuselage.
+servoDriveTorque :: ServoSpec -> BatterySpec -> Double -> Double -> Double -> Double -> Double -> ServoState -> Double -> Double
+servoDriveTorque servo battery voltage dt target load wingInertia old rate =
+  let vf = clampRate 0 1 (voltage / max 0.01 (batteryNominalVoltage battery))
+      stall = max 0 (servoStallTorqueNm servo * vf)
+      (_, reference) = stepServo servo battery target load wingInertia voltage dt old
+      acceleration = ((2*servoRateDegPerSec reference-servoRateDegPerSec old)*pi/180-rate)/dt
+      demand = (wingInertia+reflectedDriveInertia)*acceleration-load
+  in clampRate (-stall) stall demand
+
+-- | Passive gearbox resistance when an external load overpowers the drive.
+-- Retains the user's backdrive compliance setting without prescribing joint
+-- motion. This torque always dissipates energy and cannot power a dead servo.
+servoBackdriveTorque :: ServoSpec -> BatterySpec -> Double -> Double -> Double -> Double
+servoBackdriveTorque servo battery voltage load rate =
+  let vf = clampRate 0 1 (voltage / max 0.01 (batteryNominalVoltage battery))
+      stall = max 0 (servoStallTorqueNm servo * vf)
+      engaged = clampRate 0 1 ((abs load-stall) / max 0.05 (0.2*stall))
+      compliance = max 0.001 (servoBackdriveDegPerSecNm servo) * pi/180
+  in -engaged * signum load * max 0 (rate*signum load) / compliance
+
 -- | Advance one servo step.
 --
 --   * @targetDeg@   — commanded flap-deviation angle (from the firmware mixer)
@@ -127,7 +160,7 @@ stepServo servo battery targetDeg loadTorqueNm wingInertia voltage dt state
           -- A heavier wing does NOT make the servo respond more slowly in time
           -- — it demands MORE TORQUE to reach the same angular acceleration, so
           -- servo power genuinely shows up in how quickly the stroke reverses.
-          servoInertia = 0.0016                     -- rotor+geartrain reflected to the flap hinge [kg·m²]
+          servoInertia = reflectedDriveInertia
           inertia = servoInertia + wingInertia
           -- The torque available to accelerate the rate. When tracking, the
           -- servo's spare torque (stallT − load) drives it; when overpowered,

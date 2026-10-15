@@ -70,3 +70,9 @@ _analyze_shot.py
 
 # Windows PowerShell redirect artifacts
 $null
+# Build-staged Ruby runtime and authoring sources (originals live at repo root)
+/Unreal/Born2Flap/Brain/
+/Unreal/Born2Flap/ThirdParty/ruby/
+
+# Local debug artifacts emitted by Brain export scripts
+/Brain/tmp_*.json

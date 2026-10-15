@@ -38,4 +38,53 @@ class UiLiveContractTest < Minitest::Test
     assert_equal 3,slider[:value]
     assert_equal 'Trim',slider[:tooltip]
   end
+  def test_f7_collapses_all_panels_and_removes_siblings_in_reverse_order
+    ui=Born2Flap::UI
+    visible=ui::Dashboard.build({hud:true,radio_visible:true,settings:true,rc:true,poi:true,menu:true})
+    hidden=ui::Dashboard.build({ui_hidden:true,settings:true,rc:true,menu:true})
+    assert_empty hidden.children
+    assert_equal false,hidden[:visible]
+    patch=ui::Reconciler.new.diff(visible,hidden)
+    removals=patch.select { |op| op[:op]==:remove_child }.map { |op| op[:index] }
+    assert_equal (0...visible.children.length).to_a.reverse,removals
+    assert_empty ui::Reconciler.new.diff(hidden,ui::Dashboard.build({ui_hidden:true,speed:999}))
+  end
+
+  def test_transport_rotation_does_not_duplicate_subscribers
+    require 'stringio'
+    brain=Born2Flap::Brain.new
+    first=StringIO.new
+    transport=Born2Flap::UI::Transport.new(bus:brain.bus,io:first)
+    second=StringIO.new
+    transport.replace_io(second)
+    first.close
+    brain.command('ui.ack',id:4)
+    transport.flush
+    assert_equal 1,JSON.parse(second.string).length
+  end
+
+  def test_sub_display_flight_noise_does_not_invalidate_widgets
+    ui=Born2Flap::UI
+    a=ui::Views::FlightHud.render(:cockpit,altitude:1.200001,speed:2.300001,climb:0.000001,battery:99.99999,throttle:0.0000001)
+    b=ui::Views::FlightHud.render(:cockpit,altitude:1.200002,speed:2.300002,climb:0.000002,battery:99.99998,throttle:0.0000002)
+    assert_empty ui::Reconciler.new.diff(a,b)
+  end
+
+  def test_standalone_brain_emits_nothing_extra_for_unchanged_hidden_snapshot
+    require 'tmpdir'
+    require 'open3'
+    require 'rbconfig'
+    Dir.mktmpdir('b2f-ui-idle') do |dir|
+      input=File.join(dir,'telemetry.json')
+      File.write(input,JSON.generate(frontend:false,ui_hidden:true,hud:false))
+      results=[1,12].map do |ticks|
+        output=File.join(dir,"frames-#{ticks}.ndjson")
+        _,error,status=Open3.capture3(RbConfig.ruby,File.expand_path('../bin/umghaml_brain',__dir__),input,output,'--ticks',ticks.to_s,'--interval','0.001')
+        assert status.success?,error
+        File.read(output)
+      end
+      assert_equal results[0],results[1]
+    end
+  end
+
 end

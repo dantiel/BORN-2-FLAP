@@ -80,6 +80,10 @@ private:
     UPROPERTY() TObjectPtr<UBorn2FlapUIRenderer> Renderer;
     IFileHandle* FileHandle = nullptr;
     int64 FileOffset = 0;
+    int64 TelemetryWrites=0, AppliedFrames=0, SampleWrites=0, SampleFrames=0;
+    double MaxBridgeMs=0;
+    double NextTelemetryTime = 0;
+    FString LastTelemetryJson;
     int64 NextEventId = 1;
     TArray<TSharedPtr<FJsonValue>> PendingEvents;
     FProcHandle BrainProcess;

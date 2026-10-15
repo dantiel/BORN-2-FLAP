@@ -11,6 +11,12 @@ keeps the clean albedo + direct footprint relief, adds a domain warp to kill
 tiling, and adds the missing depth: a single coherent height field (broad dune
 undulation + fine trodden grain) that drives parallax, normal slope and a subtle
 cavity shadow -- so the grain is raised, not just painted on.
+
+A single world-height wetness (1 below the water surface, 0 above it) is shared
+verbatim by the dry beach, the wet seabed and the headland, so the dry->wet
+hand-off has no hard material seam: wet sand darkens with a warm tint, glosses
+and shimmers with aperiodic caustics, all fading in smoothly across the swash
+zone.
 """
 
 from shore_antitiling import HLSL
@@ -84,18 +90,27 @@ SandRelief relief;
 '''
 
 
-def surface(m, diffuse, normal, roughness, node, custom, wet=False,
+def surface(m, diffuse, normal, roughness, node, custom,
             macro_cm=300.0, parallax_cm=6.5, ao_strength=0.35,
             relief_strength=0.60, normal_strength=0.65,
-            grain_cm=55.0, grain_strength=0.0, brightness=1.0):
+            wet_tint=(0.74, 0.68, 0.56), wet_rough_scale=0.50,
+            wet_lo=-70.0, wet_hi=-5.0,
+            caustic_cm=16.0, caustic_strength=0.10):
     """Emit colour / normal / roughness expressions for a seamless sand strand.
 
     `macro_cm` is the authored texture scale (kept at 300 cm so the approved
     "beautiful" light sand look is retained); `parallax_cm` is the peak height
     in cm driving the parallax offset (broad undulation + fine grain, so the
     trodden grain displaces with real depth); `ao_strength` scales a subtle
-    cavity shadow in the troughs. Wet sand dampens relief and tightens the
-    roughness band.
+    cavity shadow in the troughs.
+
+    A single world-height wetness (1 below the water surface, 0 above it) is
+    shared verbatim by the dry beach, the wet seabed and the headland, so the
+    dry->wet hand-off has no hard material seam: wet sand darkens with
+    `wet_tint`, glosses by `wet_rough_scale` and shimmers with aperiodic
+    caustics, all fading in smoothly across the swash zone. The grain itself is
+    NOT dampened underwater, so the submerged sand keeps the same fine quality
+    as the dry strand.
     """
     p = node(m, 'WorldPosition')
     n = node(m, 'VertexNormalWS')
@@ -104,34 +119,44 @@ def surface(m, diffuse, normal, roughness, node, custom, wet=False,
     def tex(t):
         return node(m, 'TextureObject', texture=t)
 
-    nstr = normal_strength * (0.55 if wet else 1.0)
-    rstr = relief_strength * (0.60 if wet else 1.0)
+    # Wetness from world height, centred on the water surface (Z=-50) so the
+    # sand only darkens in the swash zone and below -- the dry dune strand
+    # stays light. Shared by every surface() user, so a mesh boundary that
+    # crosses the waterline reads the same wetness on both sides.
+    wetness = custom(m, HLSL + 'return 1.0 - smoothstep(%g, %g, P.z);'
+                     % (wet_lo, wet_hi), {'P': p}, 1)
 
-    # --- Colour: authored albedo + subtle cavity shadow ---------------------- #
-    # Parallax-offset sample, then a gentle height-based cavity shadow so the
-    # troughs recede while crests stay light. No global AO and no brightness
-    # lift, so the strand keeps its light sunlit tone -- depth without dirt.
+    # --- Colour: authored albedo + cavity shadow + wet tint + caustics ------- #
     colour = custom(m, HLSL + _RELIEF + '''
 float2 q = relief.displaced(P.xy, C, RELAMP);
 float3 col = shore.sampleSurface(T, TSampler, q / MACROCM, false);
 col *= lerp(1.0, 0.82, smoothstep(0.0, 0.55, -relief.cavity(q) * AOSTR));
+col = lerp(col, col * WETTINT, W);
+// Aperiodic caustics: domain-warped gradient noise (not a sine lattice) so the
+// submerged sand shimmers without repeating stripes. Fades out when dry (W=0).
+float2 cq = P.xy / CACCM;
+float t = TIME * 0.30;
+float2 cw = float2(relief.gnoise(cq * 0.55 + t), relief.gnoise(cq * 0.55 - t * 0.85 + 7.0));
+float c = relief.gnoise(cq * 1.3 + cw * 2.2 + t * 0.5)
+        + relief.gnoise(cq * 2.9 - cw * 1.4 - t * 0.35);
+col *= 1.0 + W * CACSTR * c;
 return col;
 '''.replace('RELAMP', repr(parallax_cm))
     .replace('MACROCM', repr(macro_cm))
-    .replace('AOSTR', repr(ao_strength)),
-                    {'P': p, 'C': cam, 'T': tex(diffuse)}, 3)
+    .replace('AOSTR', repr(ao_strength))
+    .replace('WETTINT', 'float3(%g, %g, %g)' % wet_tint)
+    .replace('CACCM', repr(caustic_cm))
+    .replace('CACSTR', repr(caustic_strength)),
+                    {'P': p, 'C': cam, 'T': tex(diffuse), 'W': wetness,
+                     'TIME': node(m, 'Time')}, 3)
 
-    # --- Normal: authored sand + direct footprint/wind relief ---------------- #
-    # The proven pre-rework look: noise perturbs the normal directly (organic
-    # trodden bumps), plus the slope of the height field (broad + fine grain)
-    # so the shading matches the displaced depth.
+    # --- Normal: authored sand + footprint relief + height slope ------------ #
     normal_code = (HLSL + _RELIEF + '''
 float2 q = relief.displaced(P.xy, C, RELAMP);
 float3 tn = shore.sampleSurface(T, TSampler, q / MACROCM, true);
 float tz = sqrt(saturate(1.0 - dot(tn.xy, tn.xy)));
 float2 base = tn.xy / max(tz, 0.45);
 float2 fp = relief.footprint(q, RELSTR);
-// Gentle height-field slope (cm/cm); small so it never bands.
 float e = 1.0;
 float2 undu = float2(relief.height(q + float2(e, 0.0)) - relief.height(q - float2(e, 0.0)),
                      relief.height(q + float2(0.0, e)) - relief.height(q - float2(0.0, e)));
@@ -141,25 +166,30 @@ float3 detail = float3(slope, 0.0);
 return normalize(N + (detail - N * dot(detail, N)) * NORMSTR);
 '''.replace('RELAMP', repr(parallax_cm))
     .replace('MACROCM', repr(macro_cm))
-    .replace('RELSTR', repr(rstr))
-    .replace('NORMSTR', repr(nstr)))
+    .replace('RELSTR', repr(relief_strength))
+    .replace('NORMSTR', repr(normal_strength)))
     detail = custom(m, normal_code, {'P': p, 'N': n, 'C': cam, 'T': tex(normal)}, 3)
 
-    # --- Roughness: sampled band; crests loosened a touch -------------------- #
+    # --- Roughness: sampled band; wet sand glosses --------------------------- #
     if roughness:
         rough = custom(m, HLSL + _RELIEF + '''
 float2 q = relief.displaced(P.xy, C, RELAMP);
 float h = relief.height(q);
 float r = shore.sampleSurface(T, TSampler, q / MACROCM, false).r;
 r += ROUGHREL * h;
-return clamp(r, RMIN, RMAX);
+r = clamp(r, RMIN, RMAX);
+return lerp(r, r * WETRSCALE, W);
 '''.replace('RELAMP', repr(parallax_cm))
             .replace('MACROCM', repr(macro_cm))
-            .replace('ROUGHREL', repr(0.06 if not wet else 0.0))
-            .replace('RMIN', repr(0.28 if wet else 0.72))
-            .replace('RMAX', repr(0.50 if wet else 0.92)),
-                       {'P': p, 'C': cam, 'T': tex(roughness)}, 1)
+            .replace('ROUGHREL', repr(0.06))
+            .replace('RMIN', repr(0.72))
+            .replace('RMAX', repr(0.92))
+            .replace('WETRSCALE', repr(wet_rough_scale)),
+                       {'P': p, 'C': cam, 'T': tex(roughness), 'W': wetness}, 1)
     else:
-        rough = node(m, 'Constant', r=0.35 if wet else 0.82)
+        rough = custom(m, 'return lerp(DRY, WET, W);',
+                       {'DRY': node(m, 'Constant', r=0.82),
+                        'WET': node(m, 'Constant', r=0.38),
+                        'W': wetness}, 1)
 
     return colour, detail, rough

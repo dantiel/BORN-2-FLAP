@@ -98,7 +98,9 @@ void UBorn2FlapWingMesh::InitializeWing(int32 Side, int32 Design)
         {
             const FVector P=Position(double(C)/NC,double(S)/NS);
             RestVertices.Add(FVector(P.X,Side*P.Y,P.Z));
-            UV.Add(WingDesign==2
+            UV.Add(WingDesign==3
+                ? FVector2D((P.X+15.0)/30.0, P.Y/46.0)
+                : WingDesign==2
                 ? FVector2D(0.007715591*P.Y+0.183350048, -0.019658545*P.X+0.241856176)
                 : FVector2D((30-P.X)/95.,P.Y/105.));
             Colours.Add(Colour);
@@ -133,11 +135,37 @@ void UBorn2FlapWingMesh::InitializeWing(int32 Side, int32 Design)
         Ellipse(FVector(-4,38,0),22.5,42.5,8,Teal);
         for(int32 I=0;I<5;++I) Ellipse(FVector(-16-I*3,49+I*9,-1),( .43-I*.035)*50,10,15+I*7,I%2?Ivory:Teal);
     }
+    else if(Design==3)
+    {
+        // Neon turtle front flipper: a broad, rounded paddle (swimming fin).
+        // U 0..1 = leading edge (forward) -> trailing edge (aft); V 0..1 = root -> tip.
+        const FLinearColor Turquoise(0.0, 0.85, 0.78), Gold(0.99, 0.72, 0.16);
+        auto HalfChord = [](double V){ return 15.0 * FMath::Sqrt(FMath::Max(0.0, 1.0 - 0.82*V*V)); };
+        Patch(30,16,[&](double U,double V){
+            const double Span=V*46.0, HC=HalfChord(V);
+            const double X=(1.0-2.0*U)*HC;
+            const double Z=1.8*FMath::Sin(PI*V)*(1.0-0.6*U);
+            return FVector(X,Span,Z);
+        },Turquoise);
+        // Gold leading-edge rim (the Sanxingdui gold-foil seam), lifted clear of the surface.
+        Patch(5,16,[&](double U,double V){
+            const double Span=V*46.0, HC=HalfChord(V);
+            const double X=HC-U*2.6;
+            return FVector(X,Span,1.8*FMath::Sin(PI*V)+0.4);
+        },Gold);
+    }
     else
         Patch(32,16,[](double U,double V){const double Y=100*V;return FVector(SampleMembrane(MembraneLE,13,Y)+U*(SampleMembrane(MembraneTE,13,Y)-SampleMembrane(MembraneLE,13,Y)),Y,0);},FLinearColor(.09,.24,.29));
     ApplyShape(nullptr);
     CreateMeshSection_LinearColor(0,Vertices,Triangles,Normals,UV,Colours,Tangents,false);
-    SetMaterial(0,LoadObject<UMaterialInterface>(nullptr,WingDesign==2 ? TEXT("/Game/Birds/M_FalconWing") : TEXT("/Game/Birds/M_WingMembrane")));
+    {
+        const TCHAR* Path = WingDesign==3 ? TEXT("/Game/NeonAbyss/M_TurtleFlipper")
+                          : WingDesign==2 ? TEXT("/Game/Birds/M_FalconWing")
+                                          : TEXT("/Game/Birds/M_WingMembrane");
+        auto* Mat = LoadObject<UMaterialInterface>(nullptr, Path);
+        if (!Mat) Mat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Birds/M_WingMembrane"));
+        SetMaterial(0, Mat);
+    }
 }
 
 void UBorn2FlapWingMesh::ApplyShape(const B2F_WingSection* Shape)
@@ -147,7 +175,7 @@ void UBorn2FlapWingMesh::ApplyShape(const B2F_WingSection* Shape)
     for(int32 I=0;I<Vertices.Num();++I)
     {
         const FVector R=RestVertices[I];
-        const double V=FMath::Clamp(FMath::Abs(R.Y)/(WingDesign==1?95.:(WingDesign==2?100.:102.)),0.,1.);
+        const double V=FMath::Clamp(FMath::Abs(R.Y)/(WingDesign==1?95.:(WingDesign==2?100.:(WingDesign==3?46.:102.))),0.,1.);
         double Camber=FMath::Lerp(.035,.025,V),Twist=FMath::DegreesToRadians(FMath::Lerp(5.,-2.,V)),Bend=0;
         if(Shape)
         {
@@ -178,8 +206,9 @@ void UBorn2FlapWingMesh::ApplyShape(const B2F_WingSection* Shape)
             const double RootRamp=FMath::Clamp(V/Shape[0].span_fraction,0.,1.);
             Bend=SampleStationField(Shape,B2F_WING_STATIONS,Station,&B2F_WingSection::bend_m)*100*RootRamp*AeroBendVisualGain;
         }
-        const double Leading=WingDesign==2?SampleMembrane(MembraneLE,13,V*100):17-14*V;
-        const double Trailing=WingDesign==2?SampleMembrane(MembraneTE,13,V*100):Leading-47.;
+        const double FlipperHalfChord=15.0*FMath::Sqrt(FMath::Max(0.0,1.0-0.82*V*V));
+        const double Leading=WingDesign==3?FlipperHalfChord:(WingDesign==2?SampleMembrane(MembraneLE,13,V*100):17-14*V);
+        const double Trailing=WingDesign==3?-FlipperHalfChord:(WingDesign==2?SampleMembrane(MembraneTE,13,V*100):Leading-47.);
         const double Chord=Trailing-Leading;                                   // signed (LE forward +, TE aft -)
         const double ChordLen=-Chord;                                          // positive chord length
         const double U=FMath::Clamp(ChordLen>1.e-6?(Leading-R.X)/ChordLen:.5,0.,1.);

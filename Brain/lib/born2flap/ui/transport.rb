@@ -50,6 +50,12 @@ module Born2Flap
         frame.bytesize
       end
 
+      # Rotation reuses subscriptions; creating another Transport leaks event
+      # listeners and duplicates every subsequent patch into closed sinks.
+      def replace_io(io)
+        @io = io
+      end
+
       # Close the underlying IO (idempotent). A closed transport is inert.
       def close
         @io.close unless @io.closed?

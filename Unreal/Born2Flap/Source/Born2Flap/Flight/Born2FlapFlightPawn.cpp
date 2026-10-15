@@ -86,16 +86,11 @@ ABorn2FlapFlightPawn::ABorn2FlapFlightPawn()
     // (8,1.5,2) accidentally modelled a several-metre fuselage and ~1.7 kg m2
     // pitch inertia.
     //
-    // The bird's mass lives in the FUSELAGE, not the wings: a 450 g airframe is
-    // ~440 g of body near the roll axis plus ~10 g of wing structure out at the
-    // span. Roll must therefore feel like a light fuselage rotating on the
-    // wings — not the whole mass spread to the wingtips. The wings' own flap
-    // inertia (planform mass + entrained air) already lives in the math core's
-    // flap DOF and Newton-3rd recoil; the body roll inertia is only the
-    // near-axis fuselage (~.004) plus the wings rolling with it (~.004), i.e.
-    // ~.008 kg m2 — 5x lighter than the old .039.
-    // Holding Y/Z equal while re-scaling X keeps pitch/yaw at ~.046 and drops
-    // only the roll entry (.039 -> .008).
+    // Dry locked-wing host inertia. MathCore receives the actual Chaos X
+    // tensor each step and adds fluid inertia in its coupled roll/joint matrix.
+    // This remains an approximate mass distribution; the collision box is not
+    // a measured component-inertia model. Do not put added air into this scale
+    // too, or it will be counted twice.
     Body->BodyInstance.InertiaTensorScale = FVector(1.26f, 1.36f, 1.36f);
     BuildGeometry();
     CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
@@ -313,6 +308,8 @@ int32 ABorn2FlapFlightPawn::DefaultBirdModel() const
     // the RavenCrow rules the nature valley, and the Prototype trains in the
     // indoor arena. Loading a map therefore swaps the bird automatically.
     const auto* GameMode = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode());
+    if (GameMode && GameMode->IsVoidLevel())
+        return 3;                       // Neon Abyss -> the neon turtle
     if (GameMode && GameMode->IsCoastLevel())
         return 2;                       // Shiomori Bay -> common kestrel (falcon)
     if (GameMode && !GameMode->IsNatureLevel())
@@ -328,6 +325,18 @@ void ABorn2FlapFlightPawn::BeginPlay()
     if (FSlateApplication::IsInitialized())
         FSlateApplication::Get().RegisterInputPreProcessor(PanelKeyProcessor);
     ApplyBodyMass();
+    // Neon Abyss is a weightless aether: no gravity, dense-medium drag. Neutral
+    // buoyancy keeps the turtle suspended; drag makes flap-pulses coast instead
+    // of gliding. Set here so ResetFlight teleports never re-enable gravity.
+    if (const auto* GM = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode()))
+    {
+        if (GM->IsVoidLevel())
+        {
+            Body->SetEnableGravity(false);
+            Body->SetLinearDamping(1.6f);
+            Body->SetAngularDamping(4.0f);
+        }
+    }
     UE_LOG(LogTemp, Display, TEXT("FlightBody massKg=%.4f inertiaKgM2=%s"), Body->GetMass(),
            *(Body->GetInertiaTensor() / 10000.0).ToString());
     // Weather owns sky optics and exposure for all cameras in the world.
@@ -513,6 +522,11 @@ void ABorn2FlapFlightPawn::ResetFlight(bool bSafety)
     Body->WakeAllRigidBodies();
     bCameraGrounded = false;
     GroundSettleTime = 0;
+    // Neon Abyss has no ground to launch from: the turtle starts swimming the
+    // moment it spawns — throttle pulses it forward, buoyancy holds it up.
+    if (const auto* GM = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode()))
+        if (GM->IsVoidLevel())
+            bFlying = true;
     ChaseOrbitYaw = 0.f; ChaseOrbitPitch = -12.f;
     GroundLookYaw = 0.f; GroundLookPitch = 0.f;
     GroundZoom = 1.f; ChaseArmLength = 480.f;
@@ -562,7 +576,8 @@ void ABorn2FlapFlightPawn::SweepWingColliders(float Dt)
     TArray<UBorn2FlapWingMesh*> Wings;
     for (USceneComponent* Shoulder : { LeftShoulder.Get(), RightShoulder.Get(),
             RavenLeftShoulder.Get(), RavenRightShoulder.Get(),
-            MembraneLeftShoulder.Get(), MembraneRightShoulder.Get() })
+            MembraneLeftShoulder.Get(), MembraneRightShoulder.Get(),
+            TurtleLeftShoulder.Get(), TurtleRightShoulder.Get() })
     {
         if (!Shoulder) continue;
         for (USceneComponent* Child : Shoulder->GetAttachChildren())
@@ -740,6 +755,7 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
     Pilot.throttle_mode = bCoupledThrottle ? 1.0 : 0.0;
     B2F_BodyState State{};
     State.delta_time_s = MathDt;
+    State.roll_inertia_kg_m2 = Inertia.X;
     // Ground effect: body-origin height above the surface below (terrain +
     // rocks/buildings via GroundHeight), in metres. The math core normalises
     // this by wingspan and applies per-strip lift/drag/thrust corrections.
@@ -748,6 +764,8 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
     Accumulator = FMath::Min(Accumulator + DeltaSeconds, .1);
     FVector ForceSum = FVector::ZeroVector, MomentSum = FVector::ZeroVector;
     int32 Steps = 0;
+    const bool bVoid = WindMode && WindMode->IsVoidLevel();
+    const FVector Gravity = bVoid ? FVector::ZeroVector : FVector(0, 0, -9.81);
     while (Accumulator >= MathDt)
     {
         const FVector V = Rotation.UnrotateVector(Velocity - Wind);
@@ -759,6 +777,7 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
         }
         B2F_FirmwareOutput O{};
         bool Valid = MathBridge->Step(Pilot, State, O);
+        const bool BackendValid = Valid;
         const FVector F(O.force_n[0], O.force_n[1], O.force_n[2]);
         const FVector M(O.moment_n_m[0], O.moment_n_m[1], O.moment_n_m[2]);
         // CG authority: the firmware resolves the aerodynamic moment about the
@@ -776,7 +795,8 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
             bHealthy = bFlying = false;
             Accumulator = 0;
             AeroForce = AeroMoment = FVector::ZeroVector;
-            UE_LOG(LogTemp, Error, TEXT("FlightMathRejected: disarmed, R recreates firmware context"));
+            UE_LOG(LogTemp, Error, TEXT("FlightMathRejected: backend=%d force=%s moment=%s wings=(%.3f,%.3f) velocity=%s rates=%s; disarmed, R recreates firmware context"),
+                   BackendValid, *F.ToString(), *M.ToString(), O.left_flap_deg, O.right_flap_deg, *V.ToString(), *W.ToString());
             return false;
         }
         const FVector WorldForce = Rotation.RotateVector(F);
@@ -793,8 +813,8 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
         // Holding angular velocity for a whole 30 Hz frame made aerodynamic
         // roll damping overshoot. Chaos receives the mean loads once and stays
         // authoritative for the actual rigid body and contacts.
-        Velocity += (WorldForce / Body->GetMass() + FVector(0, 0, -9.81)) * MathDt;
-        Omega += Rotation.RotateVector(M / Inertia) * MathDt;
+        Velocity += (WorldForce / Body->GetMass() + Gravity) * MathDt;
+        Omega += Rotation.RotateVector(Mcg / Inertia) * MathDt;
         const double Rate = Omega.Size();
         if (Rate > UE_SMALL_NUMBER)
             Rotation = (FQuat(Omega / Rate, Rate * MathDt) * Rotation).GetNormalized();
@@ -1209,8 +1229,12 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     double SafetySpeed = 120.0, SafetyOmega = 40.0;  // normal
     if (Safety == 1) { SafetySpeed = 180.0; SafetyOmega = 55.0; }  // very low (more acro)
     const bool bSpeedReset = Safety > 0 && (V.Size() > SafetySpeed || Omega.Size() > SafetyOmega);
+    const bool bVoid = Mode && Mode->IsVoidLevel();
+    const double FloorZ = bVoid ? -4500.0 : (Mode ? Mode->GroundHeight(P.X, P.Y) : 0.0) - 300.0;
+    const double CeilZ = bVoid ? 15000.0 : 300000.0;
+    const double BoundR = bVoid ? 40000.0 : 480000.0;
     if (!Finite(P) || !Finite(V) || !Finite(Omega) || bSpeedReset ||
-        P.Z < (Mode ? Mode->GroundHeight(P.X, P.Y) : 0) - 300 || P.Z > 300000 || P.Size2D() > 480000)
+        P.Z < FloorZ || P.Z > CeilZ || P.Size2D() > BoundR)
     {
         UE_LOG(LogTemp, Warning, TEXT("FlightSafetyReset pos=%s vel=%s omega=%s"), *P.ToString(), *V.ToString(),
                *Omega.ToString());
@@ -1229,7 +1253,7 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     else if (GetAltitude() > .5f && GetSpeed() > 1.f)
         bFlying = true;
     UpdateLandingCamera(Dt);
-    const double FieldRadius = Mode && Mode->IsNatureLevel() ? 190000. : 30000.;
+    const double FieldRadius = Mode && Mode->IsVoidLevel() ? 20000. : (Mode && Mode->IsNatureLevel() ? 190000. : 30000.);
     if (bFlying && !bReturning && P.Size2D() > FieldRadius)
     {
         bReturning = true;
@@ -1268,6 +1292,14 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         // compensation of these forces. Gravity is applied by Chaos.
         Body->AddForce(AeroForce * 100.0);
         Body->AddTorqueInRadians(AeroMoment * 10000.0);
+        // Aether buoyancy: a gentle spring toward the ring plane holds the turtle
+        // in the volume (neutrally buoyant, not anchored). No preferred "up" is
+        // imposed — the pilot still swims and rolls freely in 3D.
+        if (Mode && Mode->IsVoidLevel())
+        {
+            const float DepthM = float(P.Z - 600.0) / 100.f;   // 600 cm = sacred-tree mid-ring
+            Body->AddForce(FVector(0.f, 0.f, -DepthM * 0.4f * Body->GetMass()));
+        }
     }
     // Ground repositioning: a deliberate downstroke shoves the grounded bird
     // forward along its heading so the wings can creep it into place for the
@@ -1310,18 +1342,21 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     RightShoulder->SetRelativeRotation(FRotator(MountPitch, 0, -FlapR - 16));
     if(MembraneLeftShoulder) MembraneLeftShoulder->SetRelativeRotation(LeftShoulder->GetRelativeRotation());
     if(MembraneRightShoulder) MembraneRightShoulder->SetRelativeRotation(RightShoulder->GetRelativeRotation());
+    if(TurtleLeftShoulder) TurtleLeftShoulder->SetRelativeRotation(LeftShoulder->GetRelativeRotation());
+    if(TurtleRightShoulder) TurtleRightShoulder->SetRelativeRotation(RightShoulder->GetRelativeRotation());
     // Tail-elevator trim, visible in the rendered bird: pitch the tail fan.
     const float TailPitch = Tuning.tail_elevator_angle_deg;
     if (RavenTailPivot) RavenTailPivot->SetRelativeRotation(FRotator(TailPitch, 0, 0));
     if (MembraneTailPivot) MembraneTailPivot->SetRelativeRotation(FRotator(TailPitch, 0, 0));
+    if (TurtleTailPivot) TurtleTailPivot->SetRelativeRotation(FRotator(TailPitch, 0, 0));
     B2F_WingSection LeftShape[B2F_WING_STATIONS], RightShape[B2F_WING_STATIONS];
     if(MathBridge && MathBridge->ReadWingShape(LeftShape,RightShape))
     {
-        for(USceneComponent* Shoulder : {LeftShoulder.Get(),RightShoulder.Get(),RavenLeftShoulder.Get(),RavenRightShoulder.Get(),MembraneLeftShoulder.Get(),MembraneRightShoulder.Get()})
+        for(USceneComponent* Shoulder : {LeftShoulder.Get(),RightShoulder.Get(),RavenLeftShoulder.Get(),RavenRightShoulder.Get(),MembraneLeftShoulder.Get(),MembraneRightShoulder.Get(),TurtleLeftShoulder.Get(),TurtleRightShoulder.Get()})
             if(Shoulder)
                 for(USceneComponent* Child : Shoulder->GetAttachChildren())
                     if(auto* Wing=Cast<UBorn2FlapWingMesh>(Child))
-                        Wing->ApplyShape((Shoulder==LeftShoulder || Shoulder==RavenLeftShoulder || Shoulder==MembraneLeftShoulder) ? LeftShape : RightShape);
+                        Wing->ApplyShape((Shoulder==LeftShoulder || Shoulder==RavenLeftShoulder || Shoulder==MembraneLeftShoulder || Shoulder==TurtleLeftShoulder) ? LeftShape : RightShape);
     }
     SweepWingColliders(Dt);
     UpdateAeroAudio(Dt);

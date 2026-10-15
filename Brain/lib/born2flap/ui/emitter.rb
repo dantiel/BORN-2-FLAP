@@ -11,6 +11,10 @@ module Born2Flap
       # Widget primitives → per-renderer native widgets.
       # html = [tag, default_class]; rn = React Native component name.
       PRIMITIVES = {
+        caption: { umg: "Caption", html: ["span", nil], rn: "Text" },
+        dropdown: { umg: "Dropdown", html: ["select", nil], rn: "View" },
+        keyselector: { umg: "KeySelector", html: ["input", nil], rn: "TextInput" },
+        loadingprogress: { umg: "LoadingProgress", html: ["progress", nil], rn: "ProgressBar" },
         textblock: { umg: "TextBlock", html: ["span", "text"], rn: "Text" },
         sizebox: { umg: "SizeBox", html: ["div", "sizebox"], rn: "View" },
         scalebox: { umg: "ScaleBox", html: ["div", "scalebox"], rn: "View" },

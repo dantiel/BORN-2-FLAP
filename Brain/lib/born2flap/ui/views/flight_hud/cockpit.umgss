@@ -5,10 +5,6 @@
 // behaviour + intent; styling is declared here and rendered by the thin layer.
 
 $panel-space: 2     // spacing token (layout gap scale)
-$brand-size: xxl    // typography scale token
-
-Banner#brand
-  size: $brand-size
 
 Panel
   spacing: $panel-space

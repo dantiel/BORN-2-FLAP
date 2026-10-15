@@ -54,6 +54,20 @@ public class Born2Flap : ModuleRules
             }
         }
 
+        // Ship the authoring runtime and sources, so packaged Windows games
+        // keep the same Ruby UI instead of silently reverting to native menus.
+        if (Target.Platform == UnrealTargetPlatform.Win64)
+        {
+            string RepoRoot = Path.GetFullPath(Path.Combine(ModuleDirectory, "../../../.."));
+            foreach (string Folder in new[] { "Brain/lib", "Brain/bin", "ThirdParty/ruby" })
+            {
+                string SourceRoot = Path.Combine(RepoRoot, Folder);
+                if (!Directory.Exists(SourceRoot)) continue;
+                foreach (string Source in Directory.EnumerateFiles(SourceRoot, "*", SearchOption.AllDirectories))
+                    RuntimeDependencies.Add("$(ProjectDir)/" + Folder + "/" + Path.GetRelativePath(SourceRoot, Source).Replace('\\', '/'), Source, StagedFileType.NonUFS);
+            }
+        }
+        RuntimeDependencies.Add("$(ProjectDir)/Content/UI/LoadingView.json", StagedFileType.NonUFS);
         PrivateIncludePaths.Add(ModuleDirectory);
         RuntimeDependencies.Add("$(ProjectDir)/ThirdPartyNotices.txt", StagedFileType.NonUFS);
 

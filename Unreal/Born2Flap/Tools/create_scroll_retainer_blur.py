@@ -57,7 +57,7 @@ uv = expr('TextureCoordinate')
 
 edge = scalar('EdgeSize', 0.10)
 edge_bottom = scalar('EdgeBottom', 0.05)
-amount = scalar('Amount', 0.65)
+amount = scalar('Amount', 0.85)
 blur_radius = scalar('BlurRadius', 0.02)
 refract = scalar('Refract', 0.35)
 refract_scale = scalar('RefractScale', 6.0)
@@ -121,6 +121,7 @@ KERNEL = [(-1, -1, 1), (0, -1, 2), (1, -1, 1),
 TOTAL = 16
 
 samples = []
+alpha_samples = []
 for dx, dy, w in KERNEL:
     dirv = expr('Constant2Vector', r=float(dx), g=float(dy))
     off = expr('Multiply')
@@ -131,6 +132,10 @@ for dx, dy, w in KERNEL:
     conn(off, tap_uv, 'B')
     s = expr('TextureSampleParameter2D', parameter_name='Texture')
     conn(tap_uv, s, 'UVs')
+    a = expr('Multiply')
+    a.set_editor_property('const_b', float(w) / TOTAL)
+    lib.connect_material_expressions(s, 'A', a, 'A')
+    alpha_samples.append(a)
     if w != 1:
         sw = expr('Multiply')
         sw.set_editor_property('const_b', float(w))
@@ -157,7 +162,18 @@ conn(blurred, premul, 'A')
 conn(alpha, premul, 'B')
 
 assert lib.connect_material_property(premul, '', u.MaterialProperty.MP_EMISSIVE_COLOR)
-assert lib.connect_material_property(alpha, '', u.MaterialProperty.MP_OPACITY)
+# Preserve the retainer's transparent pixels. A constant opacity of 1 in
+# the safe zone otherwise turns the entire scroll viewport into a black slab.
+alpha_sum = alpha_samples[0]
+for tap in alpha_samples[1:]:
+    add = expr('Add')
+    conn(alpha_sum, add, 'A')
+    conn(tap, add, 'B')
+    alpha_sum = add
+opacity = expr('Multiply')
+conn(alpha_sum, opacity, 'A')
+conn(alpha, opacity, 'B')
+assert lib.connect_material_property(opacity, '', u.MaterialProperty.MP_OPACITY)
 lib.recompile_material(m)
 assert u.EditorAssetLibrary.save_loaded_asset(m)
 u.log('SCROLL_RETAINER_BLUR_READY')

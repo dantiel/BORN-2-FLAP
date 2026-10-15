@@ -19,6 +19,8 @@ module Born2Flap.Math.Vehicle
   , emptyStrip
   , initialStrips
   , stepWingWithStroke
+  , wingLoadsWithStroke
+  , stepCoupledWing
   , addVec
   , crossVec
   , scaleVec
@@ -271,18 +273,35 @@ stepWingWithStroke :: Bool -> Double -> Double -> Double -> VehicleInput -> Doub
                    -> ([StripResult], [StripState])
 stepWingWithStroke flapping side stroke strokeRate input wingScale incidenceRad states =
   let wp = scaleWing wingScale defaultBirdWing
-      raw = zipWith (stepStrip flapping side stroke strokeRate input incidenceRad wp) [0 ..] states
+      raw = zipWith (stepStrip False flapping side stroke strokeRate input incidenceRad wp) [0 ..] states
       transported = transportSeparation side input wp raw
       deformed = applyStructure wingScale wp input transported
   in (deformed, map resultState deformed)
+
+-- Force-only evaluation for the implicit roll Jacobian. Structural relaxation
+-- and separation transport only modify next state; commit those once after
+-- solving, rather than doing a full beam solve at every trial velocity.
+wingLoadsWithStroke :: Bool -> Double -> Double -> Double -> VehicleInput -> Double -> [StripState] -> [StripResult]
+wingLoadsWithStroke flapping side stroke rate input wingScale states =
+  zipWith (stepStrip True flapping side stroke rate input 0 (scaleWing wingScale defaultBirdWing)) [0..] states
+
+-- Commit aero memory/structure after the implicit solve using the same loads
+-- as its residual. Hysteretic state transitions are not Newton unknowns.
+stepCoupledWing :: Bool -> Double -> Double -> Double -> VehicleInput -> Double -> [StripState]
+                -> ([StripResult], [StripState])
+stepCoupledWing flapping side stroke rate input wingScale states =
+  let wp=scaleWing wingScale defaultBirdWing
+      raw=wingLoadsWithStroke flapping side stroke rate input wingScale states
+      results=applyStructure wingScale wp input (transportSeparation side input wp raw)
+  in (results,map resultState results)
 
 -- High wing / low centre of mass. The side-force lever contributes natural
 -- lateral stability; it is not an attitude-dependent restoring torque.
 wingRootHeight :: Double
 wingRootHeight = 0.10
 
-stepStrip :: Bool -> Double -> Double -> Double -> VehicleInput -> Double -> WingShape -> Int -> StripState -> StripResult
-stepStrip flapping side stroke strokeRate input incidenceRad wp index old =
+stepStrip :: Bool -> Bool -> Double -> Double -> Double -> VehicleInput -> Double -> WingShape -> Int -> StripState -> StripResult
+stepStrip implicitLoads flapping side stroke strokeRate input incidenceRad wp index old =
   let dt = stepSeconds input
       fraction = (fromIntegral index + 0.5) / fromIntegral stripCount
       spanM = wsSpanM wp
@@ -367,7 +386,14 @@ stepStrip flapping side stroke strokeRate input incidenceRad wp index old =
       attachedCl = clamp (-1.9) 1.9 (2 * pi * alphaEff)
       separatedCl = 1.05 * sin (2 * alphaEff)
       rotationalCl = clamp (-0.65) 0.65 (0.5 * chord * alphaRate / safeSpeed)
-      cl = lerp attachedCl separatedCl relaxed + rotationalCl + signum alphaEff * 0.45 * lev
+      -- Keep separation/LEV memory fixed during the implicit mechanical solve.
+      -- Updating its discrete vortex gate at each trial velocity can leave no
+      -- root at all. Advance that memory once in `next` after convergence.
+      forceSeparation = if implicitLoads then stripSeparation old else relaxed
+      vortexLift = if implicitLoads
+        then signum (stripPreviousAlpha old - zeroLiftAngle camberPrev) * 0.45 * stripLevStrength old
+        else signum alphaEff * 0.45 * lev
+      cl = lerp attachedCl separatedCl forceSeparation + rotationalCl + vortexLift
       camberNext = relaxCamber dt (spMembraneTau profile) camberPrev
                      (membraneCamberTarget profile attachedCl)
       aspectRatio = shapeAspectRatio wp
@@ -378,8 +404,8 @@ stepStrip flapping side stroke strokeRate input incidenceRad wp index old =
       inducedCd = cl * cl / (pi * 0.82 * aspectRatio) * inducedRelief
       attachedCd = 0.016 + inducedCd
       separatedCd = 0.20 + 1.20 * sin alphaEff * sin alphaEff
-      cd = lerp attachedCd separatedCd relaxed
-      sideCd = 0.018 + 0.08 * relaxed
+      cd = lerp attachedCd separatedCd forceSeparation
+      sideCd = 0.018 + 0.08 * forceSeparation
       area = chord * dr
       q = 0.5 * airDensity * planarSpeed * planarSpeed
       lift = q * area * cl * (1 + groundEffectLiftGain * ge)

@@ -1,21 +1,12 @@
-%Overlay{ align: "left", valign: "bottom" }
-
-  %Panel{ bg: "solid", padding: 14 }
-
-    %HBox{ spacing: 12 }
-
-      %SizeBox{ width: 72, height: 72 }
-
-        %Image{ texture: "#{radio_cover}" }
-
-      %VBox{ spacing: 4 }
-
-        %Banner{ text: "#{radio_station}", tone: "accent", size: "s" }
-
-        %TextBlock{ text: "#{radio_track}", tone: "dim", size: "xs" }
-
-        %HBox{ spacing: 8 }
-
-          %Button{ label: "#{play_icon}", action: "radio.play", tooltip: "Play or pause the radio." }
-
-          %Slider{ value: #{radio_volume}, min: 0, max: 1, step: 0.05, action: "radio.volume", tooltip: "Radio volume." }
+%Overlay{ align: "right", valign: "bottom", margin: 20 }
+  %SizeBox{ width: 400 }
+    %Panel{ bg: "solid", padding: 14 }
+      %HBox{ spacing: 12 }
+        %SizeBox{ width: 84, height: 84 }
+          %Image{ texture: "#{radio_cover}" }
+        %VBox{ spacing: 4 }
+          %Banner{ text: #{radio_station.inspect}, tone: "accent", size: "s" }
+          %TextBlock{ text: #{radio_track.inspect}, tone: "dim", size: "xs" }
+          %HBox{ spacing: 8 }
+            %Button{ label: "#{play_icon}", action: "#{play_action}", tooltip: "#{t('radio.play_tooltip')}" }
+            %Slider{ value: #{radio_volume}, min: 0, max: 1, step: 0.05, action: "radio.volume", tooltip: "#{t('radio.volume_tooltip')}" }

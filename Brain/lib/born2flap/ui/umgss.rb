@@ -41,7 +41,7 @@ module Born2Flap
       # dead tokens. (tone→color, size→font px, spacing→layout gap,
       # align/valign→alignment, weight→bold, wrap→autowrap.)
       STYLE_KEYS = %i[tone size spacing align valign weight wrap
-                      scroll_blur edge edge_bottom pad].freeze
+                      scroll_blur edge edge_bottom pad scrollbar_padding].freeze
 
       attr_reader :variables, :rules
 

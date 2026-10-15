@@ -1,8 +1,8 @@
 %Overlay{ align: "center", valign: "center" }
   %Panel{ bg: "solid", padding: 20 }
     %VBox{ spacing: 6 }
-      %Banner{ text: "POINTS OF INTEREST", tone: "accent" }
-      %TextBlock{ text: "Choose a launch point — the bird re-places there instantly.", tone: "dim", size: "xs", wrap: true }
+      %Banner{ text: "#{t('poi.title')}", tone: "accent" }
+      %TextBlock{ text: "#{t('poi.hint')}", tone: "dim", size: "xs", wrap: true }
       - pois.each_with_index do |p, i|
         %Button{ label: "#{p[:name]}", action: "poi.#{i}", tone: "#{p[:selected] ? 'good' : 'accent'}" }
-      %Button{ label: "CLOSE  /  F8", action: "poi.close", tone: "dim" }
+      %Button{ label: "#{t('poi.close')}", action: "poi.close", tone: "dim" }
