@@ -38,11 +38,12 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     double GetBestLapTime() const { return BestLapTime; }
     bool IsRaceComplete() const { return Gates.Num() > 0 && GatesPassed >= Gates.Num(); }
     bool IsCoastLevel() const { return bCoastLevel; }
+    bool IsVoidLevel() const { return bVoidLevel; }
     bool IsMenuOpen() const { return bMenuOpen; }
     bool IsWater(double X,double Y) const;
     double WaterHeight() const;
     FVector WindAt(const FVector& P,double Time) const;
-    FString GetLevelId() const { return bCoastLevel ? TEXT("Shiomori") : (bNatureLevel ? TEXT("Ravenstonefield") : TEXT("Training")); }
+    FString GetLevelId() const { return bVoidLevel ? TEXT("NeonAbyss") : (bCoastLevel ? TEXT("Shiomori") : (bNatureLevel ? TEXT("Ravenstonefield") : TEXT("Training"))); }
     const FBorn2FlapConditions& GetConditions() const { return Conditions; }
     double GroundHeight(double X, double Y) const;
     bool HasRadioTrack() const;
@@ -102,6 +103,7 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     int32 InitialPoiNumber = 0; // ?PoiNum= (gates), 0 = none
     bool bNatureLevel = true;
     bool bCoastLevel = false;
+    bool bVoidLevel = false;
     FBorn2FlapConditions Conditions;
     UPROPERTY() TObjectPtr<ABorn2FlapWeather> WeatherActor;
     float CoastTestTime=0;
@@ -120,6 +122,8 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     int32 MenuWorldIndex = 0;
     int32 MenuPage = 0;
     int32 SettingsPage = 0;
+    int32 PrefsPage = 0;
+    int32 RcPage = 0;
     // Native-menu view persistence: F10 re-opens on the page (and FLIGHT DESK
     // sub-tab) the player last had open. The menu actor is destroyed on close,
     // so its NavPage / SettingsPage survive here across open/close.
@@ -142,6 +146,9 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     TObjectPtr<ABorn2FlapMenu> MenuWidget;
     bool bSkipMenu = false;
     bool bMenuOpen = false;
+    // APP SETTINGS subview (Brain path): opened from the menu without closing
+    // it; the Ruby dashboard renders Preferences while this flag is set.
+    bool bBrainPrefsOpen = false;
 
     // True when a plain interactive boot lands on the minimal Entry map (the
     // home screen). No world geometry or bird is built — a real level only

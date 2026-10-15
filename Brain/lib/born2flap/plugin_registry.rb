@@ -10,6 +10,7 @@ module Born2Flap
     CORE_CAPABILITIES = Set.new(%i[
       menu_read menu_navigate race_events race_rules vehicle_read
       vehicle_configure telemetry_read hud_publish storage_plugin
+      capture_rules
     ]).freeze
 
     Entry = Struct.new(:id, :plugin, :capabilities)

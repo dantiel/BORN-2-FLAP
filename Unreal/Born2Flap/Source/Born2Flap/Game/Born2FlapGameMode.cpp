@@ -1,4 +1,5 @@
 #include "Game/Born2FlapGameMode.h"
+#include "Born2Flap.h"
 #include "World/Born2FlapBayTerrain.h"
 #include "Game/Born2FlapHUD.h"
 #include "Flight/Born2FlapFlightPawn.h"
@@ -23,6 +24,7 @@
 #include "World/Born2FlapWind.h"
 #include "World/Born2FlapWindLeaves.h"
 #include "World/Born2FlapInsectSwarm.h"
+#include "World/Born2FlapNeonVoid.h"
 #include "UI/Born2FlapUIBridge.h"
 #include "UI/Born2FlapFlightHUD.h"
 #include "UI/Born2FlapRadio.h"
@@ -36,6 +38,7 @@
 #include "Rendering/Born2FlapGraphics.h"
 #include "Audio/Born2FlapSoundscape.h"
 #include "GameFramework/PlayerController.h"
+#include "Camera/PlayerCameraManager.h"
 #include "Engine/GameViewportClient.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Framework/Application/IInputProcessor.h"
@@ -103,8 +106,10 @@ const FMenuWorld MenuWorlds[] = {
       TEXT("A broad pale beach arcing around a sheltered bay of dark, glassy water, where the tide draws a slow walk of basalt out toward hazy, sunlit hills. Salt-cured rock and wind-bent grass give way inland to a pine-draped headland and a university campus that clings to the cliff above the surf. It is quiet enough that you notice what the sky is doing — and what the sea is answering. Follow the shoreline, skim the terrace roofs, and ride the bay's offshore wind.") },
     { TEXT("Training"), TEXT("TRAINING"),
       TEXT("A flat grass course marked with floating sky-gates, ringed by the hum of a weather station and the chalk lines of a hundred practice rounds. This is the field where every pilot learns to fold the wing, hold the line and thread the gates against the clock. Start on the launch pad, hit the gates in order, and mind the wind arrow — the course rewards a clean line more than a fast one.") },
+    { TEXT("NeonAbyss"), TEXT("NEON ABYSS"),
+      TEXT("A primordial, eternal sanctuary that has always floated here — a void of soft nebulae and ringed planets hung under a circle of ancient bronzes, their verdigris seams opening to gold as you draw near. There is no ground and no horizon: a baby turtle swims the aether, chasing neon jellyfish that flutter like insects. Flap to pulse forward, glide to coast, and net the festival lights before the timer ends.") },
 };
-constexpr int32 MenuWorldCount = 3;
+constexpr int32 MenuWorldCount = 4;
 }  // namespace
 
 ABorn2FlapGameMode::ABorn2FlapGameMode()
@@ -132,6 +137,8 @@ void ABorn2FlapGameMode::InitGame(const FString &MapName, const FString &Options
                    !FParse::Param(FCommandLine::Get(), TEXT("B2FFlightTest")) &&
                    !FParse::Param(FCommandLine::Get(), TEXT("B2FSoakTest")) &&
                    !FParse::Param(FCommandLine::Get(), TEXT("B2FHandlingTest"));
+    bVoidLevel = Level.Equals(TEXT("NeonAbyss"), ESearchCase::IgnoreCase) || (Level.IsEmpty() && MapName.Contains(TEXT("NEONABYSS")));
+    if (bVoidLevel) { bCoastLevel = false; bNatureLevel = false; }
     // Menu mode: a plain interactive boot into the minimal Entry map (no
     // explicit level) is the home screen, NOT a playable level. Nothing is
     // built and no bird spawns behind the menu — a real level only loads when
@@ -145,6 +152,7 @@ void ABorn2FlapGameMode::InitGame(const FString &MapName, const FString &Options
     {
         bCoastLevel = false;
         bNatureLevel = false;
+        bVoidLevel = false;
         DefaultPawnClass = nullptr;
         HUDClass = nullptr;
     }
@@ -318,7 +326,7 @@ void ABorn2FlapGameMode::BeginPlay()
     // playlist is data-driven per level (Config/DefaultGame.ini).
     {
         RadioStation = NewObject<UBorn2FlapRadioStation>(this);
-        const FString RadioLevel = bCoastLevel ? TEXT("Shiomori") : (bNatureLevel ? TEXT("Ravenstonefield") : TEXT("Training"));
+        const FString RadioLevel = bCoastLevel ? TEXT("Shiomori") : (bNatureLevel ? TEXT("Ravenstonefield") : (bVoidLevel ? TEXT("NeonAbyss") : TEXT("Training")));
         RadioStation->Initialize(World, RadioLevel);
         if (!bBrain && RadioStation->HasTrack())
         {
@@ -365,6 +373,15 @@ void ABorn2FlapGameMode::BeginPlay()
         if (!TActorIterator<ABorn2FlapValley>(World))
             World->SpawnActor<ABorn2FlapValley>();
         World->SpawnActor<ABorn2FlapWindLeaves>(FVector::ZeroVector, FRotator::ZeroRotator, Params);
+        return;
+    }
+    if (bVoidLevel)
+    {
+        Born2Flap::Loading::Report(0.40f, TEXT("BUILDING AETHER NURSERY"));
+        // The saved void map supplies the cosmos backdrop, aether fog and the
+        // Sanxingdui bronze ring. The runtime director owns the drift current,
+        // the neon jellyfish and the capture festival.
+        World->SpawnActor<ABorn2FlapNeonVoid>(FVector::ZeroVector, FRotator::ZeroRotator, Params);
         return;
     }
     auto *Sun = World->SpawnActor<ADirectionalLight>(FVector(0, 0, 1000), FRotator(-35, -35, 0), Params);
@@ -624,6 +641,14 @@ void ABorn2FlapGameMode::PopulatePOIs()
         AddPoi(TEXT("poi.old_barns"), -16000.0, -16500.0);   // beside the barn cluster
         return;
     }
+    if (bVoidLevel)
+    {
+        // Neon Abyss: the bronze ring is the orientation landmark and the
+        // launch/reset zone. Weightless, so the height is cosmetic — spawn inside
+        // the ring's sacred-tree axis at the centre of the sanctuary.
+        AddPoi(TEXT("poi.bronze_ring"), FVector(0.0, 0.0, 120.0));
+        return;
+    }
     // Training course: the start line plus the six sky gates (reset below each
     // gate so the hand-launch flies you through it).
     AddPoi(TEXT("poi.start_line"), 0.0, 0.0);
@@ -725,8 +750,10 @@ void ABorn2FlapGameMode::Tick(float DeltaSeconds)
     else if (bMenuOpen)
     {
         if (const auto Proc = StaticCastSharedPtr<FMenuKeyInputProcessor>(MenuKeyProcessor))
-            if (Proc->ConsumeF10())
-                CloseMainMenu();
+            if (Proc->ConsumeF10()) {
+                if(IsBrainActive()) BrainBridge->HandleAction(TEXT("ui.back"),0,TEXT(""));
+                else CloseMainMenu();
+            }
     }
     if(bCoastLevel && FParse::Param(FCommandLine::Get(),TEXT("B2FCoastTest")))
     {
@@ -988,6 +1015,16 @@ void ABorn2FlapGameMode::CloseMainMenu()
         return;
     bMenuOpen = false;
     bMenuInLevel = false;
+    bBrainPrefsOpen = false;
+    // Brain path: the menu's RC page may have opened the transmitter panel
+    // (bPanel) so its learn/calibration capture stays live. Close it now so
+    // the standalone RC overlay never leaks into flight after the menu closes.
+    if (IsBrainActive())
+    {
+        ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0));
+        FBorn2FlapRcController* Rc = Bird ? Bird->GetRcControllerMutable() : BrainRc.Get();
+        if (Rc) Rc->ClosePanel();
+    }
     if (RadioStation)
         RadioStation->SetPaused(false);
 
@@ -1019,6 +1056,29 @@ bool ABorn2FlapGameMode::IsBrainActive() const
 
 void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, const FString& Text)
 {
+    if(Action==TEXT("graphics.quality")) {
+        const int32 Q=FMath::Clamp(FMath::RoundToInt(Value),0,3);
+        Born2FlapGraphics::SaveQuality(Q);
+        Born2FlapGraphics::Apply(Born2FlapGraphics::ForQuality(static_cast<Born2FlapGraphics::EQuality>(Q)));
+        return;
+    }
+    if(Action.StartsWith(TEXT("keybind."))) {
+        if(Action==TEXT("keybind.reset")) born2flap::keybinds::ResetAll();
+        else {
+            const FString Id=Action.Mid(8); const FKey Key{FName(*Text)};
+            if(Key.IsValid()) for(const auto& A:born2flap::keybinds::Catalog())
+                if(Id==A.Id) { born2flap::keybinds::Set(A.Id,Key); break; }
+        }
+        return;
+    }
+    if(Action==TEXT("language.set")) {
+        static const TCHAR* Codes[]={TEXT("en"),TEXT("de"),TEXT("es"),TEXT("fr"),TEXT("it"),TEXT("pt"),TEXT("no"),TEXT("ar"),TEXT("hi"),TEXT("ja"),TEXT("ko"),TEXT("ru"),TEXT("zh")};
+        BrainPreferences.Language=Codes[FMath::Clamp(FMath::RoundToInt(Value),0,12)];
+        Born2Flap::I18n::SetLocale(BrainPreferences.Language);
+        if(auto* Bird=Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this,0)))
+            born2flap::MenuSettingsFromPawn(Bird,BrainPreferences);
+        born2flap::MenuSettingsSave(BrainPreferences); return;
+    }
     auto* ActiveBird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this,0));
     auto* ActiveRc = ActiveBird ? ActiveBird->GetRcControllerMutable() : BrainRc.Get();
     if (Action.StartsWith(TEXT("rc.axis.")) || Action.StartsWith(TEXT("rc.invert.")) || Action.StartsWith(TEXT("rc.learn.axis."))) {
@@ -1033,8 +1093,8 @@ void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, c
     if (!ActiveBird && bMenuMode) {
         auto& S=BrainPreferences;
         bool Changed=true;
-        if(Action==TEXT("bird.select")) S.BirdModel=FMath::Clamp(FMath::RoundToInt(Value),0,2);
-        else if(Action==TEXT("bird.weight")) S.BodyMassKg=FMath::Clamp(Value,.05f,5.f);
+        if(Action==TEXT("bird.select")) S.BirdModel=FMath::Clamp(FMath::RoundToInt(Value),0,3);
+        else if(Action==TEXT("bird.weight")) S.BodyMassKg=FMath::Clamp(Value,.01f,2.f);
         else if(Action==TEXT("bird.cg")) S.CgOffsetMm=FMath::Clamp(Value,-100.f,100.f);
         else if(Action==TEXT("bird.coupled")) S.bCoupledThrottle=Value>.5f;
         else if(Action==TEXT("camera.fpv")) S.bFpvAirView=!S.bFpvAirView;
@@ -1046,7 +1106,7 @@ void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, c
         else if(Action==TEXT("mouse.reset")) S.MouseGains=FVector(1,-1,1);
         else if(Action==TEXT("flight.safety")) S.FlightSafety=Value;
         else if(Action==TEXT("replay.spirits")) S.bReplaySpirits=Value>.5f;
-        else if(Action==TEXT("audio.wingbeat")) S.WingbeatVolume=FMath::Clamp(Value,0.f,1.f);
+        else if(Action==TEXT("audio.wingbeat")) S.WingbeatVolume=FMath::Clamp(Value,0.f,4.f);
         else {
             const bool Display=Action.StartsWith(TEXT("tuning.display."));
             const auto Field=born2flap::tuning::FromKey(Display?Action.Mid(15):Action);
@@ -1072,6 +1132,12 @@ void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, c
         return;
     }
 
+    if(Action.StartsWith(TEXT("launch."))) {
+        const FString Level=MenuWorlds[MenuWorldIndex].Id;
+        const int32 Index=FCString::Atoi(*Action.Mid(7));
+        if(Born2FlapPoi::Catalog(Level).IsValidIndex(Index)) MenuSelectedPoi.Add(Level,Index);
+        return;
+    }
     // Menu weather / time-of-day selects (per world).
     if (Action.StartsWith(TEXT("weather.")) || Action.StartsWith(TEXT("daytime.")))
     {
@@ -1121,18 +1187,33 @@ void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, c
     }
 
     if (Action == TEXT("menu.resume")) { CloseMainMenu(); return; }
+    if (Action == TEXT("menu.open_worlds"))
+    {
+        MenuNavPage = 0;
+        if (ActiveRc) ActiveRc->ClosePanel();
+        return;
+    }
     if (Action == TEXT("menu.settings"))
     {
-        CloseMainMenu();
-        if (ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
-            Bird->OpenFlightSettings();
+        // FLIGHT DESK is a menu page now (not an overlay). Flipping the page
+        // keeps the world selector from ever stacking on top of it.
+        MenuNavPage = 1;
+        if (ActiveRc) ActiveRc->ClosePanel();
         return;
     }
     if (Action == TEXT("menu.controls"))
     {
-        // Open the RC control-settings panel from the fullscreen main menu.
-        CloseMainMenu();
+        // RC TRANSMITTER is a menu page. Opening the real panel keeps the
+        // transmitter's learn/calibration capture live while on the page.
+        MenuNavPage = 3;
         if (ActiveRc) ActiveRc->OpenPanel();
+        return;
+    }
+    if (Action == TEXT("menu.preferences"))
+    {
+        // APP SETTINGS is a menu page (no separate overlay).
+        MenuNavPage = 2;
+        if (ActiveRc) ActiveRc->ClosePanel();
         return;
     }
 
@@ -1178,8 +1259,11 @@ void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, c
         if (ActiveRc) ActiveRc->LearnReset();
         return;
     }
-    if (Action == TEXT("menu.page")) { MenuPage=FMath::Clamp(FMath::RoundToInt(Value),0,1); return; }
+    if (Action == TEXT("menu.page")) { MenuPage=FMath::Clamp(FMath::RoundToInt(Value),0,2); return; }
     if (Action == TEXT("settings.page")) { SettingsPage=FMath::Clamp(FMath::RoundToInt(Value),0,4); return; }
+    if (Action == TEXT("rc.page")) { RcPage=FMath::Clamp(FMath::RoundToInt(Value),0,2); return; }
+    if (Action == TEXT("preferences.page")) { PrefsPage=FMath::Clamp(FMath::RoundToInt(Value),0,2); return; }
+    if (Action == TEXT("preferences.close")) { bBrainPrefsOpen=false; return; }
     if (Action == TEXT("settings.close") || Action == TEXT("editor.close"))
     {
         if (ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
@@ -1190,7 +1274,7 @@ void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, c
     if (Action == TEXT("bird.select"))
     {
         if (auto* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
-            Bird->SelectBirdModel(FMath::Clamp(FMath::RoundToInt(Value), 0, 2));
+            Bird->SelectBirdModel(FMath::Clamp(FMath::RoundToInt(Value), 0, 3));
         return;
     }
     if (Action == TEXT("radio.play") || Action == TEXT("radio.volume") || Action == TEXT("radio.mute"))
@@ -1199,7 +1283,7 @@ void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, c
             if(Action == TEXT("radio.play")) RadioStation->TogglePlayPause();
             else if(Action == TEXT("radio.mute")) RadioStation->ToggleMute();
             else RadioStation->SetVolume(FMath::Clamp(Value,0.f,1.f));
-        }
+        } else if(Action==TEXT("radio.volume")) UBorn2FlapRadioStation::SavePreferenceVolume(Value);
         return;
     }
     // CRAFT tab.
@@ -1327,6 +1411,7 @@ void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, c
         { TEXT("menu.ravenstonefield"), TEXT("/Game/Ravenstonefield/Maps/RAVENSTONEFIELD"), TEXT("Ravenstonefield") },
         { TEXT("menu.shiomori"),        TEXT("/Game/Shiomori/Maps/SHIOMORI"),               TEXT("Shiomori") },
         { TEXT("menu.training"),        TEXT("/Engine/Maps/Entry"),                         TEXT("Training") },
+        { TEXT("menu.neonabyss"),       TEXT("/Game/NeonAbyss/Maps/NEONABYSS"),             TEXT("NeonAbyss") },
     };
     for (const FEntry& E : Entries)
     {
@@ -1343,6 +1428,7 @@ void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, c
                         Options += FString::Printf(TEXT("?PoiNum=%d"), Cat[*Sel].Number);
                 }
             }
+            Born2FlapShowLoadingScreen();
             UGameplayStatics::OpenLevel(this, E.Map, true, Options);
             return;
         }
@@ -1351,6 +1437,14 @@ void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, c
 
 void ABorn2FlapGameMode::HandleBrainCommand(const FString& Name, const TSharedPtr<FJsonObject>& Payload)
 {
+    if(Name==TEXT("world.load") && Payload.IsValid()) {
+        FString Level;
+        if(Payload->TryGetStringField(TEXT("level"),Level))
+            for(const auto& World:MenuWorlds) if(Level==World.Id) {
+                HandleBrainAction(TEXT("menu.")+Level.ToLower(),0,TEXT("")); return;
+            }
+        return;
+    }
     // The Ruby Brain is the orchestrator. Commands are its imperative channel
     // into the game core — non-time-critical flow control only; the per-tick
     // simulation stays in C++. Extend this table (and the Ruby side) to expose
@@ -1384,6 +1478,10 @@ FString ABorn2FlapGameMode::BuildBrainTelemetry() const
     TSharedPtr<FJsonObject> Root = MakeShareable(new FJsonObject());
 
     ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0));
+    // F7 suspends all visual telemetry, including open panels. Keep routing and
+    // input acknowledgement alive; the next snapshot restores the current UI.
+    if (Bird && Bird->IsUIHidden())
+        return TEXT("{\"frontend\":false,\"ui_hidden\":true,\"hud\":false}");
     if (Bird)
     {
         Root->SetNumberField(TEXT("altitude"), Bird->GetAltitude());
@@ -1392,6 +1490,25 @@ FString ABorn2FlapGameMode::BuildBrainTelemetry() const
         Root->SetNumberField(TEXT("battery"), Bird->GetBattery() * 100.0);
         Root->SetNumberField(TEXT("throttle"), Bird->GetEffort());
         Root->SetStringField(TEXT("status"), Bird->GetFlightStatus());
+        // Wind readout for the Ruby cockpit. The relative source bearing is
+        // pre-computed in screen space (0° = ahead, clockwise positive) so the
+        // Brain stays declarative: it feeds the WindArrow's `angle` prop and the
+        // custom widget owns the continuously-rotating paint. Rounded to 0.1°
+        // / 0.1 m/s so telemetry only changes on a perceptible wind shift.
+        {
+            const FVector Wind = Bird->GetWind();
+            const float WindSpeed = FVector2D(Wind.X, Wind.Y).Size();
+            const float BlowBearing = FMath::Fmod(FMath::RadiansToDegrees(FMath::Atan2(Wind.X, Wind.Y)) + 360.0f, 360.0f);
+            const float SourceBearing = FMath::Fmod(BlowBearing + 180.0f, 360.0f);
+            float ViewYaw = 0.f;
+            if (APlayerController* PC = GetWorld()->GetFirstPlayerController())
+                if (APlayerCameraManager* Cam = PC->PlayerCameraManager)
+                    ViewYaw = Cam->GetCameraRotation().Yaw;
+            const float ViewBearing = FMath::Fmod(90.0f - ViewYaw + 360.0f, 360.0f);
+            const float RelAngle = FMath::Fmod(ViewBearing - SourceBearing + 360.0f, 360.0f);
+            Root->SetNumberField(TEXT("wind_speed"), FMath::RoundToFloat(WindSpeed * 10.f) / 10.f);
+            Root->SetNumberField(TEXT("wind_arrow_angle"), FMath::RoundToFloat(RelAngle * 10.f) / 10.f);
+        }
         Root->SetBoolField(TEXT("settings"), Bird->IsFlightSettingsOpen());
         Root->SetBoolField(TEXT("poi"), Bird->IsPoiOverlayOpen());
         // F7 hides the whole HUD layer (cockpit + radio). Mirrors the native
@@ -1414,6 +1531,26 @@ FString ABorn2FlapGameMode::BuildBrainTelemetry() const
         }
         Root->SetArrayField(TEXT("pois"), PoiArr);
 
+    }
+    // Capture festival (Neon Abyss): raw C++ state for the Ruby capture ruleset.
+    // Ruby owns scoring and the finished? decision; C++ only supplies the feed.
+    {
+        TSharedPtr<FJsonObject> Cap = MakeShareable(new FJsonObject());
+        bool bHasCapture = false;
+        for (TActorIterator<ABorn2FlapNeonVoid> It(GetWorld()); It; ++It)
+        {
+            Cap->SetNumberField(TEXT("captured"), It->GetCaptured());
+            Cap->SetNumberField(TEXT("target"), It->GetTargetCount());
+            Cap->SetNumberField(TEXT("combo"), It->GetCombo());
+            Cap->SetNumberField(TEXT("time"), It->GetTimeRemaining());
+            Cap->SetNumberField(TEXT("best"), It->GetBestScore());
+            Cap->SetNumberField(TEXT("active"), It->GetActiveJellyfish());
+            Cap->SetBoolField(TEXT("running"), It->IsFestivalRunning());
+            bHasCapture = true;
+            break;
+        }
+        Root->SetObjectField(TEXT("capture"), Cap);
+        Root->SetBoolField(TEXT("capture_active"), bHasCapture);
     }
     auto Settings=BrainPreferences;
     if(Bird) born2flap::MenuSettingsFromPawn(Bird,Settings);
@@ -1449,6 +1586,7 @@ FString ABorn2FlapGameMode::BuildBrainTelemetry() const
             K->SetStringField(TEXT("help"),R.Help);
             K->SetNumberField(TEXT("min"),R.Min); K->SetNumberField(TEXT("max"),R.Max);
             K->SetNumberField(TEXT("step"),FMath::Pow(10.f,-R.Decimals));
+            K->SetNumberField(TEXT("decimals"),R.Decimals);
             K->SetNumberField(TEXT("value"),born2flap::tuning::ToDisplayValue(R.Field,born2flap::MenuSettingsGetTuning(Settings,R.Field)));
             Knobs.Add(MakeShared<FJsonValueObject>(K));
         }
@@ -1507,14 +1645,42 @@ FString ABorn2FlapGameMode::BuildBrainTelemetry() const
             for (int32 I = 0; I < 5; ++I)
                 MapArr.Add(MakeShareable(new FJsonValueString(Rc->GetMapping(I))));
         Root->SetArrayField(TEXT("rc_mappings"), MapArr);
+        TArray<TSharedPtr<FJsonValue>> ChannelAxes;
+        if(Rc) for(int32 I=0;I<5;++I) ChannelAxes.Add(MakeShared<FJsonValueNumber>(Rc->GetChannelAxis(I)));
+        Root->SetArrayField(TEXT("rc_channel_axes"),ChannelAxes);
 
+    Root->SetNumberField(TEXT("graphics_quality"),Born2FlapGraphics::LoadQuality());
+    Root->SetStringField(TEXT("lang"),Born2Flap::I18n::GetLocale());
+    TArray<TSharedPtr<FJsonValue>> Keys;
+    for(const auto& A:born2flap::keybinds::Catalog()) {
+        auto K=MakeShared<FJsonObject>();
+        K->SetStringField(TEXT("id"),A.Id); K->SetStringField(TEXT("label"),A.Label);
+        K->SetStringField(TEXT("key"),born2flap::keybinds::Get(A.Id).GetFName().ToString());
+        Keys.Add(MakeShared<FJsonValueObject>(K));
+    }
+    Root->SetArrayField(TEXT("keybindings"),Keys);
+    // Level-loading screen: while the movie player's loader is active, the
+    // Brain suppresses the whole UI (menu + HUD) so nothing bleeds through
+    // behind the loading screen. Progress/status mirror the shared
+    // Born2Flap::Loading state the C++ loader paints.
+    {
+        float LProgress = -1.f; FString LStatus;
+        Born2Flap::Loading::State().Get(LProgress, LStatus);
+        Root->SetBoolField(TEXT("loading"), Born2Flap::Loading::State().IsActive());
+        Root->SetNumberField(TEXT("loading_progress"), (double)(LProgress < 0.f ? 0.f : LProgress));
+        Root->SetStringField(TEXT("loading_status"), LStatus);
+    }
     // Menu / level selector.
     Root->SetBoolField(TEXT("frontend"), bMenuMode);
     Root->SetBoolField(TEXT("menu"), bMenuOpen);
     Root->SetBoolField(TEXT("menu_inlevel"), bMenuInLevel);
+    Root->SetBoolField(TEXT("preferences"), bBrainPrefsOpen);
+    Root->SetNumberField(TEXT("preferences_page"), PrefsPage);
     Root->SetNumberField(TEXT("world_index"), MenuWorldIndex);
     Root->SetNumberField(TEXT("menu_page"), MenuPage);
+    Root->SetNumberField(TEXT("nav_page"), MenuNavPage);
     Root->SetNumberField(TEXT("settings_page"), SettingsPage);
+    Root->SetNumberField(TEXT("rc_page"), RcPage);
 
     TArray<TSharedPtr<FJsonValue>> WorldArr;
     for (int32 I = 0; I < MenuWorldCount; ++I)
@@ -1549,6 +1715,14 @@ FString ABorn2FlapGameMode::BuildBrainTelemetry() const
             C.WindDir >= 0.f || C.WindSpeed >= 0.f || C.WindGust >= 0.f ||
             C.WindRandom >= 0.f || C.WindThermal >= 0.f);
 
+        TArray<TSharedPtr<FJsonValue>> Launches;
+        for(const auto& Poi:Born2FlapPoi::Catalog(W.Id)) {
+            FString Label=Born2Flap::I18n::T(Poi.Key);
+            if(Poi.Number>0) Label+=TEXT(" ")+FString::FromInt(Poi.Number);
+            Launches.Add(MakeShared<FJsonValueString>(Label));
+        }
+        WObj->SetArrayField(TEXT("launch_points"),Launches);
+        WObj->SetNumberField(TEXT("launch_index"),MenuSelectedPoi.FindRef(W.Id));
         WorldArr.Add(MakeShareable(new FJsonValueObject(WObj)));
     }
     Root->SetArrayField(TEXT("worlds"), WorldArr);
@@ -1576,7 +1750,10 @@ FString ABorn2FlapGameMode::BuildBrainTelemetry() const
     Root->SetStringField(TEXT("radio_station"), RadioStation ? RadioStation->GetStationName() : TEXT(""));
     Root->SetStringField(TEXT("radio_track"), RadioStation ? RadioStation->GetTrackName() : TEXT(""));
     Root->SetBoolField(TEXT("radio_playing"), RadioStation && RadioStation->IsPlaying());
-    Root->SetNumberField(TEXT("radio_volume"), RadioStation ? RadioStation->GetVolume() : 0.5);
+    // Effective volume (0 while muted) so the HUD slider drops to zero on M;
+    // radio_muted lets the face show an explicit MUTED badge.
+    Root->SetNumberField(TEXT("radio_volume"), RadioStation ? RadioStation->GetVolume() : UBorn2FlapRadioStation::PreferenceVolume());
+    Root->SetBoolField(TEXT("radio_muted"), RadioStation && RadioStation->IsMuted());
     Root->SetStringField(TEXT("radio_cover"), RadioStation ? RadioStation->GetCoverPath() : TEXT(""));
 
     // Channels (F2) — the Ruby path folds this into the RC readout for now.

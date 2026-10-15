@@ -1,4 +1,9 @@
 #include "Born2Flap.h"
+#include "Serialization/JsonSerializer.h"
+#include "Dom/JsonObject.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
+#include "Widgets/Text/STextBlock.h"
 #include "Modules/ModuleManager.h"
 #include "MoviePlayer.h"
 #include "Engine/Texture2D.h"
@@ -113,12 +118,12 @@ public:
         const float H = FMath::Max(2.f, FMath::Min(BarHeight, Size.Y - LineHeight - Gap));
         const float Y = Size.Y - H;
 
-        // Status text, sitting just above the track (kept clear of the artwork).
+        // Status text, sitting above the track.
         if (FontMeasure.IsValid())
         {
             const FVector2f TextSize = FontMeasure->Measure(FStringView(Status), Font);
             const float TextX = FMath::Max(0.f, (Size.X - TextSize.X) * 0.5f);
-            const float TextY = FMath::Max(0.f, Y - LineHeight - Gap);
+            const float TextY = FMath::Max(Gap, Y - LineHeight - Gap);
             FSlateDrawElement::MakeText(
                 OutDrawElements, LayerId,
                 AllottedGeometry.ToPaintGeometry(TextSize, FSlateLayoutTransform(FVector2f(TextX, TextY))),
@@ -240,23 +245,26 @@ private:
         IGameMoviePlayer* MoviePlayer = GetMoviePlayer();
         if (!MoviePlayer)
             return;
-        if (!LoadingTexture.IsValid())
-        {
-            LoadingTexture = TStrongObjectPtr<UTexture2D>(LoadObject<UTexture2D>(nullptr,
-                TEXT("/Game/Splash/born2flap-splash-new.born2flap-splash-new")));
-            if (!LoadingTexture.IsValid())
-            {
-                UE_LOG(LogTemp, Warning, TEXT("Born2FlapModule: loading-screen texture missing"));
-                return;
-            }
-            // Same pattern as UBorn2FlapUIRenderer::ArtBrush: root the texture
-            // (TStrongObjectPtr) so GC can't collect it behind the Slate brush.
-            LoadingBrush.SetResourceObject(LoadingTexture.Get());
-            LoadingBrush.ImageSize = FVector2D(LoadingTexture->GetSizeX(), LoadingTexture->GetSizeY());
-            LoadingBrush.DrawAs = ESlateBrushDrawType::Image;
-            LoadingBrush.TintColor = FLinearColor::White;
+        FString ViewPath=FPaths::ProjectContentDir()/TEXT("UI/LoadingView.json");
+        // Authoring happens in Ruby before the blocking load. The movie thread
+        // consumes its immutable tree and reads only atomic progress state.
+        FString Script=FPaths::ConvertRelativePathToFull(FPaths::ProjectDir()/TEXT("../../Brain/bin/export_loading"));
+        FString Ruby=FPaths::ConvertRelativePathToFull(FPaths::ProjectDir()/TEXT("../../ThirdParty/ruby/bin/ruby.exe"));
+        if(!FPaths::FileExists(Script)) Script=FPaths::ProjectDir()/TEXT("Brain/bin/export_loading");
+        if(!FPaths::FileExists(Ruby)) Ruby=FPaths::ProjectDir()/TEXT("ThirdParty/ruby/bin/ruby.exe");
+        if(FPaths::FileExists(Script) && FPaths::FileExists(Ruby)) {
+            const FString Generated=FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir()/TEXT("LoadingView.json"));
+            int32 Code=-1; FString Errors;
+            FPlatformProcess::ExecProcess(*Ruby,*FString::Printf(TEXT("\"%s\" \"%s\""),*Script,*Generated),&Code,nullptr,&Errors);
+            if(Code==0) ViewPath=Generated;
+            else UE_LOG(LogTemp,Warning,TEXT("Ruby loading view export failed: %s"),*Errors);
         }
-
+        FString Json; TSharedPtr<FJsonObject> View;
+        if(!FFileHelper::LoadFileToString(Json,*ViewPath) ||
+           !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Json),View)) {
+            UE_LOG(LogTemp,Error,TEXT("Loading UMGHAML view missing or invalid: %s"),*ViewPath); return;
+        }
+        LoadingAssets.Empty(); LoadingBrushes.Empty();
         FLoadingScreenAttributes Attr;
         Attr.bAutoCompleteWhenLoadingCompletes = true;
         Attr.bWaitForManualStop = false;
@@ -268,20 +276,8 @@ private:
         // the movie player's slate thread, which never runs Slate active timers.
         // Reset the progress state for this load before the movie starts.
         Born2Flap::Loading::State().Begin(TEXT("LOADING WORLD"));
-        Attr.WidgetLoadingScreen =
-            SNew(SConstraintCanvas)
-            + SConstraintCanvas::Slot()
-              .Anchors(FAnchors(0.f, 0.f, 1.f, 1.f))
-              .Offset(FMargin(0.f))
-              [
-                  SNew(SImage).Image(&LoadingBrush)
-              ]
-            + SConstraintCanvas::Slot()
-              .Anchors(FAnchors(0.15f, 0.80f, 0.85f, 0.90f))
-              .Offset(FMargin(0.f))
-              [
-                  SNew(SBorn2FlapLoadingPanel).BarHeight(4.f).FontSize(14)
-              ];
+        Attr.WidgetLoadingScreen = BuildLoadingNode(View.ToSharedRef());
+        UE_LOG(LogTemp,Display,TEXT("UMGHAML loading view compiled and mounted: %s"),*ViewPath);
         MoviePlayer->SetupLoadingScreen(Attr);
         MoviePlayer->PlayMovie();
     }
@@ -297,8 +293,15 @@ private:
         // Loop until nothing is left wanting, with a hard cap so a stuck stream
         // can never leave the loader hanging forever.
         Born2Flap::Loading::State().Report(0.90f, TEXT("STREAMING WORLD"));
+        // Prime every streaming surface fully resident before the viewport is
+        // revealed — the 4k world textures, Nanite meshes and audio banks in
+        // particular. StreamAllResources blocks (with the movie player's slate
+        // thread still animating), so loop until nothing is left wanting. The
+        // hard cap only guards against a genuinely stuck stream; it is long
+        // enough that any real level finishes well inside it.
         IStreamingManager& Streaming = IStreamingManager::Get();
         const double StreamStart = FPlatformTime::Seconds();
+        const double StreamCap = 60.0;
         int32 Pending = 0;
         int32 Wanting = 0;
         do
@@ -306,7 +309,11 @@ private:
             Pending = Streaming.StreamAllResources(1.0f);
             Wanting = Streaming.GetNumWantingResources();
         }
-        while ((Pending > 0 || Wanting > 0) && (FPlatformTime::Seconds() - StreamStart) < 12.0);
+        while ((Pending > 0 || Wanting > 0) && (FPlatformTime::Seconds() - StreamStart) < StreamCap);
+        // Final flush: force every outstanding streaming request (geometry LODs
+        // + texture mips) to finish before the curtain drops, so the revealed
+        // scene never pops in black or low-res after the loader disappears.
+        Streaming.BlockTillAllRequestsFinished(10.0f, false);
 
         Born2Flap::Loading::State().Report(1.f, TEXT("READY"));
         // Hold the READY frame briefly so the bar visibly eases from ~90% to a
@@ -327,8 +334,44 @@ private:
             MoviePlayer->StopMovie();
     }
 
-    TStrongObjectPtr<UTexture2D> LoadingTexture;
-    FSlateBrush LoadingBrush;
+    // Thread-safe host for the loading-view subset of the shared wire schema.
+    // No screen composition is authored here: anchors/assets/style come from UMGHAML/UMGSS.
+    TArray<TStrongObjectPtr<UTexture2D>> LoadingAssets;
+    TArray<TSharedPtr<FSlateBrush>> LoadingBrushes;
+    TSharedRef<SWidget> BuildLoadingNode(const TSharedRef<FJsonObject>& Node)
+    {
+        const FString Type=Node->GetStringField(TEXT("type"));
+        const auto Props=Node->GetObjectField(TEXT("props"));
+        if(Type==TEXT("Overlay")) {
+            auto Canvas=SNew(SConstraintCanvas);
+            for(const auto& Value:Node->GetArrayField(TEXT("children"))) {
+                const auto Child=Value->AsObject(); const auto P=Child->GetObjectField(TEXT("props"));
+                FAnchors Anchors(0,0,1,1);
+                const TArray<TSharedPtr<FJsonValue>>* A=nullptr;
+                if(P->TryGetArrayField(TEXT("anchors"),A) && A->Num()==4)
+                    Anchors=FAnchors((*A)[0]->AsNumber(),(*A)[1]->AsNumber(),(*A)[2]->AsNumber(),(*A)[3]->AsNumber());
+                Canvas->AddSlot().Anchors(Anchors).Offset(FMargin(0))[BuildLoadingNode(Child.ToSharedRef())];
+            }
+            return Canvas;
+        }
+        if(Type==TEXT("Image")) {
+            const FString Asset=Props->GetStringField(TEXT("texture"));
+            auto* Texture=LoadObject<UTexture2D>(nullptr,*Asset);
+            auto Brush=MakeShared<FSlateBrush>();
+            Brush->SetResourceObject(Texture); Brush->DrawAs=ESlateBrushDrawType::Image;
+            if(Texture) { Brush->ImageSize=FVector2D(Texture->GetSizeX(),Texture->GetSizeY()); LoadingAssets.Emplace(Texture); }
+            LoadingBrushes.Add(Brush);
+            return SNew(SImage).Image(&Brush.Get());
+        }
+        if(Type==TEXT("LoadingProgress")) {
+            double Height=4,Font=14;
+            Props->TryGetNumberField(TEXT("bar_height"),Height); Props->TryGetNumberField(TEXT("font_size"),Font);
+            return SNew(SBorn2FlapLoadingPanel).BarHeight(Height).FontSize(Font);
+        }
+        FString Text; Props->TryGetStringField(TEXT("text"),Text);
+        return SNew(STextBlock).Text(FText::FromString(Text));
+    }
+
     static FBorn2FlapModule* GModule;
 };
 

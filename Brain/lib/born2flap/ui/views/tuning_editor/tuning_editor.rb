@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-
-
 module Born2Flap
 
   module UI
@@ -54,8 +52,6 @@ module Born2Flap
 
                            keyword_init: true)
 
-
-
         BIRD_MODELS = [
 
           "RAVENCROW  /  folded obsidian & comb pinions",
@@ -66,13 +62,9 @@ module Born2Flap
 
         ].freeze
 
-
-
         FLIGHT_PROFILES = %w[CRUISE THERMAL AEROBATIC CALM].freeze
 
-
-
-        BIRD_KEYS = %w[bird.ravencrow bird.prototype bird.peregrine].freeze
+        BIRD_KEYS = %w[bird.ravencrow bird.prototype bird.peregrine bird.turtle].freeze
 
         PROFILE_KEYS = {
 
@@ -86,19 +78,11 @@ module Born2Flap
 
         }.freeze
 
-
-
         TABS = ["CRAFT", "BIRD", "CONTROLS", "ASSIST", "TUNING"].freeze
-
-
 
         MOUSE_NAMES = ["ROLL  /  mouse X", "PITCH  /  mouse Y", "YAW  /  mouse X"].freeze
 
-
-
         view :editor, template: "tuning_editor.umghaml", theme: "tuning_editor.umgss"
-
-
 
         # The 12 live firmware knobs (one-to-one with ETuningField in C++).
 
@@ -134,8 +118,6 @@ module Born2Flap
 
         end
 
-
-
         # C++ telemetry emits tuning values under born2flap::tuning::Key
 
         # (PascalCase). Map the camelCase knob keys onto those.
@@ -156,8 +138,6 @@ module Born2Flap
 
         }.freeze
 
-
-
         def self.values_from_telemetry(locals)
 
           TUNING_TELEMETRY.each_with_object({}) do |(knob, telemetry_key), out|
@@ -168,292 +148,34 @@ module Born2Flap
 
         end
 
-
-
-        # Ruby sugar: resolve the single interpolated local the one-line
-
-        # template consumes.
-
         def editor_locals(locals = {})
-
-          page = (locals[:settings_page] || 0).to_i
-
-          page = [[page, 0].max, TABS.length - 1].min
-
-          { tree_source: build_source(locals, page) }
-
-        end
-
-
-
-        private
-
-
-
-        def build_source(locals, page)
-
-          lang = (locals[:lang] || I18n::DEFAULT).to_s
-
-          fields = self.class.fields(self.class.values_from_telemetry(locals))
-
-          out = []
-
-          out << %(%Overlay{ align: "center", valign: "center" })
-
-          out << %(  %Panel{ title: "FLIGHT DESK", padding: 24 })
-
-          out << %(    %Segment{ options: #{TABS.inspect}, value: #{page}, action: "settings.page", tooltip: "Choose a workbench page." })
-
-          out << %(    %Banner{ text: "#{I18n.t('hangar.title', lang: lang)}", tone: "accent" })
-
-
-
-          # 0 — CRAFT
-
-          out << section(page, 0, I18n.t('hangar.silhouette', lang: lang))
-
-          out << field(I18n.t('hangar.bird', lang: lang))
-
-          out << %(        %Select{ value: #{intv(locals[:bird_model])}, options: #{bird_options(lang)}, action: "bird.select" })
-
-          out << field(I18n.t('hangar.flight_profile', lang: lang))
-
-          out << %(        %Segment{ value: #{profile_index(locals)}, options: #{profile_options(lang)}, action: "profile.select" })
-
-          out << toggle("AIRBORNE CAMERA", locals[:camera_fpv], "camera.fpv", "FPV / click for chase", "CHASE / click for FPV")
-
-
-
-          # 1 — BIRD (further bird tuning)
-
-          out << section(page, 1, "BIRD TUNING")
-
-          out << slider("FPV CAMERA ANGLE", locals[:fpv_angle], -45, 45, 1, "°", "camera.angle")
-
-          out << slider("BODY MASS", locals[:body_mass_kg], 0.01, 2.0, 0.01, "kg", "bird.weight")
-
-          out << slider("CENTRE OF GRAVITY", locals[:cg_offset_mm], -100, 100, 1, "mm", "bird.cg")
-
-          out << toggle("INVERT FREE LOOK", locals[:freelook_invert], "camera.freelook.invert", "ON", "OFF")
-
-          out << toggle("COUPLED THROTTLE", locals[:coupled_throttle], "bird.coupled", "ON / click to decouple", "OFF / click to couple")
-
-
-
-          # 2 — CONTROLS
-
-          out << section(page, 2, "CONTROLS")
-
-          3.times { |axis| out << slider(MOUSE_NAMES[axis], gain(locals, axis), -2, 2, 0.05, "×", "mouse.gain.#{axis}") }
-
-          out << button("Reset mouse response", "mouse.reset")
-
-          out << slider("CONTROL EXPO", ((locals[:control_expo] || 0.65).to_f * 100.0), 0, 100, 1, "%", "control.expo")
-
-          out << slider("MOUSE SPEED", locals[:speed_modifier], 0, 1, 0.05, "×", "mouse.speed")
-
-
-
-          # 3 — ASSIST
-
-          out << section(page, 3, "ASSIST")
-
-          out << slider("FLIGHT SAFETY RESET", locals[:flight_safety], 0, 2, 1, "", "flight.safety")
-
-          out << toggle("REPLAY SHADOWS", locals[:replay_spirits], "replay.spirits", "ON / click to hide", "OFF / click to show")
-
-          out << button("Delete all replay shadows", "replay.delete", "danger")
-
-
-
-          out << slider("WINGBEAT VOLUME", locals[:wingbeat_volume] || 1, 0, 4, 0.05, "×", "audio.wingbeat")
-
-          out << slider("RADIO VOLUME", locals[:radio_volume] || 0.5, 0, 1, 0.05, "", "radio.volume")
-
-
-
-          # 4 — TUNING (12 firmware knobs in four subsections)
-
-          if locals[:tuning_fields]
-
-            out << section(page, 4, "LIVE FIRMWARE")
-
-            locals[:tuning_fields].each do |r|
-
-              out << field(r[:label])
-
-              out << %(        %Slider{ value: #{r[:value]}, min: #{r[:min]}, max: #{r[:max]}, step: #{r[:step]}, unit: #{r[:unit].inspect}, action: "tuning.display.#{r[:key]}", tooltip: #{r[:help].inspect} })
-
+          lang=locals.fetch(:lang,I18n::DEFAULT)
+          rows=if locals[:tuning_fields]
+            locals[:tuning_fields].map do |r|
+              snake = r[:key].to_s.gsub(/([a-z\d])([A-Z])/, '\1_\2').downcase
+              r.merge(action: "tuning.display.#{r[:key]}", label: I18n.t("tuning.#{snake}", lang: lang))
             end
-
           else
-
-          out << section(page, 4, I18n.t('hangar.servo', lang: lang))
-
-          each_row(fields, %w[servo_speed stall_torque backdrive]) { |r| out << tuning_slider(r, lang) }
-
-          out << section(page, 4, I18n.t('hangar.battery', lang: lang))
-
-          each_row(fields, %w[battery_voltage battery_resistance battery_capacity]) { |r| out << tuning_slider(r, lang) }
-
-          out << section(page, 4, I18n.t('hangar.geometry', lang: lang))
-
-          each_row(fields, %w[tail_elevator_angle glide_angle flap_base_freq]) { |r| out << tuning_slider(r, lang) }
-
-          out << section(page, 4, I18n.t('hangar.authority', lang: lang))
-
-          each_row(fields, %w[stroke_ferocity aileron_scale elevator_scale]) { |r| out << tuning_slider(r, lang) }
-
-
-
+            self.class.fields(self.class.values_from_telemetry(locals)).map do |r|
+              r.to_h.merge(label:I18n.t(r.action,lang:lang),action:r.action.split('.').last.split('_').map(&:capitalize).join,decimals:2,help:'')
+            end
           end
-
-
-
-          out << %(    %Button{ label: "#{I18n.t('hangar.save', lang: lang)}", action: "editor.close", tone: "good" })
-
-          first = out.index { |line| line.include?('%Section') }
-
-          body = out.slice!(first...-1)
-
-          out.insert(first, '    %SizeBox{ height: 530 }', '      %ScrollBox{ scroll_blur: true }',
-
-                     '        %VBox{ spacing: 10 }', *body.map { |line| line.lines.map { |l| '      ' + l }.join })
-
-          out.join("\n")
-
+          groups=locals[:tuning_fields] ? [[I18n.t('tuning.live_firmware',lang:lang),rows]] :
+            %w[hangar.servo hangar.battery hangar.geometry hangar.authority].each_with_index.map { |key,i| [I18n.t(key,lang:lang),rows.slice(i*3,3)] }
+          { page:locals.fetch(:settings_page,0).to_i.clamp(0,4),tabs:TABS.map { |k| I18n.t("tab.#{k.downcase}", lang: lang) },
+            birds:BIRD_KEYS.map { |k| I18n.t(k,lang:lang) },
+            profiles:FLIGHT_PROFILES.map { |k| I18n.t(PROFILE_KEYS[k],lang:lang) },
+            profile_index:FLIGHT_PROFILES.index(locals[:profile]) || 0,
+            bird_model:locals.fetch(:bird_model,0), camera_fpv:locals.fetch(:camera_fpv,false),
+            fpv_angle:locals.fetch(:fpv_angle,0),body_mass_kg:locals.fetch(:body_mass_kg,0.45),
+            cg_offset_mm:locals.fetch(:cg_offset_mm,0),coupled_throttle:locals.fetch(:coupled_throttle,true),
+            freelook_invert:locals.fetch(:freelook_invert,false),mouse_gains:locals.fetch(:mouse_gains,[1,-1,1]),
+            control_expo:locals.fetch(:control_expo,0.65)*100,speed_modifier:locals.fetch(:speed_modifier,0.5),
+            flight_safety:locals.fetch(:flight_safety,1),replay_spirits:locals.fetch(:replay_spirits,true),
+            wingbeat_volume:locals.fetch(:wingbeat_volume,1),radio_volume:locals.fetch(:radio_volume,0.5),
+            groups:groups,frontend:locals.fetch(:frontend,false) }
         end
-
-
-
-        def section(page, idx, title)
-
-          %(    %Section{ title: "#{title}", open: true, visible: #{page == idx} })
-
-        end
-
-
-
-        def field(label)
-
-          %(      %Field{ label: "#{label}" })
-
-        end
-
-
-
-        def slider(label, value, min, max, step, unit, action)
-
-          [field(label),
-
-           %(        %Slider{ value: #{num(value)}, min: #{num(min)}, max: #{num(max)}, step: #{num(step)}, unit: "#{unit}", action: "#{action}" })].join("\n")
-
-        end
-
-
-
-        def toggle(label, value, action, on_label, off_label)
-
-          [field(label),
-
-           %(        %Toggle{ value: #{value ? "true" : "false"}, action: "#{action}", on: "#{on_label}", off: "#{off_label}" })].join("\n")
-
-        end
-
-
-
-        def button(label, action, tone = nil)
-
-          tone_attr = tone ? %(, tone: "#{tone}") : ""
-
-          %(      %Button{ label: "#{label}", action: "#{action}"#{tone_attr} })
-
-        end
-
-
-
-        # A tuning slider emits the PascalCase C++ action key (matching
-
-        # born2flap::tuning::Key) while its label is the i18n key.
-
-        def tuning_slider(row, lang)
-
-          slider(I18n.t(row.action, lang: lang), row.value, row.min, row.max, row.step, row.unit, ckey(row.action))
-
-        end
-
-
-
-        def ckey(action)
-
-          action.split(".").last.split("_").map(&:capitalize).join
-
-        end
-
-
-
-        def each_row(fields, names)
-
-          fields.select { |r| names.any? { |n| r.action.end_with?(n) } }.each { |r| yield r }
-
-        end
-
-
-
-        def gain(locals, axis)
-
-          g = locals[:mouse_gains]
-
-          return (axis == 1 ? -1.0 : 1.0) unless g.is_a?(Array) && g[axis]
-
-          g[axis].to_f
-
-        end
-
-
-
-        def bird_options(lang)
-
-          BIRD_KEYS.map { |k| I18n.t(k, lang: lang) }.inspect
-
-        end
-
-
-
-        def profile_index(locals)
-
-          FLIGHT_PROFILES.index(locals[:profile]) || 0
-
-        end
-
-
-
-        def profile_options(lang)
-
-          FLIGHT_PROFILES.map { |p| I18n.t(PROFILE_KEYS[p], lang: lang) }.inspect
-
-        end
-
-
-
-        def intv(v)
-
-          (v || 0).to_i
-
-        end
-
-
-
-        def num(v)
-
-          v.nil? ? 0 : v
-
-        end
-
       end
-
     end
-
   end
-
 end

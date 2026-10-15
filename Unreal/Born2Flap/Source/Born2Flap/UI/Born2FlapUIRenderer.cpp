@@ -20,6 +20,7 @@
 #include "Components/TextBlock.h"
 #include "Components/Button.h"
 #include "Components/Slider.h"
+#include "Components/InputKeySelector.h"
 #include "Components/ProgressBar.h"
 #include "Components/Image.h"
 #include "Components/Spacer.h"
@@ -39,6 +40,7 @@
 #include "UObject/StrongObjectPtr.h"
 #include "UObject/UObjectGlobals.h"
 #include "UI/Born2FlapWindArrow.h"
+#include "UI/Born2FlapStick.h"
 #include "Framework/Application/SlateApplication.h"
 
 using namespace born2flap::ui;
@@ -238,13 +240,14 @@ int32 DecimalsFor(const FProps& Props, double Step)
         if (F.Len() == 2 && F[0] == 'f' && F[1] >= '0' && F[1] <= '9')
             return F[1] - '0';
     }
+    if(Props.count("decimals")) return FMath::Clamp((int32)Num(Props.at("decimals"),2),0,6);
     return DecimalsForStep(Step);
 }
 
 FString Readout(double Value, int32 Decimals, const FString& Unit)
 {
-    FString S = FString::SanitizeFloat((float)Value, Decimals);
-    if (!Unit.IsEmpty()) S += Unit;
+    FString S = FString::Printf(TEXT("%.*f"),Decimals,Value);
+    if (!Unit.IsEmpty()) S += TEXT(" ")+Unit;
     return S;
 }
 
@@ -397,6 +400,12 @@ UBorn2FlapUIRenderer::UBorn2FlapUIRenderer()
 
 // ---- action relay (UMG dynamic delegates → semantic component actions) ----
 
+void UBorn2FlapActionRelay::OnKey(FInputChord Chord)
+{
+    if(Renderer.IsValid() && Composite && Chord.Key.IsValid())
+        Renderer->EmitAction(Composite->Action,0,Chord.Key.GetFName().ToString());
+}
+
 void UBorn2FlapActionRelay::OnSlider(float Value)
 {
     if (Renderer.IsValid())
@@ -434,24 +443,32 @@ void UBorn2FlapUIRenderer::HandleSliderChanged(UBorn2FlapComposite* C, float Val
 {
     if (!C)
         return;
+
+    // The native slider runs in *display* units (stored × scaling). Convert
+    // back to the canonical stored unit before snapping/clamping/emitting, so
+    // the backend always receives the value it authored (e.g. kg, not grams).
+    double Scaling = FCString::Atof(*C->State.FindRef(TEXT("scaling")));
+    if (Scaling <= 0.0) Scaling = 1.0;
+    double Stored = (double)Value / Scaling;
+
     // Snap to step so a slider with step=1 lands on whole numbers (the readout
     // and the emitted value agree). Step/min/max are re-read from State.
     double Step = FCString::Atof(*C->State.FindRef(TEXT("step")));
     if (Step > 0.0)
-        Value = (float)(FMath::RoundToDouble(Value / Step) * Step);
+        Stored = FMath::RoundToDouble(Stored / Step) * Step;
 
     const double Min = FCString::Atof(*C->State.FindRef(TEXT("min")));
     const double Max = FCString::Atof(*C->State.FindRef(TEXT("max")));
     if (C->State.Contains(TEXT("min")) && C->State.Contains(TEXT("max")))
-        Value = (float)FMath::Clamp((double)Value, Min, Max);
+        Stored = FMath::Clamp(Stored, Min, Max);
 
     const int32 D = FCString::Atoi(*C->State.FindRef(TEXT("decimals")));
     const FString Unit = C->State.FindRef(TEXT("unit"));
-    C->State.Add(TEXT("value"), Readout(Value, D, Unit));
+    C->State.Add(TEXT("value"), Readout(Stored * Scaling, D, Unit));
     if (UTextBlock* V = Cast<UTextBlock>(C->Part(TEXT("value"))))
         V->SetText(FText::FromString(C->State.FindRef(TEXT("value"))));
 
-    EmitAction(C->Action, Value, TEXT(""));
+    EmitAction(C->Action, (float)Stored, TEXT(""));
 }
 
 void UBorn2FlapUIRenderer::HandleClicked(UBorn2FlapComposite* C, int32 OptionIndex)
@@ -586,6 +603,20 @@ UWidget* UBorn2FlapUIRenderer::CreateInstance(const std::string& Type)
 {
     const FString T(UTF8_TO_TCHAR(Type.c_str()));
 
+    if(T==TEXT("KeySelector")) {
+        auto* C=NewComposite(this,T);
+        auto* Key=NewObject<UInputKeySelector>(this);
+        auto* StyledButton=NewObject<UButton>(this); ArtButton(StyledButton);
+        Key->SetButtonStyle(StyledButton->GetStyle());
+        FTextBlockStyle TextStyle; TextStyle.SetFont(theme::Font(TEXT("m"),15)); TextStyle.SetColorAndOpacity(theme::FG());
+        Key->SetTextStyle(TextStyle);
+        Key->SetAllowModifierKeys(false); Key->SetAllowGamepadKeys(true);
+        C->SetContent(Key); C->Parts.Add(TEXT("key"),Key);
+        auto* Relay=NewObject<UBorn2FlapActionRelay>(this);
+        Relay->Renderer=this; Relay->Composite=C; Relays.Add(Relay);
+        Key->OnKeySelected.AddDynamic(Relay,&UBorn2FlapActionRelay::OnKey);
+        return C;
+    }
     // semantic composite components (pre-styled)
     if (T == TEXT("Panel") || T == TEXT("Value") || T == TEXT("Stat") ||
         T == TEXT("Gauge") || T == TEXT("Banner") || T == TEXT("Button") ||
@@ -609,6 +640,7 @@ UWidget* UBorn2FlapUIRenderer::CreateInstance(const std::string& Type)
     if (Type == "ScaleBox") { auto* Scale=NewObject<UScaleBox>(this); Scale->SetStretch(EStretch::ScaleToFit); Scale->SetStretchDirection(EStretchDirection::DownOnly); return Scale; }
     if (Type == "SizeBox")       return NewObject<USizeBox>(this);
     if (Type == "WindArrow")     return NewObject<UBorn2FlapWindArrow>(this);
+    if (Type == "Stick")         return NewObject<UBorn2FlapStick>(this);
 
     UE_LOG(LogTemp, Warning, TEXT("Born2FlapUIRenderer: unknown widget type '%s'"), *T);
     return NewObject<UBorder>(this);
@@ -665,9 +697,9 @@ void UBorn2FlapUIRenderer::AppendChild(UWidget* Parent, int32 Index, UWidget* Ch
                 // panels pass an explicit larger value.
                 const FString PadStr = C->State.FindRef(TEXT("pad"));
                 const float Pad = PadStr.IsEmpty() ? 24.f : FCString::Atof(*PadStr);
-                if (Pad > 0.f)
-                    if (UScrollBoxSlot* Slot = Cast<UScrollBoxSlot>(Child->Slot))
-                        Slot->SetPadding(FMargin(0.f, Pad, 0.f, Pad));
+                if (UScrollBoxSlot* Slot = Cast<UScrollBoxSlot>(Child->Slot))
+                    Slot->SetPadding(FMargin(0,C->State.Contains(TEXT("pad_top"))?FCString::Atof(*C->State.FindRef(TEXT("pad_top"))):Pad,
+                        0,C->State.Contains(TEXT("pad_bottom"))?FCString::Atof(*C->State.FindRef(TEXT("pad_bottom"))):Pad));
             }
             ApplyChildMargin(Child);
         }
@@ -929,6 +961,7 @@ UBorn2FlapComposite* UBorn2FlapUIRenderer::BuildComponent(const FString& Type)
         // scroll pages so the header overlays the scroll instead of pushing it
         // down, letting content dissolve underneath it.
         UBorn2FlapComposite* C = NewComposite(this, TEXT("Caption"));
+        C->SetHorizontalAlignment(HAlign_Left);
         C->SetPadding(FMargin(0.f));
         UBorder* Pill = NewObject<UBorder>(this);
         Pill->SetBrush(FSlateRoundedBoxBrush(FLinearColor(.04f,.065f,.075f,.88f),3.f,FLinearColor(.6f,.48f,.27f,.7f),1.f));
@@ -973,6 +1006,10 @@ UBorn2FlapComposite* UBorn2FlapUIRenderer::BuildComponent(const FString& Type)
         UTextBlock* ValueText = NewObject<UTextBlock>(this);
         ValueText->SetFont(theme::Font(TEXT("s"), 12, true));
         Head->AddChildToHorizontalBox(ValueText);
+        UTextBlock* HintText = NewObject<UTextBlock>(this);
+        HintText->SetFont(theme::Font(TEXT("s"), 12));
+        HintText->SetColorAndOpacity(FSlateColor(theme::FG_DIM()));
+        Head->AddChildToHorizontalBox(HintText)->SetPadding(FMargin(8.f, 0.f, 0.f, 0.f));
         USlider* Slider = NewObject<USlider>(this);
         FSliderStyle SliderStyle;
         SliderStyle.NormalBarImage = ArtBrush(TEXT("SliderTrackDark"),FVector2D(146,8),FMargin(.05f));
@@ -987,6 +1024,7 @@ UBorn2FlapComposite* UBorn2FlapUIRenderer::BuildComponent(const FString& Type)
         Body->AddChildToVerticalBox(Slider);
         C->Parts.Add(TEXT("label"), Label);
         C->Parts.Add(TEXT("value"), ValueText);
+        C->Parts.Add(TEXT("hint"), HintText);
         C->Parts.Add(TEXT("slider"), Slider);
         BindSlider(Slider, C);
         return C;
@@ -1104,14 +1142,14 @@ UBorn2FlapComposite* UBorn2FlapUIRenderer::BuildComponent(const FString& Type)
     {
         UBorn2FlapComposite* C = NewComposite(this, TEXT("Field"));
         C->SetPadding(FMargin(0.f));
-        UHorizontalBox* Body = NewObject<UHorizontalBox>(this);
+        UVerticalBox* Body = NewObject<UVerticalBox>(this);
         C->SetContent(Body);
         UTextBlock* Label = NewObject<UTextBlock>(this);
         Label->SetFont(theme::Font(TEXT("s"), 12));
         Label->SetColorAndOpacity(FSlateColor(theme::FG_DIM()));
-        Body->AddChildToHorizontalBox(Label);
-        UHorizontalBox* Control = NewObject<UHorizontalBox>(this);
-        Body->AddChildToHorizontalBox(Control);
+        Body->AddChildToVerticalBox(Label);
+        UVerticalBox* Control = NewObject<UVerticalBox>(this);
+        Body->AddChildToVerticalBox(Control);
         C->Parts.Add(TEXT("label"), Label);
         C->Content = Control;
         return C;
@@ -1267,6 +1305,10 @@ void UBorn2FlapUIRenderer::ApplyCompositeProps(UBorn2FlapComposite* C, const FPr
         if (C->ContentPanel())
             StoreContainerLayout(C->ContentPanel(), Props);
     }
+    else if(Type==TEXT("KeySelector")) {
+        if(Props.count("key")) if(auto* K=Cast<UInputKeySelector>(C->Part(TEXT("key"))))
+            K->SetSelectedKey(FInputChord(FKey(FName(*Str(Props.at("key"))))));
+    }
     else if (Type == TEXT("ScrollBlur"))
     {
         // Progressive content blur via the retainer effect material, now
@@ -1317,7 +1359,7 @@ void UBorn2FlapUIRenderer::ApplyCompositeProps(UBorn2FlapComposite* C, const FPr
                 };
                 SParam("EdgeSize",     Edge);
                 SParam("EdgeBottom",   EdgeBottom);
-                SParam("Amount",       PropFloat("amount", 0.65f));
+                SParam("Amount",       PropFloat("amount", 0.85f));
                 SParam("BlurRadius",   PropFloat("blur", 0.02f));
                 SParam("Refract",      PropFloat("refract", 0.35f));
                 SParam("RefractScale", PropFloat("refractScale", 6.0f));
@@ -1327,6 +1369,27 @@ void UBorn2FlapUIRenderer::ApplyCompositeProps(UBorn2FlapComposite* C, const FPr
         }
         if (Props.count("pad"))
             C->State.Add(TEXT("pad"), FString::SanitizeFloat((float)Props.at("pad").AsNumber(0.0)));
+        for(const char* Key : {"pad_top","pad_bottom"}) if(Props.count(Key))
+            C->State.Add(UTF8_TO_TCHAR(Key), FString::SanitizeFloat(Num(Props.at(Key),0)));
+        if(auto* Scroll=Cast<UScrollBox>(C->Part(TEXT("scroll"))))
+        {
+            for(int32 I=0;I<Scroll->GetChildrenCount();++I)
+                if(auto* Slot=Cast<UScrollBoxSlot>(Scroll->GetChildAt(I)->Slot)) {
+                    const float Pad=FCString::Atof(*C->State.FindRef(TEXT("pad")));
+                    Slot->SetPadding(FMargin(0,C->State.Contains(TEXT("pad_top"))?FCString::Atof(*C->State.FindRef(TEXT("pad_top"))):Pad,
+                        0,C->State.Contains(TEXT("pad_bottom"))?FCString::Atof(*C->State.FindRef(TEXT("pad_bottom"))):Pad));
+                }
+            // `scrollbar_padding` insets the scrollbar track from the view's
+            // edges — it sizes AND repositions the scrollbar (right inset pulls
+            // it off the content edge; top/bottom insets shorten the thumb
+            // track). Authored via UMGSS (`ScrollBox { scrollbar_padding: .. }`)
+            // or inline in UMGHAML. A single number = uniform inset; also
+            // accepts [left,top,right,bottom] / [horizontal,vertical] like
+            // `padding`/`margin`.
+            const char* ScrollbarKey = Props.count("scrollbar_padding") ? "scrollbar_padding" : "scrollbarPadding";
+            if (Props.count(ScrollbarKey))
+                Scroll->SetScrollbarPadding(ParseMargin(Props.at(ScrollbarKey)));
+        }
     }
     else if (Type == TEXT("Value") || Type == TEXT("Stat"))
     {
@@ -1430,7 +1493,8 @@ void UBorn2FlapUIRenderer::ApplyCompositeProps(UBorn2FlapComposite* C, const FPr
     else if (Type == TEXT("Caption"))
     {
         UTextBlock* Title = Cast<UTextBlock>(C->Part(TEXT("title")));
-        if (Props.count("text") && Title) SetText(Title, Props.at("text"));
+        if(Props.count("title") && Title) SetText(Title,Props.at("title"));
+        else if (Props.count("text") && Title) SetText(Title, Props.at("text"));
         else if (Props.count("label") && Title) SetText(Title, Props.at("label"));
         if (!Tone.IsEmpty() && Title) Title->SetColorAndOpacity(FSlateColor(ToneColor));
     }
@@ -1462,27 +1526,53 @@ void UBorn2FlapUIRenderer::ApplyCompositeProps(UBorn2FlapComposite* C, const FPr
         UTextBlock* ValueTxt = Cast<UTextBlock>(C->Part(TEXT("value")));
         if (Props.count("label") && Label) SetText(Label, Props.at("label"));
 
-        double Min  = Slider ? (double)Slider->GetMinValue()  : 0.0;
-        double Max  = Slider ? (double)Slider->GetMaxValue()  : 1.0;
-        double Step = Slider ? (double)Slider->GetStepSize()  : 0.01;
-        if (Props.count("min"))  { Min  = Props.at("min").AsNumber();  if (Slider) Slider->SetMinValue((float)Min);  }
-        if (Props.count("max"))  { Max  = Props.at("max").AsNumber();  if (Slider) Slider->SetMaxValue((float)Max);  }
-        if (Props.count("step")) { Step = Props.at("step").AsNumber(); if (Slider) Slider->SetStepSize((float)Step); }
+        // Author the *stored* unit from props, but on a partial `update_props`
+        // (the reconciler only sends changed keys — e.g. just `value` after a
+        // slider drag) the min/max/step/scaling keys are absent. Fall back to
+        // the semantic cache rather than re-deriving them from the native
+        // slider (which already runs in scaled *display* units) and rather than
+        // resetting `scaling` to 1.0. Losing the scaling factor here made the
+        // relay emit grams as though they were kg, so the backend clamped body
+        // mass straight back to the 2 kg maximum.
+        auto Authored = [&](const char* Key, double Fallback) -> double {
+            if (Props.count(Key)) return Props.at(Key).AsNumber();
+            const FString FKey(Key);
+            if (C->State.Contains(FKey)) return FCString::Atof(*C->State.FindRef(FKey));
+            return Fallback;
+        };
+        double Scaling = Authored("scaling", 1.0);
+        if (Scaling <= 0.0) Scaling = 1.0;
+        double Min  = Authored("min",  Slider ? (double)Slider->GetMinValue() : 0.0);
+        double Max  = Authored("max",  Slider ? (double)Slider->GetMaxValue() : 1.0);
+        double Step = Authored("step", Slider ? (double)Slider->GetStepSize() : 0.01);
+
+        if (Slider)
+        {
+            Slider->SetMinValue((float)(Min * Scaling));
+            Slider->SetMaxValue((float)(Max * Scaling));
+            Slider->SetStepSize((float)(Step * Scaling));
+        }
 
         // Semantic cache: the relay snaps/clamps/formats from these on move.
         C->State.Add(TEXT("min"), FString::SanitizeFloat((float)Min));
         C->State.Add(TEXT("max"), FString::SanitizeFloat((float)Max));
         C->State.Add(TEXT("step"), FString::SanitizeFloat((float)Step));
-        C->State.Add(TEXT("decimals"), FString::FromInt(DecimalsFor(Props, Step)));
+        C->State.Add(TEXT("scaling"), FString::SanitizeFloat((float)Scaling));
+        C->State.Add(TEXT("decimals"), FString::FromInt(DecimalsFor(Props, Step * Scaling)));
         if (Props.count("unit")) C->State.Add(TEXT("unit"), Str(Props.at("unit")));
 
         double Value = Props.count("value") ? Props.at("value").AsNumber()
-                                            : (Slider ? (double)Slider->GetValue() : 0.0);
-        if (Props.count("value") && Slider) Slider->SetValue((float)Value);
+                                            : (Slider ? (double)Slider->GetValue() / Scaling : 0.0);
+        if (Props.count("value") && Slider) Slider->SetValue((float)(Value * Scaling));
         const int32 D = FCString::Atoi(*C->State.FindRef(TEXT("decimals")));
         const FString Unit = C->State.FindRef(TEXT("unit"));
-        C->State.Add(TEXT("value"), Readout(Value, D, Unit));
+        C->State.Add(TEXT("value"), Readout(Value * Scaling, D, Unit));
         if (ValueTxt) ValueTxt->SetText(FText::FromString(C->State.FindRef(TEXT("value"))));
+        if (UTextBlock* HintTxt = Cast<UTextBlock>(C->Part(TEXT("hint"))))
+        {
+            if (Props.count("hint")) SetText(HintTxt, Props.at("hint"));
+            else { HintTxt->SetText(FText::GetEmpty()); HintTxt->SetVisibility(ESlateVisibility::Collapsed); }
+        }
 
         if (!Tone.IsEmpty() && Slider) Slider->SetSliderHandleColor(ToneColor);
         if (!Tone.IsEmpty() && ValueTxt) ValueTxt->SetColorAndOpacity(FSlateColor(ToneColor));
@@ -1643,6 +1733,14 @@ void UBorn2FlapUIRenderer::ApplyPrimitiveProps(UWidget* W, const FProps& Props)
             A->SetArrowSize(SizeOrNum(Props.count("size") ? Props.at("size") : Props.at("arrowsize"), 28.0));
         if (!ToneOf(Props).IsEmpty())
             A->SetColor(theme::Tone(ToneOf(Props), theme::INFO()));
+    }
+    else if (UBorn2FlapStick* St = Cast<UBorn2FlapStick>(W))
+    {
+        if (Props.count("x")) St->SetX(Num(Props.at("x"), 0.0));
+        if (Props.count("y")) St->SetY(Num(Props.at("y"), 0.0));
+        if (Props.count("size")) St->SetStickSize(SizeOrNum(Props.at("size"), 160.0));
+        if (!ToneOf(Props).IsEmpty())
+            St->SetColor(theme::Tone(ToneOf(Props), theme::INFO()));
     }
     else if (USizeBox* SB = Cast<USizeBox>(W))
     {
@@ -2013,6 +2111,12 @@ bool UBorn2FlapUIRenderer::TestActivateAction(const FString& Action, float Value
     for(int32 I=Relays.Num()-1;I>=0;--I) {
         auto* R=Relays[I].Get();
         if(!R || !R->Composite || R->Composite->Action!=Action) continue;
+        bool Mounted=false,Visible=true;
+        for(UWidget* W=R->Composite;W;W=W->GetParent()) {
+            Visible &= W->GetVisibility()!=ESlateVisibility::Collapsed && W->GetVisibility()!=ESlateVisibility::Hidden;
+            if(W==RootWidget) { Mounted=true; break; }
+        }
+        if(!Mounted || !Visible) continue;
         const FString Type=R->Composite->SemanticType;
         if(Type==TEXT("Select") || Type==TEXT("Segment")) {
             if(R->OptionIndex!=FMath::RoundToInt(Value)) continue;

@@ -1,1 +1,35 @@
-#{tree_source}
+%Panel{ padding: 24 }
+  %ScrollPage{}
+    %VBox{ spacing: 12 }
+      %Caption{ title: "#{t('menu.flight_desk')}" }
+      %Segment{ options: #{tabs}, value: #{page}, action: "settings.page" }
+    %VBox{ spacing: 16 }
+      %Section{ title: "#{t('hangar.silhouette')}", open: true, visible: #{page == 0} }
+        %Select{ label: "#{t('hangar.bird')}", options: #{birds}, value: #{bird_model}, action: "bird.select" }
+        %Segment{ options: #{profiles}, value: #{profile_index}, action: "profile.select" }
+        %Toggle{ label: "#{t('settings.airborne_camera')}", value: #{camera_fpv}, on: "FPV", off: "CHASE", action: "camera.fpv" }
+      %Section{ title: "#{t('tuning.bird')}", open: true, visible: #{page == 1} }
+        %Slider{ label: "#{t('settings.fpv_camera_angle')}", value: #{fpv_angle}, min: -45, max: 45, step: 1, unit: "°", action: "camera.angle" }
+        %Slider{ label: "#{t('tuning.body_mass')}", value: #{body_mass_kg}, min: 0.01, max: 2, step: 0.001, unit: "g", scaling: 1000, action: "bird.weight" }
+        %Slider{ label: "#{t('tuning.cg')}", value: #{cg_offset_mm}, min: -100, max: 100, step: 1, unit: "mm", action: "bird.cg" }
+        %Toggle{ label: "#{t('tuning.coupled_throttle')}", value: #{coupled_throttle}, action: "bird.coupled" }
+        %Toggle{ label: "#{t('settings.invert_free_look')}", value: #{freelook_invert}, action: "camera.freelook.invert" }
+      %Section{ title: "#{t('tuning.controls')}", open: true, visible: #{page == 2} }
+        - %w[axis.roll axis.pitch axis.yaw].each_with_index do |key, i|
+          %Slider{ label: "#{t(key)}", value: #{mouse_gains[i]}, min: -2, max: 2, step: 0.05, action: "mouse.gain.#{i}" }
+        %Button{ label: "#{t('tuning.reset_mouse')}", action: "mouse.reset" }
+        %Slider{ label: "#{t('tuning.control_expo')}", value: #{control_expo}, min: 0, max: 100, step: 1, unit: "%", action: "control.expo" }
+        %Slider{ label: "#{t('tuning.mouse_speed')}", value: #{speed_modifier}, min: 0, max: 1, step: 0.05, action: "mouse.speed" }
+      %Section{ title: "#{t('tuning.assist')}", open: true, visible: #{page == 3} }
+        %Slider{ label: "#{t('tuning.flight_safety')}", value: #{flight_safety}, min: 0, max: 2, step: 1, action: "flight.safety" }
+        %Toggle{ label: "#{t('tuning.replay_shadows')}", value: #{replay_spirits}, action: "replay.spirits" }
+        %Button{ label: "#{t('tuning.delete_replay')}", action: "replay.delete", disabled: #{frontend}, tooltip: "Deletes replay shadows in the loaded world." }
+        %Slider{ label: "#{t('settings.wingbeat_volume')}", value: #{wingbeat_volume}, min: 0, max: 4, step: 0.05, action: "audio.wingbeat" }
+        %Slider{ label: "#{t('settings.radio_volume')}", value: #{radio_volume}, min: 0, max: 1, step: 0.05, action: "radio.volume" }
+      %VBox{ visible: #{page == 4}, spacing: 12 }
+        %Dropdown{ label: "#{t('tuning.servo_preset')}", options: ["Blue Arrow AF D43S", "VOTIK 7465", "VOTIK 7465 Plus", "Blue Arrow D0576", "Inservos D0474", "KST MR320", "SAVOX SV-1270TG"], action: "servo.preset", value: -1 }
+      - groups.each do |name, rows|
+        %Section{ title: #{name.inspect}, open: true, visible: #{page == 4} }
+          - rows.each do |r|
+            %Slider{ label: #{r[:label].inspect}, value: #{r[:value]}, min: #{r[:min]}, max: #{r[:max]}, step: #{r[:step]}, decimals: #{r[:decimals] || 2}, unit: #{r[:unit].inspect}, action: #{r[:action].inspect}, tooltip: #{r[:help].to_s.inspect} }
+    %Button{ label: "#{t('tuning.save_return')}", action: "editor.close", tone: "good" }

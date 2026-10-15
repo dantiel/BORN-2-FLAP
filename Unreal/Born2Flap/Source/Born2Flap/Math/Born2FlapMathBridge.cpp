@@ -80,8 +80,13 @@ bool FBorn2FlapMathBridge::Load()
         return true;
     }
 #endif
-    const FString LibraryPath = FPaths::Combine(
+    FString LibraryPath = FPaths::Combine(
         FPaths::ProjectDir(), TEXT("Binaries"), TEXT("ThirdParty"), MathLibraryName());
+#if !UE_BUILD_SHIPPING
+    // Isolated regression comparisons without replacing the installed DLL.
+    if (FParse::Param(FCommandLine::Get(), TEXT("B2FFlightTest")))
+        FParse::Value(FCommandLine::Get(), TEXT("B2FPhysicsTestLibrary="), LibraryPath);
+#endif
     // Pin one loader reference for the process: GHC cannot be stopped/restarted
     // between PIE sessions. Per-aircraft contexts are still freed by Unload().
     static void* ProcessLibraryHandle = nullptr;

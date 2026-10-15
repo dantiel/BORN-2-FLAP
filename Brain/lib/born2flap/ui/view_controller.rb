@@ -89,7 +89,8 @@ module Born2Flap
         tree = HamlParser.parse(source).children.first
 
         theme = load_theme(name)
-        theme ? theme.apply(tree) : tree
+        tree = theme.apply(tree) if theme
+        Layout.expand(tree)
       end
 
       # Absolute path of this controller's directory on disk.

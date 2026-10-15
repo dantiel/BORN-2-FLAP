@@ -61,6 +61,7 @@ void ABorn2FlapUIBridge::BeginPlay()
     {
         FString Script = FPaths::ProjectDir() / TEXT("../../Brain/bin/umghaml_brain");
         FPaths::CollapseRelativeDirectories(Script);
+        if(!FPaths::FileExists(Script)) Script=FPaths::ProjectDir()/TEXT("Brain/bin/umghaml_brain");
         if (FPaths::FileExists(Script))
         {
 #if PLATFORM_WINDOWS
@@ -70,8 +71,8 @@ void ABorn2FlapUIBridge::BeginPlay()
             // CreateProcess resolves it) for dev machines without the bundle.
             FString Ruby = FPaths::ProjectDir() / TEXT("../../ThirdParty/ruby/bin/ruby.exe");
             FPaths::CollapseRelativeDirectories(Ruby);
-            if (!FPaths::FileExists(Ruby))
-                Ruby = TEXT("ruby");
+            if (!FPaths::FileExists(Ruby)) Ruby=FPaths::ProjectDir()/TEXT("ThirdParty/ruby/bin/ruby.exe");
+            if (!FPaths::FileExists(Ruby)) Ruby = TEXT("ruby");
 
             BrainCommand = FString::Printf(
                 TEXT("\"%s\" \"%s\" \"%s\" \"%s\""),
@@ -93,9 +94,14 @@ void ABorn2FlapUIBridge::BeginPlay()
 void ABorn2FlapUIBridge::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
-    if (IsBrainActive())
-        WriteTelemetry();
-    DrainSource();
+    // UI readouts run at 20 Hz independently of simulation/render FPS.
+    const double Now = FPlatformTime::Seconds();
+    if (Now >= NextTelemetryTime) {
+        NextTelemetryTime = Now + .05;
+        if (IsBrainActive()) WriteTelemetry();
+        DrainSource();
+    }
+    MaxBridgeMs=FMath::Max(MaxBridgeMs,(FPlatformTime::Seconds()-Now)*1000.);
     RunUITest(DeltaSeconds);
 }
 
@@ -291,10 +297,12 @@ void ABorn2FlapUIBridge::WriteTelemetry()
     // over the live path means the reader always sees a complete object — never
     // a torn write (which surfaced as a permanently empty menu because
     // read_telemetry kept returning nil and prev/next seemed dead).
+    if (Json == LastTelemetryJson) return;
     const FString TmpPath = TelemetryPath + TEXT(".tmp");
-    FFileHelper::SaveStringToFile(Json + LINE_TERMINATOR, *TmpPath,
-        FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
-    IFileManager::Get().Move(*TelemetryPath, *TmpPath, /*Replace=*/true);
+    if (FFileHelper::SaveStringToFile(Json + LINE_TERMINATOR, *TmpPath,
+        FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM) &&
+        IFileManager::Get().Move(*TelemetryPath, *TmpPath, true, false, false, /*bDoNotRetryOrError=*/true))
+        { LastTelemetryJson = Json; ++TelemetryWrites; } // sharing contention retries next UI tick without blocking
 }
 
 void ABorn2FlapUIBridge::HandleAction(const FString& Action, float Value, const FString& Text)
@@ -305,6 +313,7 @@ void ABorn2FlapUIBridge::HandleAction(const FString& Action, float Value, const 
     Event->SetNumberField(TEXT("value"), Value);
     Event->SetStringField(TEXT("text"), Text);
     PendingEvents.Add(MakeShared<FJsonValueObject>(Event));
+    NextTelemetryTime = 0;
 
 }
 
@@ -360,6 +369,7 @@ void ABorn2FlapUIBridge::ApplyFrame(const TArray<uint8>& Bytes)
         const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&FilteredJson);
         FJsonSerializer::Serialize(UiOps, Writer);
         Renderer->ApplyOpsJson(FilteredJson);
+        ++AppliedFrames;
     }
 }
 
@@ -395,6 +405,27 @@ void ABorn2FlapUIBridge::DispatchCommand(const FJsonObject& Cmd)
 }
 void ABorn2FlapUIBridge::RunUITest(float Dt)
 {
+    if(FParse::Param(FCommandLine::Get(),TEXT("B2FRubyUIPerfTest"))) {
+        UITestElapsed+=Dt;
+        if(UITestElapsed<6+UITestStage*3) return;
+        auto* Pawn=Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this,0));
+        if(!Pawn) { UE_LOG(LogTemp,Error,TEXT("RubyUIPerf FAIL: no pawn")); FPlatformMisc::RequestExit(false); return; }
+        if(UITestStage==0) Pawn->ToggleUIHidden();
+        if(UITestStage==1) { SampleWrites=TelemetryWrites; SampleFrames=AppliedFrames; MaxBridgeMs=0; }
+        if(UITestStage==3) {
+            bUITestPassed=TelemetryWrites==SampleWrites && AppliedFrames==SampleFrames;
+            UE_LOG(LogTemp,Display,TEXT("RubyUIPerf hidden: writes=%lld frames=%lld maxBridgeMs=%.3f %s"),TelemetryWrites-SampleWrites,AppliedFrames-SampleFrames,MaxBridgeMs,bUITestPassed?TEXT("PASS"):TEXT("FAIL"));
+            FScreenshotRequest::RequestScreenshot(TEXT("RUBY_UI_hidden.png"),true,false);
+            Pawn->ToggleUIHidden(); SampleFrames=AppliedFrames;
+        }
+        if(UITestStage==4) {
+            bUITestPassed &= AppliedFrames>SampleFrames;
+            FScreenshotRequest::RequestScreenshot(TEXT("RUBY_UI_restored.png"),true,false);
+            UE_LOG(LogTemp,Display,TEXT("RubyUIPerf restored: frames=%lld %s"),AppliedFrames-SampleFrames,bUITestPassed?TEXT("PASS"):TEXT("FAIL"));
+        }
+        if(UITestStage++==5) FPlatformMisc::RequestExit(false);
+        return;
+    }
     const bool Flight=FParse::Param(FCommandLine::Get(),TEXT("B2FRubyFlightUITest"));
     if(!Flight && !FParse::Param(FCommandLine::Get(),TEXT("B2FRubyUITest"))) return;
     UITestElapsed+=Dt;
@@ -405,6 +436,41 @@ void ABorn2FlapUIBridge::RunUITest(float Dt)
         bool OK=Renderer->TestActivateAction(A,V); bUITestPassed &= OK;
         UE_LOG(LogTemp,Display,TEXT("RubyUI relay %s: %s"),A,OK?TEXT("PASS"):TEXT("FAIL"));
     };
+    if(FParse::Param(FCommandLine::Get(),TEXT("B2FRubyIngameReview"))) {
+        switch(UITestStage) {
+        case 0: if(GM) GM->ShowMainMenu(true); break;
+        case 1: Click(TEXT("menu.settings")); break;
+        case 3: Click(TEXT("editor.close")); break;
+        case 4: if(GM) GM->ShowMainMenu(true); break;
+        case 5: Click(TEXT("menu.preferences")); break;
+        case 6: Click(TEXT("preferences.page"),2); break;
+        case 7: Click(TEXT("preferences.close")); break;
+        case 8: if(Bird) Bird->ToggleUIHidden(); break;
+        case 9: if(Bird) Bird->ToggleUIHidden(); break;
+        }
+        FScreenshotRequest::RequestScreenshot(FString::Printf(TEXT("RUBY_UI_ingame_%d.png"),UITestStage),true,false);
+        if(UITestStage++>=11) { UE_LOG(LogTemp,Display,TEXT("RubyUIIngameReview %s"),bUITestPassed?TEXT("PASS"):TEXT("FAIL")); FPlatformMisc::RequestExit(false); }
+        return;
+    }
+    if(FParse::Param(FCommandLine::Get(),TEXT("B2FRubyUIReview"))) {
+        switch(UITestStage) {
+        case 1: Click(TEXT("menu.page"),1); break;
+        case 2: Click(TEXT("menu.page"),2); break;
+        case 3: Click(TEXT("menu.settings")); break;
+        case 4: Click(TEXT("settings.page"),1); break;
+        case 5: Click(TEXT("settings.page"),4); break;
+        case 6: Click(TEXT("editor.close")); break;
+        case 7: Click(TEXT("menu.preferences")); break;
+        case 8: Click(TEXT("preferences.page"),1); break;
+        case 9: Click(TEXT("preferences.page"),2); break;
+        case 10: Click(TEXT("preferences.close")); break;
+        case 11: Click(TEXT("menu.controls")); break;
+        case 12: Click(TEXT("rc.close")); break;
+        }
+        FScreenshotRequest::RequestScreenshot(FString::Printf(TEXT("RUBY_UI_review_%d.png"),UITestStage),true,false);
+        if(UITestStage++>=13) { UE_LOG(LogTemp,Display,TEXT("RubyUIReview %s"),bUITestPassed?TEXT("PASS"):TEXT("FAIL")); FPlatformMisc::RequestExit(false); }
+        return;
+    }
     if(Flight) {
         switch(UITestStage) {
         case 0: if(GM) GM->HandleBrainAction(TEXT("menu.settings"),0,TEXT("")); break;

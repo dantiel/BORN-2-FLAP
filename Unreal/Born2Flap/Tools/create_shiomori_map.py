@@ -466,10 +466,13 @@ return normalize(float3(n,1.0));''',{'P':p,'T':t})
 
 def sand_material(name, diffuse, normal, rough=0.8, rough_tex=None, tiling_cm=300.0,
                   relief_scale=0.02, relief_strength=0.6, normal_strength=0.6,
-                  tint=None, caustic=False, pebble=None):
+                  pebble=None):
     """Beach sand: macro albedo + authored normal, an aperiodic height field
     (parallax + fake AO + gradient normal), and a fine grain — shared verbatim
-    with the headlands so the strand reads as one continuous surface.
+    with the headlands so the strand reads as one continuous surface. Wetness
+    (darkening, gloss, caustics) now lives inside sand_surface.surface(), driven
+    by world height, so the dry/wet hand-off across the beach, seabed and
+    headland has no hard material seam.
 
     `relief_scale` is retained for map-generator callers but superseded: the
     grain/undulation scales now live together in sand_surface.surface().
@@ -481,33 +484,9 @@ def sand_material(name, diffuse, normal, rough=0.8, rough_tex=None, tiling_cm=30
     m.set_editor_property('tangent_space_normal', False)
     from sand_surface import surface
     bc, sand_normal, sand_rough = surface(
-        m, diffuse, normal, rough_tex, node, custom, wet=caustic,
+        m, diffuse, normal, rough_tex, node, custom,
         macro_cm=tiling_cm, relief_strength=relief_strength,
         normal_strength=normal_strength)
-    if tint is not None:
-        t = node(m, 'Constant3Vector', constant=u.LinearColor(*tint))
-        mul = node(m, 'Multiply')
-        wire(bc, mul, 'A')
-        wire(t, mul, 'B')
-        bc = mul
-    if caustic:
-        # Underwater light caustics: a soft, slow shimmer that brightens the
-        # seabed around 1x instead of a hard-edged cell mask. The old
-        # smoothstep(0.12,1,..) threshold clipped most cells to black and read
-        # as a coarse near-black checkerboard through the water.
-        cp = node(m, 'WorldPosition')
-        ct = node(m, 'Time')
-        caus = custom(m, '''float2 q=P.xy*0.02;
-  float t=T*0.6;
-  float c=sin(q.x*3.7+t)*sin(q.y*2.9-t*1.2)
-        +sin(q.x*5.3-t*0.7)*sin(q.y*4.1+t*0.5)
-        +sin((q.x+q.y)*2.6+t*0.4)*sin((q.x-q.y)*3.1-t*0.6);
-  return 0.5+0.5*c/3.0;''', {'P': cp, 'T': ct}, 1)
-        sc = node(m, 'Multiply'); sc.set_editor_property('const_b', 0.28); wire(caus, sc, 'A')
-        one = node(m, 'Constant', r=0.9)
-        add = node(m, 'Add'); wire(one, add, 'A'); wire(sc, add, 'B')
-        mul2 = node(m, 'Multiply'); wire(bc, mul2, 'A'); wire(add, mul2, 'B')
-        bc = mul2
     # Stone/pebble strand: a value-noise-wobbled ramp on |x| grades the fine sand
     # into coarser, darker stone pebbles toward the beach ends, so the sand hands
     # off to the headland rock with no hard straight seam.
@@ -926,8 +905,8 @@ mats = {}
 mats['Sand'] = sand_material('Sand', sand_d, sand_n, rough_tex=sand_r, tiling_cm=300.0,
                              normal_strength=0.65,
                              pebble=(basalt_d, basalt_n, basalt_r, (0.55, 0.55, 0.56), 36000.0, 44800.0))
-mats['WetSand'] = sand_material('WetSand', sand_d, sand_n, rough=0.35, tiling_cm=300.0,
-                                normal_strength=0.5, tint=(0.74, 0.68, 0.56), caustic=True)
+mats['WetSand'] = sand_material('WetSand', sand_d, sand_n, rough_tex=sand_r, tiling_cm=300.0,
+                                normal_strength=0.65)
 mats['Concrete'] = concrete_material('Concrete', worn_d, worn_n, worn_r,
                                      scale_cm=300.0, normal_strength=0.5)
 mats['Basalt'] = pbr_material('Basalt', diffuse=basalt_d, normal=basalt_n, rough=0.92,

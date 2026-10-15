@@ -19,6 +19,7 @@
 #include "Blueprint/UserWidget.h"
 #include "Templates/UniquePtr.h"
 #include "Types/SlateEnums.h"
+#include "Framework/Commands/InputChord.h"
 #include "UI/Born2FlapUiOps.h"
 #include "UI/Born2FlapUiTree.h"
 #include "UI/Born2FlapUiTheme.h"
@@ -72,6 +73,9 @@ public:
 
     UFUNCTION()
     void OnSlider(float Value);
+
+    UFUNCTION()
+    void OnKey(FInputChord Chord);
 
     UFUNCTION()
     void OnClick();

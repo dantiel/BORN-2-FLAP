@@ -257,7 +257,9 @@ void UBorn2FlapRadioStation::ToggleMute()
         return;
     if (!bMuted)
     {
-        SavedVolume = FMath::Max(Volume, 0.001f);
+        // Never stash a near-zero level: unmuting must always bring the radio
+        // back audibly (a mute at volume 0 would otherwise restore silence).
+        SavedVolume = FMath::Max(Volume, 0.05f);
         bMuted = true;
         Volume = 0.0f;
     }
@@ -270,6 +272,19 @@ void UBorn2FlapRadioStation::ToggleMute()
     if (bCrossfading && Fader)
         Fader->SetVolumeMultiplier(FMath::Clamp(CrossfadeElapsed / FMath::Max(Crossfade, 0.01f), 0.0f, 1.0f) * Volume);
     SaveSavedVolume();
+}
+
+float UBorn2FlapRadioStation::PreferenceVolume()
+{
+    FConfigFile Config; Config.Read(RadioPrefsPath());
+    float Value=.5f; Config.GetFloat(TEXT("Audio"),TEXT("RadioVolume"),Value);
+    return FMath::Clamp(Value,0.f,1.f);
+}
+void UBorn2FlapRadioStation::SavePreferenceVolume(float Value)
+{
+    FConfigFile Config; Config.Read(RadioPrefsPath());
+    Config.SetFloat(TEXT("Audio"),TEXT("RadioVolume"),FMath::Clamp(Value,0.f,1.f));
+    Config.Write(RadioPrefsPath());
 }
 
 void UBorn2FlapRadioStation::LoadSavedVolume()

@@ -13,6 +13,7 @@ import Born2Flap.Math.Waveform
   , limiarFromFerocities, shapeWave, shapeWaveWithDerivative )
 import Born2Flap.Math.Firmware
 import Born2Flap.Math.Servo
+import Born2Flap.Math.RollDynamics
 import Born2Flap.Math.FirmwareVehicle
 import Born2Flap.Math.FerocityPrice
 import Born2Flap.Math.OrderTracker
@@ -21,6 +22,32 @@ import Born2Flap.Math.Resonance
 
 main :: IO ()
 main = do
+  -- Coupled inertia: internal motor impulses conserve angular momentum;
+  -- kinetic work converges to the continuous constant-torque solution.
+  let j=0.002; rotor=0.0016; locked=0.008; dt=1/240
+      zero=Vec3 0 0 0
+      drive _=Vec3 0 (-1) 1
+      solve h old angles loads = case stepRoll h locked j rotor old angles loads of
+        Just v -> v
+        Nothing -> error "coupled roll solve failed"
+      moved=solve dt zero (0,0) drive
+      a=1/(j+rotor-2*j*j/locked)
+  if abs (rollMomentum locked j moved) < 1e-9
+     && abs (y moved + dt*a) < 1e-6 && abs (z moved - dt*a) < 1e-6
+    then pure () else fail "free-body motor acceleration must match coupled mass matrix"
+  let symmetric=solve dt zero (0,0) (const (Vec3 0 1 1))
+      damp v=Vec3 (-0.2*x v) (-0.1*y v) (-0.1*z v)
+      moving=Vec3 2 (-3) 4
+      damped=solve dt moving (0,0) damp
+      stopped=solve dt moving (-80*pi/180,80*pi/180) (const zero)
+  if abs (x symmetric) < 1e-9
+     && rollEnergy locked j rotor damped < rollEnergy locked j rotor moving
+     && abs (rollMomentum locked j stopped-rollMomentum locked j moving) < 1e-8
+     && y stopped >= -1e-8 && z stopped <= 1e-8
+     && rollEnergy locked j rotor stopped <= rollEnergy locked j rotor moving + 1e-9
+    then pure () else fail "symmetry, passive dissipation and internal end-stop momentum must hold"
+  if servoDriveTorque defaultServoSpec defaultBatterySpec 0 dt 40 0 j defaultServoState 1 == 0
+    then pure () else fail "empty battery must supply no motor torque"
   let strip moment = StripResult emptyStrip (Vec3 0 0 1) moment 0 0
       leftTorque = hingeTorque (-1) [strip (Vec3 (-2) 90 0)]
       rightTorque = hingeTorque 1 [strip (Vec3 2 90 0)]
@@ -41,7 +68,8 @@ main = do
       loaded = defaultFirmwareVehicleState {fvLeftHingeTorqueNm = 0.5, fvRightHingeTorqueNm = 0.5}
       (_, lowR) = batteryStep (defaultBatterySpec {batteryInternalResistanceOhm = 0}) loaded
       (_, highR) = batteryStep (defaultBatterySpec {batteryInternalResistanceOhm = 0.8}) loaded
-  if servoAngleDeg (fvServoLeft empty) == 0 && abs (servoAngleDeg (fvServoLeft full)) > 0
+  -- An unpowered wing can now be moved by air; it must not be frozen.
+  if abs (servoAngleDeg (fvServoLeft empty)) < abs (servoAngleDeg (fvServoLeft full))
      && abs (servoRateDegPerSec (fvServoLeft highR)) < abs (servoRateDegPerSec (fvServoLeft lowR))
     then pure () else fail "empty battery and voltage sag must reduce powered motion"
   let rollback = runSimulation (putState (99 :: Int) >> abort "failure") 7
@@ -298,7 +326,8 @@ main = do
             tick (_,s) = stepFirmwareVehicle True rc skewParams skewServo skewBattery 1.0
                           (1/240) (Vec3 8 0 (-1)) (Vec3 0 0 0) 1000 s
             samples = drop 481 $ take 1921 $ iterate tick (zeroVehicleOutput,defaultFirmwareVehicleState)
-        in sum (map (x . totalMomentNm . fst) samples) / fromIntegral (length samples)
+        in if any ((/=0) . outputFlags . fst) samples then error "stroke timing integration rejected a step"
+           else sum (map (x . totalMomentNm . fst) samples) / fromIntegral (length samples)
       leftSkewMoment = skewMoment (-0.5)
       rightSkewMoment = skewMoment 0.5
   -- The property is the MIRROR (left skew = −right skew) and a non-zero roll
@@ -307,7 +336,7 @@ main = do
   -- so the sign is not asserted here.
   if abs (leftSkewMoment + rightSkewMoment) < 1e-10
      && abs leftSkewMoment > 1e-3
-    then pure () else fail "opposite stroke timing alone must generate mirrored aerodynamic roll"
+    then pure () else fail ("opposite stroke timing alone must generate mirrored aerodynamic roll: " ++ show (leftSkewMoment,rightSkewMoment))
   -- ONDAS Rubedo M0: ferocity-price anchors (audit-verified 9.5).
   let priceCheck (d, p, f, t) = abs (ferocityPowerPrice d - p) < 1e-2
                                && abs (ferocityForcePrice d - f) < 1e-2

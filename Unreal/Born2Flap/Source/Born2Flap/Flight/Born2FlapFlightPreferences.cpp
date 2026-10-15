@@ -69,7 +69,7 @@ void ABorn2FlapFlightPawn::LoadFlightPreferences()
     // level's default silhouette" (BeginPlay falls back on DefaultBirdModel()).
     int32 SavedModel = -1;
     Config.GetInt(TEXT("Flight"),TEXT("BirdModel"),SavedModel);
-    BirdModel = (SavedModel >= 0 && SavedModel <= 2) ? SavedModel : -1;
+    BirdModel = (SavedModel >= 0 && SavedModel <= 3) ? SavedModel : -1;
 }
 void ABorn2FlapFlightPawn::SaveFlightPreferences()
 {

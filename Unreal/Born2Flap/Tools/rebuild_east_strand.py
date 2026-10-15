@@ -25,8 +25,8 @@ rock = textures('/Game/Shiomori/Textures/T_Basalt_', ('Diffuse','Normal','Rough'
 grass = textures('/Game/Nature/Textures/T_aerial_grass_rock_', ('Diffuse','nor_dx','Rough'))
 scope['sand_material']('Sand', sand[0], sand[1], rough_tex=sand[2], tiling_cm=300.,
                       normal_strength=.65, pebble=(*rock, (.55,.55,.56), 36000.,44800.))
-scope['sand_material']('WetSand', sand[0], sand[1], rough=.35, tiling_cm=300.,
-                      normal_strength=.5, tint=(.74,.68,.56), caustic=True)
+scope['sand_material']('WetSand', sand[0], sand[1], rough_tex=sand[2], tiling_cm=300.,
+                      normal_strength=.65)
 scope['coastal_terrain_material']('Headland',sand,grass,rock,scale_cm=240.)
 u.log('EAST_STRAND_MATERIALS_READY')
 # M_EastShore embeds the Headland graph, so refresh it after its source.
