@@ -112,11 +112,13 @@ The outer EastShore render check also passed after the shared material rebuild; 
 ### Close sand relief (2026-10-14)
 
 `sand_surface.py` now combines the original bright 300 cm authored sand texture
-with warped, differently rotated height-noise scales, gradient normals and a
-small bounded view-dependent texture offset. There is no stretched directional
-noise or periodic ridge train. Fine normal detail is added at 65 cm texture
-scale and fades by pixel footprint. Colour, normals and roughness share the
-same offset, and BC5 XY normal data is decoded once with reconstructed Z.
+with a Perlin gradient-noise height field (domain-warped and sampled at three
+rotated orientations), gradient normals and a small bounded view-dependent
+texture offset. There is no stretched directional noise or periodic ridge
+train, and no value-noise blockiness or zero-slope lattice lines. Fine normal
+detail is added at 55 cm texture scale and fades by pixel footprint. Colour,
+normals and roughness share the same offset, and BC5 XY normal data is decoded
+once with reconstructed Z.
 The beach, wet sand and headland sand use this common shading.
 
 This is material relief, not displaced collision geometry or a moving sand

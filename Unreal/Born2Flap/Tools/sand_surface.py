@@ -1,44 +1,67 @@
-"""Bright authored sand with chaotic height-derived shading and bounded parallax.
+"""Authored sand with the proven pre-rework look restored, plus the missing
+"Plastik" (3D relief).
 
-Retains the original 300 cm colour texture scale and adds irregular scuffs,
-shallow hollows, and close grain. This is shader relief, not mesh displacement.
+The pre-rework strand (commit f919457) was almost white with a direct
+gradient-noise footprint/wind relief on the normal -- clean, light, and
+organic. The value-noise intermediate (hash + quintic lerp) read as blocky,
+axis-aligned "compression artefacts" with a coarse, repetitive grain; gradient
+(Perlin) noise interpolates random gradients instead of scalar cell values, so
+it is continuous, lattice-free and yields fine high-quality detail. This module
+keeps the clean albedo + direct footprint relief, adds a domain warp to kill
+tiling, and adds the one thing the old look lacked: a smooth, low-frequency
+parallax that gives the bumps real depth.
 """
 
 from shore_antitiling import HLSL
 
-# Aperiodic world-space undulation field. `height` returns ~[-1, 1]; callers
-# scale to centimetres. Shared verbatim by colour, normal and roughness so all
-# depth cues stay locked to the same surface.
 _RELIEF = r'''
 struct SandRelief {
-    float hash(float2 p) {
-        float3 q = frac(float3(p.xyx) * float3(0.1031, 0.1030, 0.0973));
-        q += dot(q, q.yzx + 33.33);
-        return frac((q.x + q.y) * q.z);
+    float2 hash22(float2 p) {
+        float3 p3 = frac(float3(p.xyx) * float3(0.1031, 0.1030, 0.0973));
+        p3 += dot(p3, p3.yzx + 33.33);
+        return frac((p3.xx + p3.yz) * p3.zy);
     }
-    float noise(float2 p) {
-        float2 i = floor(p), f = frac(p);
-        f = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
-        return lerp(lerp(hash(i), hash(i + float2(1.0, 0.0)), f.x),
-                    lerp(hash(i + float2(0.0, 1.0)), hash(i + float2(1.0, 1.0)), f.x), f.y)
-               * 2.0 - 1.0;
+    // Gradient (Perlin) noise. Interpolates random gradients, not random cell
+    // values, so it has no axis-aligned lattice, no blocky cell look and a
+    // continuous derivative -- the clean fine grain value noise lacks.
+    float gnoise(float2 p) {
+        float2 i = floor(p);
+        float2 f = frac(p);
+        float2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+        float a00 = dot(hash22(i) * 2.0 - 1.0, f);
+        float a10 = dot(hash22(i + float2(1.0, 0.0)) * 2.0 - 1.0, f - float2(1.0, 0.0));
+        float a01 = dot(hash22(i + float2(0.0, 1.0)) * 2.0 - 1.0, f - float2(0.0, 1.0));
+        float a11 = dot(hash22(i + float2(1.0, 1.0)) * 2.0 - 1.0, f - float2(1.0, 1.0));
+        return lerp(lerp(a00, a10, u.x), lerp(a01, a11, u.x), u.y) * 1.71;
     }
-    // Warped, differently rotated scales: scuffs and hollows without a
-    // preferred ridge direction. The field stays static in world space.
+    // Fractal gradient noise with a domain warp. The warp folds the lattice
+    // over itself so the tiling pattern is destroyed (no visible repetition);
+    // the higher octaves add progressively finer grain.
+    float fbm(float2 p) {
+        float2 w = float2(gnoise(p), gnoise(p + 5.2)) * 1.5;
+        return gnoise(p + w) * 0.52
+             + gnoise(p * 2.2 + w * 1.3) * 0.32
+             + gnoise(p * 4.6 + w * 1.7 + 2.7) * 0.16;
+    }
+    // Broad, smooth undulation for parallax only. Low-frequency gradient
+    // noise, no warp (called inside the parallax loop).
     float height(float2 p) {
-        float2 warp=float2(noise(p/105),noise(p/93+17))*24;
-        float2 q=p+warp;
-        float2 r=float2(q.x*.798-q.y*.602,q.x*.602+q.y*.798);
-        return (.55*noise(q/11)+.85*noise(r/32)+.65*noise(p/145)
-               +.35*noise(p/280+31))/2.4;
+        return 0.62 * gnoise(p / 48.0) + 0.38 * gnoise(p / 115.0 + 17.0);
+    }
+    // Footprint relief: finer fractal gradient noise, decorrelated in X/Y,
+    // plus a shore-elongated wind streak. Applied straight to the normal so
+    // it reads as trodden sand, never lattice lines.
+    float2 footprint(float2 p, float strength) {
+        float nx = fbm(p * 0.055);
+        float ny = fbm(p * 0.09 + 3.7);
+        float w  = fbm(float2(p.x * 0.002, p.y * 0.013));
+        return float2(nx * strength + w * 0.2, ny * strength + w * 0.55);
     }
     float2 displaced(float2 p, float3 view, float amplitude) {
-        float2 ray=view.xy/max(abs(view.z),.25);
-        float2 q=p;
-        // Bounded fixed-point parallax; colour, normals and roughness share it.
-        [unroll] for(int i=0;i<3;i++) {
-            float2 offset=-height(q)*amplitude*ray;
-            q=p+clamp(offset,float2(-8,-8),float2(8,8));
+        float2 ray = view.xy / max(abs(view.z), .25);
+        float2 q = p;
+        [unroll] for (int i = 0; i < 3; i++) {
+            q = p + clamp(-height(q) * amplitude * ray, float2(-8, -8), float2(8, 8));
         }
         return q;
     }
@@ -48,14 +71,15 @@ SandRelief relief;
 
 
 def surface(m, diffuse, normal, roughness, node, custom, wet=False,
-            macro_cm=300.0, parallax_cm=6.0, ao_strength=0.035,
-            relief_strength=0.6, normal_strength=0.65,
-            grain_cm=65.0, grain_strength=0.18, brightness=1.12):
+            macro_cm=300.0, parallax_cm=5.0, ao_strength=0.0,
+            relief_strength=0.60, normal_strength=0.65,
+            grain_cm=55.0, grain_strength=0.0, brightness=1.0):
     """Emit colour / normal / roughness expressions for a seamless sand strand.
 
     `macro_cm` is the authored texture scale (kept at 300 cm so the approved
-    "beautiful" sand look is retained); `parallax_cm` is the peak undulation
-    height in cm. Wet sand dampens relief, grain, AO and roughness.
+    "beautiful" light sand look is retained); `parallax_cm` is the peak
+    undulation height in cm driving the parallax offset. Wet sand dampens
+    relief and tightens the roughness band.
     """
     p = node(m, 'WorldPosition')
     n = node(m, 'VertexNormalWS')
@@ -64,72 +88,55 @@ def surface(m, diffuse, normal, roughness, node, custom, wet=False,
     def tex(t):
         return node(m, 'TextureObject', texture=t)
 
-    # Wet sand is smoother: less grain/relief/AO, and a tighter roughness band.
     nstr = normal_strength * (0.55 if wet else 1.0)
     rstr = relief_strength * (0.60 if wet else 1.0)
-    gstr = grain_strength * (0.50 if wet else 1.0)
-    astr = ao_strength * (0.50 if wet else 1.0)
-    bstr = 1.0 if wet else brightness
 
-    # --- Colour: macro albedo + parallax + symmetric relief shading ---------- #
+    # --- Colour: pure authored albedo, parallax-offset only ------------------ #
+    # No fake-AO and no brightness lift, so the strand keeps its light sunlit
+    # tone and no height line ever bleeds into the albedo.
     colour = custom(m, HLSL + _RELIEF + '''
-float2 q=relief.displaced(P.xy,C,RELAMP*.2);
-float h=relief.height(q);
-float3 c = shore.sampleSurface(T, TSampler, q / MACROCM, false);
-// Symmetric relief shading: crests brighten and troughs shade by the same
-// amount, so the strand keeps its light sunlit tone instead of reading dark.
-// BRIGHT is a small overall lift restoring the bright pre-rework look.
-float shade = 1.0 + AOSTR * h;
-return c * BRIGHT * shade;
+float2 q = relief.displaced(P.xy, C, RELAMP);
+return shore.sampleSurface(T, TSampler, q / MACROCM, false);
 '''.replace('RELAMP', repr(parallax_cm))
-    .replace('MACROCM', repr(macro_cm))
-    .replace('AOSTR', repr(astr))
-    .replace('BRIGHT', repr(bstr)),
+    .replace('MACROCM', repr(macro_cm)),
                     {'P': p, 'C': cam, 'T': tex(diffuse)}, 3)
 
-    # --- Normal: authored sand + undulation gradient + fine grain ------------ #
+    # --- Normal: authored sand + direct footprint/wind relief ---------------- #
+    # The proven pre-rework look: noise perturbs the normal directly (organic
+    # trodden bumps), with only a gentle slope from the broad parallax height.
     normal_code = (HLSL + _RELIEF + '''
-float footprint = max(length(ddx(P)), length(ddy(P)));
-float grainFade = 1.0 - smoothstep(GRAIN_F0, GRAIN_F1, footprint);
-float2 q=relief.displaced(P.xy,C,RELAMP*.2);
-// Authored sand normal (macro scale) — its XY/tilt is the primary ripple detail.
+float2 q = relief.displaced(P.xy, C, RELAMP);
 float3 tn = shore.sampleSurface(T, TSampler, q / MACROCM, true);
-float tz=sqrt(saturate(1-dot(tn.xy,tn.xy)));
-float2 texSlope=tn.xy/max(tz,.45)*.8;
-// Broad undulation slope from the height-field gradient (true cm/cm). A rising
-// surface tilts the normal back, hence the minus sign.
-float e = 0.3;
-float2 grad = float2(relief.height(q + float2(e, 0.0)) - relief.height(q - float2(e, 0.0)),
+float tz = sqrt(saturate(1.0 - dot(tn.xy, tn.xy)));
+float2 base = tn.xy / max(tz, 0.45);
+float2 fp = relief.footprint(q, RELSTR);
+// Gentle undulation slope (cm/cm) from the broad height; small so it never bands.
+float e = 1.0;
+float2 undu = float2(relief.height(q + float2(e, 0.0)) - relief.height(q - float2(e, 0.0)),
                      relief.height(q + float2(0.0, e)) - relief.height(q - float2(0.0, e)));
-float2 undu = -grad/(2*e) * RELSTR * RELAMP;
-// Fine isotropic grain (crisp close-up detail), faded with distance to stop aliasing.
-float2 grain=shore.sampleSurface(T,TSampler,q/GRAINCM,true).xy*GRAINSTR;
-float2 slope = texSlope + undu + grain * grainFade;
+undu = -undu / (2.0 * e) * RELAMP * 0.35;
+float2 slope = base + fp + undu;
 float3 detail = float3(slope, 0.0);
 return normalize(N + (detail - N * dot(detail, N)) * NORMSTR);
 '''.replace('RELAMP', repr(parallax_cm))
     .replace('MACROCM', repr(macro_cm))
     .replace('RELSTR', repr(rstr))
-    .replace('NORMSTR', repr(nstr))
-    .replace('GRAINCM', repr(grain_cm))
-    .replace('GRAINSTR', repr(gstr))
-    .replace('GRAIN_F0', repr(.3))
-    .replace('GRAIN_F1', repr(2.0)))
+    .replace('NORMSTR', repr(nstr)))
     detail = custom(m, normal_code, {'P': p, 'N': n, 'C': cam, 'T': tex(normal)}, 3)
 
-    # --- Roughness: sampled band, crests slightly looser --------------------- #
+    # --- Roughness: sampled band; crests loosened a touch -------------------- #
     if roughness:
         rough = custom(m, HLSL + _RELIEF + '''
-float2 q=relief.displaced(P.xy,C,RELAMP*.2);
-float h=relief.height(q);
+float2 q = relief.displaced(P.xy, C, RELAMP);
+float h = relief.height(q);
 float r = shore.sampleSurface(T, TSampler, q / MACROCM, false).r;
 r += ROUGHREL * h;
 return clamp(r, RMIN, RMAX);
 '''.replace('RELAMP', repr(parallax_cm))
             .replace('MACROCM', repr(macro_cm))
-        .replace('ROUGHREL', repr(0.10 if not wet else 0.0))
-        .replace('RMIN', repr(0.28 if wet else 0.72))
-        .replace('RMAX', repr(0.50 if wet else 0.92)),
+            .replace('ROUGHREL', repr(0.06 if not wet else 0.0))
+            .replace('RMIN', repr(0.28 if wet else 0.72))
+            .replace('RMAX', repr(0.50 if wet else 0.92)),
                        {'P': p, 'C': cam, 'T': tex(roughness)}, 1)
     else:
         rough = node(m, 'Constant', r=0.35 if wet else 0.82)
