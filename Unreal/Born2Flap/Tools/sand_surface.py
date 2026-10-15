@@ -8,8 +8,9 @@ axis-aligned "compression artefacts" with a coarse, repetitive grain; gradient
 (Perlin) noise interpolates random gradients instead of scalar cell values, so
 it is continuous, lattice-free and yields fine high-quality detail. This module
 keeps the clean albedo + direct footprint relief, adds a domain warp to kill
-tiling, and adds the one thing the old look lacked: a smooth, low-frequency
-parallax that gives the bumps real depth.
+tiling, and adds the missing depth: a single coherent height field (broad dune
+undulation + fine trodden grain) that drives parallax, normal slope and a subtle
+cavity shadow -- so the grain is raised, not just painted on.
 """
 
 from shore_antitiling import HLSL
@@ -43,25 +44,38 @@ struct SandRelief {
              + gnoise(p * 2.2 + w * 1.3) * 0.32
              + gnoise(p * 4.6 + w * 1.7 + 2.7) * 0.16;
     }
-    // Broad, smooth undulation for parallax only. Low-frequency gradient
-    // noise, no warp (called inside the parallax loop).
+    // Coherent height field: broad dune undulation + the fine trodden grain.
+    // Parallax, normal slope and (subtle) cavity shadow all derive from this
+    // ONE field, so every bump that shades as raised also displaces -- real
+    // depth, not painted-on relief.
     float height(float2 p) {
-        return 0.62 * gnoise(p / 48.0) + 0.38 * gnoise(p / 115.0 + 17.0);
+        float broad = 0.62 * gnoise(p / 48.0) + 0.38 * gnoise(p / 115.0 + 17.0);
+        float fine  = fbm(p * 0.06);
+        return broad + fine * 0.6;
+    }
+    // Concavity of the height field: negative in troughs, positive on crests.
+    // Cheap 4-tap probe feeding the subtle cavity shadow so troughs recede
+    // while crests stay light (real depth without a global darkening).
+    float cavity(float2 p) {
+        float c = height(p);
+        float n = height(p + float2(1.5, 0.0)) + height(p - float2(1.5, 0.0))
+                + height(p + float2(0.0, 1.5)) + height(p - float2(0.0, 1.5));
+        return c - n * 0.25;
     }
     // Footprint relief: finer fractal gradient noise, decorrelated in X/Y,
     // plus a shore-elongated wind streak. Applied straight to the normal so
     // it reads as trodden sand, never lattice lines.
     float2 footprint(float2 p, float strength) {
-        float nx = fbm(p * 0.055);
-        float ny = fbm(p * 0.09 + 3.7);
+        float nx = fbm(p * 0.06);
+        float ny = fbm(p * 0.10 + 3.7);
         float w  = fbm(float2(p.x * 0.002, p.y * 0.013));
         return float2(nx * strength + w * 0.2, ny * strength + w * 0.55);
     }
     float2 displaced(float2 p, float3 view, float amplitude) {
         float2 ray = view.xy / max(abs(view.z), .25);
         float2 q = p;
-        [unroll] for (int i = 0; i < 3; i++) {
-            q = p + clamp(-height(q) * amplitude * ray, float2(-8, -8), float2(8, 8));
+        [unroll] for (int i = 0; i < 4; i++) {
+            q = p + clamp(-height(q) * amplitude * ray, float2(-10, -10), float2(10, 10));
         }
         return q;
     }
@@ -71,15 +85,17 @@ SandRelief relief;
 
 
 def surface(m, diffuse, normal, roughness, node, custom, wet=False,
-            macro_cm=300.0, parallax_cm=5.0, ao_strength=0.0,
+            macro_cm=300.0, parallax_cm=6.5, ao_strength=0.35,
             relief_strength=0.60, normal_strength=0.65,
             grain_cm=55.0, grain_strength=0.0, brightness=1.0):
     """Emit colour / normal / roughness expressions for a seamless sand strand.
 
     `macro_cm` is the authored texture scale (kept at 300 cm so the approved
-    "beautiful" light sand look is retained); `parallax_cm` is the peak
-    undulation height in cm driving the parallax offset. Wet sand dampens
-    relief and tightens the roughness band.
+    "beautiful" light sand look is retained); `parallax_cm` is the peak height
+    in cm driving the parallax offset (broad undulation + fine grain, so the
+    trodden grain displaces with real depth); `ao_strength` scales a subtle
+    cavity shadow in the troughs. Wet sand dampens relief and tightens the
+    roughness band.
     """
     p = node(m, 'WorldPosition')
     n = node(m, 'VertexNormalWS')
@@ -91,26 +107,31 @@ def surface(m, diffuse, normal, roughness, node, custom, wet=False,
     nstr = normal_strength * (0.55 if wet else 1.0)
     rstr = relief_strength * (0.60 if wet else 1.0)
 
-    # --- Colour: pure authored albedo, parallax-offset only ------------------ #
-    # No fake-AO and no brightness lift, so the strand keeps its light sunlit
-    # tone and no height line ever bleeds into the albedo.
+    # --- Colour: authored albedo + subtle cavity shadow ---------------------- #
+    # Parallax-offset sample, then a gentle height-based cavity shadow so the
+    # troughs recede while crests stay light. No global AO and no brightness
+    # lift, so the strand keeps its light sunlit tone -- depth without dirt.
     colour = custom(m, HLSL + _RELIEF + '''
 float2 q = relief.displaced(P.xy, C, RELAMP);
-return shore.sampleSurface(T, TSampler, q / MACROCM, false);
+float3 col = shore.sampleSurface(T, TSampler, q / MACROCM, false);
+col *= lerp(1.0, 0.82, smoothstep(0.0, 0.55, -relief.cavity(q) * AOSTR));
+return col;
 '''.replace('RELAMP', repr(parallax_cm))
-    .replace('MACROCM', repr(macro_cm)),
+    .replace('MACROCM', repr(macro_cm))
+    .replace('AOSTR', repr(ao_strength)),
                     {'P': p, 'C': cam, 'T': tex(diffuse)}, 3)
 
     # --- Normal: authored sand + direct footprint/wind relief ---------------- #
     # The proven pre-rework look: noise perturbs the normal directly (organic
-    # trodden bumps), with only a gentle slope from the broad parallax height.
+    # trodden bumps), plus the slope of the height field (broad + fine grain)
+    # so the shading matches the displaced depth.
     normal_code = (HLSL + _RELIEF + '''
 float2 q = relief.displaced(P.xy, C, RELAMP);
 float3 tn = shore.sampleSurface(T, TSampler, q / MACROCM, true);
 float tz = sqrt(saturate(1.0 - dot(tn.xy, tn.xy)));
 float2 base = tn.xy / max(tz, 0.45);
 float2 fp = relief.footprint(q, RELSTR);
-// Gentle undulation slope (cm/cm) from the broad height; small so it never bands.
+// Gentle height-field slope (cm/cm); small so it never bands.
 float e = 1.0;
 float2 undu = float2(relief.height(q + float2(e, 0.0)) - relief.height(q - float2(e, 0.0)),
                      relief.height(q + float2(0.0, e)) - relief.height(q - float2(0.0, e)));
