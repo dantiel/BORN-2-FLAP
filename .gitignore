@@ -65,3 +65,14 @@ _analyze*.py
 _analyze_shot.py
 # Build logs
 *.log
+
+# iOS app icon assets — tracked despite the Build/ ignore above
+# (UE reads iOS icons from Build/IOS/Resources/Graphics/)
+!Unreal/Born2Flap/Build/
+Unreal/Born2Flap/Build/*
+!Unreal/Born2Flap/Build/IOS/
+Unreal/Born2Flap/Build/IOS/*
+!Unreal/Born2Flap/Build/IOS/Resources/
+Unreal/Born2Flap/Build/IOS/Resources/*
+!Unreal/Born2Flap/Build/IOS/Resources/Graphics/
+!Unreal/Born2Flap/Build/IOS/Resources/Graphics/*.png
