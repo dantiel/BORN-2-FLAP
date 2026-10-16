@@ -5,7 +5,7 @@ module Born2Flap.Math.FFI where
 import Born2Flap.Math.Types (Vec3(..))
 import Born2Flap.Math.Airframe
 import Born2Flap.Math.Vehicle
-import Born2Flap.Math.Model (WingModel(..), kestrelModel)
+import Born2Flap.Math.Model (WingModel(..), kestrelModel, ravenModel, prototypeModel, turtleModel)
 import Born2Flap.Math.Planform (shapeChord, shapeTwistRad)
 import Born2Flap.Math.PhaseEnvelope (phaseEnvelope, phaseCoverage)
 import Born2Flap.Math.Resonance (rsPhaseError)
@@ -266,8 +266,11 @@ b2f_math_set_wing_model contextPointer modelId
     failure _ = pure 0
 
 modelById :: Word32 -> WingModel
-modelById 0 = kestrelModel
-modelById _ = kestrelModel
+modelById 0 = ravenModel       -- RavenCrow (nature valley)
+modelById 1 = prototypeModel   -- Prototype (training arena)
+modelById 2 = kestrelModel     -- Kestrel / falcon (Shiomori coast)
+modelById 3 = turtleModel      -- Neon turtle (void level)
+modelById _ = kestrelModel     -- unknown → safe reference default
 
 -- | Apply a complete live tuning profile to an existing firmware-vehicle
 -- context. Servo, battery and the exposed controller knobs are swapped in
