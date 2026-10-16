@@ -49,7 +49,7 @@ import Data.List (sortOn)
 import Born2Flap.Math.Section
   ( SectionProfile(..), defaultBirdArmSection, defaultBirdHandSection )
 import Born2Flap.Math.Structure
-  ( StructureProfile(..), defaultBirdArmStructure, defaultBirdHandStructure )
+  ( StructureProfile(..), armStructure, handStructure, kestrelSpars )
 
 -- | One wing's outline: its spanwise extent plus an ordered list of shape
 -- stations from root (fraction 0) to tip (fraction 1).
@@ -90,24 +90,21 @@ data SpanStation = SpanStation
 -- purely as an outline; sweep is the slope of the leading edge (≈15° on the
 -- armwing → ≈24° on the handwing). Geometrically similar to the 0.87 m micro
 -- variant, scaled 1.27× for the bigger bird and bigger servo.
+--
+-- NOTE: 0.55 m half-span is the CORRECT reference. It must not be enlarged; the
+-- whole aerodynamic force budget (area, lever arms, flap-jet thrust, hinge
+-- torque) scales as span⁴..span⁵, so a bigger outline over-loads the servo and
+-- sends the bird ballistic on a single beat.
 defaultBirdWing :: WingShape
 defaultBirdWing = WingShape
-  { wsSpanM = 1.0
-  , wsShoulderM = 0.01
-  , wsStations = [station i le te | (i,(le,te)) <- zip [0..12 :: Int] outline]
+  { wsSpanM = 0.55
+  , wsShoulderM = 0.0127  -- 1.27 cm shoulder: parallel-flapping ornithopter flies best with almost no shoulder width
+  , wsStations =
+      [ ShapeStation 0.00 0.000 0.279  9.00 16.0 defaultBirdArmSection (armStructure kestrelSpars)  -- shoulder
+      , ShapeStation 0.45 0.110 0.235  5.00 16.0 defaultBirdArmSection (armStructure kestrelSpars)  -- elbow
+      , ShapeStation 1.00 0.333 0.114  3.00 16.0 defaultBirdHandSection (handStructure kestrelSpars)  -- tip
+      ]
   }
- where
-  -- Design2 membrane outline from Born2FlapWingMesh.cpp, centimetres.
-  outline = zip
-    [8.9537,1.8829,0.4742,0.2523,0.0303,-0.1917,-0.8824,
-     -1.7554,-2.6284,-3.5014,-4.3744,-5.2475,-6.1205]
-    [-38.3238,-35.2478,-34.5084,-33.7690,-33.0296,-32.2902,-30.8563,
-     -29.4212,-27.9861,-25.0872,-20.0466,-14.3027,-6.1205]
-  station i le te =
-    let f=fromIntegral i/12
-        section=if f<0.45 then defaultBirdArmSection else defaultBirdHandSection
-        structure=if f<0.45 then defaultBirdArmStructure else defaultBirdHandStructure
-    in ShapeStation f (-le/100) ((le-te)/100) (9-6*f) 16 section structure
 
 -- | Uniformly scale a wing outline by @s@: span, shoulder offset, leading-edge
 -- offsets and chords all scale together. Used to size the wing to the bird's
@@ -206,8 +203,8 @@ shapeAspectRatio wp =
 
 -- | Reference structural mass of ONE wing of the 1.10 m kestrel [kg].
 -- Ornithopter membrane wings are extremely light: ~5 g each for this bird
--- (tensioned membrane + carbon spars). Scales with @wingScale³@ under geometric
--- similarity.
+-- (tensioned membrane + carbon spars). This is the physical wing's mass; a
+-- different model supplies its own via its spar inventory + outline.
 referenceWingMassKg :: Double
 referenceWingMassKg = 0.005
 

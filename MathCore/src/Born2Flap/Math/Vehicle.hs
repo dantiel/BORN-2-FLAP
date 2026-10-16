@@ -37,14 +37,15 @@ import Data.List (zipWith5)
 import Born2Flap.Math.Types
 import Born2Flap.Math.Simulation
 import Born2Flap.Math.Wing (crossflowBaseline, relaxSeparation)
+import Born2Flap.Math.Model (WingModel(..), kestrelModel)
 import Born2Flap.Math.Planform
-  ( WingShape(..), defaultBirdWing, scaleWing, shapeChord
+  ( WingShape(..), shapeChord
   , shapeSweepRad, shapeTwistRad, shapeDihedralRad, shapeAspectRatio, shapeSection, shapeStructure )
 import Born2Flap.Math.Section
   ( SectionProfile(..), zeroLiftAngle, sectionPitchMomentCoeff
   , sectionTwistLever, sectionTwistMomentCoeff, membraneCamberTarget, relaxCamber )
 import Born2Flap.Math.Structure
-  ( StructureProfile(..), integrateFlapBeam, integrateTwist, relaxDeflection, softSaturate
+  ( StructureProfile(..), SparInventory, integrateFlapBeam, integrateTwist, relaxDeflection, softSaturate
   , sparBendEISpanwise, sparTwistGJSpanwise )
 import Born2Flap.Math.Waveform
   ( OscillatorState(..), defaultOscillator, advanceOscillator
@@ -184,7 +185,7 @@ emptyStrip = StripState 0 0 0 0 0 0 0 0
 -- model starts from the built-in camber line, not a flat plate).
 initialStrips :: [StripState]
 initialStrips =
-  [ StripState 0 0 0 0 (spRestCamber (shapeSection defaultBirdWing fraction)) 0 0 0
+  [ StripState 0 0 0 0 (spRestCamber (shapeSection (wmWing kestrelModel) fraction)) 0 0 0
   | i <- [0 .. stripCount - 1]
   , let fraction = (fromIntegral i + 0.5) / fromIntegral stripCount
   ]
@@ -266,45 +267,45 @@ stepWing side pulse pulseRate throttle rollMix input states =
   let amplitude = radians (12 + 38 * throttle) * clamp 0.55 1.35 (1 - side * 0.22 * rollMix)
       stroke = amplitude * pulse
       strokeRate = amplitude * pulseRate
-  in stepWingWithStroke True side stroke strokeRate input 1.0 0 states
+  in stepWingWithStroke True side stroke strokeRate input kestrelModel 0 states
 
 -- | Step one wing given the *actual* flap angle [rad] and flap rate [rad/s],
 -- independent of how they were produced (firmware mixer + servo, or the
 -- legacy throttle drive). This is the primitive the firmware-emulation loop
 -- uses to close the aero→servo-load feedback.
-stepWingWithStroke :: Bool -> Double -> Double -> Double -> VehicleInput -> Double -> Double -> [StripState]
+stepWingWithStroke :: Bool -> Double -> Double -> Double -> VehicleInput -> WingModel -> Double -> [StripState]
                    -> ([StripResult], [StripState])
-stepWingWithStroke flapping side stroke strokeRate input wingScale incidenceRad states =
-  let wp = scaleWing wingScale defaultBirdWing
+stepWingWithStroke flapping side stroke strokeRate input model incidenceRad states =
+  let wp = wmWing model
       raw = zipWith (\i s -> stepStrip False strokeRate flapping side stroke input incidenceRad wp i s (vx (bodyRatesRadS input)) strokeRate) [0 ..] states
       transported = transportSeparation side input wp raw
-      deformed = applyStructure wingScale wp input transported
+      deformed = applyStructure (wmSpars model) wp input transported
   in (deformed, map resultState deformed)
 
 -- Force-only evaluation for the implicit roll Jacobian. Structural relaxation
 -- and separation transport only modify next state; commit those once after
 -- solving, rather than doing a full beam solve at every trial velocity.
-wingLoadsWithStroke :: Bool -> Double -> Double -> Double -> Double -> VehicleInput -> Double -> [StripState] -> [StripResult]
-wingLoadsWithStroke flapping side stroke rate phaseRate input wingScale states =
-  prepareWingLoads flapping side stroke phaseRate input wingScale states (vx (bodyRatesRadS input)) rate
+wingLoadsWithStroke :: Bool -> Double -> Double -> Double -> Double -> VehicleInput -> WingModel -> [StripState] -> [StripResult]
+wingLoadsWithStroke flapping side stroke rate phaseRate input model states =
+  prepareWingLoads flapping side stroke phaseRate input model states (vx (bodyRatesRadS input)) rate
 
 -- Cache the fixed geometry and aerodynamic history outside Newton's candidate
 -- velocities. Rebuilding every strip for every finite-difference column made
 -- the 240 Hz physics consume most of the game thread on small aircraft.
-prepareWingLoads :: Bool -> Double -> Double -> Double -> VehicleInput -> Double -> [StripState]
+prepareWingLoads :: Bool -> Double -> Double -> Double -> VehicleInput -> WingModel -> [StripState]
                  -> Double -> Double -> [StripResult]
-prepareWingLoads flapping side stroke phaseRate input wingScale states =
-  let strips = zipWith (stepStrip True phaseRate flapping side stroke input 0 (scaleWing wingScale defaultBirdWing)) [0..] states
+prepareWingLoads flapping side stroke phaseRate input model states =
+  let strips = zipWith (stepStrip True phaseRate flapping side stroke input 0 (wmWing model)) [0..] states
   in \rollRate rate -> map (\strip -> strip rollRate rate) strips
 
 -- Commit aero memory/structure after the implicit solve using the same loads
 -- as its residual. Hysteretic state transitions are not Newton unknowns.
-stepCoupledWing :: Bool -> Double -> Double -> Double -> Double -> VehicleInput -> Double -> [StripState]
+stepCoupledWing :: Bool -> Double -> Double -> Double -> Double -> VehicleInput -> WingModel -> [StripState]
                 -> ([StripResult], [StripState])
-stepCoupledWing flapping side stroke rate phaseRate input wingScale states =
-  let wp=scaleWing wingScale defaultBirdWing
-      raw=wingLoadsWithStroke flapping side stroke rate phaseRate input wingScale states
-      results=applyStructure wingScale wp input (transportSeparation side input wp raw)
+stepCoupledWing flapping side stroke rate phaseRate input model states =
+  let wp=wmWing model
+      raw=wingLoadsWithStroke flapping side stroke rate phaseRate input model states
+      results=applyStructure (wmSpars model) wp input (transportSeparation side input wp raw)
   in (results,map resultState results)
 
 -- High wing / low centre of mass. The side-force lever contributes natural
@@ -521,20 +522,20 @@ transportSeparation _side input wp results = zipWith update [0 ..] results
 -- the just-computed aerodynamic loads, relax the strip deformation state toward
 -- it, and (implicitly, via the state) feed the deformed shape into the next
 -- aero step. Root is clamped; the tip is free.
-applyStructure :: Double -> WingShape -> VehicleInput -> [StripResult] -> [StripResult]
-applyStructure wingScale wp input results =
+applyStructure :: SparInventory -> WingShape -> VehicleInput -> [StripResult] -> [StripResult]
+applyStructure inv wp input results =
   let dt = stepSeconds input
       count = length results
       spanM = wsSpanM wp
       dr = spanM / fromIntegral stripCount
       fracs = [ (fromIntegral i + 0.5) / fromIntegral stripCount | i <- [0 .. count - 1] ]
       structures = map (shapeStructure wp) fracs
-      -- Spanwise spar stiffness (2.0 mm inner → 1.6 mm outer hand; braces inboard)
-      -- replaces the interpolated station structure for EI/GJ. The station
-      -- structure still supplies the relaxation time constants below.
-      s4 = wingScale * wingScale * wingScale * wingScale
-      bendingEIs = map ((* s4) . sparBendEISpanwise spanM) fracs
-      twistGJs   = map ((* s4) . sparTwistGJSpanwise spanM) fracs
+      -- Spanwise spar stiffness (inner → outer main spar; braces inboard) replaces
+      -- the interpolated station structure for EI/GJ. The station structure still
+      -- supplies the relaxation time constants below. Stiffness comes straight
+      -- from the model's spar inventory — no hidden scale factor.
+      bendingEIs = map (sparBendEISpanwise inv spanM) fracs
+      twistGJs   = map (sparTwistGJSpanwise inv spanM) fracs
       forces = map (vz . resultForce) results
       sectionMoments = map resultSectionMoment results
       (targetBend, targetSlope) = integrateFlapBeam forces bendingEIs dr

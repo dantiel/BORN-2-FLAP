@@ -1,5 +1,6 @@
 -- Explicit dry mass budget. Collision geometry never enters these calculations.
 module Born2Flap.Math.Airframe (airframeInertia, airframeMasses, fuselageDimensions, tailOutline) where
+import Born2Flap.Math.Model (WingModel(..))
 import Born2Flap.Math.Planform
 
 -- Provisional load-bearing core, metres. Decorative feather volume is not
@@ -39,11 +40,11 @@ tailSamples = concat [points a b c | (b,c) <- zip (drop 1 tailOutline) (drop 2 t
 -- wing/tail mass does not also move or double-count the configured CG.
 -- Wing roll second moment matches the hinge solver's planform integral.
 -- The remaining off-diagonal and moving-CG terms are not modeled here.
-airframeInertia :: Double -> Double -> (Double,Double,Double)
-airframeInertia total cgX = (ix,iy,iz)
+airframeInertia :: WingModel -> Double -> Double -> (Double,Double,Double)
+airframeInertia model total cgX = (ix,iy,iz)
  where
   (body,wing,tailMass)=airframeMasses total
-  wp=defaultBirdWing
+  wp=wmWing model
   n=128 :: Int
   strips=[(shapeChord wp f, shapeLeadingEdgeX wp f, wsShoulderM wp+wsSpanM wp*f) |
           i <- [0..n-1], let f=(fromIntegral i+0.5)/fromIntegral n]
