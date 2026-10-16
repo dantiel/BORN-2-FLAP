@@ -32,7 +32,7 @@ import Born2Flap.Math.Resonance
 import Born2Flap.Math.Vehicle
   ( VehicleInput(..), VehicleOutput(..)
   , StripState(..), StripResult(..), initialStrips
-  , stepCoupledWing, wingLoadsWithStroke, wingRootHeight, airDensity
+  , stepCoupledWing, prepareWingLoads, wingRootHeight, airDensity
   , addVec, crossVec, scaleVec, magnitude, zeroVec, radians )
 
 data FirmwareVehicleState = FirmwareVehicleState
@@ -176,13 +176,14 @@ advanceFirmwareVehicle hostInertia coupled rc params servo battery wingScale dt 
           evaluate rates =
             let p = x rates; l = y rates; r = z rates
                 wingInput = input { bodyRatesRadS = Vec3 p (y bodyRates) (z bodyRates) }
-                left = stepCoupledWing (mixIsFlapping mix) (-1) angleL l wingInput wingScale (fvLeftStrips state)
-                right = stepCoupledWing (mixIsFlapping mix) 1 angleR r wingInput wingScale (fvRightStrips state)
+                left = stepCoupledWing (mixIsFlapping mix) (-1) angleL l (y oldRates) wingInput wingScale (fvLeftStrips state)
+                right = stepCoupledWing (mixIsFlapping mix) 1 angleR r (z oldRates) wingInput wingScale (fvRightStrips state)
             in (left,right)
+          leftLoads = prepareWingLoads (mixIsFlapping mix) (-1) angleL (y oldRates) input wingScale (fvLeftStrips state)
+          rightLoads = prepareWingLoads (mixIsFlapping mix) 1 angleR (z oldRates) input wingScale (fvRightStrips state)
           aeroAt rates =
-            let wingInput = input { bodyRatesRadS = Vec3 (x rates) (y bodyRates) (z bodyRates) }
-                ls = wingLoadsWithStroke (mixIsFlapping mix) (-1) angleL (y rates) wingInput wingScale (fvLeftStrips state)
-                rs = wingLoadsWithStroke (mixIsFlapping mix) 1 angleR (z rates) wingInput wingScale (fvRightStrips state)
+            let ls = leftLoads (x rates) (y rates)
+                rs = rightLoads (x rates) (z rates)
             in Vec3 (sum (zipWith (\l r -> x (resultMoment l) + x (resultMoment r)) ls rs) + x tailMoment)
                     (hingeTorque (-1) ls) (hingeTorque 1 rs)
           aero0 = aeroAt oldRates

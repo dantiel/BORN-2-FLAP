@@ -179,9 +179,9 @@ data FlightProfile = FlightProfile
 -- default active profile.
 defaultFlightProfiles :: [FlightProfile]
 defaultFlightProfiles =
-  [ FlightProfile 30 50 (-4) 0 40 60 50 0 0 0 0 0 0 0 0 0 0 0
-  , FlightProfile 50 50 (-4) 0 40 60 50 0 0 0 0 0 0 0 0 0 0 0
-  , FlightProfile 70 50   2  0 40 60 50 0 0 0 0 0 0 0 0 0 0 0
+  [ FlightProfile 30 50 (-4) 0 40 60 50 40 0 0 0 0 0 0 0 0 0 0
+  , FlightProfile 50 50 (-4) 0 40 60 50 40 0 0 0 0 0 0 0 0 0 0
+  , FlightProfile 70 50   2  0 40 60 50 40 0 0 0 0 0 0 0 0 0 0
   ]
 
 -- ── Runtime mixer params ───────────────────────────────────────────
@@ -398,8 +398,11 @@ flappingBranch coupled prof aileronNorm elevatorNorm rc params state dt =
       -- right wing stroke centre and lowers the left, tilting the lift to
       -- roll right. The timing/skew terms below add a further dynamic roll
       -- term (gated by profAileronSkewMix, 0 by default) on top of this static
-      -- centre shift.
-      aileronCmd = (aileronNorm + rudderNorm * fwRudderYawWeight params * 0.01)
+      -- centre shift. YAW (rudder) deliberately does NOT shift the flap centre
+      -- while flapping — it owns stroke AMPLITUDE (profRudderAmplitudeDiff) and
+      -- ferocity (profRudderFerocityRange) instead, so the stroke centres stay
+      -- balanced and only the thrust asymmetry steers.
+      aileronCmd = aileronNorm
                    * profAileronScale prof * 0.01 * steerMaxDeg * rollAuthorityGain
       elevatorCmd = elevatorNorm * profElevatorScale prof * 0.01 * steerMaxDeg
       -- Mount angle and tail elevator angle are aerodynamically identical in the

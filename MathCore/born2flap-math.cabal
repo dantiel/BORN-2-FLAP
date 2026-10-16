@@ -15,6 +15,7 @@ library
       Born2Flap.Math.Vehicle
       Born2Flap.Math.Firmware
       Born2Flap.Math.Servo
+      Born2Flap.Math.Airframe
       Born2Flap.Math.RollDynamics
       Born2Flap.Math.FirmwareVehicle
       Born2Flap.Math.FerocityPrice
@@ -46,6 +47,7 @@ foreign-library born2flap_math
       Born2Flap.Math.Waveform
       Born2Flap.Math.Firmware
       Born2Flap.Math.Servo
+      Born2Flap.Math.Airframe
       Born2Flap.Math.RollDynamics
       Born2Flap.Math.FirmwareVehicle
       Born2Flap.Math.OrderTracker

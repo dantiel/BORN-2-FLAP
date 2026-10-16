@@ -13,9 +13,16 @@
 extern "C" {
 #endif
 
-#define B2F_MATH_ABI_VERSION 12u
+#define B2F_MATH_ABI_VERSION 13u
 
 typedef struct B2F_MathContext B2F_MathContext;
+
+typedef struct B2F_MassProperties {
+    double total_mass_kg, fuselage_mass_kg, wing_mass_kg, tail_mass_kg;
+    double dry_inertia_kg_m2[3];
+} B2F_MassProperties;
+B2F_API int32_t b2f_math_get_mass_properties(B2F_MathContext*, double cg_x_m, B2F_MassProperties*);
+
 
 typedef struct B2F_VehicleInput {
     double delta_time_s;

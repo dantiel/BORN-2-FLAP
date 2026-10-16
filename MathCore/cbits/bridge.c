@@ -36,7 +36,7 @@ B2F_EXPORT HsWord32 b2f_math_abi_version(void) {
      * constant instead of a call into the (uninitialised) Haskell RTS.
       * KEEP IN SYNC with B2F_MATH_ABI_VERSION in Native/include/born2flap_math.h
       * and b2f_math_abi_version in MathCore/src/Born2Flap/Math/FFI.hs. */
-     return 12;
+     return 13;
 }
 
 B2F_EXPORT HsInt32 b2f_math_runtime_init(void) {
@@ -92,4 +92,8 @@ B2F_EXPORT HsInt32 b2f_math_set_wind_phase_noise(HsPtr context, HsDouble noise) 
 
 B2F_EXPORT HsInt32 b2f_math_reconfigure_firmware_vehicle(HsPtr context, HsPtr tuning) {
     return hs_b2f_math_reconfigure_firmware_vehicle(context, tuning);
+}
+extern HsInt32 hs_b2f_math_get_mass_properties(HsPtr context, HsDouble cg_x, HsPtr output);
+B2F_EXPORT HsInt32 b2f_math_get_mass_properties(HsPtr context, HsDouble cg_x, HsPtr output) {
+    return hs_b2f_math_get_mass_properties(context, cg_x, output);
 }

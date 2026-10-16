@@ -24,6 +24,9 @@
 #include "UI/Born2FlapI18n.h"
 #include "UI/Born2FlapLoading.h"
 #include "PhysicalMaterials/PhysicalMaterial.h"
+#include "PhysicsEngine/PhysicsSettings.h"
+#include "PhysicsEngine/BodyInstance.h"
+#include "Physics/PhysicsInterfaceCore.h"
 #include "UObject/ConstructorHelpers.h"
 #include "Input/Born2FlapRcController.h"
 #include "Input/Born2FlapKeybinds.h"
@@ -68,7 +71,7 @@ ABorn2FlapFlightPawn::ABorn2FlapFlightPawn()
     PrimaryActorTick.TickGroup = TG_PrePhysics;
     Body = CreateDefaultSubobject<UBoxComponent>(TEXT("FlightBody"));
     SetRootComponent(Body);
-    Body->SetBoxExtent(FVector(42, 12, 12));
+    Body->SetBoxExtent(FVector(21, 1.5, 1.5)); // narrow load-bearing fuselage, cm
     // SetCollisionProfileName("PhysicsActor") and SetSimulatePhysics both resolve
     // the simple physical material via GEngine, which is null during native CDO
     // construction (the cook commandlet builds CDOs before GEngine exists).
@@ -91,7 +94,7 @@ ABorn2FlapFlightPawn::ABorn2FlapFlightPawn()
     // This remains an approximate mass distribution; the collision box is not
     // a measured component-inertia model. Do not put added air into this scale
     // too, or it will be counted twice.
-    Body->BodyInstance.InertiaTensorScale = FVector(1.26f, 1.36f, 1.36f);
+    Body->BodyInstance.InertiaTensorScale = FVector::OneVector;
     BuildGeometry();
     CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
     CameraBoom->SetupAttachment(Body);
@@ -238,7 +241,20 @@ void ABorn2FlapFlightPawn::ApplyTuning()
     // so a micro servo's torque is enough to flap it).
     Tuning.body_mass_kg = BodyMassKg;
     if (MathBridge && MathBridge->IsReady())
+    {
         MathBridge->Reconfigure(Tuning);
+        B2F_MassProperties Props{};
+        if (MathBridge->ReadMassProperties(-double(CgOffsetMm)/1000.0, Props))
+        {
+            const FVector Tensor(Props.dry_inertia_kg_m2[0], Props.dry_inertia_kg_m2[1], Props.dry_inertia_kg_m2[2]);
+            FPhysicsCommand::ExecuteWrite(Body->GetBodyInstance()->ActorHandle, [&](const FPhysicsActorHandle& Actor)
+            {
+                FPhysicsInterface::SetMassSpaceInertiaTensor_AssumesLocked(Actor, Tensor * 10000.0);
+            });
+            UE_LOG(LogTemp, Display, TEXT("FlightComponentMass total=%.4f fuselage=%.4f eachWing=%.4f tail=%.4f dryInertia=%s"),
+                Props.total_mass_kg, Props.fuselage_mass_kg, Props.wing_mass_kg, Props.tail_mass_kg, *Tensor.ToString());
+        }
+    }
 }
 void ABorn2FlapFlightPawn::ApplyBodyMass()
 {
@@ -521,6 +537,7 @@ void ABorn2FlapFlightPawn::ResetFlight(bool bSafety)
     Body->SetPhysicsAngularVelocityInRadians(FVector::ZeroVector);
     Body->WakeAllRigidBodies();
     bCameraGrounded = false;
+    bThrown = false;
     GroundSettleTime = 0;
     // Neon Abyss has no ground to launch from: the turtle starts swimming the
     // moment it spawns — throttle pulses it forward, buoyancy holds it up.
@@ -683,12 +700,16 @@ void ABorn2FlapFlightPawn::LaunchFlight()
     // otherwise the bird launches from its resting spot and facing.
     const bool bFromPilot = bPilotWalked;
     float LaunchYaw = Body->GetComponentRotation().Yaw;
+    float LaunchPitch = 0.f;
     FVector LaunchPos = Body->GetComponentLocation() + FVector(0, 0, 140);
     if (bFromPilot)
     {
         LaunchYaw = bGroundView
                         ? float(GroundGaze.Yaw + GroundLookYaw)
                         : float(Body->GetComponentRotation().Yaw + ChaseOrbitYaw);
+        // The pilot's vertical gaze has a small influence on the throw's loft:
+        // looking up throws a little higher, looking down flattens it.
+        LaunchPitch = bGroundView ? float(GroundLookPitch) : float(ChaseOrbitPitch);
         LaunchPos = GroundAnchor;   // the pilot is already at eye height
     }
     FRotator Heading(0, LaunchYaw, 0);
@@ -697,13 +718,19 @@ void ABorn2FlapFlightPawn::LaunchFlight()
     GroundZoom = 1.f; ChaseArmLength = 480.f;
     Body->SetWorldLocationAndRotation(LaunchPos, Heading, false, nullptr,
                                       ETeleportType::TeleportPhysics);
-    Body->SetPhysicsLinearVelocity(Heading.Vector() * 850 + FVector(0, 0, 220));
+    // Vertical loft: base 2.2 m/s upward plus a small vertical-gaze contribution.
+    const float LaunchVertical = 220.f + FMath::Clamp(LaunchPitch, -45.f, 45.f) * 6.f;
+    Body->SetPhysicsLinearVelocity(Heading.Vector() * 850 + FVector(0, 0, LaunchVertical));
     Body->SetPhysicsAngularVelocityInRadians(FVector::ZeroVector);
     bCameraGrounded = false;
+    bThrown = true;   // awaiting a genuine landing for the observer teleport
     GroundSettleTime = 0;
     bFlying = true;
+    // Hard-reset the virtual mouse stick at the moment of the throw so a residual
+    // look offset never yanks the bird off its launch heading (hard, immediate).
+    Desktop.mouseRoll = Desktop.mousePitch = Desktop.mouseYaw = 0;
     RememberLanding(Body->GetComponentLocation());
-    UE_LOG(LogTemp, Display, TEXT("FlightHandLaunch fromPilot=%d speed=8.5m/s vertical=2.2m/s"), bFromPilot);
+    UE_LOG(LogTemp, Display, TEXT("FlightHandLaunch fromPilot=%d speed=8.5m/s vertical=%.1fm/s pitch=%.0f"), bFromPilot, LaunchVertical / 100.f, LaunchPitch);
 }
 FString ABorn2FlapFlightPawn::GetFlightStatus() const
 {
@@ -730,6 +757,7 @@ void ABorn2FlapFlightPawn::SetBlindFlight(bool bOn)
 }
 bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
 {
+    const double ProfileStart = FPlatformTime::Seconds();
     if (!bHealthy)
         return false;
     FQuat Rotation = Body->GetComponentQuat();
@@ -761,12 +789,27 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
     // this by wingspan and applies per-strip lift/drag/thrust corrections.
     State.ground_clearance_m = FMath::Max(0.0,
         WindMode ? (BodyPos.Z - WindMode->GroundHeight(BodyPos.X, BodyPos.Y)) / 100.0 : 1000.0);
-    Accumulator = FMath::Min(Accumulator + DeltaSeconds, .1);
+    // Share Chaos's simulated time. At 12 fps the old solver advanced wings
+    // ~83 ms while the rigid body advanced only 33 ms: the reaction impulse
+    // was lost and the bird appeared to move its wings around a pinned body.
+    const UPhysicsSettings* PhysicsSettings = UPhysicsSettings::Get();
+    const double MaxPhysicsDt = PhysicsSettings->bSubstepping
+        ? PhysicsSettings->MaxSubstepDeltaTime * PhysicsSettings->MaxSubsteps
+        : PhysicsSettings->MaxPhysicsDeltaTime;
+    const double PhysicsDt = MaxPhysicsDt > UE_SMALL_NUMBER
+        ? FMath::Min(double(DeltaSeconds), MaxPhysicsDt) : double(DeltaSeconds);
+    // Consume exactly this frame's physical time, including fractional steps.
+    // Reusing the last force when no fixed step ran applied an impulse without
+    // advancing the hinges; averaging a different duration did the converse.
+    const int32 StepCount = FMath::Max(1, FMath::CeilToInt(PhysicsDt / MathDt - 1.e-6));
+    const double StepDt = PhysicsDt / StepCount;
+    if (StepDt <= 0) return false;
+    State.delta_time_s = StepDt;
     FVector ForceSum = FVector::ZeroVector, MomentSum = FVector::ZeroVector;
     int32 Steps = 0;
     const bool bVoid = WindMode && WindMode->IsVoidLevel();
     const FVector Gravity = bVoid ? FVector::ZeroVector : FVector(0, 0, -9.81);
-    while (Accumulator >= MathDt)
+    while (Steps < StepCount)
     {
         const FVector V = Rotation.UnrotateVector(Velocity - Wind);
         const FVector W = Rotation.UnrotateVector(Omega);
@@ -813,18 +856,27 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
         // Holding angular velocity for a whole 30 Hz frame made aerodynamic
         // roll damping overshoot. Chaos receives the mean loads once and stays
         // authoritative for the actual rigid body and contacts.
-        Velocity += (WorldForce / Body->GetMass() + Gravity) * MathDt;
-        Omega += Rotation.RotateVector(Mcg / Inertia) * MathDt;
+        Velocity += (WorldForce / Body->GetMass() + Gravity) * StepDt;
+        Omega += Rotation.RotateVector(Mcg / Inertia) * StepDt;
         const double Rate = Omega.Size();
         if (Rate > UE_SMALL_NUMBER)
-            Rotation = (FQuat(Omega / Rate, Rate * MathDt) * Rotation).GetNormalized();
+            Rotation = (FQuat(Omega / Rate, Rate * StepDt) * Rotation).GetNormalized();
         ++Steps;
-        Accumulator -= MathDt;
     }
     if (Steps)
     {
         AeroForce = ForceSum / Steps;
         AeroMoment = MomentSum / Steps;
+    }
+    MathProfileSeconds += FPlatformTime::Seconds() - ProfileStart;
+    MathProfileSteps += Steps;
+    if (++MathProfileFrames >= 120)
+    {
+        UE_LOG(LogTemp, Display, TEXT("FlightPhysicsTiming frameMs=%.3f stepMs=%.3f steps=%d frameDt=%.6f physicsDt=%.6f massKg=%.4f rollInertia=%.8f"),
+            MathProfileSeconds * 1000 / MathProfileFrames,
+            MathProfileSeconds * 1000 / FMath::Max(1, MathProfileSteps), Steps,
+            DeltaSeconds, PhysicsDt, Body->GetMass(), Inertia.X);
+        MathProfileSeconds = 0; MathProfileSteps = 0; MathProfileFrames = 0;
     }
     return true;
 }
@@ -1055,6 +1107,10 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
             Launch = (Launch || RcController->LaunchPressed()) && !RcController->IsPanelOpen();
             Reset |= RcController->ResetPressed();
         }
+        // Always hard-reset the virtual mouse stick on a throw (rebound-safe), so
+        // no residual look offset spoils the launch.
+        if (Launch)
+            ResetMouse = true;
         if (PC->WasInputKeyJustPressed(Get(TEXT("ToggleVectors"))))
             bVectors = !bVectors;
         if (PC->WasInputKeyJustPressed(Get(TEXT("ToggleBlind"))))
@@ -1214,6 +1270,43 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         }
         if (Previous < 18 && TestTime >= 18 && FParse::Param(FCommandLine::Get(), TEXT("B2FCapture")))
             FScreenshotRequest::RequestScreenshot(TEXT("AerodynamicFlight.png"), true, false);
+        if (FParse::Param(FCommandLine::Get(), TEXT("B2FRollResponseTest")))
+        {
+            // Compare actual Chaos body and visible wing transforms. The DLL
+            // wind-tunnel fixture cannot detect host timing or attachment bugs.
+            const auto* Settings = UPhysicsSettings::Get();
+            const double Limit = Settings->bSubstepping
+                ? Settings->MaxSubsteps * Settings->MaxSubstepDeltaTime : Settings->MaxPhysicsDeltaTime;
+            TestTime = Previous + (Limit > 0 ? FMath::Min(double(DeltaSeconds), Limit) : DeltaSeconds);
+            Effort = Steer = Pitch = 0; Launch = Reset = false;
+            Roll = TestTime >= 1 ? .1f : 0;
+            if (Previous < 1 && TestTime >= 1)
+            {
+                Body->SetWorldLocationAndRotation(FVector(0,0,3000), FRotator::ZeroRotator, false, nullptr, ETeleportType::TeleportPhysics);
+                Body->SetPhysicsLinearVelocity(FVector(800,0,0));
+                Body->SetPhysicsAngularVelocityInRadians(FVector::ZeroVector);
+                bFlying = true; bCameraGrounded = false;
+                RollTestBaseline = FVector(Body->GetComponentRotation().Roll,
+                    MembraneLeftShoulder->GetComponentRotation().Roll,
+                    MembraneRightShoulder->GetComponentRotation().Roll);
+            }
+            if (TestTime >= 1.3 && !bTestFinished)
+            {
+                bTestFinished = true;
+                const double BodyRoll = FMath::FindDeltaAngleDegrees(RollTestBaseline.X, Body->GetComponentRotation().Roll);
+                const double LeftWorld = FMath::FindDeltaAngleDegrees(RollTestBaseline.Y, MembraneLeftShoulder->GetComponentRotation().Roll);
+                const double RightWorld = FMath::FindDeltaAngleDegrees(RollTestBaseline.Z, MembraneRightShoulder->GetComponentRotation().Roll);
+                const double TailRoll = MembraneTailPivot->GetComponentRotation().Roll;
+                const bool Pass = bHealthy && MathFailures == 0 && FMath::Abs(BodyRoll) > 1 &&
+                    FMath::Max(FMath::Abs(LeftWorld), FMath::Abs(RightWorld)) < FMath::Abs(BodyRoll) &&
+                    FMath::Abs(FMath::FindDeltaAngleDegrees(Body->GetComponentRotation().Roll, TailRoll)) < 1;
+                UE_LOG(LogTemp, Display, TEXT("RollResponseTest %s body=%.3f leftWorld=%.3f rightWorld=%.3f tail=%.3f mass=%.4f"),
+                    Pass ? TEXT("PASS") : TEXT("FAIL"), BodyRoll, LeftWorld, RightWorld, TailRoll, Body->GetMass());
+                FPlatformMisc::RequestExitWithStatus(false, Pass ? 0 : 1);
+            }
+            if (Previous < 1.25 && TestTime >= 1.25 && FParse::Param(FCommandLine::Get(), TEXT("B2FCapture")))
+                FScreenshotRequest::RequestScreenshot(TEXT("RollResponse.png"), true, false);
+        }
     }
     if (Reset)
         ResetFlight();

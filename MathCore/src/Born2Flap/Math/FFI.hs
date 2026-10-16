@@ -3,6 +3,7 @@
 module Born2Flap.Math.FFI where
 
 import Born2Flap.Math.Types (Vec3(..))
+import Born2Flap.Math.Airframe
 import Born2Flap.Math.Vehicle
 import Born2Flap.Math.Planform (defaultBirdWing, shapeChord, shapeTwistRad)
 import Born2Flap.Math.PhaseEnvelope (phaseEnvelope, phaseCoverage)
@@ -85,7 +86,7 @@ b2f_math_get_wing_forces contextPointer capacity leftPointer rightPointer
     failure :: SomeException -> IO Int32
     failure _ = pure 0
 b2f_math_abi_version :: IO Word32
-b2f_math_abi_version = pure 12
+b2f_math_abi_version = pure 13
 
 b2f_math_runtime_init :: IO Int32
 b2f_math_runtime_init = pure 1
@@ -155,7 +156,8 @@ data FwContext = FwContext
   , fwcServo      :: !ServoSpec
   , fwcBattery    :: !BatterySpec
   , fwcState      :: !FirmwareVehicleState
-  , fwcWingScale  :: !Double  -- ^ planform scale (sized to body mass)
+  , fwcWingScale  :: !Double  -- ^ geometric scale, independent of mass
+  , fwcMass :: !Double
   }
 
 -- | Raw component-selection config (6 doubles, 0 = use default).
@@ -215,7 +217,7 @@ b2f_math_create_firmware_vehicle configPointer = do
             , profRudderAmplitudeDiff = 35, profRudderFerocityRange = 20
             , profAileronScale = 10, profElevatorScale = 55 }
         }
-      context = FwContext flightParams servo battery defaultFirmwareVehicleState 1.0
+      context = FwContext flightParams servo battery defaultFirmwareVehicleState 1.0 0.05
   castStablePtrToPtr <$> (newIORef context >>= newStablePtr)
 
 b2f_math_destroy_firmware_vehicle :: Ptr () -> IO ()
@@ -288,12 +290,8 @@ applyTuning t ctx =
         , profAileronScale = clampRange 0 100 (tgAileronScale t)
         , profElevatorScale = clampRange 0 100 (tgElevatorScale t)
         }
-      -- Size the wing to the bird. Reference: 450 g → scale 1.0 (the default
-      -- 1.10 m-span kestrel). A MILDER m^(1/4) scaling keeps a 10–25 g micro bird
-      -- at ≥0.4× span (area ≥0.16×) instead of collapsing to 0.25× — so its
-      -- wings still generate real lift/thrust, while the hinge torque
-      -- (∝ wingScale³) still drops enough for a real micro-servo to drive them.
-      wingScale = clampRange 0.4 1.8 (((max 0.01 (tgBodyMassKg t)) / 0.45) ** (1 / 4))
+      -- Changing battery/body mass must not shrink the same physical wings.
+      wingScale = 1.0
       -- Flapping frequency rises for lighter birds (f ∝ m^(-1/4) = 1/wingScale,
       -- the bird-like allometric trend). But it must be CAPPED by the servo's
       -- no-load speed: a servo sweeping at ω₀ can only flap a stroke of
@@ -315,7 +313,7 @@ applyTuning t ctx =
         , fwMountIncidenceDeg = clampRange (-15) 15 (tgMountAngleDeg t)
         , fwProfile = profile
         }
-  in ctx { fwcServo = servo, fwcBattery = battery, fwcParams = params, fwcWingScale = wingScale }
+  in ctx { fwcServo = servo, fwcBattery = battery, fwcParams = params, fwcWingScale = wingScale, fwcMass = max 0.01 (tgBodyMassKg t) }
 
 clampRange :: Double -> Double -> Double -> Double
 clampRange lo hi = max lo . min hi
@@ -402,3 +400,20 @@ pokeFwOutput pointer output state = do
 
 posOr :: Double -> Double -> Double
 posOr fallback value = if value > 0 then value else fallback
+foreign export ccall "hs_b2f_math_get_mass_properties" b2f_math_get_mass_properties :: Ptr () -> Double -> Ptr () -> IO Int32
+b2f_math_get_mass_properties :: Ptr () -> Double -> Ptr () -> IO Int32
+b2f_math_get_mass_properties ctx cgX out
+ | ctx == nullPtr || out == nullPtr || isNaN cgX || isInfinite cgX = pure 0
+ | otherwise = run `catch` failure
+ where
+  run = do
+   ref <- deRefStablePtr (castPtrToStablePtr ctx :: StablePtr (IORef FwContext))
+   state <- readIORef ref
+   let total=fwcMass state
+       (body,wing,tailMass)=airframeMasses total
+       (ix,iy,iz)=airframeInertia total cgX
+       values=[total,body,wing,tailMass,ix,iy,iz]
+   sequence_ [pokeElemOff (castPtr out :: Ptr CDouble) i (CDouble v) | (i,v) <- zip [0..] values]
+   pure 1
+  failure :: SomeException -> IO Int32
+  failure _ = pure 0

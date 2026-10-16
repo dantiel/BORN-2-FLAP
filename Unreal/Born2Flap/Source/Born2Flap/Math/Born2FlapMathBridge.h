@@ -29,6 +29,7 @@ public:
     bool InjectWindPhaseNoise(double NoiseRadS) const;
     bool ReadWingShape(B2F_WingSection* Left, B2F_WingSection* Right) const;
     bool ReadWingForces(double* Left, double* Right) const;
+    bool ReadMassProperties(double CgX, B2F_MassProperties& Out) const;
 
     // Apply a complete live tuning profile (servo/battery/controller knobs) to
     // the running context in place. Takes effect next step; no-op if unready.
@@ -58,5 +59,7 @@ private:
     ReconfigureFn ReconfigureFirmwareVehicle = nullptr;
     GetWingShapeFn GetWingShape = nullptr;
     GetWingForcesFn GetWingForces = nullptr;
+    using MassPropertiesFn = int32_t (*)(B2F_MathContext*, double, B2F_MassProperties*);
+    MassPropertiesFn GetMassProperties = nullptr;
     FString Status = TEXT("Math backend not loaded");
 };
