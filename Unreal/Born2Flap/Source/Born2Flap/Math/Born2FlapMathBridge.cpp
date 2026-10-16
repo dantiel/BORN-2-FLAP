@@ -117,12 +117,13 @@ bool FBorn2FlapMathBridge::Load()
         LoadExport<ReconfigureFn>(LibraryHandle, TEXT("b2f_math_reconfigure_firmware_vehicle"));
     GetWingShape = LoadExport<GetWingShapeFn>(LibraryHandle, TEXT("b2f_math_get_wing_shape"));
     GetWingForces = LoadExport<GetWingForcesFn>(LibraryHandle, TEXT("b2f_math_get_wing_forces"));
+    GetMassProperties = LoadExport<MassPropertiesFn>(LibraryHandle, TEXT("b2f_math_get_mass_properties"));
     if (!GetWingShape)
         UE_LOG(LogTemp, Warning, TEXT("Wing deformation unavailable: rebuild the Haskell backend for wing-shape telemetry."));
     if (!GetWingForces)
         UE_LOG(LogTemp, Warning, TEXT("Per-strip wing forces unavailable: rebuild the Haskell backend for force-driven audio."));
     if (!AbiVersion || !RuntimeInit || !RuntimeShutdown || !CreateFirmwareVehicle ||
-        !DestroyFirmwareVehicle || !StepFirmwareVehicle || !ReconfigureFirmwareVehicle)
+        !DestroyFirmwareVehicle || !StepFirmwareVehicle || !ReconfigureFirmwareVehicle || !GetMassProperties)
     {
         Status = TEXT("Haskell math backend has an incomplete C ABI");
         UE_LOG(LogTemp, Error, TEXT("%s"), *Status);
@@ -190,6 +191,7 @@ void FBorn2FlapMathBridge::Unload()
     SetWindPhaseNoise = nullptr;
     ReconfigureFirmwareVehicle = nullptr;
     GetWingShape = nullptr;
+    GetMassProperties = nullptr;
     GetWingForces = nullptr;
     if (LibraryHandle)
     {
@@ -221,4 +223,9 @@ bool FBorn2FlapMathBridge::ReadWingShape(B2F_WingSection* Left, B2F_WingSection*
 bool FBorn2FlapMathBridge::ReadWingForces(double* Left, double* Right) const
 {
     return Context && GetWingForces && GetWingForces(Context, B2F_WING_STATIONS, Left, Right) == B2F_WING_STATIONS;
+}
+
+bool FBorn2FlapMathBridge::ReadMassProperties(double CgX, B2F_MassProperties& Out) const
+{
+    return Context && GetMassProperties && GetMassProperties(Context, CgX, &Out) != 0;
 }

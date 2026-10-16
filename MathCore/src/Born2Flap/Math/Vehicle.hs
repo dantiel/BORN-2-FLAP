@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE StrictData #-}
 
@@ -20,6 +21,7 @@ module Born2Flap.Math.Vehicle
   , initialStrips
   , stepWingWithStroke
   , wingLoadsWithStroke
+  , prepareWingLoads
   , stepCoupledWing
   , addVec
   , crossVec
@@ -273,7 +275,7 @@ stepWingWithStroke :: Bool -> Double -> Double -> Double -> VehicleInput -> Doub
                    -> ([StripResult], [StripState])
 stepWingWithStroke flapping side stroke strokeRate input wingScale incidenceRad states =
   let wp = scaleWing wingScale defaultBirdWing
-      raw = zipWith (stepStrip False flapping side stroke strokeRate input incidenceRad wp) [0 ..] states
+      raw = zipWith (\i s -> stepStrip False strokeRate flapping side stroke input incidenceRad wp i s (vx (bodyRatesRadS input)) strokeRate) [0 ..] states
       transported = transportSeparation side input wp raw
       deformed = applyStructure wingScale wp input transported
   in (deformed, map resultState deformed)
@@ -281,60 +283,69 @@ stepWingWithStroke flapping side stroke strokeRate input wingScale incidenceRad 
 -- Force-only evaluation for the implicit roll Jacobian. Structural relaxation
 -- and separation transport only modify next state; commit those once after
 -- solving, rather than doing a full beam solve at every trial velocity.
-wingLoadsWithStroke :: Bool -> Double -> Double -> Double -> VehicleInput -> Double -> [StripState] -> [StripResult]
-wingLoadsWithStroke flapping side stroke rate input wingScale states =
-  zipWith (stepStrip True flapping side stroke rate input 0 (scaleWing wingScale defaultBirdWing)) [0..] states
+wingLoadsWithStroke :: Bool -> Double -> Double -> Double -> Double -> VehicleInput -> Double -> [StripState] -> [StripResult]
+wingLoadsWithStroke flapping side stroke rate phaseRate input wingScale states =
+  prepareWingLoads flapping side stroke phaseRate input wingScale states (vx (bodyRatesRadS input)) rate
+
+-- Cache the fixed geometry and aerodynamic history outside Newton's candidate
+-- velocities. Rebuilding every strip for every finite-difference column made
+-- the 240 Hz physics consume most of the game thread on small aircraft.
+prepareWingLoads :: Bool -> Double -> Double -> Double -> VehicleInput -> Double -> [StripState]
+                 -> Double -> Double -> [StripResult]
+prepareWingLoads flapping side stroke phaseRate input wingScale states =
+  let strips = zipWith (stepStrip True phaseRate flapping side stroke input 0 (scaleWing wingScale defaultBirdWing)) [0..] states
+  in \rollRate rate -> map (\strip -> strip rollRate rate) strips
 
 -- Commit aero memory/structure after the implicit solve using the same loads
 -- as its residual. Hysteretic state transitions are not Newton unknowns.
-stepCoupledWing :: Bool -> Double -> Double -> Double -> VehicleInput -> Double -> [StripState]
+stepCoupledWing :: Bool -> Double -> Double -> Double -> Double -> VehicleInput -> Double -> [StripState]
                 -> ([StripResult], [StripState])
-stepCoupledWing flapping side stroke rate input wingScale states =
+stepCoupledWing flapping side stroke rate phaseRate input wingScale states =
   let wp=scaleWing wingScale defaultBirdWing
-      raw=wingLoadsWithStroke flapping side stroke rate input wingScale states
+      raw=wingLoadsWithStroke flapping side stroke rate phaseRate input wingScale states
       results=applyStructure wingScale wp input (transportSeparation side input wp raw)
   in (results,map resultState results)
 
 -- High wing / low centre of mass. The side-force lever contributes natural
 -- lateral stability; it is not an attitude-dependent restoring torque.
 wingRootHeight :: Double
-wingRootHeight = 0.10
+wingRootHeight = 0.04
 
-stepStrip :: Bool -> Bool -> Double -> Double -> Double -> VehicleInput -> Double -> WingShape -> Int -> StripState -> StripResult
-stepStrip implicitLoads flapping side stroke strokeRate input incidenceRad wp index old =
-  let dt = stepSeconds input
-      fraction = (fromIntegral index + 0.5) / fromIntegral stripCount
-      spanM = wsSpanM wp
-      dr = spanM / fromIntegral stripCount
+stepStrip :: Bool -> Double -> Bool -> Double -> Double -> VehicleInput -> Double -> WingShape -> Int -> StripState -> Double -> Double -> StripResult
+{-# NOINLINE stepStrip #-}
+stepStrip implicitLoads _phaseRate _flapping side stroke input incidenceRad wp index old =
+  let !dt = stepSeconds input
+      !fraction = (fromIntegral index + 0.5) / fromIntegral stripCount
+      !spanM = wsSpanM wp
+      !dr = spanM / fromIntegral stripCount
       -- Spanwise lever arm from the shoulder hinge: the wing root sits at the
       -- shoulder distance outboard of the body centreline, then the wing's own
       -- span runs root→tip.
-      radius = wsShoulderM wp + dr * (fromIntegral index + 0.5)
-      chord = shapeChord wp fraction
-      twist = shapeTwistRad wp fraction + incidenceRad
-      dihedral = stroke + shapeDihedralRad wp fraction
-      profile = shapeSection wp fraction
-      camberPrev = stripCamber old
-      aeroTwist = stripTwistAero old
-      bend = stripBendM old
+      !radius = wsShoulderM wp + dr * (fromIntegral index + 0.5)
+      !chord = shapeChord wp fraction
+      !twist = shapeTwistRad wp fraction + incidenceRad
+      !dihedral = stroke + shapeDihedralRad wp fraction
+      !profile = shapeSection wp fraction
+      !camberPrev = stripCamber old
+      !aeroTwist = stripTwistAero old
+      !bend = stripBendM old
       -- Ground effect: proximity to the surface below, normalised by the total
       -- wingspan (2 × half-span). Each strip sees its OWN flap height, so the
       -- downstroke pushes the tip into the cushion and the upstroke lifts it
       -- back out — the effect is strongest at the bottom of the beat.
-      stripHeightM = wingRootHeight + radius * sin dihedral + bend
-      ge = groundEffectFactor (groundClearanceM input + stripHeightM) (2 * wsSpanM wp)
-      velocity = bodyVelocityMS input
-      rates = bodyRatesRadS input
+      !stripHeightM = wingRootHeight + radius * sin dihedral + bend
+      !ge = groundEffectFactor (groundClearanceM input + stripHeightM) (2 * wsSpanM wp)
+      !velocity = bodyVelocityMS input
       -- Use section velocity through air throughout (not a mixture of air
       -- velocity and body velocity). Drag must do negative work. The normal
       -- rotates with the flap; positive stroke raises BOTH wings.
-      position = Vec3 0 (side * radius * cos dihedral) (wingRootHeight + radius * sin dihedral + bend)
-      normal = Vec3 0 (-side * sin dihedral) (cos dihedral)
+      !position = Vec3 0 (side * radius * cos dihedral) (wingRootHeight + radius * sin dihedral + bend)
+      !normal = Vec3 0 (-side * sin dihedral) (cos dihedral)
       -- Resolve flow in the swept section plane. Ignoring sweep here removed
       -- its differential lift in sideslip, despite it being in the planform.
-      sweep = shapeSweepRad wp fraction
-      chordAxis = Vec3 (cos sweep) (side * sin sweep * cos dihedral) (sin sweep * sin dihedral)
-      spanAxis = Vec3 (-sin sweep) (side * cos sweep * cos dihedral) (cos sweep * sin dihedral)
+      !sweep = shapeSweepRad wp fraction
+      !chordAxis = Vec3 (cos sweep) (side * sin sweep * cos dihedral) (sin sweep * sin dihedral)
+      !spanAxis = Vec3 (-sin sweep) (side * cos sweep * cos dihedral) (cos sweep * sin dihedral)
       -- Flap velocity is the wing surface's motion through the air about the
       -- shoulder hinge. It exists in BOTH flapping and glide: in glide a
       -- differential-dihedral (roll) command rotates the wing, so the surface
@@ -342,6 +353,9 @@ stepStrip implicitLoads flapping side stroke strokeRate input incidenceRad wp in
       -- at the spanwise lever arm (position), is what rolls the fuselage — the
       -- fuselage/tail sit on the centreline and carry no roll lever arm.
       -- Feathering (passive pitch) stays a flapping-stroke phenomenon (below).
+      !aspectRatio = shapeAspectRatio wp
+  in \rollRate strokeRate ->
+  let rates = Vec3 rollRate (vy (bodyRatesRadS input)) (vz (bodyRatesRadS input))
       flapVelocity = scaleVec (radius * strokeRate) normal
       sectionVelocity = addVec velocity (addVec (crossVec rates position) flapVelocity)
       dot (Vec3 a b c) (Vec3 d e f) = a*d + b*e + c*f
@@ -358,11 +372,12 @@ stepStrip implicitLoads flapping side stroke strokeRate input incidenceRad wp in
       -- enough to hold the section at its stall onset — maximum lift without
       -- the rigid-plate 90° stall that used to kill both thrust and lift.
       -- No flap motion means no feathering; body sink still changes incidence.
-      feather = if flapping
-          then let inflow = atan2 (radius * strokeRate) (max 1.5 (abs chordVelocity))
-                   k = if strokeRate > 0 then 1.0 else 0.85
-               in k * inflow
-          else 0
+      worldStrokeRate = strokeRate + side * rollRate
+      sweepNormal = radius * worldStrokeRate
+      feather =
+        let inflow = atan2 sweepNormal (max 1.5 (abs chordVelocity))
+            compliance = if sweepNormal > 0 then 1.0 else 0.85
+        in compliance * inflow
       -- A 2-servo ornithopter has one actuator per wing: the flap hinge. Pitch
       -- and roll reach the wing through the flap angle (stroke-centre shift and
       -- differential), never through a separate incidence twist. Angle of attack
@@ -396,11 +411,10 @@ stepStrip implicitLoads flapping side stroke strokeRate input incidenceRad wp in
       cl = lerp attachedCl separatedCl forceSeparation + rotationalCl + vortexLift
       camberNext = relaxCamber dt (spMembraneTau profile) camberPrev
                      (membraneCamberTarget profile attachedCl)
-      aspectRatio = shapeAspectRatio wp
       -- Induced drag is the classic ground-effect victim: the image vortex
       -- cancels downwash, so the trailing wake tilts less and the bird glides
       -- faster. Only while FLAPPING — a gliding wing gains lift, not speed.
-      inducedRelief = if flapping then max 0 (1 - groundEffectDragRelief * ge) else 1
+      inducedRelief = max 0 (1 - groundEffectDragRelief * ge)
       inducedCd = cl * cl / (pi * 0.82 * aspectRatio) * inducedRelief
       attachedCd = 0.016 + inducedCd
       separatedCd = 0.20 + 1.20 * sin alphaEff * sin alphaEff
@@ -431,12 +445,10 @@ stepStrip implicitLoads flapping side stroke strokeRate input incidenceRad wp in
       -- pushes off the surface) and — uniquely — the normally-feathered
       -- upstroke recovers a fraction of that jet too, so the bird accelerates
       -- in the cushion where a gliding wing only gains lift.
-      flapThrust = if flapping
-                      then let jet = 0.5 * airDensity * area * (radius * strokeRate) * (radius * strokeRate) * flapJetCoeff
-                           in if strokeRate < 0
+      flapThrust = let jet = 0.5 * airDensity * area * (radius * worldStrokeRate) * (radius * worldStrokeRate) * flapJetCoeff
+                           in if worldStrokeRate < 0
                                 then jet * (1 + groundEffectThrustGain * ge)
                                 else jet * groundEffectUpstrokeRecover * ge
-                      else 0
       thrustForce = Vec3 flapThrust 0 0
       -- Flat-plate pressure drag on the wing surface moving normal to itself.
       -- This is the "air resistance" a broad wing feels when it sweeps up/down
@@ -446,28 +458,14 @@ stepStrip implicitLoads flapping side stroke strokeRate input incidenceRad wp in
       -- Opposes the wing surface's FULL normal velocity -- flap stroke plus the
       -- body's own translation/rotation -- so a rolling body also drags the wing
       -- through the air (and the reaction at the shoulder rolls the fuselage).
-      -- The stroke's flat-plate pressure drag also unloads in ground effect:
-      -- the air can no longer escape under the wing, so less pressure work is
-      -- lost sweeping the surface down. This is the drag-reduction half of the
-      -- flapping ground-effect pair (the thrust half is flapThrust above).
-      flapDampingRelief = if flapping then max 0 (1 - groundEffectDragRelief * ge) else 1
-      -- Asymmetric stroke damping: full Cd on the downstroke (and always in
-      -- glide, where a roll command sweeps both wings and needs symmetric bite),
-      -- reduced Cd on the flapping upstroke so the recovery sheds pressure drag.
-      strokeCd = if flapping && strokeRate > 0
-                    then flapDampingCd * flapUpstrokeDampingFraction
-                    else flapDampingCd
-      -- Ground-effect relief removes only the LATERAL (side) pressure drag of
-      -- the flapping plate, never the vertical lift reaction: pushing air down
-      -- near the deck must still produce full lift (the cushion). The stroke's
-      -- pressure drag IS the stroke's lift (its vertical component), so
-      -- relieving the whole vector made net lift invert at the deck once Cd
-      -- grew large — a bird losing lift exactly where it should lift hardest.
-      flapDampingMag = -0.5 * airDensity * area * strokeCd
-                       * normalVelocity * abs normalVelocity
-      flapDampingForce = addVec
-          (scaleVec (flapDampingMag * flapDampingRelief) (Vec3 0 (vy normal) 0))
-          (scaleVec flapDampingMag (Vec3 0 0 (vz normal)))
+      -- One pressure law in glide and flap. A feathered membrane presents
+      -- less normal area/flow because its physical normal rotates, rather
+      -- than because a throttle-mode flag changes its drag coefficient.
+      pressureNormal = addVec (scaleVec (cos feather) normal) (scaleVec (-sin feather) chordAxis)
+      pressureVelocity = dot sectionVelocity pressureNormal
+      flapDampingMag = -0.5 * airDensity * area * flapDampingCd
+                       * pressureVelocity * abs pressureVelocity
+      flapDampingForce = scaleVec flapDampingMag pressureNormal
       force = addVec (addVec chordForce (addVec normalForce spanDrag))
                      (addVec thrustForce flapDampingForce)
       -- Explicit differencing of BODY acceleration as an added-mass force

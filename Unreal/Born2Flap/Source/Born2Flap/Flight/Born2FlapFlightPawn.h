@@ -188,6 +188,11 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     // a later throw then launches from the pilot's position and gaze instead of
     // the bird's resting spot. Cleared when the bird lands (RememberLanding).
     bool bPilotWalked = false;
+    // True while the bird is in a thrown flight awaiting its landing: only then
+    // does the observer teleport to the landing spot (UpdateLandingCamera). A
+    // bird that merely settles on the ground (placed at spawn or nudged by wind)
+    // must not trigger that teleport.
+    bool bThrown = false;
     // Ground interaction (pilot walk + look), active while the middle mouse
     // button is held and the bird is grounded. Chase-orbit offsets rotate the
     // spring arm around the bird; ground free-look offsets detach the ground
@@ -266,6 +271,9 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     // The integration test uses the actual pawn/controller/Chaos path.
     bool bFlightTest = false, bSoakTest = false, bRavenFlightTest = false, bTestResetSent = false, bTestFinished = false;
     double TestTime = 0, TestPeakSpeed = 0, TestPeakAltitude = 0;
+    double MathProfileSeconds = 0;
+    int32 MathProfileSteps = 0, MathProfileFrames = 0;
+    FVector RollTestBaseline = FVector::ZeroVector;
     double TestPoweredAltitude = 0, TestGlideAltitude = 0, TestBoostAltitude = 0;
     double TestBeforePullSpeed = 0, TestPullSpeed = 0, TestBeforePullHeight = 0, TestPullHeight = 0;
     double TestFlapMin = 80, TestFlapMax = -80;

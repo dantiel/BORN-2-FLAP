@@ -5,6 +5,7 @@ import Born2Flap.Math.Wing
 import Born2Flap.Math.Control
 import Born2Flap.Math.Vehicle
 import Born2Flap.Math.Planform
+import Born2Flap.Math.Airframe
 import Born2Flap.Math.Section
 import Born2Flap.Math.Structure
 import Born2Flap.Math.Simulation
@@ -22,6 +23,17 @@ import Born2Flap.Math.Resonance
 
 main :: IO ()
 main = do
+  let (bodyMass,wingMass,tailMass)=airframeMasses 0.05
+      (ix,iy,iz)=airframeInertia 0.05 0
+      wingDry=shapeFlapInertia wingMass 0 defaultBirdWing
+  if abs (bodyMass-0.038)<1e-12 && wingMass==0.005 && tailMass==0.002 &&
+     abs (bodyMass+2*wingMass+tailMass-0.05)<1e-12 &&
+     ix>2*wingDry && ix<2*wingDry*1.15 && iy>0 && iz>0
+    then pure () else fail "component mass budget and narrow-body roll inertia"
+  let flow=VehicleInput (1/240) (Vec3 8 0 (-1)) (Vec3 0.3 0.1 0) 0 0 0 0 5
+      loads flag rate=wingLoadsWithStroke flag 1 0.1 rate 0 flow 1 initialStrips
+  if all (\rate -> loads False rate == loads True rate) [-8,0,8]
+    then pure () else fail "identical wing state must yield identical forces in glide and flap"
   -- Coupled inertia: internal motor impulses conserve angular momentum;
   -- kinetic work converges to the continuous constant-torque solution.
   let j=0.002; rotor=0.0016; locked=0.008; dt=1/240
@@ -48,6 +60,19 @@ main = do
     then pure () else fail "symmetry, passive dissipation and internal end-stop momentum must hold"
   if servoDriveTorque defaultServoSpec defaultBatterySpec 0 dt 40 0 j defaultServoState 1 == 0
     then pure () else fail "empty battery must supply no motor torque"
+  -- If roll and hinge motion cancel in world space, the wing sees the same
+  -- air velocity (including compensation for translation of the high root).
+  let wingInput=VehicleInput dt (Vec3 8 0 0) zero 0 0 0 0 1000
+      sumForce=foldr (addVec . resultForce) zero
+      steady=sumForce (wingLoadsWithStroke False 1 0 0 0 wingInput 1 initialStrips)
+      counter=sumForce (wingLoadsWithStroke False 1 0 (-1) 0
+                 (wingInput {bodyRatesRadS=Vec3 1 0 0,bodyVelocityMS=Vec3 8 wingRootHeight 0}) 1 initialStrips)
+      falling=wingInput {bodyVelocityMS=Vec3 8 0 (-1)}
+      before=sumForce (wingLoadsWithStroke True 1 0 (-1e-8) (-0.1) falling 1 initialStrips)
+      after=sumForce (wingLoadsWithStroke True 1 0 1e-8 (-0.1) falling 1 initialStrips)
+  if magnitude (addVec steady (scaleVec (-1) counter)) < 1e-8
+     && magnitude (addVec before (scaleVec (-1) after)) < 1e-6
+    then pure () else fail "world-stationary wing flow and continuous implicit reversal loads must hold"
   let strip moment = StripResult emptyStrip (Vec3 0 0 1) moment 0 0
       leftTorque = hingeTorque (-1) [strip (Vec3 (-2) 90 0)]
       rightTorque = hingeTorque 1 [strip (Vec3 2 90 0)]
