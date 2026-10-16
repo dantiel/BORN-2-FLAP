@@ -7,6 +7,74 @@
 #define B2F_EXPORT __attribute__((visibility("default")))
 #endif
 
+/* -------------------------------------------------------------------------
+ * iOS RTS link-time overrides.
+ *
+ * The ghc-ios toolchain ships GHC's RTS with strong definitions of
+ * mprotectForLinker (MMap.o) and osReserveHeapMemory (OSMem.o). On iOS both
+ * must be replaced; Tools/weaken-rts-symbols.py marks the RTS definitions
+ * N_WEAK_DEF so these strong definitions win at link time.
+ *
+ *   mprotectForLinker   -> no-op. GHC's linker makes pages executable with
+ *                          mprotect(PROT_EXEC); iOS W^X forbids runtime JIT
+ *                          (MAP_JIT) and kills the process with "Invalid Page".
+ *                          A static build has no dynamically-loaded code, so
+ *                          this call is unnecessary and a no-op is correct.
+ *
+ *   osReserveHeapMemory  -> capped reservation. GHC defaults to reserving
+ *                          1 TiB of address space up front; iOS grants ~1 GB
+ *                          and rejects the giant mmap. Cap it to a device-
+ *                          friendly size instead.
+ *
+ * Only compiled for the iOS static-library build (Tools/build-math-ios.sh
+ * passes -DB2F_IOS_RTS=1). Desktop/macOS/Windows builds keep the RTS defaults.
+ * ------------------------------------------------------------------------- */
+#if defined(B2F_IOS_RTS)
+
+#include <stdint.h>
+#include <stddef.h>
+#include <sys/mman.h>
+#include <unistd.h>
+
+void mprotectForLinker(void *start, size_t len, int mode) {
+    (void)start; (void)len; (void)mode;
+}
+
+void *osReserveHeapMemory(void *startAddressPtr, uintptr_t *len) {
+    const uintptr_t maxHeap = (uintptr_t)512 * 1024 * 1024; /* 512 MiB */
+
+    uintptr_t size = *len;
+    if (size > maxHeap) {
+        size = maxHeap;
+    }
+
+    uintptr_t pageSize = (uintptr_t)sysconf(_SC_PAGESIZE);
+    if (pageSize == 0 || pageSize == (uintptr_t)-1) {
+        pageSize = 4096;
+    }
+    size &= ~(pageSize - 1);
+    if (size < pageSize) {
+        size = pageSize;
+    }
+
+    /* Reserve address space without committing (PROT_NONE); the RTS commits
+     * pages later with osCommitMemory (RW, not RWX — no W^X violation). */
+    void *base = mmap(startAddressPtr, size, PROT_NONE,
+                      MAP_PRIVATE | MAP_ANON, -1, 0);
+    if (base == MAP_FAILED && startAddressPtr != NULL) {
+        /* The hint (often a high address) may be unmappable on iOS. */
+        base = mmap(NULL, size, PROT_NONE, MAP_PRIVATE | MAP_ANON, -1, 0);
+    }
+    if (base == MAP_FAILED) {
+        return NULL; /* the RTS caller barfs with a useful message */
+    }
+
+    *len = size;
+    return base;
+}
+
+#endif /* B2F_IOS_RTS */
+
 static int b2f_rts_started = 0;
 static atomic_flag b2f_init_lock = ATOMIC_FLAG_INIT;
 
