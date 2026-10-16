@@ -74,17 +74,18 @@ flapJetCoeff = 5.5
 -- it moves up/down (flap stroke or differential-dihedral roll).
 --
 -- CRITICAL: the flap hinge torque this force produces is ½·ρ·Cd·ω²·∫chord·r³dr.
--- At the servo's 1200°/s peak rate (ω ≈ 20.9 rad/s) the integral ≈ 0.0072 m⁴,
--- so hinge torque ≈ 1.67·Cd [N·m]. Raising Cd to chase ROLL AUTHORITY therefore
--- back-fires: Cd=50 → ~83 N·m, which back-drives even a 20 N·m servo into its
--- ±80° end-stop and latches it there, and the same huge normal force bends the
--- wing to its saturation clamp (the "deformed and stuck" failure). Roll authority
--- must NOT come from flat-plate drag — it belongs to the differential-dihedral
--- LIFT tilt (aileronCmd shifting the stroke centre) and to the V-tail, both of
--- which use lift, not drag. Keep Cd physical so the wing BITES the air via lift
--- while its flap motion merely sees normal flat-plate resistance.
+-- At the servo's 1200°/s peak rate (ω ≈ 20.9 rad/s) on the 1.0 m membrane wing
+-- the integral ≈ 0.024 m⁴, so hinge torque ≈ 5.4·Cd [N·m]. Raising Cd to chase
+-- ROLL AUTHORITY therefore back-fires hard: Cd=50 → ~270 N·m, which back-drives
+-- even a 20 N·m servo into its ±80° end-stop and latches it there, and the same
+-- huge normal force bends the wing to its saturation clamp (the "deformed and
+-- stuck" failure). Roll authority must NOT come from flat-plate drag — it belongs
+-- to the differential-dihedral LIFT tilt (aileronCmd shifting the stroke centre)
+-- and to the V-tail, both of which use lift, not drag. Keep Cd at the physical
+-- flat-plate figure so the wing BITES the air via lift while its flap motion
+-- merely sees normal flat-plate resistance.
 flapDampingCd :: Double
-flapDampingCd = 3.0
+flapDampingCd = 1.2
 
 -- | Fraction of 'flapDampingCd' the wing keeps on the UPSTROKE during flapping.
 -- A real bird feathers the recovery stroke so the downstroke (power stroke) bites
