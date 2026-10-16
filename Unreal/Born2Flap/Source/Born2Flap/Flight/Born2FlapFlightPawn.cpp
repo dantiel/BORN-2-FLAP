@@ -515,7 +515,13 @@ void ABorn2FlapFlightPawn::ResetFlight(bool bSafety)
     if (Born2Flap::Loading::State().IsActive())
         Born2Flap::Loading::Report(0.80f, TEXT("FLIGHT CORE READY"));
     if (bHealthy)
+    {
+        // A fresh context starts on the kestrel reference; select the bird's
+        // own wing planform + carbon-rod inventory before the mass properties
+        // and first wing loads are read.
+        MathBridge->SetWingModel((uint32_t)BirdModel);
         ApplyTuning();
+    }
     bFlying = bReturning = false;
     Desktop = {};
     Throttle = RollInput = YawInput = PitchInput = LeftFlap = RightFlap = 0;

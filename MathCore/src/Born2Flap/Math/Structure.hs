@@ -34,6 +34,7 @@ module Born2Flap.Math.Structure
   ( StructureProfile(..)
   , SparInventory(..)
   , kestrelSpars
+  , scaleSpars
   , armStructure
   , handStructure
     -- * Cantilever beam integration
@@ -112,6 +113,26 @@ kestrelSpars = SparInventory
   , siMidLeverM     = 171e-3
   , siMembraneGJ    = 2.2e-1
   , siBraceScale    = 4.0
+  }
+
+-- | Scale a spar inventory by a geometric factor @s@ (structural similarity):
+-- every rod diameter and brace length scales by @s@, the tensioned-membrane
+-- baseline torsional stiffness scales by @s³@, and the dimensionless
+-- calibration gains (bend/twist/brace scale) are unchanged. Used to derive a
+-- second bird's carbon rods from the kestrel inventory without introducing
+-- new magic constants — a bigger bird gets proportionally longer, thicker rods.
+scaleSpars :: Double -> SparInventory -> SparInventory
+scaleSpars s inv = inv
+  { siDInnerMain   = siDInnerMain inv * s
+  , siDOuterMain   = siDOuterMain inv * s
+  , siDDiagonal    = siDDiagonal inv * s
+  , siDMidChord    = siDMidChord inv * s
+  , siInnerLengthM = siInnerLengthM inv * s
+  , siDiagLengthM  = siDiagLengthM inv * s
+  , siDiagLeverM   = siDiagLeverM inv * s
+  , siMidLengthM   = siMidLengthM inv * s
+  , siMidLeverM    = siMidLeverM inv * s
+  , siMembraneGJ   = siMembraneGJ inv * s * s * s
   }
 
 -- | Bending stiffness @EI@ [N·m²] of a solid round carbon rod of diameter @d@.

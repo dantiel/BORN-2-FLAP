@@ -58,13 +58,17 @@ airDensity :: Double
 airDensity = 1.05
 
 -- | Momentum-jet thrust factor for the flapping downstroke (dimensionless).
--- The downstroke accelerates a chord-scale column of air; C_T ≈ 2 is typical.
--- Raised so wing beats deliver clear propulsive effect even in the thinner air,
--- and kept proportional to 'flapDampingCd': a wing that bites harder against the
--- air must also shed a proportionally stronger backward jet, otherwise the extra
--- pressure drag only loads the servo and slows the bird instead of propelling it.
+-- The downstroke sheds a backward jet whose reaction propels the bird. This is
+-- the ONLY free gain in the flap force budget and it must be calibrated against
+-- measured total force, not a textbook C_T: with the 0.55 m wing at the servo's
+-- 20.9 rad/s peak rate the jet scales ~ω²·∫r²·c·dr, so C_T=5.5 produced a
+-- 31 N peak / 6.9 N mean thrust on a 4.4 N bird (a one-beat moon shot). The
+-- lift-tilt alone (C_T=0) already yields ~1.5 N mean thrust at rest but goes
+-- slightly NEGATIVE at 6 m/s, so the jet must supply the ~0.6 N cruise margin.
+-- C_T=0.6 gives ~2.1 N mean / ~9.5 N peak at rest and ~0.6 N mean at 6 m/s —
+-- lift ≈ weight and thrust ≈ drag in cruise, instead of a launch.
 flapJetCoeff :: Double
-flapJetCoeff = 5.5
+flapJetCoeff = 0.6
 
 -- | Lumped pressure-drag coefficient for the wing's OWN flap motion — the broad
 -- surface sweeping normal to itself through air. A thin airfoil moving edge-on
