@@ -4,6 +4,7 @@ Build/
 DerivedDataCache/
 Intermediate/
 Saved/
+Archive/
 .vs/
 *.sln
 *.VC.db
