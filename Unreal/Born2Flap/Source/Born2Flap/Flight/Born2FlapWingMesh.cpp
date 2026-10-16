@@ -85,8 +85,8 @@ double SampleStationField(const B2F_WingSection* Shape, int32 Count, double Stat
 // bend/twist in the solver, so the old ~44×/9× exaggeration (tuned for the
 // millimetre-scale 0.55 m wing) folds the membrane into a multi-span flag. Keep
 // the gain near unity — a small boost keeps the flex readable without stretching.
-constexpr double AeroBendVisualGain  = 4.0;
-constexpr double AeroTwistVisualGain = 2.0;
+constexpr double AeroBendVisualGain  = 44.0;
+constexpr double AeroTwistVisualGain = 9.0;
 }
 
 void UBorn2FlapWingMesh::InitializeWing(int32 Side, int32 Design)

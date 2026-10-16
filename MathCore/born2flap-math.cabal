@@ -11,6 +11,7 @@ library
       Born2Flap.Math.Planform
       Born2Flap.Math.Section
       Born2Flap.Math.Structure
+      Born2Flap.Math.Model
       Born2Flap.Math.Waveform
       Born2Flap.Math.Vehicle
       Born2Flap.Math.Firmware
@@ -44,6 +45,7 @@ foreign-library born2flap_math
       Born2Flap.Math.Planform
       Born2Flap.Math.Section
       Born2Flap.Math.Structure
+      Born2Flap.Math.Model
       Born2Flap.Math.Waveform
       Born2Flap.Math.Firmware
       Born2Flap.Math.Servo

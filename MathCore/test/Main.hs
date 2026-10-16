@@ -8,6 +8,7 @@ import Born2Flap.Math.Planform
 import Born2Flap.Math.Airframe
 import Born2Flap.Math.Section
 import Born2Flap.Math.Structure
+import Born2Flap.Math.Model
 import Born2Flap.Math.Simulation
 import Born2Flap.Math.Waveform
   ( OscillatorState(..), defaultOscillator, advanceOscillator
@@ -24,14 +25,14 @@ import Born2Flap.Math.Resonance
 main :: IO ()
 main = do
   let (bodyMass,wingMass,tailMass)=airframeMasses 0.05
-      (ix,iy,iz)=airframeInertia 0.05 0
+      (ix,iy,iz)=airframeInertia kestrelModel 0.05 0
       wingDry=shapeFlapInertia wingMass 0 defaultBirdWing
   if abs (bodyMass-0.038)<1e-12 && wingMass==0.005 && tailMass==0.002 &&
      abs (bodyMass+2*wingMass+tailMass-0.05)<1e-12 &&
      ix>2*wingDry && ix<2*wingDry*1.15 && iy>0 && iz>0
     then pure () else fail "component mass budget and narrow-body roll inertia"
   let flow=VehicleInput (1/240) (Vec3 8 0 (-1)) (Vec3 0.3 0.1 0) 0 0 0 0 5
-      loads flag rate=wingLoadsWithStroke flag 1 0.1 rate 0 flow 1 initialStrips
+      loads flag rate=wingLoadsWithStroke flag 1 0.1 rate 0 flow kestrelModel initialStrips
   if all (\rate -> loads False rate == loads True rate) [-8,0,8]
     then pure () else fail "identical wing state must yield identical forces in glide and flap"
   -- Coupled inertia: internal motor impulses conserve angular momentum;
@@ -64,12 +65,12 @@ main = do
   -- air velocity (including compensation for translation of the high root).
   let wingInput=VehicleInput dt (Vec3 8 0 0) zero 0 0 0 0 1000
       sumForce=foldr (addVec . resultForce) zero
-      steady=sumForce (wingLoadsWithStroke False 1 0 0 0 wingInput 1 initialStrips)
+      steady=sumForce (wingLoadsWithStroke False 1 0 0 0 wingInput kestrelModel initialStrips)
       counter=sumForce (wingLoadsWithStroke False 1 0 (-1) 0
-                 (wingInput {bodyRatesRadS=Vec3 1 0 0,bodyVelocityMS=Vec3 8 wingRootHeight 0}) 1 initialStrips)
+                 (wingInput {bodyRatesRadS=Vec3 1 0 0,bodyVelocityMS=Vec3 8 wingRootHeight 0}) kestrelModel initialStrips)
       falling=wingInput {bodyVelocityMS=Vec3 8 0 (-1)}
-      before=sumForce (wingLoadsWithStroke True 1 0 (-1e-8) (-0.1) falling 1 initialStrips)
-      after=sumForce (wingLoadsWithStroke True 1 0 1e-8 (-0.1) falling 1 initialStrips)
+      before=sumForce (wingLoadsWithStroke True 1 0 (-1e-8) (-0.1) falling kestrelModel initialStrips)
+      after=sumForce (wingLoadsWithStroke True 1 0 1e-8 (-0.1) falling kestrelModel initialStrips)
   if magnitude (addVec steady (scaleVec (-1) counter)) < 1e-8
      && magnitude (addVec before (scaleVec (-1) after)) < 1e-6
     then pure () else fail "world-stationary wing flow and continuous implicit reversal loads must hold"
@@ -80,14 +81,14 @@ main = do
   if leftTorque == 2 && rightTorque == 2 then pure ()
     else fail "mirrored flap hinges must project signed X torque, ignoring pitch torque"
   let fwStep dt vel s = stepFirmwareVehicle True defaultRcChannels defaultFirmwareParams
-                        defaultServoSpec defaultBatterySpec 1.0 dt vel (Vec3 0 0 0) 1000 s
+                        defaultServoSpec defaultBatterySpec kestrelModel dt vel (Vec3 0 0 0) 1000 s
       badCases = [(0, Vec3 5 0 0), (0/0, Vec3 5 0 0), (0.01, Vec3 (1/0) 0 0)]
   mapM_ (\(dt, vel) -> let (o,s) = fwStep dt vel defaultFirmwareVehicleState
                        in if outputFlags o /= 0 && s == defaultFirmwareVehicleState
                           then pure () else fail "firmware failure must preserve all state") badCases
   let flap = defaultRcChannels {rcThrottle = 1811}
       batteryStep battery s = stepFirmwareVehicle True flap defaultFirmwareParams defaultServoSpec
-                               battery 1.0 (1/240) (Vec3 5 0 0) (Vec3 0 0 0) 1000 s
+                               battery kestrelModel (1/240) (Vec3 5 0 0) (Vec3 0 0 0) 1000 s
       (_, full) = batteryStep defaultBatterySpec defaultFirmwareVehicleState
       (_, empty) = batteryStep defaultBatterySpec (defaultFirmwareVehicleState {fvBatterySoc = 0})
       loaded = defaultFirmwareVehicleState {fvLeftHingeTorqueNm = 0.5, fvRightHingeTorqueNm = 0.5}
@@ -285,10 +286,10 @@ main = do
       dtClosed = 1 / 240
       bodyVel = Vec3 5 0 0
       (out1, st1) = stepFirmwareVehicle True flapRcClosed defaultFirmwareParams
-                     defaultServoSpec defaultBatterySpec 1.0 dtClosed bodyVel (Vec3 0 0 0) 1000
+                     defaultServoSpec defaultBatterySpec kestrelModel dtClosed bodyVel (Vec3 0 0 0) 1000
                      defaultFirmwareVehicleState
       (out2, _) = stepFirmwareVehicle True flapRcClosed defaultFirmwareParams
-                     defaultServoSpec defaultBatterySpec 1.0 dtClosed bodyVel (Vec3 0 0 0) 1000 st1
+                     defaultServoSpec defaultBatterySpec kestrelModel dtClosed bodyVel (Vec3 0 0 0) 1000 st1
       finite value = not (isNaN value || isInfinite value)
   if finite (z (totalForceN out2)) && finite (x (totalMomentNm out2))
      && totalMechanicalPowerW out2 >= 0
@@ -298,8 +299,8 @@ main = do
   -- flapping lift AND forward thrust, while a distant wing feels neither.
   let geInput h = VehicleInput (1 / 240) (Vec3 5 0 0) (Vec3 0 0 0) 0 0 0 0 h
       strokeRateDown = -3.0
-      (highGe, _) = stepWingWithStroke True (-1) 0 strokeRateDown (geInput 1000) 1.0 0 initialStrips
-      (lowGe, _)  = stepWingWithStroke True (-1) 0 strokeRateDown (geInput 0.05) 1.0 0 initialStrips
+      (highGe, _) = stepWingWithStroke True (-1) 0 strokeRateDown (geInput 1000) kestrelModel 0 initialStrips
+      (lowGe, _)  = stepWingWithStroke True (-1) 0 strokeRateDown (geInput 0.05) kestrelModel 0 initialStrips
       liftOf = sum . map (z . resultForce)
       thrustOf = sum . map (x . resultForce)
   if liftOf lowGe > liftOf highGe && thrustOf lowGe > thrustOf highGe
@@ -325,7 +326,7 @@ main = do
       dtFw = 1 / 240
       bodyVelFw = Vec3 5 0 0
       stepFw s = stepFirmwareVehicle True (pilotToRc pilotFlap) defaultFirmwareParams
-                   defaultServoSpec defaultBatterySpec 1.0 dtFw bodyVelFw (Vec3 0 0 0) 1000 s
+                   defaultServoSpec defaultBatterySpec kestrelModel dtFw bodyVelFw (Vec3 0 0 0) 1000 s
       goFw 0 s peak = (s, peak)
       goFw n s peak =
         let (_, s') = stepFw s
@@ -348,7 +349,7 @@ main = do
         { batteryNominalVoltage = 11.1, batteryCapacityAh = 1.3, batteryInternalResistanceOhm = 0.08 }
       skewMoment roll =
         let rc = pilotToRc (pilot4 0.72 roll 0 0)
-            tick (_,s) = stepFirmwareVehicle True rc skewParams skewServo skewBattery 1.0
+            tick (_,s) = stepFirmwareVehicle True rc skewParams skewServo skewBattery kestrelModel
                           (1/240) (Vec3 8 0 (-1)) (Vec3 0 0 0) 1000 s
             samples = drop 481 $ take 1921 $ iterate tick (zeroVehicleOutput,defaultFirmwareVehicleState)
         in if any ((/=0) . outputFlags . fst) samples then error "stroke timing integration rejected a step"
@@ -405,7 +406,7 @@ main = do
   let stabOn = defaultFirmwareVehicleState { fvStabilized = True, fvWindPhaseNoise = 1.0 }
       stabOff = defaultFirmwareVehicleState { fvStabilized = False, fvWindPhaseNoise = 1.0 }
       flyFrom s = snd (stepFirmwareVehicle True flapRcClosed defaultFirmwareParams
-                       defaultServoSpec defaultBatterySpec 1.0 (1 / 240)
+                       defaultServoSpec defaultBatterySpec kestrelModel (1 / 240)
                        (Vec3 5 0 0) (Vec3 0 0 0) 1000 s)
       steadyOn = iterate flyFrom stabOn !! 2400
       steadyOff = iterate flyFrom stabOff !! 2400

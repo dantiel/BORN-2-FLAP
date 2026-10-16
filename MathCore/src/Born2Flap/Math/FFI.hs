@@ -5,7 +5,8 @@ module Born2Flap.Math.FFI where
 import Born2Flap.Math.Types (Vec3(..))
 import Born2Flap.Math.Airframe
 import Born2Flap.Math.Vehicle
-import Born2Flap.Math.Planform (defaultBirdWing, shapeChord, shapeTwistRad)
+import Born2Flap.Math.Model (WingModel(..), kestrelModel)
+import Born2Flap.Math.Planform (shapeChord, shapeTwistRad)
 import Born2Flap.Math.PhaseEnvelope (phaseEnvelope, phaseCoverage)
 import Born2Flap.Math.Resonance (rsPhaseError)
 import Born2Flap.Math.Firmware
@@ -36,6 +37,7 @@ foreign export ccall "hs_b2f_math_step_firmware_vehicle" b2f_math_step_firmware_
 foreign export ccall "hs_b2f_math_set_stabilization" b2f_math_set_stabilization :: Ptr () -> Word32 -> IO Int32
 foreign export ccall "hs_b2f_math_set_wind_phase_noise" b2f_math_set_wind_phase_noise :: Ptr () -> Double -> IO Int32
 foreign export ccall "hs_b2f_math_reconfigure_firmware_vehicle" b2f_math_reconfigure_firmware_vehicle :: Ptr () -> Ptr () -> IO Int32
+foreign export ccall "hs_b2f_math_set_wing_model" b2f_math_set_wing_model :: Ptr () -> Word32 -> IO Int32
 foreign export ccall "hs_b2f_math_get_wing_shape" b2f_math_get_wing_shape :: Ptr () -> Word32 -> Ptr () -> Ptr () -> IO Int32
 foreign export ccall "hs_b2f_math_get_wing_forces" b2f_math_get_wing_forces :: Ptr () -> Word32 -> Ptr () -> Ptr () -> IO Int32
 b2f_math_get_wing_shape :: Ptr () -> Word32 -> Ptr () -> Ptr () -> IO Int32
@@ -48,10 +50,11 @@ b2f_math_get_wing_shape contextPointer capacity leftPointer rightPointer
       contextRef <- deRefStablePtr (castPtrToStablePtr contextPointer :: StablePtr (IORef FwContext))
       context <- readIORef contextRef
       let state = fwcState context
+          wp = wmWing (fwcModel context)
           values strips = concat
             [ let fraction = (fromIntegral i + 0.5) / fromIntegral stripCount
-              in [fraction, shapeChord defaultBirdWing fraction, stripBendM s,
-                  shapeTwistRad defaultBirdWing fraction, stripTwistAero s, stripCamber s]
+              in [fraction, shapeChord wp fraction, stripBendM s,
+                  shapeTwistRad wp fraction, stripTwistAero s, stripCamber s]
             | (i, s) <- zip [0 :: Int ..] strips ]
           left = values (fvLeftStrips state)
           right = values (fvRightStrips state)
@@ -156,7 +159,7 @@ data FwContext = FwContext
   , fwcServo      :: !ServoSpec
   , fwcBattery    :: !BatterySpec
   , fwcState      :: !FirmwareVehicleState
-  , fwcWingScale  :: !Double  -- ^ geometric scale, independent of mass
+  , fwcModel      :: !WingModel  -- ^ the bird's physical model (wing + carbon rods)
   , fwcMass :: !Double
   }
 
@@ -217,7 +220,7 @@ b2f_math_create_firmware_vehicle configPointer = do
             , profRudderAmplitudeDiff = 35, profRudderFerocityRange = 20
             , profAileronScale = 10, profElevatorScale = 55 }
         }
-      context = FwContext flightParams servo battery defaultFirmwareVehicleState 1.0 0.05
+      context = FwContext flightParams servo battery defaultFirmwareVehicleState kestrelModel 0.05
   castStablePtrToPtr <$> (newIORef context >>= newStablePtr)
 
 b2f_math_destroy_firmware_vehicle :: Ptr () -> IO ()
@@ -244,6 +247,27 @@ b2f_math_set_wind_phase_noise contextPointer noiseRadS
       writeIORef contextRef context
         { fwcState = (fwcState context) { fvWindPhaseNoise = noiseRadS } }
       pure 1
+
+-- | Select the bird's physical model (wing outline + carbon-rod inventory) by
+-- id. This is the per-model configuration hook: a second bird is a new
+-- 'WingModel' value registered here, not a code change in the solver. Model 0
+-- is the kestrel; unknown ids fall back to the kestrel. Additive ABI extension.
+b2f_math_set_wing_model :: Ptr () -> Word32 -> IO Int32
+b2f_math_set_wing_model contextPointer modelId
+  | contextPointer == nullPtr = pure 0
+  | otherwise = run `catch` failure
+  where
+    run = do
+      contextRef <- deRefStablePtr (castPtrToStablePtr contextPointer :: StablePtr (IORef FwContext))
+      context <- readIORef contextRef
+      writeIORef contextRef context { fwcModel = modelById modelId }
+      pure 1
+    failure :: SomeException -> IO Int32
+    failure _ = pure 0
+
+modelById :: Word32 -> WingModel
+modelById 0 = kestrelModel
+modelById _ = kestrelModel
 
 -- | Apply a complete live tuning profile to an existing firmware-vehicle
 -- context. Servo, battery and the exposed controller knobs are swapped in
@@ -290,18 +314,17 @@ applyTuning t ctx =
         , profAileronScale = clampRange 0 100 (tgAileronScale t)
         , profElevatorScale = clampRange 0 100 (tgElevatorScale t)
         }
-      -- Changing battery/body mass must not shrink the same physical wings.
-      wingScale = 1.0
-      -- Flapping frequency rises for lighter birds (f ∝ m^(-1/4) = 1/wingScale,
-      -- the bird-like allometric trend). But it must be CAPPED by the servo's
-      -- no-load speed: a servo sweeping at ω₀ can only flap a stroke of
-      -- amplitude A at cadence f ≤ ω₀/(2π·A). Demanding the full 55° geometric
-      -- stroke at a light bird's natural cadence collapsed the actuator — a
-      -- 667°/s servo at 5.57 Hz tracked only 6° of the commanded stroke and
-      -- produced NEGATIVE cruise thrust (measured). We cap the cadence so the
-      -- servo always sweeps a USEFUL stroke (35°); a faster servo then earns a
-      -- faster flap, which is exactly the "servo power matters" behaviour.
-      freqScale = 1 / wingScale
+      -- The wing geometry is fixed by the selected model (fwcModel) — changing
+      -- battery/body mass must not shrink the same physical wings. Flapping
+      -- frequency must be CAPPED by the servo's no-load speed: a servo sweeping
+      -- at ω₀ can only flap a stroke of amplitude A at cadence f ≤ ω₀/(2π·A).
+      -- Demanding the full 55° geometric stroke at a light bird's natural
+      -- cadence collapsed the actuator — a 667°/s servo at 5.57 Hz tracked only
+      -- 6° of the commanded stroke and produced NEGATIVE cruise thrust
+      -- (measured). We cap the cadence so the servo always sweeps a USEFUL
+      -- stroke (35°); a faster servo then earns a faster flap, which is exactly
+      -- the "servo power matters" behaviour.
+      freqScale = 1
       servoSpeedDegS = max 1 (servoNoLoadSpeedDegPerSec servo)
       usefulStrokeDeg = 35
       freqCapHz = servoSpeedDegS / (2 * pi * usefulStrokeDeg)
@@ -313,7 +336,7 @@ applyTuning t ctx =
         , fwMountIncidenceDeg = clampRange (-15) 15 (tgMountAngleDeg t)
         , fwProfile = profile
         }
-  in ctx { fwcServo = servo, fwcBattery = battery, fwcParams = params, fwcWingScale = wingScale, fwcMass = max 0.01 (tgBodyMassKg t) }
+  in ctx { fwcServo = servo, fwcBattery = battery, fwcParams = params, fwcMass = max 0.01 (tgBodyMassKg t) }
 
 clampRange :: Double -> Double -> Double -> Double
 clampRange lo hi = max lo . min hi
@@ -334,7 +357,7 @@ b2f_math_step_firmware_vehicle contextPointer pilotPointer bodyPointer outputPoi
         then pure () else ioError (userError "nonfinite pilot input")
       let rc = pilotToRc pilot
           (output, nextState) = stepFirmwareVehicleWithInertia (bodyRollInertia body) (piCoupled pilot) rc (fwcParams context)
-                                  (fwcServo context) (fwcBattery context) (fwcWingScale context)
+                                  (fwcServo context) (fwcBattery context) (fwcModel context)
                                   (bodyDelta body) (bodyVel body) (bodyRates body)
                                   (bodyGroundClearance body) (fwcState context)
       if outputFlags output /= 0
@@ -411,7 +434,7 @@ b2f_math_get_mass_properties ctx cgX out
    state <- readIORef ref
    let total=fwcMass state
        (body,wing,tailMass)=airframeMasses total
-       (ix,iy,iz)=airframeInertia total cgX
+       (ix,iy,iz)=airframeInertia (fwcModel state) total cgX
        values=[total,body,wing,tailMass,ix,iy,iz]
    sequence_ [pokeElemOff (castPtr out :: Ptr CDouble) i (CDouble v) | (i,v) <- zip [0..] values]
    pure 1

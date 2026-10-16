@@ -23,8 +23,9 @@ import Born2Flap.Math.Types (Vec3(..))
 import Born2Flap.Math.Firmware
 import Born2Flap.Math.Servo
 import Born2Flap.Math.RollDynamics (stepRoll)
+import Born2Flap.Math.Model (WingModel(..))
 import Born2Flap.Math.Planform
-  ( defaultBirdWing, scaleWing, shapeFlapInertia, referenceWingMassKg )
+  ( shapeFlapInertia, referenceWingMassKg )
 import Born2Flap.Math.Simulation
 import Born2Flap.Math.Waveform (OscillatorState(..), limiarFromFerocities)
 import Born2Flap.Math.PhaseEnvelope
@@ -83,20 +84,20 @@ defaultFirmwareVehicleState = FirmwareVehicleState
 -- Returns @(VehicleOutput, next state)@. @VehicleOutput@ carries the total
 -- force/moment, total mechanical power, and the peak separation fraction.
 stepFirmwareVehicle
-  :: Bool -> RcChannels -> FirmwareParams -> ServoSpec -> BatterySpec -> Double
+  :: Bool -> RcChannels -> FirmwareParams -> ServoSpec -> BatterySpec -> WingModel
   -> Double -> Vec3 -> Vec3 -> Double
   -> FirmwareVehicleState
   -> (VehicleOutput, FirmwareVehicleState)
-stepFirmwareVehicle coupled rc params servo battery wingScale =
-  stepFirmwareVehicleWithInertia (0.008 * wingScale ** 4) coupled rc params servo battery wingScale
+stepFirmwareVehicle coupled rc params servo battery model =
+  stepFirmwareVehicleWithInertia 0.008 coupled rc params servo battery model
 
 -- Host inertia is the dry, locked-wing roll inertia used by the rigid-body
 -- integrator. Added air enters the coupled mass matrix, never the host tensor.
 stepFirmwareVehicleWithInertia
-  :: Double -> Bool -> RcChannels -> FirmwareParams -> ServoSpec -> BatterySpec -> Double
+  :: Double -> Bool -> RcChannels -> FirmwareParams -> ServoSpec -> BatterySpec -> WingModel
   -> Double -> Vec3 -> Vec3 -> Double -> FirmwareVehicleState
   -> (VehicleOutput, FirmwareVehicleState)
-stepFirmwareVehicleWithInertia hostInertia coupled rc params servo battery wingScale dt bodyVel bodyRates groundClearance state
+stepFirmwareVehicleWithInertia hostInertia coupled rc params servo battery model dt bodyVel bodyRates groundClearance state
   | not (finite hostInertia) || hostInertia <= 0 = (zeroOutput 2, state)
   | not (finite dt) || dt <= 0 || dt > 0.05 = (zeroOutput 1, state)
   | not (all finite (components bodyVel ++ components bodyRates ++
@@ -112,7 +113,7 @@ stepFirmwareVehicleWithInertia hostInertia coupled rc params servo battery wingS
     -- silently accept an unconverged solve or commit only half of a step.
     subdivide flag =
       let half = dt/2
-          run = stepFirmwareVehicleWithInertia hostInertia coupled rc params servo battery wingScale half bodyVel
+          run = stepFirmwareVehicleWithInertia hostInertia coupled rc params servo battery model half bodyVel
           (a, middle) = run bodyRates groundClearance state
           middleRates = Vec3 (x bodyRates + half*x (totalMomentNm a)/hostInertia) (y bodyRates) (z bodyRates)
           (b, final) = run middleRates groundClearance middle
@@ -124,7 +125,7 @@ stepFirmwareVehicleWithInertia hostInertia coupled rc params servo battery wingS
                  , maxSeparation = max (maxSeparation a) (maxSeparation b) }, final)
     transaction = do
       old <- getState
-      let (output, next) = advanceFirmwareVehicle hostInertia coupled rc params servo battery wingScale dt bodyVel bodyRates groundClearance old
+      let (output, next) = advanceFirmwareVehicle hostInertia coupled rc params servo battery model dt bodyVel bodyRates groundClearance old
           values = components (totalForceN output) ++ components (totalMomentNm output) ++
             [totalMechanicalPowerW output, maxSeparation output, fvBatterySoc next,
              fvLeftHingeTorqueNm next, fvRightHingeTorqueNm next,
@@ -144,21 +145,21 @@ hingeTorque :: Double -> [StripResult] -> Double
 hingeTorque side = (* side) . sum . map (\r -> x (resultMoment r) + wingRootHeight * y (resultForce r))
 
 advanceFirmwareVehicle
-  :: Double -> Bool -> RcChannels -> FirmwareParams -> ServoSpec -> BatterySpec -> Double
+  :: Double -> Bool -> RcChannels -> FirmwareParams -> ServoSpec -> BatterySpec -> WingModel
   -> Double -> Vec3 -> Vec3 -> Double -> FirmwareVehicleState -> (VehicleOutput, FirmwareVehicleState)
-advanceFirmwareVehicle hostInertia coupled rc params servo battery wingScale dt bodyVel bodyRates groundClearance state
+advanceFirmwareVehicle hostInertia coupled rc params servo battery model dt bodyVel bodyRates groundClearance state
   | otherwise =
       let -- 1. Firmware mixer: RC → wing servo commands (flap deviation deg).
           (mix, nextFw) = computeServoMixer coupled rc params (fvFirmware state) dt
      
           -- Wing rotational inertia about the flap hinge, derived from the
-          -- actual planform: structural mass (∝ wingScale³) + entrained-air
-          -- added mass (∝ ρ·chord²). Shared by the servo (rate acceleration)
-          -- and the inertial body recoil (Newton's 3rd law).
-          wingMass = referenceWingMassKg * wingScale ** 3
-          wingInertia = shapeFlapInertia wingMass airDensity (scaleWing wingScale defaultBirdWing)
+          -- model's actual planform: structural mass + entrained-air added mass
+          -- (∝ ρ·chord²). Shared by the servo (rate acceleration) and the
+          -- inertial body recoil (Newton's 3rd law).
+          wingMass = referenceWingMassKg
+          wingInertia = shapeFlapInertia wingMass airDensity (wmWing model)
      
-          dryWingInertia = shapeFlapInertia wingMass 0 (scaleWing wingScale defaultBirdWing)
+          dryWingInertia = shapeFlapInertia wingMass 0 (wmWing model)
           lockedInertia = hostInertia + 2 * (wingInertia - dryWingInertia)
           currentA = min 10 ((abs (fvLeftHingeTorqueNm state) + abs (fvRightHingeTorqueNm state))
                        / max 0.01 (servoStallTorqueNm servo / 5))
@@ -176,11 +177,11 @@ advanceFirmwareVehicle hostInertia coupled rc params servo battery wingScale dt 
           evaluate rates =
             let p = x rates; l = y rates; r = z rates
                 wingInput = input { bodyRatesRadS = Vec3 p (y bodyRates) (z bodyRates) }
-                left = stepCoupledWing (mixIsFlapping mix) (-1) angleL l (y oldRates) wingInput wingScale (fvLeftStrips state)
-                right = stepCoupledWing (mixIsFlapping mix) 1 angleR r (z oldRates) wingInput wingScale (fvRightStrips state)
+                left = stepCoupledWing (mixIsFlapping mix) (-1) angleL l (y oldRates) wingInput model (fvLeftStrips state)
+                right = stepCoupledWing (mixIsFlapping mix) 1 angleR r (z oldRates) wingInput model (fvRightStrips state)
             in (left,right)
-          leftLoads = prepareWingLoads (mixIsFlapping mix) (-1) angleL (y oldRates) input wingScale (fvLeftStrips state)
-          rightLoads = prepareWingLoads (mixIsFlapping mix) 1 angleR (z oldRates) input wingScale (fvRightStrips state)
+          leftLoads = prepareWingLoads (mixIsFlapping mix) (-1) angleL (y oldRates) input model (fvLeftStrips state)
+          rightLoads = prepareWingLoads (mixIsFlapping mix) 1 angleR (z oldRates) input model (fvRightStrips state)
           aeroAt rates =
             let ls = leftLoads (x rates) (y rates)
                 rs = rightLoads (x rates) (z rates)
@@ -244,9 +245,9 @@ advanceFirmwareVehicle hostInertia coupled rc params servo battery wingScale dt 
           wingForce = foldr (addVec . resultForce) zeroVec wingResults
           wingMoment = foldr (addVec . resultMoment) zeroVec wingResults
           speed = magnitude bodyVel
-          -- Frontal area scales with the planform scale squared (geometric
-          -- similarity): a small bird must not carry a full-size body's drag.
-          bodyDrag = scaleVec (-0.5 * airDensity * 0.011 * wingScale * wingScale * speed) bodyVel
+          -- Frontal area is the reference kestrel body's drag area. The model is
+          -- the physical 0.55 m bird, so no planform-scale factor applies here.
+          bodyDrag = scaleVec (-0.5 * airDensity * 0.011 * speed) bodyVel
           -- Two real inverted-V panels with mixed ruddervators. Each panel sees
           -- its own local flow and produces force at its own arm; the resulting
           -- pitch/yaw coupling is geometric, not an added torque. A shallow cant
@@ -260,10 +261,10 @@ advanceFirmwareVehicle hostInertia coupled rc params servo battery wingScale dt 
           -- altitude or speed target is involved.
           tailTrim = -2.0 - 4.0 * mixThrottlePct mix * mixThrottlePct mix
           tailPanel side =
-            let -- Tail geometry scales with the bird: arm ∝ wingScale,
-                -- panel area ∝ wingScale² (else a micro bird carries a
-                -- full-size tail whose downforce overwhelms its weight).
-                arm = Vec3 (-0.85 * wingScale) (side * 0.12 * wingScale) (-0.12 * wingScale * tan cant)
+            let -- Tail geometry is the reference kestrel's fixed arm and panel
+                -- area (0.85 m arm, 0.0242 m² panel); it is part of the bird,
+                -- not scaled per planform.
+                arm = Vec3 (-0.85) (side * 0.12) (-0.12 * tan cant)
                 normal = Vec3 0 (side * sin cant) (cos cant)
                 flow = addVec bodyVel (crossVec bodyRates arm)
                 normalFlow = y flow * y normal + z flow * z normal
@@ -274,7 +275,7 @@ advanceFirmwareVehicle hostInertia coupled rc params servo battery wingScale dt 
                 -- incidence double-projects and throttles the rudder by sin²(cant).
                 incidence = radians (tailTrim - 18 * elevatorNorm
                                       - side * 30 * rudderNorm)
-                (fx, fn) = tailSurface (0.0242 * wingScale * wingScale) incidence (x flow) normalFlow
+                (fx, fn) = tailSurface 0.0242 incidence (x flow) normalFlow
                 panelForce = addVec (Vec3 fx 0 0) (scaleVec fn normal)
             in (panelForce, crossVec arm panelForce)
           panels = map tailPanel [-1,1]

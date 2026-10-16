@@ -141,6 +141,12 @@ typedef struct B2F_TuningConfig {
 B2F_API int32_t b2f_math_reconfigure_firmware_vehicle(
     B2F_MathContext* context,
     const B2F_TuningConfig* config);
+/* Select the bird's physical model (wing outline + carbon-rod spar inventory)
+ * by id. This is the per-model configuration hook: a second bird is a new model
+ * id registered in the math core, not a code change. Model 0 is the kestrel
+ * (0.55 m half-span); unknown ids fall back to the kestrel. Additive ABI v13
+ * extension — older hosts simply never call it. */
+B2F_API int32_t b2f_math_set_wing_model(B2F_MathContext* context, uint32_t model_id);
 /* Optional, read-only ABI v4 extension. No changes to existing output layouts.
  * Root-to-tip strip midpoints, left then right in separate caller-owned arrays.
  * Returns station count, or 0 for invalid arguments/insufficient capacity or an
