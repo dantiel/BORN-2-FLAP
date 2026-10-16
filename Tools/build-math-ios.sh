@@ -8,11 +8,14 @@
 # runtime is statically linked into the app binary.
 #
 # LINK REQUIREMENT: when this archive is linked into the app, add `-liconv`
-# (GHC's Iconv text-encoding codec pulls iconv_open/iconv/iconv_close). Nothing
-# else is needed — the ghc-ios RTS already carries iOS-correct
-# mprotectForLinker (no-op under W^X) and osReserveHeapMemory, so no RTS
-# link-time overrides are required. Verified: a minimal main() links to a
-# genuine `platform IOS, minos 15.0` binary with just `-liconv`.
+# (GHC's Iconv text-encoding codec pulls iconv_open/iconv/iconv_close).
+#
+# The ghc-ios RTS ships mprotectForLinker and osReserveHeapMemory as STRONG
+# symbols; on iOS both must be replaced by the app's link-time overrides in
+# cbits/bridge.c (mprotectForLinker -> no-op under W^X, osReserveHeapMemory ->
+# capped reservation). This script compiles those overrides in via
+# -DB2F_IOS_RTS=1 and then marks the RTS's own definitions N_WEAK_DEF with
+# Tools/weaken-rts-symbols.py so the overrides win at link time.
 #
 # The compiler is the Novavero-AI/ghc-ios toolchain — a GHC 9.14.1 cross
 # compiler for aarch64-apple-ios (BSD-3-Clause). It ships as a prebuilt tarball:
@@ -51,12 +54,16 @@ OUT_BASE="${OUT%.a}"
 echo "== Cross-compiling born2flap-math -> iOS static library =="
 echo "   GHC:   $GHC"
 echo "   target: aarch64-apple-ios"
-"$GHC" -staticlib -no-hs-main -isrc -icbits -O2 \
+"$GHC" -staticlib -no-hs-main -optc-DB2F_IOS_RTS=1 -isrc -icbits -O2 \
     src/Born2Flap/Math/FFI.hs cbits/bridge.c -o "$OUT_BASE"
 
 if [ "$OUT_BASE.a" != "$OUT" ]; then
     mv -f "$OUT_BASE.a" "$OUT"
 fi
+
+# Mark the RTS's mprotectForLinker / osReserveHeapMemory definitions weak so the
+# bridge.c overrides win. See Tools/weaken-rts-symbols.py.
+python3 "$REPO_ROOT/Tools/weaken-rts-symbols.py" "$OUT"
 
 echo "== Done: $OUT =="
 xcrun --sdk iphoneos nm -gU "$OUT" | grep -c "b2f_math" | xargs echo "   exported b2f_math symbols:"
