@@ -42,9 +42,21 @@ B2F_EXPORT HsWord32 b2f_math_abi_version(void) {
 B2F_EXPORT HsInt32 b2f_math_runtime_init(void) {
     while (atomic_flag_test_and_set_explicit(&b2f_init_lock, memory_order_acquire)) {}
     if (!b2f_rts_started) {
-        int argc = 1;
+        /* GHC RTS defaults to an UNLIMITED max heap and reserves its default
+         * 1 TiB (RESERVED_MBLOCKS = 1<<20 x 1 MB) of address space up front.
+         * On desktop that is a cheap PROT_NONE reservation, but iOS rejects a
+         * 1 TiB mmap -> "memory allocation failed (requested 1099512676352
+         * bytes)" -> the Haskell backend never starts. Cap the heap (and pin a
+         * single capability) via RTS options passed through hs_init's argv. */
+        int argc = 6;
         char programName[] = "born2flap_math";
-        char *args[] = { programName, 0 };
+        char rtsOn[] = "+RTS";
+        char rtsCapabilities[] = "-N1";
+        char rtsMaxHeap[] = "-M512m";
+        char rtsNursery[] = "-A16m";
+        char rtsOff[] = "-RTS";
+        char *args[] = { programName, rtsOn, rtsCapabilities, rtsMaxHeap,
+                         rtsNursery, rtsOff, 0 };
         char **argv = args;
         hs_init(&argc, &argv);
         b2f_rts_started = 1;
