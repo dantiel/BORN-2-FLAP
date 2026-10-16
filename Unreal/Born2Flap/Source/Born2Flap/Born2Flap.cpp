@@ -164,52 +164,57 @@ private:
             LoadingBrush.TintColor = FLinearColor::White;
         }
 
+        // Build the loading-screen widget tree exactly once and reuse it for
+        // every level load. Rebuilding it here (on the game thread) while the
+        // movie player's slate thread may still be rendering the previous tree
+        // causes a use-after-free in SWidget::SlatePrepass on iOS (2nd+ load).
+        if (!LoadingScreenWidget.IsValid())
+        {
+            LoadingScreenWidget =
+                SNew(SConstraintCanvas)
+                + SConstraintCanvas::Slot()
+                  .Anchors(FAnchors(0.f, 0.f, 1.f, 1.f))
+                  .Offset(FMargin(0.f))
+                  [
+                      SNew(SImage).Image(&LoadingBrush)
+                  ]
+                + SConstraintCanvas::Slot()
+                  .Anchors(FAnchors(0.30f, 0.82f, 0.70f, 0.88f))
+                  .Offset(FMargin(0.f))
+                  [
+                      SNew(STextBlock)
+                        .Text(FText::FromString(TEXT("LOADING...")))
+                        .Font(FCoreStyle::GetDefaultFontStyle("Bold", 16))
+                        .Justification(ETextJustify::Center)
+                        .ColorAndOpacity(FSlateColor(born2flap::ui::theme::FG()))
+                  ]
+                + SConstraintCanvas::Slot()
+                  .Anchors(FAnchors(0.40f, 0.90f, 0.60f, 0.915f))
+                  .Offset(FMargin(0.f))
+                  [
+                      SNew(SBorn2FlapLoadingBar).Height(3.f)
+                  ];
+        }
+
         FLoadingScreenAttributes Attr;
         Attr.bAutoCompleteWhenLoadingCompletes = true;
         Attr.bWaitForManualStop = false;
         Attr.bAllowEngineTick = false;
         Attr.MinimumLoadingScreenDisplayTime = 3.0f;
-        // Full-bleed artwork + a text label + a bare indeterminate bar that
-        // sweeps from wall-clock time (so it keeps moving on the movie player's
-        // slate thread, which never runs Slate active timers). The screen
-        // auto-completes when loading finishes.
-        Attr.WidgetLoadingScreen =
-            SNew(SConstraintCanvas)
-            + SConstraintCanvas::Slot()
-              .Anchors(FAnchors(0.f, 0.f, 1.f, 1.f))
-              .Offset(FMargin(0.f))
-              [
-                  SNew(SImage).Image(&LoadingBrush)
-              ]
-            + SConstraintCanvas::Slot()
-              .Anchors(FAnchors(0.30f, 0.82f, 0.70f, 0.88f))
-              .Offset(FMargin(0.f))
-              [
-                  SNew(STextBlock)
-                    .Text(FText::FromString(TEXT("LOADING...")))
-                    .Font(FCoreStyle::GetDefaultFontStyle("Bold", 16))
-                    .Justification(ETextJustify::Center)
-                    .ColorAndOpacity(FSlateColor(born2flap::ui::theme::FG()))
-              ]
-            + SConstraintCanvas::Slot()
-              .Anchors(FAnchors(0.40f, 0.90f, 0.60f, 0.915f))
-              .Offset(FMargin(0.f))
-              [
-                  SNew(SBorn2FlapLoadingBar).Height(3.f)
-              ];
+        Attr.WidgetLoadingScreen = LoadingScreenWidget.ToSharedRef();
         MoviePlayer->SetupLoadingScreen(Attr);
         MoviePlayer->PlayMovie();
     }
 
     void OnPostLoadMap(UWorld*)
     {
-        // Prime texture streaming before the viewport is revealed. The level has
-        // finished loading and the actors (bird included) have begun play, so
-        // every streaming surface — the 4k world textures especially — can now
-        // be pulled fully resident. StreamAllResources blocks (bounded) while the
-        // movie player's slate thread keeps the loading screen animating, so the
-        // scene does not appear black right after the screen drops.
-        IStreamingManager::Get().StreamAllResources(2.5f);
+        // NOTE: do NOT call IStreamingManager::Get().StreamAllResources() here on
+        // mobile. Blocking the game thread during the load handoff (i) delays the
+        // reveal by minutes on 4k worlds and (ii) keeps the game thread stuck
+        // while the movie player auto-completes, which caused both a foreground
+        // watchdog kill (0x8BADF00D) on resign-active and a use-after-free in
+        // SWidget::SlatePrepass on the slate loading thread. Texture streaming
+        // warms up lazily after the viewport is revealed instead.
 
         // Belt-and-braces: auto-complete normally stops the movie, but make sure
         // the viewport is never left covered if a load path skips the callback.
@@ -220,6 +225,7 @@ private:
 
     TStrongObjectPtr<UTexture2D> LoadingTexture;
     FSlateBrush LoadingBrush;
+    TSharedPtr<SWidget> LoadingScreenWidget;
     static FBorn2FlapModule* GModule;
 };
 
