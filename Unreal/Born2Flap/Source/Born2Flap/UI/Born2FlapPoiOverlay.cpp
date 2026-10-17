@@ -90,7 +90,7 @@ void ABorn2FlapPoiOverlay::BuildTree()
     Op.path = FPath();
     Op.node = std::move(Root);
     Ops.Add(Op);
-    Renderer->ApplyOps(Ops);
+    Renderer->ApplyOps(MoveTemp(Ops));
 }
 
 void ABorn2FlapPoiOverlay::HandleAction(const FString& Action, float Value, const FString& Text)

@@ -38,7 +38,7 @@ void SendUpdate(UBorn2FlapUIRenderer* R, const TArray<int32>& Path, FProps Props
     O.path = FPath(Path.GetData(), Path.GetData() + Path.Num());
     O.props = std::move(Props);
     Ops.Add(O);
-    R->ApplyOps(Ops);
+    R->ApplyOps(MoveTemp(Ops));
 }
 
 }  // namespace
@@ -85,7 +85,7 @@ void ABorn2FlapSplash::Build()
     Op.path = FPath();
     Op.node = std::move(Root);
     Ops.Add(Op);
-    Renderer->ApplyOps(Ops);
+    Renderer->ApplyOps(MoveTemp(Ops));
 }
 
 void ABorn2FlapSplash::SetProgress(float Fraction)

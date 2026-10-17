@@ -509,23 +509,23 @@ void UBorn2FlapUIRenderer::ApplyOpsJson(const FString& Json)
         UE_LOG(LogTemp, Warning, TEXT("Born2FlapUIRenderer: failed to parse op JSON"));
         return;
     }
-    ApplyParsedOps(Ops);
+    ApplyParsedOps(MoveTemp(Ops));
 }
 
-void UBorn2FlapUIRenderer::ApplyOps(const TArray<FOp>& Ops)
+void UBorn2FlapUIRenderer::ApplyOps(TArray<FOp>&& Ops)
 {
     std::vector<FOp> Vec;
     Vec.reserve(Ops.Num());
-    for (const auto& Op : Ops)
-        Vec.push_back(Op);
-    ApplyParsedOps(Vec);
+    for (FOp& Op : Ops)
+        Vec.push_back(MoveTemp(Op));
+    ApplyParsedOps(MoveTemp(Vec));
 }
 
-void UBorn2FlapUIRenderer::ApplyParsedOps(const std::vector<FOp>& Ops)
+void UBorn2FlapUIRenderer::ApplyParsedOps(std::vector<FOp>&& Ops)
 {
     std::vector<FOp> TreeOps;
     TreeOps.reserve(Ops.size());
-    for (const auto& Op : Ops)
+    for (FOp& Op : Ops)
     {
         if (Op.op == EOp::SetAudioParams)
         {
@@ -534,7 +534,7 @@ void UBorn2FlapUIRenderer::ApplyParsedOps(const std::vector<FOp>& Ops)
         }
         else
         {
-            TreeOps.push_back(Op);
+            TreeOps.push_back(MoveTemp(Op));
         }
     }
     if (RendererImpl && !TreeOps.empty())
