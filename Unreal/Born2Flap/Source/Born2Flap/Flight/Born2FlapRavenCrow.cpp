@@ -409,17 +409,19 @@ void ABorn2FlapFlightPawn::SelectBirdModel(int32 Index)
     if (TurtleRoot) TurtleRoot->SetVisibility(!bBlind && BirdModel == 3, true);
     // Each silhouette is a distinct bird: its own dry mass (fed to Chaos) and
     // its own wing planform + carbon-rod inventory (fed to the Haskell solver
-    // via SetWingModel). Mass must be set BEFORE ApplyBodyMass so the inertia
-    // tensor and wing scale read the correct model.
-    switch (BirdModel)
-    {
-    case 0: BodyMassKg = 0.65f; break;   // RavenCrow — large, heavy
-    case 1: BodyMassKg = 0.35f; break;   // Prototype — light trainer
-    case 3: BodyMassKg = 0.45f; break;   // Neon turtle — weightless in the void
-    default: BodyMassKg = 0.45f; break;  // Kestrel — reference
-    }
+    // via SetWingModel). Per-model mass lives in the Haskell model config
+    // (kestrel 50 g reference, raven ~86 g, prototype ~36 g) — queried here, not
+    // hardcoded — so a model change never leaves a stale host-side constant.
+    // Mass must be set BEFORE ApplyBodyMass so the inertia tensor reads the
+    // correct model.
+    BodyMassKg = 0.050f;  // fallback: kestrel reference
     if (MathBridge && MathBridge->IsReady())
+    {
+        const double ModelMass = MathBridge->GetModelMassKg((uint32_t)BirdModel);
+        if (ModelMass > 0.0)
+            BodyMassKg = (float)ModelMass;
         MathBridge->SetWingModel((uint32_t)BirdModel);
+    }
     // The CG travel is length-dependent, so switching silhouettes must re-clamp
     // the centre of mass and re-apply the body mass (idempotent).
     ApplyBodyMass();

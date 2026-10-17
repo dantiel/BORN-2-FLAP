@@ -59,7 +59,8 @@ bool FBorn2FlapMathBridge::Load()
         SetWindPhaseNoise = &::b2f_math_set_wind_phase_noise;
         ReconfigureFirmwareVehicle = &::b2f_math_reconfigure_firmware_vehicle;
         GetWingShape = &::b2f_math_get_wing_shape;
-        SetWingModel = &::b2f_math_set_wing_model;
+        SetWingModelHook = &::b2f_math_set_wing_model;
+        GetModelMassKgHook = &::b2f_math_get_model_mass_kg;
 
         B2F_FirmwareConfig FlightConfig{};
         FlightConfig.servo_no_load_speed_deg_s = 1200;
@@ -118,7 +119,8 @@ bool FBorn2FlapMathBridge::Load()
         LoadExport<ReconfigureFn>(LibraryHandle, TEXT("b2f_math_reconfigure_firmware_vehicle"));
     GetWingShape = LoadExport<GetWingShapeFn>(LibraryHandle, TEXT("b2f_math_get_wing_shape"));
     GetWingForces = LoadExport<GetWingForcesFn>(LibraryHandle, TEXT("b2f_math_get_wing_forces"));
-    SetWingModel = LoadExport<SetWingModelFn>(LibraryHandle, TEXT("b2f_math_set_wing_model"));
+    SetWingModelHook = LoadExport<SetWingModelFn>(LibraryHandle, TEXT("b2f_math_set_wing_model"));
+    GetModelMassKgHook = LoadExport<GetModelMassKgFn>(LibraryHandle, TEXT("b2f_math_get_model_mass_kg"));
     GetMassProperties = LoadExport<MassPropertiesFn>(LibraryHandle, TEXT("b2f_math_get_mass_properties"));
     if (!GetWingShape)
         UE_LOG(LogTemp, Warning, TEXT("Wing deformation unavailable: rebuild the Haskell backend for wing-shape telemetry."));
@@ -195,7 +197,8 @@ void FBorn2FlapMathBridge::Unload()
     GetWingShape = nullptr;
     GetMassProperties = nullptr;
     GetWingForces = nullptr;
-    SetWingModel = nullptr;
+    SetWingModelHook = nullptr;
+    GetModelMassKgHook = nullptr;
     if (LibraryHandle)
     {
         // The process owns the loader reference, not this aircraft.
@@ -221,10 +224,13 @@ bool FBorn2FlapMathBridge::Reconfigure(const B2F_TuningConfig& Tuning) const
 }
 bool FBorn2FlapMathBridge::SetWingModel(uint32_t ModelId) const
 {
-    return Context && SetWingModel && SetWingModel(Context, ModelId) != 0;
+    return Context && SetWingModelHook && SetWingModelHook(Context, ModelId) != 0;
+}
+double FBorn2FlapMathBridge::GetModelMassKg(uint32_t ModelId) const
+{
+    return GetModelMassKgHook ? GetModelMassKgHook(ModelId) : 0.0;
 }
 bool FBorn2FlapMathBridge::ReadWingShape(B2F_WingSection* Left, B2F_WingSection* Right) const
-=======
 {
     return Context && GetWingShape && GetWingShape(Context, B2F_WING_STATIONS, Left, Right) == B2F_WING_STATIONS;
 }
