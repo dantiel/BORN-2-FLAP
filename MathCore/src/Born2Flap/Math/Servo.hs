@@ -40,8 +40,8 @@ data ServoSpec = ServoSpec
 
 defaultServoSpec :: ServoSpec
 defaultServoSpec = ServoSpec
-  { servoNoLoadSpeedDegPerSec = 60 / (70 * 0.001)  -- 70 ms/60° → 857 °/s
-  , servoStallTorqueNm = 2.0
+  { servoNoLoadSpeedDegPerSec = 750   -- VOTIK PTK 7465 Plus (80 ms/60°)
+  , servoStallTorqueNm = 0.74         -- VOTIK PTK 7465 Plus (7.5 kg·cm)
   , servoBackdriveDegPerSecNm = 20
   }
 

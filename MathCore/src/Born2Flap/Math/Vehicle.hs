@@ -59,16 +59,15 @@ airDensity = 1.05
 
 -- | Momentum-jet thrust factor for the flapping downstroke (dimensionless).
 -- The downstroke sheds a backward jet whose reaction propels the bird. This is
--- the ONLY free gain in the flap force budget and it must be calibrated against
--- measured total force, not a textbook C_T: with the 0.55 m wing at the servo's
--- 20.9 rad/s peak rate the jet scales ~ω²·∫r²·c·dr, so C_T=5.5 produced a
--- 31 N peak / 6.9 N mean thrust on a 4.4 N bird (a one-beat moon shot). The
--- lift-tilt alone (C_T=0) already yields ~1.5 N mean thrust at rest but goes
--- slightly NEGATIVE at 6 m/s, so the jet must supply the ~0.6 N cruise margin.
--- C_T=0.6 gives ~2.1 N mean / ~9.5 N peak at rest and ~0.6 N mean at 6 m/s —
--- lift ≈ weight and thrust ≈ drag in cruise, instead of a launch.
+-- the ONLY free gain in the flap force budget and must be calibrated against
+-- measured total force, not a textbook C_T. Lift-tilt alone yields thrust at
+-- rest but goes NEGATIVE once the bird has forward speed (the flap's lift
+-- vector tilts aft), so the momentum jet is what actually sustains cruise —
+-- it must overcome the lift-tilt drag at the bird's maximum airspeed (~7 m/s).
+-- C_T is therefore sized so net thrust stays positive to 7 m/s, not to a
+-- textbook value. At the kestrel's 3.2 Hz / 20° stroke this is ~0.6.
 flapJetCoeff :: Double
-flapJetCoeff = 0.12
+flapJetCoeff = 0.6
 
 -- | Lumped pressure-drag coefficient for the wing's OWN flap motion — the broad
 -- surface sweeping normal to itself through air. A thin airfoil moving edge-on
@@ -240,10 +239,10 @@ stepVehicleUnchecked input state
           wingForce = foldr (addVec . resultForce) zeroVec wingResults
           wingMoment = foldr (addVec . resultMoment) zeroVec wingResults
           speed = magnitude (bodyVelocityMS input)
-          bodyDrag = scaleVec (-0.5 * airDensity * 0.012 * speed) (bodyVelocityMS input)
+          bodyDrag = scaleVec (-0.5 * airDensity * 0.0005 * speed) (bodyVelocityMS input)
           tailArm = Vec3 (-0.48) 0 0
           tailVelocity = addVec (bodyVelocityMS input) (crossVec rates tailArm)
-          tailQArea = 0.5 * airDensity * 0.012 * magnitude tailVelocity * magnitude tailVelocity
+          tailQArea = 0.5 * airDensity * 0.002 * magnitude tailVelocity * magnitude tailVelocity
           -- Fixed tailplane incidence: a small, always-on DOWN force (negative z
           -- lift) proportional to dynamic pressure, providing pitch trim; the
           -- stick adds control lift on top of it.
