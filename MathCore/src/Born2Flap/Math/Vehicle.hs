@@ -566,8 +566,8 @@ applyStructure inv wp input results =
       -- the interpolated station structure for EI/GJ. The station structure still
       -- supplies the relaxation time constants below. Stiffness comes straight
       -- from the model's spar inventory — no hidden scale factor.
-      bendingEIs = map (sparBendEISpanwise inv spanM) fracs
-      twistGJs   = map (sparTwistGJSpanwise inv spanM) fracs
+      bendingEIs = map (sparBendEISpanwise inv) fracs
+      twistGJs   = map (sparTwistGJSpanwise inv) fracs
       forces = map (vz . resultForce) results
       sectionMoments = map resultSectionMoment results
       (targetBend, targetSlope) = integrateFlapBeam forces bendingEIs dr

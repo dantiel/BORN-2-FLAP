@@ -81,13 +81,12 @@ double SampleStationField(const B2F_WingSection* Shape, int32 Count, double Stat
 // are untouched). AeroBendVisualGain scales the carbon-spar bend; AeroTwistVisualGain
 // scales ONLY the load-driven elastic torsion (the reactive part), NOT the static
 // geometric washout — so the wing rests nearly flat and flexes with load.
-// NOTE: the 0.55 m kestrel planform now bends centimetre-scale under load
-// (tip ≈ 5 mm at rest → 24 mm at 7 m/s, because siBendScale was softened 60→18),
-// so the old 44×/9× exaggeration (tuned for the old millimetre-scale bend)
-// would fold the membrane into a multi-span flag. A small gain keeps the real
-// load-driven flex readable without stretching it.
-constexpr double AeroBendVisualGain  = 8.0;
-constexpr double AeroTwistVisualGain = 4.0;
+// NOTE: the 0.55 m kestrel planform bends ~4 mm at the tip under strong
+// flapping (tip ≈ 0.8 mm at rest → 4.4 mm at 7 m/s; siBendScale 130), so the
+// millimetre-scale 44×/9× gains are restored to keep the real load-driven flex
+// readable without stretching it into a multi-span flag.
+constexpr double AeroBendVisualGain  = 44.0;
+constexpr double AeroTwistVisualGain = 9.0;
 }
 
 void UBorn2FlapWingMesh::InitializeWing(int32 Side, int32 Design)
