@@ -250,6 +250,17 @@ advanceFirmwareVehicle hostInertia coupled rc params servo battery model dt body
           -- at Cd ≈ 0.44 gives CdA ≈ 4e-4 m². The old 0.011 m² (~27× too high)
           -- made the body alone eat a third of the bird's weight at 7 m/s.
           bodyDrag = scaleVec (-0.5 * airDensity * 0.0004 * speed) bodyVel
+          -- Fuselage weathervane: a long thin body has near-zero frontal drag
+          -- but a large side projected area. In sideslip that side area acts as
+          -- a vertical stabiliser — its lateral centre of pressure sits BEHIND
+          -- the CG, so a lateral velocity produces (a) a side force opposing the
+          -- slip and (b) a yaw moment turning the nose into the relative wind.
+          -- This is the aerodynamic yaw damping a bird gets for free, and the
+          -- missing term behind the perpetual left-right sway. The side area is
+          -- 0.42 m × 0.03 m at Cd ≈ 1.0 (cylinder in crossflow) ≈ 0.012 m².
+          bodySideFlow = addVec bodyVel (crossVec bodyRates fuselageSideArm)
+          bodySideForce = Vec3 0 (-0.5 * airDensity * fuselageSideCdA * y bodySideFlow * abs (y bodySideFlow)) 0
+          bodySideMoment = crossVec fuselageSideArm bodySideForce
           -- Two real inverted-V panels with mixed ruddervators. Each panel sees
           -- its own local flow and produces force at its own arm; the resulting
           -- pitch/yaw coupling is geometric, not an added torque. A shallow cant
@@ -283,8 +294,8 @@ advanceFirmwareVehicle hostInertia coupled rc params servo battery model dt body
           panels = map tailPanel [-1,1]
           tailForce = foldr (addVec . fst) zeroVec panels
           tailMoment = foldr (addVec . snd) zeroVec panels
-          force = addVec wingForce (addVec bodyDrag tailForce)
-          aeroMoment = addVec wingMoment tailMoment
+          force = addVec wingForce (addVec bodyDrag (addVec bodySideForce tailForce))
+          aeroMoment = addVec wingMoment (addVec bodySideMoment tailMoment)
           -- Equivalent host torque reproduces the solved roll impulse in
           -- Chaos. Recoil and added-air inertia are already in the solve;
           -- adding either again here would double count them.
@@ -342,3 +353,17 @@ tailSurface area incidence chordVelocity normalVelocity =
       u = chordVelocity / max 1.0e-9 speed
       w = normalVelocity / max 1.0e-9 speed
   in (q * (-cd * u - cl * w), q * (-cd * w + cl * u))
+-- | Fuselage side projected area × drag coefficient [m²]. The body is a long
+-- thin slab: ~0.42 m × 0.03 m side profile at Cd ≈ 1.0 (cylinder in
+-- crossflow). This is the vertical-stabiliser/weathervane term, deliberately
+-- separate from the frontal parasitic drag (CdA ≈ 4e-4 m²) and from the tail's
+-- own polar in 'tailSurface'. Kept as a named constant so a future lift-
+-- producing or very-unstable tail model can scale it independently.
+fuselageSideCdA :: Double
+fuselageSideCdA = 0.012
+
+-- | Lateral centre of pressure of the fuselage + tail boom, aft of the CG.
+-- Everything behind the CG acts like a wing fence / vertical stabiliser; this
+-- lever arm is what turns the side force above into a weathervaning yaw moment.
+fuselageSideArm :: Vec3
+fuselageSideArm = Vec3 (-0.15) 0 0
