@@ -250,17 +250,32 @@ advanceFirmwareVehicle hostInertia coupled rc params servo battery model dt body
           -- at Cd ≈ 0.44 gives CdA ≈ 4e-4 m². The old 0.011 m² (~27× too high)
           -- made the body alone eat a third of the bird's weight at 7 m/s.
           bodyDrag = scaleVec (-0.5 * airDensity * 0.0004 * speed) bodyVel
-          -- Fuselage weathervane: a long thin body has near-zero frontal drag
-          -- but a large side projected area. In sideslip that side area acts as
-          -- a vertical stabiliser — its lateral centre of pressure sits BEHIND
-          -- the CG, so a lateral velocity produces (a) a side force opposing the
-          -- slip and (b) a yaw moment turning the nose into the relative wind.
-          -- This is the aerodynamic yaw damping a bird gets for free, and the
-          -- missing term behind the perpetual left-right sway. The side area is
-          -- 0.42 m × 0.03 m at Cd ≈ 1.0 (cylinder in crossflow) ≈ 0.012 m².
-          bodySideFlow = addVec bodyVel (crossVec bodyRates fuselageSideArm)
-          bodySideForce = Vec3 0 (-0.5 * airDensity * fuselageSideCdA * y bodySideFlow * abs (y bodySideFlow)) 0
-          bodySideMoment = crossVec fuselageSideArm bodySideForce
+          -- Fuselage aft-body = lifting body + vertical stabiliser: the part
+          -- of the body BEHIND the CG is a rigid, low-aspect-ratio lifting
+          -- surface (see 'bodyLiftPolar'). Two fixed panels share the aft
+          -- centre of pressure ('fuselageAftArm') and the SAME rigid-panel
+          -- polar as the tail ('panelSurface') — NOT the wing's flapping /
+          -- aeroelastic strip solver, because the body geometry is fixed (no
+          -- membrane camber, no spar, no LEV). Side panel (normal ±y) = lift
+          -- in YAW plus the crossflow pressure drag that weathervanes the nose
+          -- into the wind. Top panel (normal +z) = lift in PITCH; its aft CP
+          -- yields a nose-down (restoring) moment, so it is pitch-stabilising.
+          --
+          -- FUTURE (annotated, not modelled): wing-induced flow blockage — the
+          -- wings shadow the body/tail at some bank and flap-phase angles, so
+          -- the body's dynamic pressure should scale by a direction-dependent
+          -- shadow factor (a function of the wing strips' instantaneous
+          -- silhouette against the body). That silhouette is not tracked here;
+          -- until then the body sees the freestream everywhere, a small
+          -- over-estimate of body drag/lift when the wing is in front.
+          bodySideFlow = addVec bodyVel (crossVec bodyRates fuselageAftArm)
+          (bodySideChord, bodySideNormal) = panelSurface bodyLiftPolar fuselageAftArea 0 (x bodySideFlow) (y bodySideFlow)
+          bodySideForce = addVec (Vec3 bodySideChord 0 0) (Vec3 0 bodySideNormal 0)
+          bodySideMoment = crossVec fuselageAftArm bodySideForce
+          bodyTopFlow = addVec bodyVel (crossVec bodyRates fuselageAftArm)
+          (bodyTopChord, bodyTopNormal) = panelSurface bodyLiftPolar fuselageAftArea 0 (x bodyTopFlow) (z bodyTopFlow)
+          bodyTopForce = addVec (Vec3 bodyTopChord 0 0) (Vec3 0 0 bodyTopNormal)
+          bodyTopMoment = crossVec fuselageAftArm bodyTopForce
           -- Two real inverted-V panels with mixed ruddervators. Each panel sees
           -- its own local flow and produces force at its own arm; the resulting
           -- pitch/yaw coupling is geometric, not an added torque. A shallow cant
@@ -294,8 +309,8 @@ advanceFirmwareVehicle hostInertia coupled rc params servo battery model dt body
           panels = map tailPanel [-1,1]
           tailForce = foldr (addVec . fst) zeroVec panels
           tailMoment = foldr (addVec . snd) zeroVec panels
-          force = addVec wingForce (addVec bodyDrag (addVec bodySideForce tailForce))
-          aeroMoment = addVec wingMoment (addVec bodySideMoment tailMoment)
+          force = addVec wingForce (addVec bodyDrag (addVec bodySideForce (addVec bodyTopForce tailForce)))
+          aeroMoment = addVec wingMoment (addVec bodySideMoment (addVec bodyTopMoment tailMoment))
           -- Equivalent host torque reproduces the solved roll impulse in
           -- Chaos. Recoil and added-air inertia are already in the solve;
           -- adding either again here would double count them.
@@ -341,29 +356,61 @@ batterySocDrop servo battery torqueNm dt =
 zeroOutput :: Int -> VehicleOutput
 zeroOutput flags = VehicleOutput zeroVec zeroVec 0 0 (-1) flags
 
--- Provisional low-aspect-ratio tail polar. Even a deflected surface cannot
--- create translational energy: lift is perpendicular, Cd is nonnegative.
-tailSurface :: Double -> Double -> Double -> Double -> (Double, Double)
-tailSurface area incidence chordVelocity normalVelocity =
+-- | Coefficients of a rigid lifting-panel polar. This is the SAME abstraction
+-- the wing's chord strips reduce to when the geometry is fixed and aeroelastic
+-- state is frozen: a surface with a lift curve (perpendicular to local flow)
+-- and a drag polar (opposing it), both charged at the panel's own lever arm so
+-- every moment is a real force × arm — never an added torque. The wing's
+-- flapping/aeroelastic 'stepStrip' is the general case (16 strips + membrane
+-- camber + LEV/rotational lift); a rigid tail or body panel is the degenerate
+-- case (one strip, frozen shape) and only needs this slender-body polar.
+data PanelPolar = PanelPolar
+  { ppClSlope     :: Double -- ^ sin(2α) lift-curve amplitude (≈1.1 flat plate, ≈0.45 round body)
+  , ppCdProfile   :: Double -- ^ profile / skin-friction drag
+  , ppCdInducedK  :: Double -- ^ drag-due-to-lift factor (multiplies cl²)
+  , ppCdPressureK :: Double -- ^ crossflow pressure-drag factor (multiplies sin²α)
+  }
+
+-- | Rigid lifting-panel force. Returns @(chordForce, normalForce)@ for a panel
+-- of area @area@ at incidence @incidence@ seeing chordwise flow @chordVelocity@
+-- and normal flow @normalVelocity@. cl = clSlope·sin(2α); cd = profile +
+-- induced·cl² + pressure·sin²α. The pressure term is REAL drag — charged as
+-- drag (opposing flow), never folded into the lift, so a passive surface
+-- cannot create energy.
+panelSurface :: PanelPolar -> Double -> Double -> Double -> Double -> (Double, Double)
+panelSurface polar area incidence chordVelocity normalVelocity =
   let speed = sqrt (chordVelocity * chordVelocity + normalVelocity * normalVelocity)
       alpha = incidence + atan2 (-normalVelocity) chordVelocity
-      cl = 1.1 * sin (2 * alpha)
-      cd = 0.025 + 0.14 * cl * cl + 0.8 * sin alpha * sin alpha
+      cl = ppClSlope polar * sin (2 * alpha)
+      cd = ppCdProfile polar + ppCdInducedK polar * cl * cl + ppCdPressureK polar * sin alpha * sin alpha
       q = 0.5 * airDensity * area * speed * speed
       u = chordVelocity / max 1.0e-9 speed
       w = normalVelocity / max 1.0e-9 speed
   in (q * (-cd * u - cl * w), q * (-cd * w + cl * u))
--- | Fuselage side projected area × drag coefficient [m²]. The body is a long
--- thin slab: ~0.42 m × 0.03 m side profile at Cd ≈ 1.0 (cylinder in
--- crossflow). This is the vertical-stabiliser/weathervane term, deliberately
--- separate from the frontal parasitic drag (CdA ≈ 4e-4 m²) and from the tail's
--- own polar in 'tailSurface'. Kept as a named constant so a future lift-
--- producing or very-unstable tail model can scale it independently.
-fuselageSideCdA :: Double
-fuselageSideCdA = 0.012
 
--- | Lateral centre of pressure of the fuselage + tail boom, aft of the CG.
--- Everything behind the CG acts like a wing fence / vertical stabiliser; this
--- lever arm is what turns the side force above into a weathervaning yaw moment.
-fuselageSideArm :: Vec3
-fuselageSideArm = Vec3 (-0.15) 0 0
+-- | Flat-plate V-tail polar (the reference ruddervator).
+tailPolar :: PanelPolar
+tailPolar = PanelPolar 1.1 0.025 0.14 0.8
+
+tailSurface :: Double -> Double -> Double -> Double -> (Double, Double)
+tailSurface = panelSurface tailPolar
+
+-- | Round lifting-body polar. A streamlined body has a much weaker circulation
+-- lift than a flat plate (its sides/top are curved, so the Kutta condition is
+-- soft) but it still weathervanes through the crossflow pressure term. Lift
+-- slope ≈0.45 is about half the flat plate, matching slender-body theory.
+bodyLiftPolar :: PanelPolar
+bodyLiftPolar = PanelPolar 0.45 0.02 0.10 0.90
+
+-- | Centre of pressure of the fuselage aft-body + tail boom, BEHIND the CG.
+-- Everything aft acts like a wing fence / vertical stabiliser; this lever arm
+-- turns both the lift and the pressure drag above into a weathervaning yaw
+-- moment and a nose-down (restoring) pitch moment.
+fuselageAftArm :: Vec3
+fuselageAftArm = Vec3 (-0.15) 0 0
+
+-- | Aft-body side/top projected area [m²] used as the lifting-body reference
+-- (≈0.21 m behind the CG × 0.03 m body height/width; the cross-section is
+-- ~square so side and top are equal).
+fuselageAftArea :: Double
+fuselageAftArea = 0.0063
