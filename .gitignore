@@ -67,7 +67,8 @@ _analyze_shot.py
 *.log
 
 # iOS app icon assets — tracked despite the Build/ ignore above
-# (UE reads iOS icons from Build/IOS/Resources/Graphics/)
+# (UE 5.8 reads iOS icons from Build/IOS/Resources/Assets.xcassets/,
+#  the loose Graphics/ PNGs are the legacy UBT export path)
 !Unreal/Born2Flap/Build/
 Unreal/Born2Flap/Build/*
 !Unreal/Born2Flap/Build/IOS/
@@ -76,3 +77,5 @@ Unreal/Born2Flap/Build/IOS/*
 Unreal/Born2Flap/Build/IOS/Resources/*
 !Unreal/Born2Flap/Build/IOS/Resources/Graphics/
 !Unreal/Born2Flap/Build/IOS/Resources/Graphics/*.png
+!Unreal/Born2Flap/Build/IOS/Resources/Assets.xcassets/
+!Unreal/Born2Flap/Build/IOS/Resources/Assets.xcassets/**
