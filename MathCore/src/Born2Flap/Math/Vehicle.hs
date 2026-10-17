@@ -423,7 +423,14 @@ stepStrip implicitLoads _phaseRate _flapping side stroke input incidenceRad wp i
       levTarget = if abs alphaEff > stallAngle && alphaRate * alphaEff > 0 then 1 else 0
       levRelax = 1 - exp (-dt / if levTarget > stripLevStrength old then 0.025 else 0.080)
       lev = clamp 0 1 (stripLevStrength old + levRelax * (levTarget - stripLevStrength old))
-      attachedCl = clamp (-1.9) 1.9 (2 * pi * alphaEff)
+      -- Finite-aspect-ratio lift slope (Helmbold): a 3D wing of aspect ratio
+      -- AR reaches 2π·AR/(AR+2), not the 2D thin-airfoil 2π. The missing part
+      -- is the induced downwash — the same downwash charged again below as
+      -- induced drag. Using 2π here double-counts it: lift reads too high AND
+      -- the drag-due-to-lift ramps up on that inflated Cl. The 3D slope keeps
+      -- the lift/drag relationship consistent.
+      liftSlope = 2 * pi * aspectRatio / (aspectRatio + 2)
+      attachedCl = clamp (-1.9) 1.9 (liftSlope * alphaEff)
       separatedCl = 1.05 * sin (2 * alphaEff)
       rotationalCl = clamp (-0.65) 0.65 (0.5 * chord * alphaRate / safeSpeed)
       -- Keep separation/LEV memory fixed during the implicit mechanical solve.
@@ -436,11 +443,16 @@ stepStrip implicitLoads _phaseRate _flapping side stroke input incidenceRad wp i
       cl = lerp attachedCl separatedCl forceSeparation + rotationalCl + vortexLift
       camberNext = relaxCamber dt (spMembraneTau profile) camberPrev
                      (membraneCamberTarget profile attachedCl)
-      -- Induced drag is the classic ground-effect victim: the image vortex
-      -- cancels downwash, so the trailing wake tilts less and the bird glides
-      -- faster. Only while FLAPPING — a gliding wing gains lift, not speed.
+      -- Induced drag is the cost of the CIRCULATION (bound-vortex) lift only.
+      -- Rotational lift (Kramer effect) and LEV lift are transient/separated
+      -- mechanisms that do NOT shed the trailing downwash; charging them
+      -- Cl²/(πeAR) inflated the drag at high alpha and coupled it to the lagged
+      -- LEV/separation state — the sway feedback loop. Square the attached
+      -- (circulation) lift instead. Ground effect is the classic victim: the
+      -- image vortex cancels downwash, so the wake tilts less and the bird
+      -- glides faster.
       inducedRelief = max 0 (1 - groundEffectDragRelief * ge)
-      inducedCd = cl * cl / (pi * 0.82 * aspectRatio) * inducedRelief
+      inducedCd = attachedCl * attachedCl / (pi * 0.82 * aspectRatio) * inducedRelief
       attachedCd = 0.016 + inducedCd
       separatedCd = 0.20 + 1.20 * sin alphaEff * sin alphaEff
       cd = lerp attachedCd separatedCd forceSeparation
