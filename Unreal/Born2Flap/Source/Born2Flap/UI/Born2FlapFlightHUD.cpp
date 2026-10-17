@@ -144,7 +144,7 @@ void ABorn2FlapFlightHUD::BuildCockpit()
 
     TArray<FOp> Ops;
     Ops.Add(MoveTemp(Mount));
-    Renderer->ApplyOps(Ops);
+    Renderer->ApplyOps(MoveTemp(Ops));
 }
 
 void ABorn2FlapFlightHUD::Tick(float DeltaSeconds)
@@ -173,7 +173,7 @@ void ABorn2FlapFlightHUD::Refresh()
     {
         TArray<FOp> Ops;
         Ops.Add(UpdateProps(FPath(), P({ {"visible", N(bCockpitHidden ? 0.0 : 1.0)} })));
-        Renderer->ApplyOps(Ops);
+        Renderer->ApplyOps(MoveTemp(Ops));
         bLastHidden = bCockpitHidden;
     }
     if (bCockpitHidden)
@@ -289,5 +289,5 @@ void ABorn2FlapFlightHUD::Refresh()
     }
 
     if (Ops.Num() > 0)
-        Renderer->ApplyOps(Ops);
+        Renderer->ApplyOps(MoveTemp(Ops));
 }

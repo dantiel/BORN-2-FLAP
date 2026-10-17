@@ -85,7 +85,7 @@ void SendUpdate(UBorn2FlapUIRenderer* R, const TArray<int32>& Path, FProps Props
     O.path = ToPath(Path);
     O.props = std::move(Props);
     Ops.Add(O);
-    R->ApplyOps(Ops);
+    R->ApplyOps(MoveTemp(Ops));
 }
 
 // Servos tested for flapping (dantiel.github.io/OrniFlight servo-efficiency
@@ -498,7 +498,7 @@ void ABorn2FlapMenu::Build()
     Op.path = FPath();
     Op.node = std::move(Root);
     Ops.Add(Op);
-    Renderer->ApplyOps(Ops);
+    Renderer->ApplyOps(MoveTemp(Ops));
 }
 
 void ABorn2FlapMenu::BuildFlightDesk(std::vector<FNode>& Out)
@@ -1151,7 +1151,7 @@ void ABorn2FlapMenu::SetOpacity(float Opacity)
     O.path = FPath();
     O.props = std::move(Props);
     Ops.Add(O);
-    Renderer->ApplyOps(Ops);
+    Renderer->ApplyOps(MoveTemp(Ops));
 }
 
 void ABorn2FlapMenu::OnAction(const FString& Action, float Value, const FString& Text)

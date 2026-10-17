@@ -393,7 +393,7 @@ void ABorn2FlapRadioHUD::BuildPanel()
 
     TArray<FOp> Ops;
     Ops.Add(MoveTemp(Mount));
-    Renderer->ApplyOps(Ops);
+    Renderer->ApplyOps(MoveTemp(Ops));
     LastCoverPath.Empty();
     LastTrackLine.Empty();
     LastVolumePct = -1;
@@ -421,7 +421,7 @@ void ABorn2FlapRadioHUD::Refresh()
     {
         TArray<FOp> HideOps;
         HideOps.Add(UpdateProps(FPath(), P({ {"visible", N(bShouldHide ? 0.0 : 1.0)} })));
-        Renderer->ApplyOps(HideOps);
+        Renderer->ApplyOps(MoveTemp(HideOps));
         bLastHidden = bShouldHide;
     }
     if (bShouldHide)
@@ -451,5 +451,5 @@ void ABorn2FlapRadioHUD::Refresh()
     }
 
     if (Ops.Num() > 0)
-        Renderer->ApplyOps(Ops);
+        Renderer->ApplyOps(MoveTemp(Ops));
 }

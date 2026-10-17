@@ -115,7 +115,10 @@ public:
 
     // Apply an already-parsed op stream (shared with the headless
     // Tools/umg_host_test.cpp via the identical FRenderer core).
-    void ApplyOps(const TArray<born2flap::ui::FOp>& Ops);
+    // Takes ownership (rvalue) so FOps are moved, never deep-copied: the FOp
+    // payload carries std::map/std::string members and deep copies are both
+    // wasteful and — on the iOS toolchain — a std::map tree-copy can fault.
+    void ApplyOps(TArray<born2flap::ui::FOp>&& Ops);
 
     // --- FRenderer host contract -------------------------------------------
     UWidget* CreateInstance(const std::string& Type);
@@ -165,7 +168,7 @@ private:
 
     // Route an already-parsed op stream: tree ops → FRenderer, audio ops →
     // FAudioEngine. Kept in one place so ApplyOpsJson and ApplyOps share it.
-    void ApplyParsedOps(const std::vector<born2flap::ui::FOp>& Ops);
+    void ApplyParsedOps(std::vector<born2flap::ui::FOp>&& Ops);
     void EnsureViewport();
     void AttachRoot();
     UMaterialInstanceDynamic* GetOrCreateDynamicMaterial(UWidget* W);
