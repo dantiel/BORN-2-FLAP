@@ -68,7 +68,7 @@ airDensity = 1.05
 -- C_T=0.6 gives ~2.1 N mean / ~9.5 N peak at rest and ~0.6 N mean at 6 m/s —
 -- lift ≈ weight and thrust ≈ drag in cruise, instead of a launch.
 flapJetCoeff :: Double
-flapJetCoeff = 0.6
+flapJetCoeff = 0.12
 
 -- | Lumped pressure-drag coefficient for the wing's OWN flap motion — the broad
 -- surface sweeping normal to itself through air. A thin airfoil moving edge-on
@@ -90,7 +90,7 @@ flapJetCoeff = 0.6
 -- flat-plate figure so the wing BITES the air via lift while its flap motion
 -- merely sees normal flat-plate resistance.
 flapDampingCd :: Double
-flapDampingCd = 1.2
+flapDampingCd = 0.9
 
 -- | Fraction of 'flapDampingCd' the wing keeps on the UPSTROKE during flapping.
 -- A real bird feathers the recovery stroke so the downstroke (power stroke) bites
@@ -118,7 +118,7 @@ groundEffectDragRelief = 0.55
 
 -- | Extra downstroke thrust at the deck (flapping).
 groundEffectThrustGain :: Double
-groundEffectThrustGain = 0.40
+groundEffectThrustGain = 0.20
 
 -- | Upstroke thrust recovery in ground effect, as a fraction of the downstroke
 -- jet. The normally-feathered upstroke only pushes off the ground cushion.
@@ -240,14 +240,14 @@ stepVehicleUnchecked input state
           wingForce = foldr (addVec . resultForce) zeroVec wingResults
           wingMoment = foldr (addVec . resultMoment) zeroVec wingResults
           speed = magnitude (bodyVelocityMS input)
-          bodyDrag = scaleVec (-0.5 * airDensity * 0.032 * speed) (bodyVelocityMS input)
+          bodyDrag = scaleVec (-0.5 * airDensity * 0.012 * speed) (bodyVelocityMS input)
           tailArm = Vec3 (-0.48) 0 0
           tailVelocity = addVec (bodyVelocityMS input) (crossVec rates tailArm)
-          tailQArea = 0.5 * airDensity * 0.035 * magnitude tailVelocity * magnitude tailVelocity
+          tailQArea = 0.5 * airDensity * 0.012 * magnitude tailVelocity * magnitude tailVelocity
           -- Fixed tailplane incidence: a small, always-on DOWN force (negative z
           -- lift) proportional to dynamic pressure, providing pitch trim; the
           -- stick adds control lift on top of it.
-          tailTrimDownforce = -0.18 * tailQArea
+          tailTrimDownforce = -0.08 * tailQArea
           tailForce = addVec (scaleVec tailQArea (Vec3 0 (-yawMix) (-pitchMix)))
                              (Vec3 0 0 tailTrimDownforce)
           tailMoment = crossVec tailArm tailForce

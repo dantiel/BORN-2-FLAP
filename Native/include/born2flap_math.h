@@ -147,6 +147,10 @@ B2F_API int32_t b2f_math_reconfigure_firmware_vehicle(
  * (0.55 m half-span); unknown ids fall back to the kestrel. Additive ABI v13
  * extension — older hosts simply never call it. */
 B2F_API int32_t b2f_math_set_wing_model(B2F_MathContext* context, uint32_t model_id);
+/* Dry mass of a model by id [kg]. The host reads this to set its Chaos body
+ * mass, so per-model mass lives in the math core's model config, never as a
+ * host-side constant. Additive ABI v13 extension. */
+B2F_API double b2f_math_get_model_mass_kg(uint32_t model_id);
 /* Optional, read-only ABI v4 extension. No changes to existing output layouts.
  * Root-to-tip strip midpoints, left then right in separate caller-owned arrays.
  * Returns station count, or 0 for invalid arguments/insufficient capacity or an

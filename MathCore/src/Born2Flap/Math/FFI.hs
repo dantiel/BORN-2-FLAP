@@ -38,6 +38,7 @@ foreign export ccall "hs_b2f_math_set_stabilization" b2f_math_set_stabilization 
 foreign export ccall "hs_b2f_math_set_wind_phase_noise" b2f_math_set_wind_phase_noise :: Ptr () -> Double -> IO Int32
 foreign export ccall "hs_b2f_math_reconfigure_firmware_vehicle" b2f_math_reconfigure_firmware_vehicle :: Ptr () -> Ptr () -> IO Int32
 foreign export ccall "hs_b2f_math_set_wing_model" b2f_math_set_wing_model :: Ptr () -> Word32 -> IO Int32
+foreign export ccall "hs_b2f_math_get_model_mass_kg" b2f_math_get_model_mass_kg :: Word32 -> IO Double
 foreign export ccall "hs_b2f_math_get_wing_shape" b2f_math_get_wing_shape :: Ptr () -> Word32 -> Ptr () -> Ptr () -> IO Int32
 foreign export ccall "hs_b2f_math_get_wing_forces" b2f_math_get_wing_forces :: Ptr () -> Word32 -> Ptr () -> Ptr () -> IO Int32
 b2f_math_get_wing_shape :: Ptr () -> Word32 -> Ptr () -> Ptr () -> IO Int32
@@ -260,7 +261,8 @@ b2f_math_set_wing_model contextPointer modelId
     run = do
       contextRef <- deRefStablePtr (castPtrToStablePtr contextPointer :: StablePtr (IORef FwContext))
       context <- readIORef contextRef
-      writeIORef contextRef context { fwcModel = modelById modelId }
+      let model = modelById modelId
+      writeIORef contextRef context { fwcModel = model, fwcMass = wmMassKg model }
       pure 1
     failure :: SomeException -> IO Int32
     failure _ = pure 0
@@ -271,6 +273,11 @@ modelById 1 = prototypeModel   -- Prototype (training arena)
 modelById 2 = kestrelModel     -- Kestrel / falcon (Shiomori coast)
 modelById 3 = turtleModel      -- Neon turtle (void level)
 modelById _ = kestrelModel     -- unknown → safe reference default
+
+-- | A model's dry mass by id — the C++ host reads this to set the Chaos body
+-- mass, so per-model mass lives with the model config, never as a C++ constant.
+b2f_math_get_model_mass_kg :: Word32 -> IO Double
+b2f_math_get_model_mass_kg = pure . wmMassKg . modelById
 
 -- | Apply a complete live tuning profile to an existing firmware-vehicle
 -- context. Servo, battery and the exposed controller knobs are swapped in
