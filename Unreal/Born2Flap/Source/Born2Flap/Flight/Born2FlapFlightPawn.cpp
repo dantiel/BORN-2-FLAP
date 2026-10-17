@@ -1003,7 +1003,47 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         Roll = (PC->IsInputKeyDown(Get(TEXT("RollRight"))) ? 1.f : 0.f) - (PC->IsInputKeyDown(Get(TEXT("RollLeft"))) ? 1.f : 0.f);
         Pitch = (PC->IsInputKeyDown(Get(TEXT("PitchUp"))) ? 1.f : 0.f) -
                 (PC->IsInputKeyDown(Get(TEXT("PitchDown"))) || PC->IsInputKeyDown(Get(TEXT("PitchDownAlt"))) ? 1.f : 0.f);
-        Launch = PC->WasInputKeyJustPressed(Get(TEXT("Launch")));
+#if PLATFORM_IOS || PLATFORM_ANDROID
+        // Mobile touch: the engine's DefaultVirtualJoysticks twin-stick overlay
+        // injects Gamepad_LeftX/Y + Gamepad_RightX/Y analog axes (SVirtualJoystick
+        // -> SceneViewport -> PlayerInput::InputKey). Drive the virtual Mode-2
+        // transmitter exactly like the RC/keyboard path:
+        //   left stick  = throttle (Y, push up) + yaw (X)
+        //   right stick = pitch (Y, push up)  + roll (X)
+        if (PC->PlayerInput)
+        {
+            const float LX = PC->PlayerInput->GetRawKeyValue(EKeys::Gamepad_LeftX);
+            const float LY = PC->PlayerInput->GetRawKeyValue(EKeys::Gamepad_LeftY);
+            const float RX = PC->PlayerInput->GetRawKeyValue(EKeys::Gamepad_RightX);
+            const float RY = PC->PlayerInput->GetRawKeyValue(EKeys::Gamepad_RightY);
+            const float Dead = 0.06f;
+            const float LeftX  = FMath::Abs(LX) < Dead ? 0.f : LX;
+            const float LeftY  = FMath::Abs(LY) < Dead ? 0.f : LY;
+            const float RightX = FMath::Abs(RX) < Dead ? 0.f : RX;
+            const float RightY = FMath::Abs(RY) < Dead ? 0.f : RY;
+            const float TouchThrottle = FMath::Clamp(LeftY, 0.f, 1.f);
+            Effort = TouchThrottle;
+            WDown  = TouchThrottle > 0.05f;
+            Steer  = LeftX;
+            Roll   = RightX;
+            // SceneViewport negates Gamepad_RightY before it reaches PlayerInput,
+            // so a positive value here means thumb down. Invert for push-up = nose up.
+            Pitch  = -RightY;
+            // Hand-launch on throttle-up while grounded (there is no Space bar).
+            if (TouchThrottle < 0.25f)
+                bTouchLaunchPrimed = true;
+            else if (bTouchLaunchPrimed && !bFlying)
+            {
+                bTouchLaunchPrimed = false;
+                Launch = true;
+            }
+            // No desktop pointer on touch; keep the mouse stick neutral so a
+            // stale desktop delta can never bleed into the flight channels.
+            MouseX = MouseY = Wheel = 0.f;
+            MuteMouseYaw = MuteMouseRoll = true;
+        }
+#endif
+        Launch |= PC->WasInputKeyJustPressed(Get(TEXT("Launch")));
         Reset = PC->WasInputKeyJustPressed(Get(TEXT("Reset")));
         if (RcController)
         {

@@ -249,6 +249,9 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     float Throttle = 0, RollInput = 0, YawInput = 0, PitchInput = 0, LeftFlap = 0, RightFlap = 0, BatterySoc = 1;
     bool bFlying = false, bHealthy = false, bVectors = false, bReturning = false, bBlind = false;
     bool bHideUI = false;
+    // Touch hand-launch gate: re-arms when the throttle stick returns near
+    // centre so a grounded bird can be thrown by pushing the left stick up.
+    bool bTouchLaunchPrimed = true;
     // Raw F8/Esc capture. An input pre-processor (registered in BeginPlay) sees
     // every key-down before FInputModeGameAndUI routes keyboard away from
     // PlayerInput while the flight-desk panel is open; Tick consumes its flags.
