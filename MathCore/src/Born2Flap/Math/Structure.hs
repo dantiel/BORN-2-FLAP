@@ -26,14 +26,19 @@
 -- Both are quasi-static targets relaxed into the strip state with a first-order
 -- lag, so the aeroelastic feedback loop is stable at fixed timestep.
 --
--- The spar geometry + material are carried in a 'SparInventory' record — the
--- per-model \"carbon rods\" configuration. The solver derives every stiffness
--- from that record, so a different bird (thicker rods, other brace layout) is a
--- new 'SparInventory' value, never a new code path.
+-- The structure is carried as an OPEN-ENDED LIST of 'Spar' records inside the
+-- 'SparInventory' — the per-model "carbon rods" configuration. Each spar has
+-- its own diameter (thickness), physical length, chordwise lever arm and
+-- spanwise extent, so a wing can have any number of spars and every bird can
+-- have a genuinely individual structure. The solver derives every stiffness
+-- from that list, never from a hard-coded constant.
 module Born2Flap.Math.Structure
   ( StructureProfile(..)
+  , SparKind(..)
+  , Spar(..)
   , SparInventory(..)
   , kestrelSpars
+  , kestrelSparList
   , scaleSpars
   , armStructure
   , handStructure
@@ -43,10 +48,15 @@ module Born2Flap.Math.Structure
     -- * Relaxation
   , relaxDeflection
   , softSaturate
-    -- * Spanwise spar stiffness (kestrel construction)
+    -- * Spanwise spar stiffness
+  , sparBendEI
+  , sparTorsionGJ
+  , sparBraceGJ
   , sparBendEISpanwise
   , sparTwistGJSpanwise
   ) where
+
+import Data.Maybe (listToMaybe)
 
 -- | Per-station structural material of one spanwise station.
 data StructureProfile = StructureProfile
@@ -56,20 +66,53 @@ data StructureProfile = StructureProfile
   , stTauTwist :: !Double  -- ^ torsion relaxation time constant [s]
   } deriving stock (Eq, Show)
 
--- | Physical spar inventory of one membrane wing — the model-specific \"carbon
--- rods\" configuration. Everything the beam integrator needs to know about the
--- wing's structure lives here; nothing structural is a bare constant elsewhere.
+-- | Structural role of a spar: how its stiffness is computed and what it
+-- resists.
+data SparKind
+  = SparMain   -- ^ longitudinal (leading-edge) spar: carries flap bending EI and its own torsion GJ
+  | SparBrace  -- ^ chordwise/diagonal brace: its cantilever bending resists section twist
+  deriving stock (Eq, Show)
+
+-- | A single spar (carbon rod) of the wing. A wing is an *arbitrary list* of
+-- these, each with its own diameter (thickness), physical length, chordwise
+-- lever arm and spanwise extent. This is the "individual wing" primitive: add
+-- a spar to the list, or give a bird its own list, and the beam integrator
+-- follows — no solver code changes and no magic constants.
+data Spar = Spar
+  { spName     :: !String  -- ^ identifier (e.g. @"inner main"@, @"mid chord"@)
+  , spKind     :: !SparKind
+  , spDiameter :: !Double  -- ^ rod diameter (thickness) [m]
+  , spLengthM  :: !Double  -- ^ physical rod length [m]
+  , spLeverM   :: !Double  -- ^ chordwise moment arm [m] (braces only; 0 for main spars)
+  , spRootFrac :: !Double  -- ^ span fraction [0..1] where this spar begins carrying load
+  , spTipFrac  :: !Double  -- ^ span fraction [0..1] where this spar stops (half-open)
+  } deriving stock (Eq, Show)
+
+-- | Physical spar inventory of one membrane wing — the model-specific "carbon
+-- rods" configuration, now an open-ended list. The solver derives every
+-- stiffness from the list, so a different bird is a different list, never a new
+-- code path.
+data SparInventory = SparInventory
+  { siYoungsModulus :: !Double  -- ^ carbon rod Young's modulus [Pa] (bending)
+  , siShearModulus  :: !Double  -- ^ carbon rod shear modulus [Pa] (torsion)
+  , siBendScale     :: !Double  -- ^ out-of-plane bending calibration (stressed-skin/truss)
+  , siTwistScale    :: !Double  -- ^ torsional calibration
+  , siMembraneGJ    :: !Double  -- ^ tensioned-membrane baseline torsional stiffness [N·m²]
+  , siBraceScale    :: !Double  -- ^ braced arm-wing torsional calibration
+  , siSpars         :: ![Spar]  -- ^ the spars (main + braces), any number
+  } deriving stock (Eq, Show)
+
+-- | The kestrel carbon-rod inventory. Material: pultruded carbon rod,
+-- E = 135 GPa (bending), G = 5 GPa (shear). Solid round section:
+-- I = π·d⁴/64, J = π·d⁴/32.
 --
--- The kestrel inventory (kestrelwing.svg), scaled 1.27× to the 1.10 m bird with
--- the two main spars upgraded for the bigger servo:
+-- Layout (kestrelwing.svg), on a 0.55 m half-span:
 --
---   inner base mainspar  Ø 2.0 mm  — inboard LE, full arm wing (to the elbow)
---   outer hand mainspar  Ø 1.6 mm  — outboard LE, hand wing only
---   diagonal spar        Ø 0.8 mm  — LE→TE brace (twist), inner wing only
---   mid chord spar       Ø 0.6 mm  — chordwise brace (extend + twist), inner wing
---
--- Material: pultruded carbon rod, E = 135 GPa (bending), G = 5 GPa (shear).
--- Solid round section:  I = π·d⁴/64  (bending),  J = π·d⁴/32  (torsion).
+--   inner main spar  Ø 2.0 mm, 222 mm — root → elbow (inboard leading edge)
+--   outer main spar  Ø 1.6 mm, 310 mm — elbow → tip  (outboard leading edge)
+--   diagonal brace   Ø 0.8 mm, 213 mm — LE→TE truss, resists twist (inner wing)
+--   mid-chord brace  Ø 0.8 mm, 177 mm — chordwise brace: keeps the section
+--                                          open/flat, resists twist (inner wing)
 --
 -- A membrane wing is far stiffer out of plane than a bare rod: the tensioned
 -- membrane acts as a stressed skin and the diagonal brace trusses the leading
@@ -77,63 +120,47 @@ data StructureProfile = StructureProfile
 -- the opposite — the only resistance is the braces' own bending, so the hand
 -- wing washes out freely under the nose-down pitching moment. The two are
 -- therefore calibrated independently (bend scale vs twist scale).
-data SparInventory = SparInventory
-  { siYoungsModulus :: !Double  -- ^ carbon rod Young's modulus [Pa] (bending)
-  , siShearModulus  :: !Double  -- ^ carbon rod shear modulus [Pa] (torsion)
-  , siBendScale     :: !Double  -- ^ out-of-plane bending calibration (stressed-skin/truss)
-  , siTwistScale    :: !Double  -- ^ torsional calibration
-  , siDInnerMain    :: !Double  -- ^ inner main-spar diameter [m]
-  , siDOuterMain    :: !Double  -- ^ outer hand main-spar diameter [m]
-  , siDDiagonal     :: !Double  -- ^ diagonal LE→TE brace diameter [m]
-  , siDMidChord     :: !Double  -- ^ mid-chord brace diameter [m]
-  , siInnerLengthM  :: !Double  -- ^ inner main-spar length before the splice [m]
-  , siDiagLengthM   :: !Double  -- ^ diagonal brace path length [m]
-  , siDiagLeverM    :: !Double  -- ^ chordwise offset the diagonal brace acts through [m]
-  , siMidLengthM    :: !Double  -- ^ mid-chord brace path length [m]
-  , siMidLeverM     :: !Double  -- ^ chordwise offset the mid-chord brace acts through [m]
-  , siMembraneGJ    :: !Double  -- ^ tensioned-membrane baseline torsional stiffness [N·m²]
-  , siBraceScale    :: !Double  -- ^ braced arm-wing torsional calibration
-  } deriving stock (Eq, Show)
-
--- | The kestrel carbon-rod inventory (see 'SparInventory' docs for the layout).
 kestrelSpars :: SparInventory
 kestrelSpars = SparInventory
   { siYoungsModulus = 135e9
   , siShearModulus  = 5e9
-  , siBendScale     = 18.0
+  , siBendScale     = 130.0
   , siTwistScale    = 1.0
-  , siDInnerMain    = 2.0e-3
-  , siDOuterMain    = 1.6e-3
-  , siDDiagonal     = 0.80e-3
-  , siDMidChord     = 0.60e-3
-  , siInnerLengthM  = 222e-3
-  , siDiagLengthM   = 213e-3
-  , siDiagLeverM    = 211e-3
-  , siMidLengthM    = 177e-3
-  , siMidLeverM     = 171e-3
   , siMembraneGJ    = 2.2e-1
   , siBraceScale    = 4.0
+  , siSpars         = kestrelSparList
   }
 
+-- | The kestrel's individual spar list. The inner/outer main spars splice at
+-- the fraction where the inner spar's 222 mm length ends on the 0.55 m
+-- half-span; the two braces only brace the inner wing up to that splice.
+kestrelSparList :: [Spar]
+kestrelSparList =
+  let spliceFrac = 222e-3 / 0.55  -- ≈ 0.4036
+  in [ Spar "inner main" SparMain  2.0e-3 222e-3 0.0 0.0      spliceFrac
+     , Spar "outer main" SparMain  1.6e-3 310e-3 0.0 spliceFrac 1.0
+     , Spar "diagonal"   SparBrace 0.8e-3 213e-3 211e-3 0.0 spliceFrac
+     , Spar "mid chord"  SparBrace 0.8e-3 177e-3 171e-3 0.0 spliceFrac
+     ]
+
 -- | Scale a spar inventory by a geometric factor @s@ (structural similarity):
--- every rod diameter and brace length scales by @s@, the tensioned-membrane
+-- every rod diameter, length and lever arm scale by @s@, the tensioned-membrane
 -- baseline torsional stiffness scales by @s³@, and the dimensionless
--- calibration gains (bend/twist/brace scale) are unchanged. Used to derive a
--- second bird's carbon rods from the kestrel inventory without introducing
--- new magic constants — a bigger bird gets proportionally longer, thicker rods.
+-- calibration gains (bend/twist/brace) are unchanged. Spanwise extents are
+-- fractions, so they are invariant under scaling. Use this to derive a
+-- geometrically-similar bird; for a truly individual wing, build the 'Spar'
+-- list directly (see 'kestrelSparList').
 scaleSpars :: Double -> SparInventory -> SparInventory
 scaleSpars s inv = inv
-  { siDInnerMain   = siDInnerMain inv * s
-  , siDOuterMain   = siDOuterMain inv * s
-  , siDDiagonal    = siDDiagonal inv * s
-  , siDMidChord    = siDMidChord inv * s
-  , siInnerLengthM = siInnerLengthM inv * s
-  , siDiagLengthM  = siDiagLengthM inv * s
-  , siDiagLeverM   = siDiagLeverM inv * s
-  , siMidLengthM   = siMidLengthM inv * s
-  , siMidLeverM    = siMidLeverM inv * s
-  , siMembraneGJ   = siMembraneGJ inv * s * s * s
+  { siSpars      = map scaleOne (siSpars inv)
+  , siMembraneGJ = siMembraneGJ inv * s * s * s
   }
+  where
+    scaleOne sp = sp
+      { spDiameter = spDiameter sp * s
+      , spLengthM  = spLengthM sp * s
+      , spLeverM   = spLeverM sp * s
+      }
 
 -- | Bending stiffness @EI@ [N·m²] of a solid round carbon rod of diameter @d@.
 sparBendEI :: SparInventory -> Double -> Double
@@ -143,59 +170,72 @@ sparBendEI inv d = siYoungsModulus inv * pi * d ^ 4 / 64
 sparTorsionGJ :: SparInventory -> Double -> Double
 sparTorsionGJ inv d = siShearModulus inv * pi * d ^ 4 / 32
 
--- | Leading-edge main-spar diameter at a span fraction, given the half-span.
-sparMainDiameter :: SparInventory -> Double -> Double -> Double
-sparMainDiameter inv spanM frac
-  | frac < sparInnerFraction inv spanM = siDInnerMain inv
-  | otherwise = siDOuterMain inv
+-- | Is a spar carrying load at this span fraction? Half-open @[root, tip)@, so
+-- spliced main spars never double-count at their shared boundary.
+sparActiveAt :: Spar -> Double -> Bool
+sparActiveAt s frac = frac >= spRootFrac s && frac < spTipFrac s
 
--- | Span fraction where the inner main spar splices into the outer hand spar.
-sparInnerFraction :: SparInventory -> Double -> Double
-sparInnerFraction inv spanM = clamp 0 1 (siInnerLengthM inv / spanM)
+-- | Main (leading-edge) spars only.
+mainSpars :: SparInventory -> [Spar]
+mainSpars inv = [ s | s <- siSpars inv, spKind s == SparMain ]
 
--- | Spanwise flap-bending stiffness [N·m²]: the LE main spar (inner → outer
--- hand) bends the wing out of plane.
-sparBendEISpanwise :: SparInventory -> Double -> Double -> Double
-sparBendEISpanwise inv spanM frac = siBendScale inv * sparBendEI inv (sparMainDiameter inv spanM frac)
+-- | Brace (chordwise/diagonal) spars only.
+braceSpars :: SparInventory -> [Spar]
+braceSpars inv = [ s | s <- siSpars inv, spKind s == SparBrace ]
 
--- | Diagonal-brace effective torsional stiffness [N·m²]: the brace resists the
--- trailing edge swinging under twist by bending as a cantilever.
-sparBraceGJ :: SparInventory -> Double
-sparBraceGJ inv = 3 * sparBendEI inv (siDDiagonal inv) / siDiagLengthM inv ^ 3 * siDiagLeverM inv ^ 2
+-- | Diameter of the root-anchored (inboard) main spar, if any.
+inboardMainDiameter :: SparInventory -> Double
+inboardMainDiameter inv =
+  maybe 0 spDiameter (listToMaybe [ s | s <- mainSpars inv, spRootFrac s <= 0 ])
 
--- | Mid-chord-brace effective torsional stiffness [N·m²]. A chordwise brace
--- keeps the section extended and couples the trailing edge to the diagonal
--- spar; its bending resists the section twisting. Secondary to the diagonal.
-sparMidChordBraceGJ :: SparInventory -> Double
-sparMidChordBraceGJ inv = 3 * sparBendEI inv (siDMidChord inv) / siMidLengthM inv ^ 3 * siMidLeverM inv ^ 2
+-- | Diameter of the tip-reaching (outboard) main spar, if any.
+outboardMainDiameter :: SparInventory -> Double
+outboardMainDiameter inv =
+  maybe 0 spDiameter (listToMaybe [ s | s <- mainSpars inv, spTipFrac s >= 1 ])
 
--- | Spanwise torsional stiffness [N·m²]: the tensioned membrane (whole wing)
--- plus the diagonal + mid-chord braces (inner wing) resist twist; outboard only
--- the membrane + the thin hand-wing rod remain, so the hand wing washes out
--- under the nose-down pitching moment without folding.
-sparTwistGJSpanwise :: SparInventory -> Double -> Double -> Double
-sparTwistGJSpanwise inv spanM frac =
+-- | Spanwise flap-bending stiffness [N·m²]: the bend calibration times the sum
+-- of every active main spar's EI. Braces do not contribute to flap bending.
+sparBendEISpanwise :: SparInventory -> Double -> Double
+sparBendEISpanwise inv frac =
+  siBendScale inv * sum [ sparBendEI inv (spDiameter s) | s <- mainSpars inv, sparActiveAt s frac ]
+
+-- | A brace's effective torsional stiffness [N·m²]: it resists the trailing
+-- edge swinging under twist by bending as a cantilever.
+sparBraceGJ :: SparInventory -> Spar -> Double
+sparBraceGJ inv s = 3 * sparBendEI inv (spDiameter s) / (spLengthM s ^ 3) * (spLeverM s ^ 2)
+
+-- | Spanwise torsional stiffness [N·m²]: the tensioned membrane (whole wing),
+-- plus the active main spars' own torsion and the active braces' bending
+-- resistance. Outboard only the membrane + the thin hand-wing rod remain, so
+-- the hand wing washes out under the nose-down pitching moment without folding.
+sparTwistGJSpanwise :: SparInventory -> Double -> Double
+sparTwistGJSpanwise inv frac =
   siTwistScale inv *
-    if frac < sparInnerFraction inv spanM
-      then sparTorsionGJ inv (siDInnerMain inv) + siBraceScale inv * (sparBraceGJ inv + sparMidChordBraceGJ inv) + siMembraneGJ inv
-      else sparTorsionGJ inv (siDOuterMain inv) + siMembraneGJ inv
+    ( siMembraneGJ inv
+    + sum [ sparTorsionGJ inv (spDiameter s) | s <- mainSpars inv, sparActiveAt s frac ]
+    + siBraceScale inv * sum [ sparBraceGJ inv s | s <- braceSpars inv, sparActiveAt s frac ]
+    )
 
--- | Bird armwing (kestrel inner wing): 2.0 mm main spar + diagonal & mid-chord
--- braces. Stiff in bending, moderately stiff in torsion.
+-- | Bird armwing (inboard inner wing): root-anchored main spar + the braces.
+-- Stiff in bending, moderately stiff in torsion (the diagonal + mid-chord
+-- braces resist the section twisting).
 armStructure :: SparInventory -> StructureProfile
 armStructure inv = StructureProfile
-  { stBendEI = siBendScale inv * sparBendEI inv (siDInnerMain inv)
-  , stTwistGJ = siTwistScale inv * (sparTorsionGJ inv (siDInnerMain inv) + siBraceScale inv * (sparBraceGJ inv + sparMidChordBraceGJ inv) + siMembraneGJ inv)
+  { stBendEI = siBendScale inv * sparBendEI inv (inboardMainDiameter inv)
+  , stTwistGJ = siTwistScale inv *
+      ( sparTorsionGJ inv (inboardMainDiameter inv)
+      + siBraceScale inv * sum [ sparBraceGJ inv s | s <- braceSpars inv ]
+      + siMembraneGJ inv )
   , stTauBend = 0.03
   , stTauTwist = 0.03
   }
 
--- | Bird handwing (kestrel outer hand): 1.6 mm main spar, no braces outboard —
+-- | Bird handwing (outboard hand wing): tip-reaching main spar, no braces —
 -- so it is much softer in torsion, the source of washout-under-load.
 handStructure :: SparInventory -> StructureProfile
 handStructure inv = StructureProfile
-  { stBendEI = siBendScale inv * sparBendEI inv (siDOuterMain inv)
-  , stTwistGJ = siTwistScale inv * (sparTorsionGJ inv (siDOuterMain inv) + siMembraneGJ inv)
+  { stBendEI = siBendScale inv * sparBendEI inv (outboardMainDiameter inv)
+  , stTwistGJ = siTwistScale inv * (sparTorsionGJ inv (outboardMainDiameter inv) + siMembraneGJ inv)
   , stTauBend = 0.04
   , stTauTwist = 0.04
   }
@@ -249,11 +289,8 @@ relaxDeflection dt tau current target
 
 -- | Soft asymptotic saturation, replacing the hard deflection clamp. A hard
 -- clamp flattens every outboard station whose target exceeds the limit into a
--- plateau with a slope discontinuity -- the visible \"fold\" in the spar line.
+-- plateau with a slope discontinuity -- the visible "fold" in the spar line.
 -- tanh approaches the limit smoothly, so the spar only ever curves, never kinks,
 -- no matter how large the load.
 softSaturate :: Double -> Double -> Double
 softSaturate limit x = limit * tanh (x / max 1.0e-9 limit)
-
-clamp :: Ord a => a -> a -> a -> a
-clamp low high = max low . min high
