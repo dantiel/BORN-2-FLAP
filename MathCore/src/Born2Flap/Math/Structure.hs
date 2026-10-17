@@ -100,7 +100,7 @@ kestrelSpars :: SparInventory
 kestrelSpars = SparInventory
   { siYoungsModulus = 135e9
   , siShearModulus  = 5e9
-  , siBendScale     = 60.0
+  , siBendScale     = 18.0
   , siTwistScale    = 1.0
   , siDInnerMain    = 2.0e-3
   , siDOuterMain    = 1.6e-3

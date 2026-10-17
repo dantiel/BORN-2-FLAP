@@ -101,6 +101,26 @@ flapDampingCd = 0.9
 flapUpstrokeDampingFraction :: Double
 flapUpstrokeDampingFraction = 0.35
 
+-- | Aeroelastic thrust boost (dimensionless). A cambered (membrane-cupped)
+-- section sheds a stronger backward jet than a flat plate: the deeper the cup
+-- the membrane holds under load (see 'membraneCamberTarget'), the more flap
+-- flow it redirects aft, which is the LE/TE stiffness asymmetry a real bird
+-- uses to make thrust. A rigid flat wing (camber ≈ 0) recovers none of this —
+-- it just disperses the stroke force outward instead of propelling. This is the
+-- one term that makes thrust GROW with the aeroelastic state, so the wing gets
+-- stronger (not weaker) as it loads up into cruise.
+aeroCamberThrustGain :: Double
+aeroCamberThrustGain = 6.0
+
+-- | Forward-advance thrust gain (dimensionless): the cross-term between the
+-- oncoming chordwise flow and the flap velocity. A flapping wing at forward
+-- speed pushes the oncoming air backward, so its thrust GROWS with airspeed —
+-- this is what lets a bird keep biting the air into a headwind, where the
+-- static momentum jet (∝ flap-speed²) has already collapsed. Vanishes at rest
+-- (chordVelocity ≈ 0), so hover thrust is unchanged.
+flapAdvanceThrustGain :: Double
+flapAdvanceThrustGain = 1.0
+
 -- | Ground-effect constants (dimensionless). Ground effect is the image-vortex
 -- cushion a wing feels close to a surface. For a GLIDING wing it only boosts
 -- lift (higher effective aspect ratio → less downwash → more Cl at the same
@@ -239,10 +259,10 @@ stepVehicleUnchecked input state
           wingForce = foldr (addVec . resultForce) zeroVec wingResults
           wingMoment = foldr (addVec . resultMoment) zeroVec wingResults
           speed = magnitude (bodyVelocityMS input)
-          bodyDrag = scaleVec (-0.5 * airDensity * 0.0005 * speed) (bodyVelocityMS input)
+          bodyDrag = scaleVec (-0.5 * airDensity * 0.0004 * speed) (bodyVelocityMS input)
           tailArm = Vec3 (-0.48) 0 0
           tailVelocity = addVec (bodyVelocityMS input) (crossVec rates tailArm)
-          tailQArea = 0.5 * airDensity * 0.002 * magnitude tailVelocity * magnitude tailVelocity
+          tailQArea = 0.5 * airDensity * 0.0015 * magnitude tailVelocity * magnitude tailVelocity
           -- Fixed tailplane incidence: a small, always-on DOWN force (negative z
           -- lift) proportional to dynamic pressure, providing pitch trim; the
           -- stick adds control lift on top of it.
@@ -450,7 +470,16 @@ stepStrip implicitLoads _phaseRate _flapping side stroke input incidenceRad wp i
       -- pushes off the surface) and — uniquely — the normally-feathered
       -- upstroke recovers a fraction of that jet too, so the bird accelerates
       -- in the cushion where a gliding wing only gains lift.
-      flapThrust = let jet = 0.5 * airDensity * area * (radius * worldStrokeRate) * (radius * worldStrokeRate) * flapJetCoeff
+      camberBoost = 1.0 + aeroCamberThrustGain * max 0 camberPrev
+      -- Two momentum-jet components: the static jet (∝ flap speed²) that
+      -- exists at hover, and the advance jet (∝ forward flow × flap speed)
+      -- that only appears at speed and is what sustains cruise into a
+      -- headwind. Both scale with the aeroelastic camber (the deeper the
+      -- membrane cups under load, the more flow it redirects aft).
+      flapSpeed = abs (radius * worldStrokeRate)
+      staticJet = 0.5 * airDensity * area * flapSpeed * flapSpeed * flapJetCoeff * camberBoost
+      advanceJet = 0.5 * airDensity * area * max 0 chordVelocity * flapSpeed * flapJetCoeff * camberBoost * flapAdvanceThrustGain
+      flapThrust = let jet = staticJet + advanceJet
                            in if worldStrokeRate < 0
                                 then jet * (1 + groundEffectThrustGain * ge)
                                 else jet * groundEffectUpstrokeRecover * ge
@@ -543,7 +572,7 @@ applyStructure inv wp input results =
       sectionMoments = map resultSectionMoment results
       (targetBend, targetSlope) = integrateFlapBeam forces bendingEIs dr
       targetTwist = integrateTwist sectionMoments twistGJs dr
-      maxBend = 0.12 * wsSpanM wp
+      maxBend = 0.15 * wsSpanM wp
       maxTwist = radians 15
       update result structure bend slope twist =
         let old = resultState result
