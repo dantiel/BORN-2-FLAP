@@ -41,9 +41,24 @@ MH_CIGAM_64 = 0xCFFAEDFE  # byte-swapped
 
 # symbol -> RTS archive member that owns its default definition. The app's
 # overrides live in cbits/bridge.c (bridge.o) and must stay STRONG.
+#
+# The diagnostic routing overrides (barf/errorBelch/sysErrorBelch/debugBelch
+# and their va_list variants) are the third link-time override the ghc-ios
+# toolchain requires: GHC's RtsMessages.o defines them as strong symbols that
+# fprintf(stderr) — invisible on a phone — so bridge.o replaces them with
+# os_log + stderr routing. Marking only the RTS definitions weak lets the
+# bridge.o overrides win.
 DEFAULT_TARGETS = {
     "_mprotectForLinker": "MMap.o",
     "_osReserveHeapMemory": "OSMem.o",
+    "_barf": "RtsMessages.o",
+    "_vbarf": "RtsMessages.o",
+    "_errorBelch": "RtsMessages.o",
+    "_verrorBelch": "RtsMessages.o",
+    "_sysErrorBelch": "RtsMessages.o",
+    "_vsysErrorBelch": "RtsMessages.o",
+    "_debugBelch": "RtsMessages.o",
+    "_vdebugBelch": "RtsMessages.o",
 }
 
 

@@ -73,6 +73,81 @@ void *osReserveHeapMemory(void *startAddressPtr, uintptr_t *len) {
     return base;
 }
 
+/* -------------------------------------------------------------------------
+ * RTS diagnostic routing.
+ *
+ * GHC's RtsMessages.c defines barf/errorBelch/sysErrorBelch/debugBelch as
+ * strong symbols whose default implementations fprintf(stderr, ...). On iOS
+ * there is no terminal, so a runtime panic's message goes nowhere and the
+ * RTS then calls stg_exit() silently. The ghc-ios toolchain documents this as
+ * the third required link-time override: "barf and friends route through
+ * os_log, so runtime panics are readable in Console".
+ *
+ * Tools/weaken-rts-symbols.py marks the RTS definitions in RtsMessages.o
+ * N_WEAK_DEF so these strong overrides win at link time. Each override also
+ * writes to stderr so `devicectl device process launch --console` captures it.
+ * ------------------------------------------------------------------------- */
+#include <os/log.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+static void b2f_rts_emit(const char *tag, const char *fmt, va_list ap)
+{
+    char buf[1024];
+    vsnprintf(buf, sizeof(buf), fmt, ap);
+    fprintf(stderr, "[ghc-rts:%s] %s\n", tag, buf);
+
+    static os_log_t log;
+    if (!log) {
+        log = os_log_create("com.darographix.Born2Flap", "ghc-rts");
+    }
+    os_log_error(log, "[%{public}s] %{public}s", tag, buf);
+}
+
+void debugBelch(const char *s, ...)
+{
+    va_list ap; va_start(ap, s); b2f_rts_emit("debug", s, ap); va_end(ap);
+}
+
+int vdebugBelch(const char *s, va_list ap)
+{
+    b2f_rts_emit("debug", s, ap);
+    return 0;
+}
+
+void errorBelch(const char *s, ...)
+{
+    va_list ap; va_start(ap, s); b2f_rts_emit("error", s, ap); va_end(ap);
+}
+
+void verrorBelch(const char *s, va_list ap)
+{
+    b2f_rts_emit("error", s, ap);
+}
+
+void sysErrorBelch(const char *s, ...)
+{
+    va_list ap; va_start(ap, s); b2f_rts_emit("syserror", s, ap); va_end(ap);
+}
+
+void vsysErrorBelch(const char *s, va_list ap)
+{
+    b2f_rts_emit("syserror", s, ap);
+}
+
+void barf(const char *s, ...)
+{
+    va_list ap; va_start(ap, s); b2f_rts_emit("barf", s, ap); va_end(ap);
+    exit(1);
+}
+
+void vbarf(const char *s, va_list ap)
+{
+    b2f_rts_emit("barf", s, ap);
+    exit(1);
+}
+
 #endif /* B2F_IOS_RTS */
 
 static int b2f_rts_started = 0;
