@@ -245,9 +245,11 @@ advanceFirmwareVehicle hostInertia coupled rc params servo battery model dt body
           wingForce = foldr (addVec . resultForce) zeroVec wingResults
           wingMoment = foldr (addVec . resultMoment) zeroVec wingResults
           speed = magnitude bodyVel
-          -- Frontal area is the reference kestrel body's drag area. The model is
-          -- the physical 0.55 m bird, so no planform-scale factor applies here.
-          bodyDrag = scaleVec (-0.5 * airDensity * 0.011 * speed) bodyVel
+          -- Body parasitic drag area (CdA). The reference kestrel body is a
+          -- 0.42 m × 0.03 m × 0.03 m streamlined fuselage: frontal area ~9e-4 m²
+          -- at Cd ≈ 0.55 gives CdA ≈ 5e-4 m². The old 0.011 m² (~20× too high)
+          -- made the body alone eat a third of the bird's weight at 7 m/s.
+          bodyDrag = scaleVec (-0.5 * airDensity * 0.0005 * speed) bodyVel
           -- Two real inverted-V panels with mixed ruddervators. Each panel sees
           -- its own local flow and produces force at its own arm; the resulting
           -- pitch/yaw coupling is geometric, not an added torque. A shallow cant

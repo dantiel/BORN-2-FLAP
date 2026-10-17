@@ -151,12 +151,11 @@ ABorn2FlapFlightPawn::ABorn2FlapFlightPawn()
         SkyDome->SetStaticMesh(SphereMesh.Object);
     }
     AutoPossessPlayer = EAutoReceiveInput::Player0;
-    // Default hangar tuning = the prototype flight hardware (3S 1.3 Ah, 20 Nm
-    // servo — sized to hold against the flapping air load without back-driving)
-    // plus the simulator's controller base. LoadFlightPreferences may
-    // override these before the first ApplyTuning.
-    Tuning.servo_no_load_speed_deg_s = 1200;
-    Tuning.servo_stall_torque_nm = 20;
+    // Default hangar tuning = the reference kestrel hardware (VOTIK PTK 7465
+    // Plus flap servo, 3S 1.3 Ah) plus the simulator's controller base.
+    // LoadFlightPreferences may override these before the first ApplyTuning.
+    Tuning.servo_no_load_speed_deg_s = 750;
+    Tuning.servo_stall_torque_nm = 0.74f;
     Tuning.servo_backdrive_deg_s_nm = 20;
     Tuning.battery_voltage = 11.1;
     Tuning.battery_resistance_ohm = 0.08;
