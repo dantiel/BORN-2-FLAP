@@ -19,6 +19,7 @@ module Born2Flap.Math.Model
   , ravenModel
   , prototypeModel
   , turtleModel
+  , kestrelLightModel
   ) where
 
 import Born2Flap.Math.Planform (WingShape, defaultBirdWing, scaleWing)
@@ -34,7 +35,7 @@ data WingModel = WingModel
 
 -- | The reference kestrel: 0.55 m half-span (1.10 m full span), 50 g dry mass,
 -- 2.0 mm inner → 1.6 mm outer LE mainspar + diagonal/mid-chord brace box.
--- PTK 4765 (or 4765 Plus) servo.
+-- PTK 7465 (or 7465 Plus) servo.
 kestrelModel :: WingModel
 kestrelModel = WingModel "kestrel" defaultBirdWing kestrelSpars 0.050
 
@@ -54,6 +55,32 @@ prototypeModel = WingModel "prototype" (scaleWing 0.9 defaultBirdWing) prototype
 -- gravity and uses dense-medium drag, so its mass is only a placeholder.
 turtleModel :: WingModel
 turtleModel = WingModel "turtle" defaultBirdWing kestrelSpars 0.050
+
+-- | Light kestrel sub-variant: the SAME outline as the reference kestrel but
+-- half the dry mass (25 g) and every carbon rod thinned by @0.5^(1/4) ≈ 0.841@.
+-- Because bending/torsional stiffness scales as the rod diameter to the 4th
+-- power (EI, GJ ∝ d⁴), thinning the rods by 0.841 exactly halves the stiffness,
+-- which cancels the half weight — so this wing flexes to the SAME ideal airfoil
+-- as the 50 g kestrel. It pairs with a weaker, faster servo (Blue Arrow AF
+-- D43S-6.0-MG), whose higher no-load speed earns a faster flap at the lighter
+-- bird's natural cadence.
+kestrelLightModel :: WingModel
+kestrelLightModel = WingModel "kestrel-light" defaultBirdWing kestrelLightSpars 0.025
+
+-- | Rod-diameter scale that halves stiffness: EI, GJ ∝ d⁴ ⇒ half stiffness at
+-- Ø × 0.5^(1/4).
+kestrelLightRodScale :: Double
+kestrelLightRodScale = (1/2) ** (1/4)
+
+-- | The light kestrel's spar inventory: the kestrel construction with every rod
+-- thinned by 'kestrelLightRodScale'. Lengths, lever arms, the tensioned-membrane
+-- baseline and the shared bend/twist calibration gains are unchanged — the wing
+-- is the same size, just lighter and softer in exact proportion to its weight.
+kestrelLightSpars :: SparInventory
+kestrelLightSpars = kestrelSpars
+  { siSpars = map thin (siSpars kestrelSpars) }
+  where
+    thin s = s { spDiameter = spDiameter s * kestrelLightRodScale }
 
 -- | The splice fraction where the inner main spar hands off to the outer main
 -- spar. It is the ratio inner-length ∕ half-span; because uniform scaling

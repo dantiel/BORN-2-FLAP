@@ -5,7 +5,7 @@ module Born2Flap.Math.FFI where
 import Born2Flap.Math.Types (Vec3(..))
 import Born2Flap.Math.Airframe
 import Born2Flap.Math.Vehicle
-import Born2Flap.Math.Model (WingModel(..), kestrelModel, ravenModel, prototypeModel, turtleModel)
+import Born2Flap.Math.Model (WingModel(..), kestrelModel, kestrelLightModel, ravenModel, prototypeModel, turtleModel)
 import Born2Flap.Math.Planform (shapeChord, shapeTwistRad)
 import Born2Flap.Math.PhaseEnvelope (phaseEnvelope, phaseCoverage)
 import Born2Flap.Math.Resonance (rsPhaseError)
@@ -221,7 +221,7 @@ b2f_math_create_firmware_vehicle configPointer = do
             , profRudderAmplitudeDiff = 35, profRudderFerocityRange = 20
             , profAileronScale = 10, profElevatorScale = 55 }
         }
-      context = FwContext flightParams servo battery defaultFirmwareVehicleState kestrelModel 0.05
+      context = FwContext flightParams servo battery defaultFirmwareVehicleState kestrelModel 0.050
   castStablePtrToPtr <$> (newIORef context >>= newStablePtr)
 
 b2f_math_destroy_firmware_vehicle :: Ptr () -> IO ()
@@ -272,7 +272,8 @@ modelById 0 = ravenModel       -- RavenCrow (nature valley)
 modelById 1 = prototypeModel   -- Prototype (training arena)
 modelById 2 = kestrelModel     -- Kestrel / falcon (Shiomori coast)
 modelById 3 = turtleModel      -- Neon turtle (void level)
-modelById _ = kestrelModel     -- unknown → safe reference default
+modelById 4 = kestrelLightModel -- Kestrel light (25 g, thinner rods, D43S servo)
+modelById _ = kestrelModel     -- unknown ??? safe reference default
 
 -- | A model's dry mass by id — the C++ host reads this to set the Chaos body
 -- mass, so per-model mass lives with the model config, never as a C++ constant.

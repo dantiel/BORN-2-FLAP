@@ -72,7 +72,7 @@ airDensity = 1.05
 -- left/right and the tail can no longer balance or steer. Keep this high enough
 -- for roll damping + pitch authority; make the bird sink with DRAG, not lift.
 circulationLiftEfficiency :: Double
-circulationLiftEfficiency = 0.24
+circulationLiftEfficiency = 0.30
 
 -- | Momentum-jet thrust factor for the flapping downstroke (dimensionless).
 -- The downstroke sheds a backward jet whose reaction propels the bird. This is
@@ -82,9 +82,9 @@ circulationLiftEfficiency = 0.24
 -- vector tilts aft), so the momentum jet is what actually sustains cruise —
 -- it must overcome the lift-tilt drag at the bird's maximum airspeed (~7 m/s).
 -- C_T is therefore sized so net thrust stays positive to 7 m/s, not to a
--- textbook value. At the kestrel's 3.2 Hz / 20° stroke this is ~0.6.
+-- textbook value. At the kestrel's 3.2 Hz / 20° stroke this is ~1.0.
 flapJetCoeff :: Double
-flapJetCoeff = 0.9
+flapJetCoeff = 1.0
 
 -- | Lumped pressure-drag coefficient for the wing's OWN flap motion — the broad
 -- surface sweeping normal to itself through air. A thin airfoil moving edge-on
@@ -106,7 +106,7 @@ flapJetCoeff = 0.9
 -- flat-plate figure so the wing BITES the air via lift while its flap motion
 -- merely sees normal flat-plate resistance.
 flapDampingCd :: Double
-flapDampingCd = 0.9
+flapDampingCd = 1.5
 
 -- | Fraction of 'flapDampingCd' the wing keeps on the UPSTROKE during flapping.
 -- A real bird feathers the recovery stroke so the downstroke (power stroke) bites
@@ -127,7 +127,7 @@ flapUpstrokeDampingFraction = 0.35
 -- one term that makes thrust GROW with the aeroelastic state, so the wing gets
 -- stronger (not weaker) as it loads up into cruise.
 aeroCamberThrustGain :: Double
-aeroCamberThrustGain = 6.0
+aeroCamberThrustGain = 2.2
 
 -- | Forward-advance thrust gain (dimensionless): the cross-term between the
 -- oncoming chordwise flow and the flap velocity. A flapping wing at forward
@@ -136,7 +136,7 @@ aeroCamberThrustGain = 6.0
 -- static momentum jet (∝ flap-speed²) has already collapsed. Vanishes at rest
 -- (chordVelocity ≈ 0), so hover thrust is unchanged.
 flapAdvanceThrustGain :: Double
-flapAdvanceThrustGain = 0.5
+flapAdvanceThrustGain = 0.04
 
 -- | Ground-effect constants (dimensionless). Ground effect is the image-vortex
 -- cushion a wing feels close to a surface. For a GLIDING wing it only boosts
@@ -439,8 +439,15 @@ stepStrip implicitLoads _phaseRate _flapping side stroke input incidenceRad wp i
       dynamicDelay = clamp (-0.16) 0.16 (0.018 * alphaRate)
       target = smoothStep (stallAngle - radians 3) (stallAngle + radians 4)
                 (abs alphaEff - dynamicDelay)
+      -- Stall hysteresis: separation sets in fast (0.045 s), but reattachment
+      -- is deliberately slower so a passing gust doesn't chatter the flow.
+      -- 0.090 s, however, made a brief stall LINGER through several flap cycles:
+      -- after a hard pull-up bled off speed, the wing stayed separated (no lift
+      -- → no pitch authority, elevated separated drag → no net thrust) long
+      -- after alpha had dropped back below stall. 0.060 s reattaches within ~1
+      -- flap cycle while still smoothing genuine gust noise.
       separating = target > stripSeparation old
-      tau = if separating then 0.045 else 0.090
+      tau = if separating then 0.045 else 0.060
       UnitInterval relaxed = relaxSeparation (Seconds dt) (Seconds tau)
                                (clamp01 (stripSeparation old)) (clamp01 target)
       levTarget = if abs alphaEff > stallAngle && alphaRate * alphaEff > 0 then 1 else 0
@@ -482,7 +489,7 @@ stepStrip implicitLoads _phaseRate _flapping side stroke input incidenceRad wp i
       -- sits well below a rigid surface's. The rigid tail/body panels carry the
       -- complementary high pressure drag instead.
       attachedCd = 0.03 + inducedCd
-      separatedCd = 0.20 + 1.20 * sin alphaEff * sin alphaEff
+      separatedCd = 0.18 + 1.05 * sin alphaEff * sin alphaEff
       cd = lerp attachedCd separatedCd forceSeparation
       sideCd = 0.018 + 0.08 * forceSeparation
       area = chord * dr

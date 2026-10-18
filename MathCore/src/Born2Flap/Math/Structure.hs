@@ -124,10 +124,15 @@ kestrelSpars :: SparInventory
 kestrelSpars = SparInventory
   { siYoungsModulus = 135e9
   , siShearModulus  = 5e9
-  , siBendScale     = 130.0
-  , siTwistScale    = 1.0
-  , siMembraneGJ    = 2.2e-1
-  , siBraceScale    = 4.0
+    -- Calibrated for the 50 g reference kestrel: 2× stiffer than the prior 25 g
+    -- calibration (siBendScale 130 → 260), so the full 0.49 N design load flexes
+    -- the wing to the SAME ideal airfoil the 25 g bird reached at 130 — keeping
+    -- the aeroelastic response in its resonant range at 50 g. (kestrelLightSpars
+    -- thins the rods by 0.5^(1/4) so the 25 g variant reaches that same flex.)
+    , siBendScale     = 260.0
+    , siTwistScale    = 4.0
+    , siMembraneGJ    = 1.0e-2
+    , siBraceScale    = 0.4
   , siSpars         = kestrelSparList
   }
 

@@ -127,9 +127,9 @@ rollAuthorityGain :: Double
 rollAuthorityGain = 2.0
 
 ampMaxDeg, freqMinHz, servoSpeedMsDefault :: Double
-ampMaxDeg = 20
+ampMaxDeg = 24
 freqMinHz = 0.5
-servoSpeedMsDefault = 70
+servoSpeedMsDefault = 62
 
 ferocityMin, ferocityMax, differentialMax :: Double
 ferocityMin = 0
