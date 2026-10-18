@@ -74,6 +74,9 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     void OpenFlightSettings();
     void CloseFlightSettings();
     bool IsFlightSettingsOpen() const { return SettingsPanel.IsValid() || bBrainSettingsOpen; }
+    // Touch hook: the HUD "THROW" overlay button hand-launches a grounded bird.
+    // Safe to call while airborne — LaunchFlight() no-ops unless perched/grounded.
+    void RequestHandLaunch();
     bool IsFlying() const { return bFlying; }
     bool IsHealthy() const { return bHealthy; }
     bool IsBlindFlight() const { return bBlind; }

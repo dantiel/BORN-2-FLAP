@@ -30,6 +30,8 @@ public:
     virtual void Tick(float DeltaSeconds) override;
 
 private:
+    UFUNCTION()
+    void HandleComponentAction(const FString& Action, float Value, const FString& Text);
     void BuildCockpit();
     void Refresh();
 
