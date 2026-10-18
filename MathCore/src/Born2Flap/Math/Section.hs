@@ -52,8 +52,8 @@ defaultBirdArmSection :: SectionProfile
 defaultBirdArmSection = SectionProfile
   { spRestCamber = 0.020
   , spReflex = 0.15
-  , spMembraneK = 0.012
-  , spMembraneTau = 0.05
+  , spMembraneK = 0.07
+  , spMembraneTau = 0.025
   }
 
 -- | Bird handwing: a little less camber, more reflex (washed-out tip feathers
@@ -63,8 +63,8 @@ defaultBirdHandSection :: SectionProfile
 defaultBirdHandSection = SectionProfile
   { spRestCamber = 0.020
   , spReflex = 0.40
-  , spMembraneK = 0.035
-  , spMembraneTau = 0.04
+  , spMembraneK = 0.16
+  , spMembraneTau = 0.018
   }
 
 -- | Zero-lift angle shift from camber [rad]. Thin-airfoil theory: a cambered

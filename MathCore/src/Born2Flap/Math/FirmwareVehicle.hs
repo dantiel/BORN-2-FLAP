@@ -249,7 +249,7 @@ advanceFirmwareVehicle hostInertia coupled rc params servo battery model dt body
           -- 0.42 m × 0.03 m × 0.03 m streamlined fuselage: frontal area ~9e-4 m²
           -- at Cd ≈ 0.44 gives CdA ≈ 4e-4 m². The old 0.011 m² (~27× too high)
           -- made the body alone eat a third of the bird's weight at 7 m/s.
-          bodyDrag = scaleVec (-0.5 * airDensity * 0.0030 * speed) bodyVel
+          bodyDrag = scaleVec (-0.5 * airDensity * 0.0004 * speed) bodyVel
           -- Fuselage aft-body = lifting body + vertical stabiliser: the part
           -- of the body BEHIND the CG is a rigid, low-aspect-ratio lifting
           -- surface (see 'bodyLiftPolar'). Two fixed panels share the aft
@@ -288,7 +288,7 @@ advanceFirmwareVehicle hostInertia coupled rc params servo battery model dt body
           -- A direct flap-power/ruddervator mix balances the wing drive's changing
           -- pitching moment. Glide returns to its shallow incidence; no attitude,
           -- altitude or speed target is involved.
-          tailTrim = -4.0 - 2.0 * mixThrottlePct mix * mixThrottlePct mix
+          tailTrim = -4.6 - 2.2 * mixThrottlePct mix * mixThrottlePct mix
           tailPanel side =
             let -- Tail geometry is the reference kestrel's fixed arm and panel
                 -- area (0.85 m arm, 0.0242 m² panel); it is part of the bird,
@@ -396,7 +396,7 @@ panelSurface polar area incidence chordVelocity normalVelocity =
 -- is the speed governor + weathervane the bird needs — the wing sheds its own
 -- pressure drag aeroelastically, the tail does not.
 tailPolar :: PanelPolar
-tailPolar = PanelPolar 1.1 0.04 0.14 3.0
+tailPolar = PanelPolar 1.1 0.045 0.14 3.5
 
 tailSurface :: Double -> Double -> Double -> Double -> (Double, Double)
 tailSurface = panelSurface tailPolar
@@ -406,7 +406,7 @@ tailSurface = panelSurface tailPolar
 -- soft) but it still weathervanes through the crossflow pressure term. Lift
 -- slope ≈0.45 is about half the flat plate, matching slender-body theory.
 bodyLiftPolar :: PanelPolar
-bodyLiftPolar = PanelPolar 0.45 0.03 0.10 2.0
+bodyLiftPolar = PanelPolar 0.45 0.034 0.10 2.5
 
 -- | Centre of pressure of the fuselage aft-body + tail boom, BEHIND the CG.
 -- Everything aft acts like a wing fence / vertical stabiliser; this lever arm
