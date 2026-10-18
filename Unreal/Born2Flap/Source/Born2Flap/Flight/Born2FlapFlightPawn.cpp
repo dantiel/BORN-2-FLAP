@@ -638,6 +638,10 @@ void ABorn2FlapFlightPawn::SweepWingColliders(float Dt)
         }
         bWingTouching = bTouched;
 }
+void ABorn2FlapFlightPawn::RequestHandLaunch()
+{
+    LaunchFlight();
+}
 void ABorn2FlapFlightPawn::LaunchFlight()
 {
     if (!bHealthy || (!bCameraGrounded && GetAltitude() > .4f) || GetSpeed() > 1.f)

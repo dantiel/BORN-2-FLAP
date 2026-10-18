@@ -41,6 +41,9 @@ void ABorn2FlapSoundscape::BeginPlay()
     Bed->Play();Rain->Play();
     if(Level==TEXT("Shiomori")) Surf->Play();
     bStarted=true;
+    UE_LOG(LogTemp, Display, TEXT("Soundscape level=%s bed=%d rain=%d surf=%d day=%d night=%d"),
+        *Level, Bed->Sound!=nullptr, Rain->Sound!=nullptr, Surf->Sound!=nullptr,
+        DayCall!=nullptr, NightCall!=nullptr);
 }
 void ABorn2FlapSoundscape::Tick(float Dt)
 {
@@ -56,7 +59,7 @@ void ABorn2FlapSoundscape::Tick(float Dt)
     const bool Covered=GetWorld()->LineTraceSingleByChannel(Hit,P,P+FVector(0,0,20000),ECC_Visibility,Query);
     Shelter=FMath::FInterpTo(Shelter,Covered ? 1.f : 0.f,Dt,3.f);
     const float Wind=GM->WindAt(P,GetWorld()->GetTimeSeconds()).Size2D();
-    Bed->SetVolumeMultiplier((.12f+Wind*.025f)*(1-Shelter*.7f)*(W.Snow ? .7f : 1.f));
+    Bed->SetVolumeMultiplier((.35f+Wind*.035f)*(1-Shelter*.7f)*(W.Snow ? .7f : 1.f));
     Rain->SetVolumeMultiplier(W.Rain ? .42f*(1-Shelter*.82f) : 0.f);
     Rain->SetLowPassFilterEnabled(Covered);Rain->SetLowPassFilterFrequency(1800);
     if(Level==TEXT("Shiomori"))

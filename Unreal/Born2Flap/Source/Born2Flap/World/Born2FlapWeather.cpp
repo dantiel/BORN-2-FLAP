@@ -20,6 +20,7 @@
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
 #include "HAL/IConsoleManager.h"
+#include "UObject/ConstructorHelpers.h"
 #include "UnrealClient.h"
 #include "Water/Born2FlapSurf.h"
 #include "Audio/Born2FlapSoundscape.h"
@@ -48,6 +49,11 @@ ABorn2FlapWeather::ABorn2FlapWeather()
     PostProcess->SetupAttachment(RootComponent);
     PostProcess->bUnbound=true;
     PostProcess->Priority=100.f;
+    // Cook references for the mobile sky-sphere dome (see EnsureMobileSky).
+    static ConstructorHelpers::FObjectFinder<UStaticMesh> SkyMesh(TEXT("/Engine/EngineSky/SM_SkySphere.SM_SkySphere"));
+    static ConstructorHelpers::FObjectFinder<UMaterialInterface> SkyMat(TEXT("/Engine/EngineSky/M_SimpleSkyDome.M_SimpleSkyDome"));
+    if (SkyMesh.Succeeded()) MobileSkyMesh = SkyMesh.Object;
+    if (SkyMat.Succeeded()) MobileSkyMaterial = SkyMat.Object;
 }
 void ABorn2FlapWeather::Configure(const FString& InLevel,const FBorn2FlapConditions& InConditions)
 {
@@ -156,8 +162,58 @@ void ABorn2FlapWeather::Apply()
         }
     }
     bApplied=true;
+    EnsureMobileSky();
     UE_LOG(LogTemp,Display,TEXT("WeatherApplied level=%s weather=%s time=%s wind=%.2fm/s gust=%.2f particles=%d EV=%.2f"),
         *Level,*Conditions.Weather,*Conditions.Time,W.WindSpeed,W.Gust,Count,EV);
+}
+
+void ABorn2FlapWeather::EnsureMobileSky()
+{
+#if PLATFORM_IOS || PLATFORM_ANDROID
+    // SkyAtmosphereComponent is SM5-only and silently renders nothing on the
+    // mobile forward renderer, leaving the sky black. A classic sky-sphere dome
+    // (unlit gradient) supplies the visible sky on mobile and gives the real-time
+    // SkyLight something to capture. Desktop keeps its authored SkyAtmosphere.
+    if (bMobileSkySpawned)
+        return;
+    bMobileSkySpawned = true;
+
+    UStaticMesh* Mesh = MobileSkyMesh.Get();
+    UMaterialInterface* Mat = MobileSkyMaterial.Get();
+    if (!Mesh)
+        Mesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/EngineSky/SM_SkySphere.SM_SkySphere"));
+    if (!Mat)
+        Mat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/EngineSky/M_SimpleSkyDome.M_SimpleSkyDome"));
+    if (!Mat)
+        Mat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/EngineSky/M_Sky_Panning_Clouds2.M_Sky_Panning_Clouds2"));
+    if (!Mesh)
+        Mesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Sphere.Sphere"));
+    if (!Mesh || !Mat)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("MobileSky: missing sky mesh or material"));
+        return;
+    }
+
+    FActorSpawnParameters Params;
+    Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+    AActor* Dome = GetWorld()->SpawnActor<AActor>(FVector::ZeroVector, FRotator::ZeroRotator, Params);
+    UStaticMeshComponent* Sky = NewObject<UStaticMeshComponent>(Dome);
+    Sky->SetStaticMesh(Mesh);
+    Sky->SetMaterial(0, Mat);
+    Sky->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    Sky->SetCastShadow(false);
+    Sky->SetMobility(EComponentMobility::Movable);
+    Dome->SetRootComponent(Sky);
+    Sky->RegisterComponent();
+
+    // Follow the camera so the horizon always reads (infinite-horizon illusion).
+    if (APlayerCameraManager* CamMgr = UGameplayStatics::GetPlayerCameraManager(this, 0))
+    {
+        if (AActor* ViewTarget = CamMgr->GetViewTarget())
+            Dome->AttachToActor(ViewTarget, FAttachmentTransformRules::SnapToTargetNotIncludingScale);
+    }
+    UE_LOG(LogTemp, Display, TEXT("MobileSky: spawned sky-sphere dome (SkyAtmosphere is SM5-only)"));
+#endif
 }
 void ABorn2FlapWeather::Respawn(int32 Index,const FVector& Camera)
 {

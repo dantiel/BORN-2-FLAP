@@ -41,6 +41,8 @@ class UVolumetricCloudComponent;
 class UPostProcessComponent;
 class UMaterialInstanceDynamic;
 class UMaterialParameterCollection;
+class UStaticMesh;
+class UMaterialInterface;
 
 UCLASS()
 class BORN2FLAP_API ABorn2FlapWeather : public AActor
@@ -53,6 +55,7 @@ public:
     bool IsApplied() const { return bApplied; }
 private:
     void Apply();
+    void EnsureMobileSky();
     void Respawn(int32 Index, const FVector& Camera);
     float SurfaceHeight(const FVector& Position) const;
     void UpdateSurfaces(float DeltaSeconds);
@@ -60,7 +63,7 @@ private:
     void CheckExperienceTest();
     FString Level;
     FBorn2FlapConditions Conditions;
-    bool bApplied=false, bCaptured=false, bTestDone=false;
+    bool bApplied=false, bCaptured=false, bTestDone=false, bMobileSkySpawned=false;
     float Elapsed=0;
     FRandomStream Random{4202026};
     TArray<FVector> Positions;
@@ -78,4 +81,7 @@ private:
     UPROPERTY() TObjectPtr<UPostProcessComponent> PostProcess;
     UPROPERTY() TObjectPtr<UMaterialInstanceDynamic> HaloMaterial;
     UPROPERTY() TObjectPtr<UMaterialInstanceDynamic> CloudMaterial;
+    // Mobile sky-sphere dome (cooked via CDO reference — SkyAtmosphere is SM5-only).
+    UPROPERTY() TObjectPtr<UStaticMesh> MobileSkyMesh;
+    UPROPERTY() TObjectPtr<UMaterialInterface> MobileSkyMaterial;
 };

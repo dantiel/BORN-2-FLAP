@@ -9,6 +9,7 @@
 #include "UI/Born2FlapUIRenderer.h"
 #include "UI/Born2FlapI18n.h"
 #include "Flight/Born2FlapFlightPawn.h"
+#include "Game/Born2FlapGameMode.h"
 #include "GameFramework/PlayerController.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Engine/World.h"
@@ -87,6 +88,7 @@ void ABorn2FlapFlightHUD::BeginPlay()
 {
     Super::BeginPlay();
     Renderer = NewObject<UBorn2FlapUIRenderer>(this);
+    Renderer->OnComponentAction.AddDynamic(this, &ABorn2FlapFlightHUD::HandleComponentAction);
     BuildCockpit();
 }
 
@@ -134,6 +136,11 @@ void ABorn2FlapFlightHUD::BuildCockpit()
             Nd("Banner", P({ {"text", L("hud.ready")}, {"tone", S("normal")} })),
             Nd("Banner", P({ {"text", S("")}, {"tone", S("info")}, {"size", S("s")} })),
             Nd("Banner", P({ {"text", S("F7  HIDE HUD    /    F10  MENU")}, {"tone", S("normal")}, {"size", S("s")} })),
+            Nd("HorizontalBox", P({ {"spacing", N(8)} }),
+            {
+                Nd("Button", P({ {"label", S("THROW")}, {"action", S("flight.throw")} })),
+                Nd("Button", P({ {"label", S("MENU")},  {"action", S("ui.menu")} })),
+            }),
         })}),
     });
 
@@ -145,6 +152,27 @@ void ABorn2FlapFlightHUD::BuildCockpit()
     TArray<FOp> Ops;
     Ops.Add(MoveTemp(Mount));
     Renderer->ApplyOps(MoveTemp(Ops));
+}
+
+void ABorn2FlapFlightHUD::HandleComponentAction(const FString& Action, float Value, const FString& Text)
+{
+    // Overlay touch buttons (THROW / MENU). These are the mobile affordances the
+    // desktop keyboard shortcuts (space for hand-launch, F10 for menu) map onto.
+    if (Action == TEXT("flight.throw"))
+    {
+        if (!CachedBird)
+        {
+            if (APlayerController* PC = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr)
+                CachedBird = Cast<ABorn2FlapFlightPawn>(PC->GetPawn());
+        }
+        if (CachedBird)
+            CachedBird->RequestHandLaunch();
+    }
+    else if (Action == TEXT("ui.menu"))
+    {
+        if (ABorn2FlapGameMode* GM = GetWorld() ? Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode()) : nullptr)
+            GM->ShowMainMenu(true);
+    }
 }
 
 void ABorn2FlapFlightHUD::Tick(float DeltaSeconds)
