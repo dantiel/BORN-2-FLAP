@@ -1,5 +1,5 @@
 """Pose a licensed skinned adventurer non-destructively; retain the original rig."""
-import json,struct,copy,hashlib,urllib.request
+import json,struct,copy,hashlib,math,urllib.request
 from pathlib import Path
 import numpy as np
 ROOT=Path(__file__).resolve().parents[1]/'Saved/NatureSource/Founder'
@@ -49,22 +49,47 @@ def bake():
             world[i]=t@world[i]
             for ch in doc['nodes'][i].get('children',[]):move(ch)
         move(joint)
-    # Anatomical left hand cradles the transmitter at the waist; anatomical
-    # right arm lifts the bird clear of the shoulder and head.
-    aim(14,15,[-.55,-.82,-.16]);aim(15,16,[.20,-.35,-.91])
-    aim(16,25,[.65,0,-.76])
-    aim(38,39,[.78,.35,-.52]);aim(39,40,[.35,.87,-.34])
-    aim(40,49,[0,.16,-.99])
-    # Supinate the right wrist: keep the fingers' direction but turn the palm
-    # upward under the bird instead of presenting the back of the hand.
-    axis=world[49][:3,3]-world[40][:3,3];axis/=np.linalg.norm(axis)
-    rotation=2*np.outer(axis,axis)-np.eye(3) # half turn about the hand's long axis
-    twist=np.eye(4);twist[:3,:3]=rotation
-    twist[:3,3]=world[40][:3,3]-rotation@world[40][:3,3]
-    def twist_hand(i):
-        world[i]=twist@world[i]
-        for child in doc['nodes'][i].get('children',[]):twist_hand(child)
-    twist_hand(40)
+    # Canonical basis: +x=right, +y=up, -z=FORWARD (belly). The toes point -z in
+    # the rig's rest pose, so "forward" aim vectors must use NEGATIVE z. A
+    # positive-z component bends the limb backward behind the body.
+    # Left arm cradles the transmitter in front of the belly. Push the elbow a
+    # little farther out to the figure's own left (NEGATIVE canonical x, since
+    # +x = right) so the upper arm does not read clamped against the waist, and
+    # let the forearm carry the hand back toward the belly.
+    aim(14,15,[-.26,-.88,-.30]);aim(15,16,[.28,-.70,-.80])
+    aim(16,25,[.10,.05,-.99])
+    # Right arm lifts the bird aloft. Keep the upper arm out to the side with
+    # essentially zero forward/backward component (z ~ 0) so the shoulder does
+    # not read twisted; the forearm goes nearly straight up with a modest
+    # forward reach to keep the wrist under the bird.
+    aim(38,39,[.82,.57,.03]);aim(39,40,[.24,.90,-.36])
+    aim(40,49,[0,.18,-.98])
+    # A proud, relaxed stance. The thigh vectors carry a whisper of BACKWARD
+    # (positive z) so the hips settle slightly ahead of the ankles — a neutral,
+    # wind-stable stance. (A forward thigh over-tilts the torso back; a backward
+    # thigh tilts it forward.) Head held nearly upright.
+    aim(61,62,[-.07,-.99,.03]);aim(66,67,[.07,-.99,.03])
+    aim(10,11,[0,.99,-.06])
+    # Supinate both wrists so the palms open upward. The two arms are mirror
+    # images, so the twist signs differ: the left hand turns -90 and the right
+    # hand -90 too (the right wrist's bone axis runs the opposite way, so the
+    # same -90 supinates it; a +90 would pronate the palm downward).
+    def twist_wrist(wrist,finger,degrees):
+        axis=world[finger][:3,3]-world[wrist][:3,3];axis/=np.linalg.norm(axis)
+        th=math.radians(degrees)
+        K=np.array([[0,-axis[2],axis[1]],[axis[2],0,-axis[0]],[-axis[1],axis[0],0]])
+        rotation=math.cos(th)*np.eye(3)+math.sin(th)*K+(1-math.cos(th))*np.outer(axis,axis)
+        t=np.eye(4);t[:3,:3]=rotation
+        t[:3,3]=world[wrist][:3,3]-rotation@world[wrist][:3,3]
+        def move(i):
+            world[i]=t@world[i]
+            for child in doc['nodes'][i].get('children',[]):move(child)
+        move(wrist)
+    twist_wrist(16,25,-90)  # left hand palm-up (clockwise from the shoulder)
+    # Right hand: only 42 degrees of supination (the wrist's bone axis runs the
+    # opposite way, so this opens the palm upward without over-rotating the
+    # hand; -90 reads as twisted).
+    twist_wrist(40,49,-42)
     def append(a,kind):
         while len(data)%4:data.append(0)
         chunk=a.astype('<f4').tobytes();off=len(data);data.extend(chunk)

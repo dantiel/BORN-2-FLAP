@@ -50,8 +50,10 @@ FBorn2FlapRcController::FBorn2FlapRcController()
     if (!FM.FileExists(*ConfigPath) && FM.FileExists(*LegacyPath))
         FM.Copy(*ConfigPath, *LegacyPath);
 
-    GConfig->GetString(TEXT("Selection"), TEXT("Device"), DeviceId, ConfigPath);
-    GConfig->GetBool(TEXT("Selection"), TEXT("Enabled"), bEnabled, ConfigPath);
+    FConfigFile Config;
+    Config.Read(ConfigPath);
+    Config.GetString(TEXT("Selection"), TEXT("Device"), DeviceId);
+    Config.GetBool(TEXT("Selection"), TEXT("Enabled"), bEnabled);
     LoadCalibration();
 }
 FBorn2FlapRcController::~FBorn2FlapRcController() = default;
@@ -59,18 +61,20 @@ void FBorn2FlapRcController::LoadCalibration()
 {
     Calibration = {};
     LaunchButton = ResetButton = -1;
+    FConfigFile Config;
+    Config.Read(ConfigPath);
     for (int32 I = 0; I < 5; ++I)
     {
         auto &C = Calibration.channels[I];
         const FString Prefix = FString::Printf(TEXT("Channel%d"), I);
-        GConfig->GetInt(*DeviceId, *(Prefix + TEXT("Axis")), C.axis, ConfigPath);
-        GConfig->GetDouble(*DeviceId, *(Prefix + TEXT("Low")), C.low, ConfigPath);
-        GConfig->GetDouble(*DeviceId, *(Prefix + TEXT("Centre")), C.centre, ConfigPath);
-        GConfig->GetDouble(*DeviceId, *(Prefix + TEXT("High")), C.high, ConfigPath);
-        GConfig->GetBool(*DeviceId, *(Prefix + TEXT("Invert")), C.inverted, ConfigPath);
+        Config.GetInt(*DeviceId, *(Prefix + TEXT("Axis")), C.axis);
+        Config.GetDouble(*DeviceId, *(Prefix + TEXT("Low")), C.low);
+        Config.GetDouble(*DeviceId, *(Prefix + TEXT("Centre")), C.centre);
+        Config.GetDouble(*DeviceId, *(Prefix + TEXT("High")), C.high);
+        Config.GetBool(*DeviceId, *(Prefix + TEXT("Invert")), C.inverted);
     }
-    GConfig->GetInt(*DeviceId, TEXT("LaunchButton"), LaunchButton, ConfigPath);
-    GConfig->GetInt(*DeviceId, TEXT("ResetButton"), ResetButton, ConfigPath);
+    Config.GetInt(*DeviceId, TEXT("LaunchButton"), LaunchButton);
+    Config.GetInt(*DeviceId, TEXT("ResetButton"), ResetButton);
     if (LaunchButton < -1 || LaunchButton >= 128)
         LaunchButton = -1;
     if (ResetButton < -1 || ResetButton >= 128)
@@ -81,21 +85,25 @@ void FBorn2FlapRcController::SaveCalibration()
 {
     if (!Calibration.Valid())
         return;
-    GConfig->SetString(TEXT("Selection"), TEXT("Device"), *DeviceId, ConfigPath);
-    GConfig->SetBool(TEXT("Selection"), TEXT("Enabled"), bEnabled, ConfigPath);
+    FConfigFile Config;
+    Config.Read(ConfigPath);
+    Config.bCanSaveAllSections = true;
+    Config.SetString(TEXT("Selection"), TEXT("Device"), *DeviceId);
+    Config.SetBool(TEXT("Selection"), TEXT("Enabled"), bEnabled);
     for (int32 I = 0; I < 5; ++I)
     {
         const auto &C = Calibration.channels[I];
         const FString Prefix = FString::Printf(TEXT("Channel%d"), I);
-        GConfig->SetInt(*DeviceId, *(Prefix + TEXT("Axis")), C.axis, ConfigPath);
-        GConfig->SetDouble(*DeviceId, *(Prefix + TEXT("Low")), C.low, ConfigPath);
-        GConfig->SetDouble(*DeviceId, *(Prefix + TEXT("Centre")), C.centre, ConfigPath);
-        GConfig->SetDouble(*DeviceId, *(Prefix + TEXT("High")), C.high, ConfigPath);
-        GConfig->SetBool(*DeviceId, *(Prefix + TEXT("Invert")), C.inverted, ConfigPath);
+                Config.SetInt64(*DeviceId, *(Prefix + TEXT("Axis")), C.axis);
+        Config.SetDouble(*DeviceId, *(Prefix + TEXT("Low")), C.low);
+        Config.SetDouble(*DeviceId, *(Prefix + TEXT("Centre")), C.centre);
+        Config.SetDouble(*DeviceId, *(Prefix + TEXT("High")), C.high);
+        Config.SetBool(*DeviceId, *(Prefix + TEXT("Invert")), C.inverted);
     }
-    GConfig->SetInt(*DeviceId, TEXT("LaunchButton"), LaunchButton, ConfigPath);
-    GConfig->SetInt(*DeviceId, TEXT("ResetButton"), ResetButton, ConfigPath);
-    GConfig->Flush(false, ConfigPath);
+        Config.SetInt64(*DeviceId, TEXT("LaunchButton"), LaunchButton);
+        Config.SetInt64(*DeviceId, TEXT("ResetButton"), ResetButton);
+    IFileManager::Get().MakeDirectory(*FPaths::GetPath(ConfigPath), true);
+    Config.Write(ConfigPath);
     UE_LOG(LogTemp, Display, TEXT("RcCalibration saved device=%s enabled=%d"), *DeviceName, bEnabled);
 }
 void FBorn2FlapRcController::SelectDevice(int32 Index)
@@ -120,8 +128,12 @@ void FBorn2FlapRcController::SelectDevice(int32 Index)
     // HID id changes across ports/boots) re-selects this transmitter even before
     // a (re)calibration has been stored. This is what made the RC require a
     // fresh calibration every launch.
-    GConfig->SetString(TEXT("Selection"), TEXT("Device"), *DeviceId, ConfigPath);
-    GConfig->Flush(false, ConfigPath);
+    FConfigFile Config;
+    Config.Read(ConfigPath);
+    Config.bCanSaveAllSections = true;
+    Config.SetString(TEXT("Selection"), TEXT("Device"), *DeviceId);
+    IFileManager::Get().MakeDirectory(*FPaths::GetPath(ConfigPath), true);
+    Config.Write(ConfigPath);
     UE_LOG(LogTemp, Display, TEXT("RcDevice selected=%s connected=%d id=%s"), *DeviceName, bConnected, *DeviceId);
 #endif
 }
@@ -141,7 +153,7 @@ void FBorn2FlapRcController::AdvanceCalibration()
         for (int32 I = 0; I < 8; ++I)
             Count += Available[I] && High[I] - Low[I] >= .2;
         if (Count < 5)
-            Notice = TEXT("Mindestens fuenf Achsen voll bewegen; dann ENTER.");
+            Notice = TEXT("Mindestens fuenf Achsen voll bewegen; dann WEITER.");
         else
             Stage = 2;
     }
@@ -175,7 +187,7 @@ void FBorn2FlapRcController::AdvanceCalibration()
         C = {Best, Low[Best], Rest[Best], High[Best], RawAxes[Best] < Rest[Best], .025};
         if (!C.Valid(Stage == 2))
         {
-            Notice = TEXT("Neutralpunkt ungueltig. X, dann C fuer eine neue Kalibrierung.");
+            Notice = TEXT("Neutralpunkt ungueltig. ABBRECHEN, dann QUICK SETUP neu starten.");
             return;
         }
         ++Stage;
@@ -184,7 +196,7 @@ void FBorn2FlapRcController::AdvanceCalibration()
             Stage = -1;
             bEnabled = true;
             SaveCalibration();
-            Notice = TEXT("Gespeichert. Gas auf Minimum, dann F3 schliessen und SPACE starten.");
+            Notice = TEXT("Gespeichert. Gas auf Minimum, dann Menue schliessen und starten.");
         }
     }
 }
@@ -361,13 +373,13 @@ void FBorn2FlapRcController::Tick(APlayerController *Player, float Dt)
 FString FBorn2FlapRcController::GetStatus() const
 {
     if (!bEnabled)
-        return TEXT("TASTATUR  |  F3: RC-Sender");
+        return TEXT("TASTATUR  |  RC deaktiviert");
     if (!bConnected)
         return TEXT("RC VERBINDUNG FEHLT  |  Gas aus");
     if (!Calibration.Valid())
-        return TEXT("RC KALIBRIEREN  |  F3, dann C");
+        return TEXT("RC KALIBRIEREN  |  QUICK SETUP");
     if (!Gate.armed)
-        return TEXT("RC BEREIT  |  Gas auf Minimum, F3 schliessen");
+        return TEXT("RC BEREIT  |  Gas auf Minimum");
     return TEXT("RC AKTIV  |  ") + DeviceName;
 }
 FString FBorn2FlapRcController::GetInstruction() const
@@ -376,17 +388,17 @@ FString FBorn2FlapRcController::GetInstruction() const
         return LearnButton == 1 ? TEXT("Jetzt den Sender-Taster fuer HANDSTART druecken.")
                                 : TEXT("Jetzt den Sender-Taster fuer RESET druecken.");
     if (Stage == 0)
-        return TEXT("1/7  Gas ganz unten, alle anderen Knueppel neutral. ENTER.");
+        return TEXT("1/7  Gas ganz unten, alle anderen Knueppel neutral. WEITER.");
     if (Stage == 1)
-        return TEXT("2/7  Alle Knoepfe bis an beide Anschlaege bewegen. Danach ENTER.");
+        return TEXT("2/7  Alle Knoepfe bis an beide Anschlaege bewegen. Danach WEITER.");
     if (Stage >= 2)
     {
         const TCHAR *Actions[] = {TEXT("Gas auf VOLL"), TEXT("Roll nach RECHTS"),
                                   TEXT("Hoehenruder ZIEHEN (Nase hoch)"), TEXT("Seitenruder nach RECHTS"),
                                   TEXT("Schlag-Geschwindigkeit auf VOLL")};
-        return FString::Printf(TEXT("%d/7  Nur %s halten. ENTER."), Stage + 1, Actions[Stage - 2]);
+        return FString::Printf(TEXT("%d/7  Nur %s halten. WEITER."), Stage + 1, Actions[Stage - 2]);
     }
-    return TEXT("USB-Sender im Joystick-Modus verbinden; TAB waehlt das Geraet, C kalibriert.");
+    return TEXT("USB-Sender im Joystick-Modus verbinden; NEXT DEVICE waehlt das Geraet, QUICK SETUP kalibriert.");
 }
 FString FBorn2FlapRcController::GetMapping(int32 Channel) const
 {
@@ -397,7 +409,7 @@ FString FBorn2FlapRcController::GetMapping(int32 Channel) const
 }
 FString FBorn2FlapRcController::GetButtons() const
 {
-    return FString::Printf(TEXT("Sender-Taster: START %s   RESET %s  |  L / K: Taster lernen"),
+    return FString::Printf(TEXT("Sender-Taster: START %s   RESET %s  |  LEARN START / LEARN RESET"),
                            LaunchButton >= 0 ? *FString::FromInt(LaunchButton + 1) : TEXT("--"),
                            ResetButton >= 0 ? *FString::FromInt(ResetButton + 1) : TEXT("--"));
 }
@@ -411,12 +423,16 @@ void FBorn2FlapRcController::WriteChannel(int32 Channel)
         return;
     const auto &C = Calibration.channels[Channel];
     const FString Prefix = FString::Printf(TEXT("Channel%d"), Channel);
-    GConfig->SetInt(*DeviceId, *(Prefix + TEXT("Axis")), C.axis, ConfigPath);
-    GConfig->SetDouble(*DeviceId, *(Prefix + TEXT("Low")), C.low, ConfigPath);
-    GConfig->SetDouble(*DeviceId, *(Prefix + TEXT("Centre")), C.centre, ConfigPath);
-    GConfig->SetDouble(*DeviceId, *(Prefix + TEXT("High")), C.high, ConfigPath);
-    GConfig->SetBool(*DeviceId, *(Prefix + TEXT("Invert")), C.inverted, ConfigPath);
-    GConfig->Flush(false, ConfigPath);
+    FConfigFile Config;
+    Config.Read(ConfigPath);
+    Config.bCanSaveAllSections = true;
+        Config.SetInt64(*DeviceId, *(Prefix + TEXT("Axis")), C.axis);
+    Config.SetDouble(*DeviceId, *(Prefix + TEXT("Low")), C.low);
+    Config.SetDouble(*DeviceId, *(Prefix + TEXT("Centre")), C.centre);
+    Config.SetDouble(*DeviceId, *(Prefix + TEXT("High")), C.high);
+    Config.SetBool(*DeviceId, *(Prefix + TEXT("Invert")), C.inverted);
+    IFileManager::Get().MakeDirectory(*FPaths::GetPath(ConfigPath), true);
+    Config.Write(ConfigPath);
 }
 void FBorn2FlapRcController::AssignChannelAxis(int32 Channel, int32 Axis)
 {
@@ -448,9 +464,13 @@ void FBorn2FlapRcController::AssignChannelAxis(int32 Channel, int32 Axis)
     if (Calibration.Valid())
     {
         bEnabled = true;
-        GConfig->SetString(TEXT("Selection"), TEXT("Device"), *DeviceId, ConfigPath);
-        GConfig->SetBool(TEXT("Selection"), TEXT("Enabled"), bEnabled, ConfigPath);
-        GConfig->Flush(false, ConfigPath);
+        FConfigFile Config;
+        Config.Read(ConfigPath);
+        Config.bCanSaveAllSections = true;
+        Config.SetString(TEXT("Selection"), TEXT("Device"), *DeviceId);
+        Config.SetBool(TEXT("Selection"), TEXT("Enabled"), bEnabled);
+        IFileManager::Get().MakeDirectory(*FPaths::GetPath(ConfigPath), true);
+        Config.Write(ConfigPath);
         Notice = TEXT("Sender bereit.");
     }
     else

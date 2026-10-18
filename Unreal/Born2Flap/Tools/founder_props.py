@@ -6,7 +6,9 @@ import unreal as u
 def pose():return json.loads(Path(__file__).with_name('founder_pose.json').read_text())
 
 def install(scope,origin,materials):
-    data=pose();hx,hy,hz=data['left_hand'];cx,cy,cz=hx-19,hy+6,hz-1
+    # The remote rests on the palm-up left hand: centre it just forward of the
+    # wrist (socket +Y = forward) so it sits clearly in front of the belly.
+    data=pose();hx,hy,hz=data['left_hand'];cx,cy,cz=hx-24,hy+6,hz+6
     batches={}
     def face(mat,ps):
         vs,ts=batches.setdefault(mat,([],[]));k=len(vs);vs.extend(ps)
@@ -35,23 +37,27 @@ def install(scope,origin,materials):
             rod('Bronze',(cx+dx+6*math.cos(a),cy+1+6*math.sin(a),cz+7),(cx+dx+6*math.cos(b),cy+1+6*math.sin(b),cz+7),1.1)
         rod('Bronze',(cx+dx,cy+1,cz+7),(cx+dx,cy+1,cz+12),1.5)
         box('Bronze',(cx+dx,cy+1,cz+12),(3,3,1.5),.8)
-        rod('Bronze',(cx+dx,cy-10,cz+7),(cx+dx,cy-11,cz+13),1)
-    box('Bronze',(cx,cy+8,cz+7),(12,6,1),1)
-    box('Dark',(cx,cy+8,cz+7.7),(10,4,.4),.5)
-    rod('Bronze',(cx,cy-14,cz+1),(cx,cy-20,cz+19),2.4)
-    # A broad, thin neck strap passes around the nape, over both shoulders,
-    # and converges at the transmitter's central attachment clip.
-    nx,ny,nz=data['neck'];clip=(cx,cy-7,cz+8)
+        rod('Bronze',(cx+dx,cy+10,cz+7),(cx+dx,cy+11,cz+13),1)
+    box('Bronze',(cx,cy-8,cz+7),(12,6,1),1)
+    box('Dark',(cx,cy-8,cz+7.7),(10,4,.4),.5)
+    rod('Bronze',(cx,cy+14,cz+1),(cx,cy+20,cz+19),2.4)
+    # A neck lanyard: a bronze collar loops around the neck and two thin
+    # straps fall down the chest to the transmitter's top clip.
+    nx,ny,nz=data['neck'];clip=(cx,cy,cz+8)
+    for i in range(24):
+        a=i*math.tau/24;b=(i+1)*math.tau/24
+        rod('Bronze',(nx+8*math.cos(a),ny+8*math.sin(a),nz-2),
+                     (nx+8*math.cos(b),ny+8*math.sin(b),nz-2),1.4,.5)
     for s in (-1,1):
-        points=[(nx+s*8,ny-7,nz+1),(nx+s*14,ny+2,nz+3),(nx+s*15,ny+17,nz-11),
-                (nx+s*12,cy-5,nz-26),clip]
-        for a,b in zip(points,points[1:]):rod('Bronze',a,b,3.4,.65)
-    rod('Bronze',(nx-8,ny-7,nz+1),(nx+8,ny-7,nz+1),3.4,.65)
+        points=[(nx+s*6,ny+8,nz-2),(nx+s*4,ny+10,nz-20),(nx+s*2,cy,nz-45),clip]
+        for a,b in zip(points,points[1:]):rod('Bronze',a,b,2.2,.55)
     box('Bronze',clip,(6,3,3),.7)
     for mat,(vs,ts) in batches.items():
         mesh=scope['build_mesh']('FounderRC_'+mat,vs,ts);mesh.set_material(0,materials[mat]);u.EditorAssetLibrary.save_loaded_asset(mesh)
         a=scope['place_mesh']('Campus founder RC '+mat,origin,mesh,materials[mat],collision=False)
         a.tags=['ShiomoriCampusV2','CampusFounderRC']
     # Merge pivot is the kestrel's nose: its shoulder is 25.5 cm behind it.
+    # The extra +24 cm (socket +Y = forward) carries the whole bird out in
+    # front of the founder so it perches on the raised hand as the co-subject.
     rx,ry,rz=data['right_hand']
-    return (origin[0]+rx,origin[1]+ry+25.5*.7,origin[2]+rz+8)
+    return (origin[0]+rx,origin[1]+ry+25.5*.7+24,origin[2]+rz+8)

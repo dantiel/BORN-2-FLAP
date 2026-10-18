@@ -28,7 +28,8 @@ FString PreferencesPath()
 void ABorn2FlapFlightPawn::LoadFlightPreferences()
 {
     // Automated channel tests use known gains, independently of personal settings.
-    if (bFlightTest || bDesktopInputTest) { MouseGains=FVector(1); return; }
+    if ((bFlightTest && !FParse::Param(FCommandLine::Get(), TEXT("B2FUseSavedFlightSettings"))) || bDesktopInputTest)
+    { MouseGains=FVector(1); return; }
     const FString Path=PreferencesPath();
     FConfigFile Config; Config.Read(Path); Config.bCanSaveAllSections=true;
     Config.GetFloat(TEXT("Controls"),TEXT("Expo"),ControlExpo);
@@ -73,6 +74,7 @@ void ABorn2FlapFlightPawn::LoadFlightPreferences()
 }
 void ABorn2FlapFlightPawn::SaveFlightPreferences()
 {
+    if (bFlightTest) return; // Saved-settings diagnostics are read-only.
     const FString Path=PreferencesPath();
     FConfigFile Config; Config.Read(Path); Config.bCanSaveAllSections=true;
     IFileManager::Get().MakeDirectory(*FPaths::GetPath(Path),true);

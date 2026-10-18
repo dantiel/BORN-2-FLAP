@@ -1429,6 +1429,20 @@ void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, c
                 }
             }
             Born2FlapShowLoadingScreen();
+            // Remove the Brain-authored menu host from the viewport immediately,
+            // before the travel tears the old world down. EndPlay also closes it,
+            // but that fires during teardown — potentially after the loading
+            // screen has already dropped — so close it here to deterministically
+            // stop the menu from flashing over the destination map.
+            if (BrainBridge)
+                BrainBridge->CloseRenderer();
+            // Stamp `loading:true` into the Brain's telemetry file now, before
+            // the engine stops ticking for the movie. The destination map spawns
+            // a fresh Brain that reads whatever is on disk; without this it
+            // would see the menu map's stale `frontend:true, loading:false` and
+            // paint the menu on top of the loading screen.
+            if (BrainBridge)
+                BrainBridge->ForceTelemetry();
             UGameplayStatics::OpenLevel(this, E.Map, true, Options);
             return;
         }

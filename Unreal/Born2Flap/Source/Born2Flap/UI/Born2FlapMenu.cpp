@@ -522,6 +522,18 @@ void ABorn2FlapMenu::Build()
         })
     });
 
+    // Modal RC quick-setup wizard (own overlay + dim scrim, only when open).
+    FString RcInstruction, RcNotice, RcStatus;
+    if (bRcWizardOpen)
+    {
+        if (FBorn2FlapRcController* Rc = ActiveRc())
+        {
+            RcInstruction = Rc->GetInstruction();
+            RcNotice = Rc->GetNotice();
+            RcStatus = Rc->GetStatus();
+        }
+    }
+
     FNode Root = Nd("Overlay", P({}),
     {
         Nd("Image", P({ {"texture", S("/Game/Splash/born2flap-background.born2flap-background")} })),
@@ -529,6 +541,29 @@ void ABorn2FlapMenu::Build()
         {
             std::move(SidebarPane),
             std::move(ContentPane)
+        }),
+        Nd("Overlay", P({ {"visible", B(bRcWizardOpen)} }),
+        {
+            Nd("Border", P({ {"bg", S("scrim")} })),
+            Nd("Overlay", P({ {"align", S("center")}, {"valign", S("center")} }),
+            {
+                Nd("SizeBox", P({ {"width", N(760)}, {"height", N(460)} }),
+                {
+                    Nd("Panel", P({ {"bg", S("solid")}, {"padding", N(28)}, {"spacing", N(14)} }),
+                    {
+                        Nd("Banner", P({ {"text", S("RC QUICK SETUP")}, {"tone", S("accent")} })),
+                        Nd("TextBlock", P({ {"text", S(RcInstruction)}, {"tone", S("accent")}, {"size", S("m")}, {"wrap", B(true)} })),
+                        Nd("TextBlock", P({ {"text", S(RcNotice)}, {"tone", S("accent")}, {"size", S("s")}, {"wrap", B(true)} })),
+                        Nd("TextBlock", P({ {"text", S(RcStatus)}, {"tone", S("dim")}, {"size", S("s")} })),
+                        Nd("Spacer", P({})),
+                        Nd("HorizontalBox", P({ {"spacing", N(10)} }),
+                        {
+                            Nd("Button", P({ {"label", S("WEITER")}, {"action", S("rc.calibrate.advance")}, {"tone", S("good")} })),
+                            Nd("Button", P({ {"label", S("ABBRECHEN")}, {"action", S("rc.calibrate.cancel")}, {"tone", S("danger")} }))
+                        })
+                    })
+                })
+            })
         })
     });
 
@@ -734,7 +769,6 @@ void ABorn2FlapMenu::BuildPreferences(std::vector<FNode>& Out)
         auto RowPath = [&](int32 Row) { TArray<int32> P = VBox; P.Add(Row); return P; };
 
         RcStatusPath.Reset();
-        RcInstructionPath.Reset();
         RcNoticePath.Reset();
         RcAxisPaths.Reset();
 
@@ -756,11 +790,6 @@ void ABorn2FlapMenu::BuildPreferences(std::vector<FNode>& Out)
         }
         {
             const int32 Idx = Next();
-            RcInstructionPath = RowPath(Idx);
-            Rows.push_back(Nd("TextBlock", P({ {"text", S(Rc->GetInstruction())}, {"tone", S("accent")}, {"size", S("s")}, {"wrap", B(true)} })));
-        }
-        {
-            const int32 Idx = Next();
             RcNoticePath = RowPath(Idx);
             Rows.push_back(Nd("TextBlock", P({ {"text", S(Rc->GetNotice())}, {"tone", S("accent")}, {"size", S("s")}, {"wrap", B(true)} })));
         }
@@ -774,15 +803,13 @@ void ABorn2FlapMenu::BuildPreferences(std::vector<FNode>& Out)
         }));
         Next();
 
-        // QUICK SETUP — optional wizard
-        Rows.push_back(Nd("Field", P({ {"label", S("QUICK SETUP  (optional)")} })));
+        // QUICK SETUP — opens the guided wizard as its own modal dialog.
+        Rows.push_back(Nd("Field", P({ {"label", S("QUICK SETUP")} })));
         Next();
-        Rows.push_back(Nd("TextBlock", P({ {"text", S(FString(TEXT("START runs the guided 7-step calibration. You can also map each channel below directly — the wizard is not required.")))}, {"tone", S("dim")}, {"size", S("xs")}, {"wrap", B(true)} })));
+        Rows.push_back(Nd("TextBlock", P({ {"text", S(FString(TEXT("Guided 7-step calibration in its own dialog. You can also map each channel below directly — the wizard is not required.")))}, {"tone", S("dim")}, {"size", S("xs")}, {"wrap", B(true)} })));
         Next();
         Rows.push_back(Nd("HorizontalBox", P({ {"spacing", N(8)} }), {
-            Nd("Button", P({ {"label", S("START")}, {"action", S("rc.calibrate.start")}, {"tone", S("good")} })),
-            Nd("Button", P({ {"label", S("NEXT STEP")}, {"action", S("rc.calibrate.advance")} })),
-            Nd("Button", P({ {"label", S("CANCEL")}, {"action", S("rc.calibrate.cancel")}, {"tone", S("danger")} }))
+            Nd("Button", P({ {"label", S("OPEN QUICK SETUP...")}, {"action", S("rc.calibrate.open")}, {"tone", S("good")} }))
         }));
         Next();
 
@@ -1119,11 +1146,9 @@ void ABorn2FlapMenu::RefreshRcReadouts()
     if (!Rc)
         return;
 
-    // Status / instruction / notice: update the existing TextBlocks in place.
+    // Status / notice: update the existing TextBlocks in place.
     if (RcStatusPath.Num())
         SendUpdate(Renderer, RcStatusPath, P({ {"text", S(Rc->GetStatus())} }));
-    if (RcInstructionPath.Num())
-        SendUpdate(Renderer, RcInstructionPath, P({ {"text", S(Rc->GetInstruction())} }));
     if (RcNoticePath.Num())
         SendUpdate(Renderer, RcNoticePath, P({ {"text", S(Rc->GetNotice())} }));
 
@@ -1244,9 +1269,10 @@ void ABorn2FlapMenu::OnAction(const FString& Action, float Value, const FString&
         if (FBorn2FlapRcController* Rc = ActiveRc())
         {
             if      (Action == TEXT("rc.device.next"))       Rc->NextDevice();
-            else if (Action == TEXT("rc.calibrate.start"))   Rc->StartCalibration();
-            else if (Action == TEXT("rc.calibrate.advance")) Rc->AdvanceCalibration();
-            else if (Action == TEXT("rc.calibrate.cancel"))  Rc->CancelCalibration();
+            else if (Action == TEXT("rc.calibrate.open"))    { bRcWizardOpen = true;  Rc->StartCalibration(); }
+            else if (Action == TEXT("rc.calibrate.start"))   { bRcWizardOpen = true;  Rc->StartCalibration(); }
+            else if (Action == TEXT("rc.calibrate.advance")) { Rc->AdvanceCalibration(); if (Rc->GetStage() < 0) bRcWizardOpen = false; }
+            else if (Action == TEXT("rc.calibrate.cancel"))  { Rc->CancelCalibration(); bRcWizardOpen = false; }
             else if (Action == TEXT("rc.enable.toggle"))     Rc->ToggleEnabled();
             else if (Action == TEXT("rc.learn.launch"))      Rc->LearnLaunch();
             else if (Action == TEXT("rc.learn.reset"))       Rc->LearnReset();

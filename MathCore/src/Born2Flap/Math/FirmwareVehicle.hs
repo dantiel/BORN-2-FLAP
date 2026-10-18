@@ -249,7 +249,7 @@ advanceFirmwareVehicle hostInertia coupled rc params servo battery model dt body
           -- 0.42 m × 0.03 m × 0.03 m streamlined fuselage: frontal area ~9e-4 m²
           -- at Cd ≈ 0.44 gives CdA ≈ 4e-4 m². The old 0.011 m² (~27× too high)
           -- made the body alone eat a third of the bird's weight at 7 m/s.
-          bodyDrag = scaleVec (-0.5 * airDensity * 0.0004 * speed) bodyVel
+          bodyDrag = scaleVec (-0.5 * airDensity * 0.0030 * speed) bodyVel
           -- Fuselage aft-body = lifting body + vertical stabiliser: the part
           -- of the body BEHIND the CG is a rigid, low-aspect-ratio lifting
           -- surface (see 'bodyLiftPolar'). Two fixed panels share the aft
@@ -278,16 +278,17 @@ advanceFirmwareVehicle hostInertia coupled rc params servo battery model dt body
           bodyTopMoment = crossVec fuselageAftArm bodyTopForce
           -- Two real inverted-V panels with mixed ruddervators. Each panel sees
           -- its own local flow and produces force at its own arm; the resulting
-          -- pitch/yaw coupling is geometric, not an added torque. A shallow cant
-          -- (12°) keeps the differential ruddervator a pure YAW surface: roll is
-          -- the wings' job (differential-dihedral lift tilt via the flap-centre
-          -- deviation in the mixer), never the tail's. The tail only damps and
-          -- steers yaw/pitch.
-          cant = radians 12
+          -- pitch/yaw coupling is geometric, not an added torque. The cant sets
+          -- the yaw/pitch split: a steeper V (32°) trades some pitch authority
+          -- for the vertical tail area that damps yaw — the nose's side-to-side
+          -- Dutch-roll sway is killed by the tail's lateral lift + crossflow,
+          -- never by the wings. Roll stays the wings' job (differential-dihedral
+          -- lift tilt via the flap-centre deviation in the mixer).
+          cant = radians 32
           -- A direct flap-power/ruddervator mix balances the wing drive's changing
           -- pitching moment. Glide returns to its shallow incidence; no attitude,
           -- altitude or speed target is involved.
-          tailTrim = -2.0 - 4.0 * mixThrottlePct mix * mixThrottlePct mix
+          tailTrim = -4.0 - 2.0 * mixThrottlePct mix * mixThrottlePct mix
           tailPanel side =
             let -- Tail geometry is the reference kestrel's fixed arm and panel
                 -- area (0.85 m arm, 0.0242 m² panel); it is part of the bird,
@@ -388,9 +389,14 @@ panelSurface polar area incidence chordVelocity normalVelocity =
       w = normalVelocity / max 1.0e-9 speed
   in (q * (-cd * u - cl * w), q * (-cd * w + cl * u))
 
--- | Flat-plate V-tail polar (the reference ruddervator).
+-- | Flat-plate V-tail polar (the reference ruddervator). The ruddervator is a
+-- RIGID plate (it cannot deflect/feather), so it carries the high-pressure-drag
+-- side of the aeroelastic drag trade: its parasitic drag rises from the
+-- crossflow pressure term (∝ sin²α), not from a thin-edge profile figure. That
+-- is the speed governor + weathervane the bird needs — the wing sheds its own
+-- pressure drag aeroelastically, the tail does not.
 tailPolar :: PanelPolar
-tailPolar = PanelPolar 1.1 0.025 0.14 0.8
+tailPolar = PanelPolar 1.1 0.04 0.14 3.0
 
 tailSurface :: Double -> Double -> Double -> Double -> (Double, Double)
 tailSurface = panelSurface tailPolar
@@ -400,14 +406,14 @@ tailSurface = panelSurface tailPolar
 -- soft) but it still weathervanes through the crossflow pressure term. Lift
 -- slope ≈0.45 is about half the flat plate, matching slender-body theory.
 bodyLiftPolar :: PanelPolar
-bodyLiftPolar = PanelPolar 0.45 0.02 0.10 0.90
+bodyLiftPolar = PanelPolar 0.45 0.03 0.10 2.0
 
 -- | Centre of pressure of the fuselage aft-body + tail boom, BEHIND the CG.
 -- Everything aft acts like a wing fence / vertical stabiliser; this lever arm
 -- turns both the lift and the pressure drag above into a weathervaning yaw
 -- moment and a nose-down (restoring) pitch moment.
 fuselageAftArm :: Vec3
-fuselageAftArm = Vec3 (-0.15) 0 0
+fuselageAftArm = Vec3 (-0.28) 0 0
 
 -- | Aft-body side/top projected area [m²] used as the lifting-body reference
 -- (≈0.21 m behind the CG × 0.03 m body height/width; the cross-section is

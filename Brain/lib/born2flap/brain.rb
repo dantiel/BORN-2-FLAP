@@ -46,6 +46,12 @@ module Born2Flap
         @booted = true
         command("boot", ruby: RUBY_VERSION, phase: @router.current.to_s)
       end
+      # While the C++ level-loading screen is up, hold at :boot so nothing renders
+      # over the movie player (belt-and-braces on top of Dashboard's loading guard).
+      if telemetry[:loading]
+        @router.navigate(:boot, remember: false) unless @router.current == :boot
+        return
+      end
       # Native lifecycle is authoritative across travel and direct-level boots.
       # Repeated telemetry must not grow navigation history every frame.
       target = telemetry[:frontend] || (telemetry[:menu] && !telemetry[:menu_inlevel]) ? :main_menu : :free_flight

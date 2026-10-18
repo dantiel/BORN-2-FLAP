@@ -90,10 +90,17 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     void UpdateGateColors();
 
     TArray<FVector> Gates;
+    UPROPERTY(Transient)
     TArray<TObjectPtr<AStaticMeshActor>> GateActors;
+    UPROPERTY(Transient)
     TArray<TObjectPtr<UMaterialInstanceDynamic>> GateMaterials;
+    // Keep inactive artwork alive across garbage collection and flight resets.
+    // TObjectPtr alone is not a GC root without a reflected property.
+    UPROPERTY(Transient)
     TArray<TObjectPtr<UTexture2D>> GateRedTextures;    // active-gate artwork (4 variants)
+    UPROPERTY(Transient)
     TArray<TObjectPtr<UTexture2D>> GateGreenTextures;  // passed-gate artwork (3 variants)
+    UPROPERTY(Transient)
     TArray<TObjectPtr<UTexture2D>> GateQuasiTextures;  // ahead/ghost artwork (4 distance tiers)
     TArray<int32> GateRedVariant;     // per-gate random red pick
     TArray<int32> GateGreenVariant;   // per-gate random green pick
@@ -138,6 +145,7 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     UPROPERTY(Transient)
     TObjectPtr<ABorn2FlapSplash> SplashWidget;
     float SplashElapsed = -1.f;
+
 
     // Main menu / level selector, opened once the splash fades on a plain boot
     // (no ?Level=, no ?SkipMenu=1). Selecting a level re-opens with SkipMenu.

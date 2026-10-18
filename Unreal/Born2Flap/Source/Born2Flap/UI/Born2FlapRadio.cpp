@@ -255,6 +255,9 @@ void UBorn2FlapRadioStation::ToggleMute()
 {
     if (!Active)
         return;
+    // Radio mute is a pure volume duck — the station never stops or restarts.
+    // The track keeps "playing" (bPlaying stays true, the voices keep running)
+    // so unmuting resumes at the exact same position. No Play()/Stop() here.
     if (!bMuted)
     {
         // Never stash a near-zero level: unmuting must always bring the radio

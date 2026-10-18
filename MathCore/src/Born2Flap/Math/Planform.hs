@@ -100,9 +100,9 @@ defaultBirdWing = WingShape
   { wsSpanM = 0.55
   , wsShoulderM = 0.0127  -- 1.27 cm shoulder: parallel-flapping ornithopter flies best with almost no shoulder width
   , wsStations =
-      [ ShapeStation 0.00 0.000 0.279  9.00 16.0 defaultBirdArmSection (armStructure kestrelSpars)  -- shoulder
-      , ShapeStation 0.45 0.110 0.235  5.00 16.0 defaultBirdArmSection (armStructure kestrelSpars)  -- elbow
-      , ShapeStation 1.00 0.333 0.114  3.00 16.0 defaultBirdHandSection (handStructure kestrelSpars)  -- tip
+      [ ShapeStation 0.00 0.000 0.279  6.50 16.0 defaultBirdArmSection (armStructure kestrelSpars)  -- shoulder
+      , ShapeStation 0.45 0.110 0.235  3.50 16.0 defaultBirdArmSection (armStructure kestrelSpars)  -- elbow
+      , ShapeStation 1.00 0.333 0.114  1.50 16.0 defaultBirdHandSection (handStructure kestrelSpars)  -- tip
       ]
   }
 

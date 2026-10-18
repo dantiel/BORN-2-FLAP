@@ -6,7 +6,9 @@ def prepare(scope,bronze):
     bronze.set_editor_property('two_sided',True)
     EDIT.recompile_material(bronze);LIB.save_loaded_asset(bronze)
     folder='/Game/Shiomori/Imported/Founder'
-    if not LIB.does_directory_exist(folder):import_file(ROOT/'Founder/Founder_posed.glb',folder)
+    # Always (re)import: the baked GLB changes whenever the pose is re-authored,
+    # and import_file uses replace_existing so a fresh pose lands over the old one.
+    import_file(ROOT/'Founder/Founder_posed.glb',folder)
     assets=[u.load_asset(p) for p in LIB.list_assets(folder)]
     meshes=[a for a in assets if isinstance(a,u.StaticMesh)]
     assert len(meshes)==1,meshes
