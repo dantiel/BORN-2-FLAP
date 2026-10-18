@@ -649,17 +649,17 @@ void ABorn2FlapFlightPawn::SweepWingColliders(float Dt)
         WingSweepPrev.FindOrAdd(Wing) = Mid;
     }
 
-        // Wingtip ground contact is a planted PIVOT, not a bouncy spring. Two parts:
-        // (1) Resolve the contact point's inward velocity (restitution ~0.15) so the
-        //     tip settles onto the surface instead of rebounding; applied AT the tip,
-        //     the impulse makes the body lever around it.
-        // (2) While the wing is being driven DOWNWARD into the ground (a deliberate
-        //     downstroke — even a slow, elevator-driven one), add a ground-reaction
-        //     impulse at the contact point proportional to the downstroke rate.
-        //     Because the tip is aft of the centre of mass, that reaction lifts the
-        //     bird AND pitches the nose up, letting it stand on its wingtips like a
-        //     real bird. No spar-bend model is needed: the rigid lever arm between
-        //     the contact point and the CoM already produces the pitch.
+        // Wingtip ground contact is a soft, energy-dissipating plant. The aeroelastic
+        // wing flexes and drags — it does not spring back or lever the bird upward.
+        // Both responses are applied AT the contact point, so the impulse levers the
+        // body around it (the "correct lever arm" that turns forward momentum into
+        // pitch and drag instead of a bounce):
+        // (1) Normal: fully cancel inward velocity (restitution 0) so the tip settles
+        //     onto the surface instead of rebounding.
+        // (2) Tangential: ground friction bleeds off forward/sideways energy while the
+        //     wing scrapes, SLOWING the bird — the lever-arm brake that replaces the
+        //     old downstroke "catapult". No spar-bend model is needed: the rigid lever
+        //     between contact point and CoM already produces the pitch/drag.
         if (bTouched && !bWingTouching)
         {
             if (GEngine)
@@ -667,29 +667,35 @@ void ABorn2FlapFlightPawn::SweepWingColliders(float Dt)
         }
         if (bTouched)
         {
-            // (1) Plant: softly cancel inward velocity (no overshoot, hard-capped).
+            // (1) Plant: SOFT aeroelastic damping of the inward (normal) velocity.
+            // The old hard-kill (restitution 0, full cancel up to 40 cm/s) was applied
+            // AT the tip, and a grounded bird's tip inward velocity is dominated by
+            // body ROLL (ω×r at the ~half-span lever arm) — fully cancelling it every
+            // frame reversed the roll and violently threw the opposite wing down.
+            // A pure exponential dashpot removes only a fraction (< 1) per frame, so
+            // it bleeds approach (and roll) energy out gently, with no bounce and no
+            // overshoot, exactly like the flexible aeroelastic wing actually behaves.
             const FVector ContactVel = Body->GetPhysicsLinearVelocityAtPoint(ContactPoint);
             const float   Approach   = FVector::DotProduct(ContactVel, ContactNormal); // - = into surface
             if (Approach < 0.f)
             {
-                const float Kill = FMath::Min(-Approach * 0.85f, 60.f);
+                const float k    = 6.0f;   // soft plant rate (1/s)
+                const float Kill = FMath::Min(-Approach * (1.f - FMath::Exp(-k * Dt)), 15.f);
                 Body->AddImpulseAtLocation(ContactNormal * (Body->GetMass() * Kill), ContactPoint);
             }
     
-            // (2) Downstroke lever: reaction force scales with the flap-down rate.
-            const float FlapDelta = LeftFlap - PrevLeftFlap;                 // deg this frame
-            const float DownRate  = Dt > 0.f ? FMath::Max(0.f, -FlapDelta) / Dt : 0.f; // °/s downstroke
-            const FVector V  = Body->GetPhysicsLinearVelocity();
-            const float   Vn = FVector::DotProduct(V, ContactNormal);        // + = leaving surface
-            if (DownRate > 8.f && Vn < 25.f &&
-                World->GetTimeSeconds() - LastWingPushTime > 0.12)
+            // (2) Friction: while the wing drags on the ground, drain tangential
+            // energy — the lever-arm brake that SLOWS the bird instead of catapulting
+            // it. Framerate-independent exponential bleed (k ≈ 2/s), capped per frame
+            // so a fast scrape reads as drag, not a snap.
+            const FVector Tangential = ContactVel - ContactNormal * Approach;
+            const float   TangSpeed  = Tangential.Size();
+            if (TangSpeed > 1.f)
             {
-                // Slow deliberate stroke (~40°/s) → ~2.4 cm/s lever; a hard flap
-                // (~600°/s) → ~36 cm/s shove. Applied AT the contact point, the
-                // impulse rotates the body (nose up) rather than just translating.
-                const float Push = FMath::Clamp(DownRate * 0.06f, 0.f, 36.f);
-                Body->AddImpulseAtLocation(ContactNormal * (Body->GetMass() * Push), ContactPoint);
-                LastWingPushTime = World->GetTimeSeconds();
+                const float k     = 2.0f;
+                const float Brake = FMath::Min(TangSpeed * (1.f - FMath::Exp(-k * Dt)), 30.f);
+                const FVector BrakeDir = Tangential / TangSpeed;
+                Body->AddImpulseAtLocation(-BrakeDir * (Body->GetMass() * Brake), ContactPoint);
             }
         }
         bWingTouching = bTouched;

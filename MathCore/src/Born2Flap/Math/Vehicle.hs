@@ -57,6 +57,23 @@ import Born2Flap.Math.Waveform
 airDensity :: Double
 airDensity = 1.05
 
+-- | Circulation (bound-vortex) lift efficiency of the membrane wing relative to
+-- a rigid thin airfoil of the same planform. A live feathered membrane sheds
+-- part of its bound circulation (permeable, low-Re, aeroelastically washing out
+-- under load), so its effective lift slope sits below the ideal @2π·AR/(AR+2)@.
+--
+-- This is NOT the floatiness lever. Floatiness / "rocket acceleration" is a
+-- missing-DRAG problem (no terminal velocity → speed climbs until ∝V² lift
+-- re-exceeds weight), and drag is the tail/body's job. Gutting this gain to
+-- chase floatiness only lowers the speed threshold at which lift wins again —
+-- AND it collapses the wing's ROLL DAMPING, because the torque that holds the
+-- wings level (the "attachment to air" a bird feels at a roll input) is exactly
+-- this lift slope responding to body roll rate. Too low and the wings flop
+-- left/right and the tail can no longer balance or steer. Keep this high enough
+-- for roll damping + pitch authority; make the bird sink with DRAG, not lift.
+circulationLiftEfficiency :: Double
+circulationLiftEfficiency = 0.24
+
 -- | Momentum-jet thrust factor for the flapping downstroke (dimensionless).
 -- The downstroke sheds a backward jet whose reaction propels the bird. This is
 -- the ONLY free gain in the flap force budget and must be calibrated against
@@ -67,7 +84,7 @@ airDensity = 1.05
 -- C_T is therefore sized so net thrust stays positive to 7 m/s, not to a
 -- textbook value. At the kestrel's 3.2 Hz / 20° stroke this is ~0.6.
 flapJetCoeff :: Double
-flapJetCoeff = 0.6
+flapJetCoeff = 0.9
 
 -- | Lumped pressure-drag coefficient for the wing's OWN flap motion — the broad
 -- surface sweeping normal to itself through air. A thin airfoil moving edge-on
@@ -119,7 +136,7 @@ aeroCamberThrustGain = 6.0
 -- static momentum jet (∝ flap-speed²) has already collapsed. Vanishes at rest
 -- (chordVelocity ≈ 0), so hover thrust is unchanged.
 flapAdvanceThrustGain :: Double
-flapAdvanceThrustGain = 1.0
+flapAdvanceThrustGain = 0.5
 
 -- | Ground-effect constants (dimensionless). Ground effect is the image-vortex
 -- cushion a wing feels close to a surface. For a GLIDING wing it only boosts
@@ -364,7 +381,13 @@ stepStrip implicitLoads _phaseRate _flapping side stroke input incidenceRad wp i
       -- Use section velocity through air throughout (not a mixture of air
       -- velocity and body velocity). Drag must do negative work. The normal
       -- rotates with the flap; positive stroke raises BOTH wings.
-      !position = Vec3 0 (side * radius * cos dihedral) (wingRootHeight + radius * sin dihedral + bend)
+      -- Aerodynamic centre sits at the quarter-chord, AFT of the shoulder
+      -- hinge (the root LE is at x=0, chord runs aft, so AC x is negative).
+      -- Placing the lift force at this lever arm gives the wing the nose-down
+      -- static moment a real bird has; with the lift pinned at x=0 (the CG),
+      -- the wing contributes no pitch moment and the tail downforce alone
+      -- trims the bird nose-up regardless of CG slider position.
+      !position = Vec3 (-0.25 * chord) (side * radius * cos dihedral) (wingRootHeight + radius * sin dihedral + bend)
       !normal = Vec3 0 (-side * sin dihedral) (cos dihedral)
       -- Resolve flow in the swept section plane. Ignoring sweep here removed
       -- its differential lift in sideslip, despite it being in the planform.
@@ -429,17 +452,17 @@ stepStrip implicitLoads _phaseRate _flapping side stroke input incidenceRad wp i
       -- induced drag. Using 2π here double-counts it: lift reads too high AND
       -- the drag-due-to-lift ramps up on that inflated Cl. The 3D slope keeps
       -- the lift/drag relationship consistent.
-      liftSlope = 2 * pi * aspectRatio / (aspectRatio + 2)
+      liftSlope = 2 * pi * aspectRatio / (aspectRatio + 2) * circulationLiftEfficiency
       attachedCl = clamp (-1.9) 1.9 (liftSlope * alphaEff)
-      separatedCl = 1.05 * sin (2 * alphaEff)
-      rotationalCl = clamp (-0.65) 0.65 (0.5 * chord * alphaRate / safeSpeed)
+      separatedCl = 0.12 * sin (2 * alphaEff)
+      rotationalCl = clamp (-0.65) 0.65 (0.20 * chord * alphaRate / safeSpeed)
       -- Keep separation/LEV memory fixed during the implicit mechanical solve.
       -- Updating its discrete vortex gate at each trial velocity can leave no
       -- root at all. Advance that memory once in `next` after convergence.
       forceSeparation = if implicitLoads then stripSeparation old else relaxed
       vortexLift = if implicitLoads
-        then signum (stripPreviousAlpha old - zeroLiftAngle camberPrev) * 0.45 * stripLevStrength old
-        else signum alphaEff * 0.45 * lev
+        then signum (stripPreviousAlpha old - zeroLiftAngle camberPrev) * 0.05 * stripLevStrength old
+        else signum alphaEff * 0.05 * lev
       cl = lerp attachedCl separatedCl forceSeparation + rotationalCl + vortexLift
       camberNext = relaxCamber dt (spMembraneTau profile) camberPrev
                      (membraneCamberTarget profile attachedCl)
@@ -453,7 +476,12 @@ stepStrip implicitLoads _phaseRate _flapping side stroke input incidenceRad wp i
       -- glides faster.
       inducedRelief = max 0 (1 - groundEffectDragRelief * ge)
       inducedCd = attachedCl * attachedCl / (pi * 0.82 * aspectRatio) * inducedRelief
-      attachedCd = 0.016 + inducedCd
+      -- Profile drag of the feathered membrane wing. Low: aeroelasticity
+      -- relativizes pressure drag — the live membrane deflects and sheds the
+      -- normal pressure a rigid plate would take — so the wing's parasitic drag
+      -- sits well below a rigid surface's. The rigid tail/body panels carry the
+      -- complementary high pressure drag instead.
+      attachedCd = 0.03 + inducedCd
       separatedCd = 0.20 + 1.20 * sin alphaEff * sin alphaEff
       cd = lerp attachedCd separatedCd forceSeparation
       sideCd = 0.018 + 0.08 * forceSeparation
@@ -512,8 +540,18 @@ stepStrip implicitLoads _phaseRate _flapping side stroke input incidenceRad wp i
       flapDampingMag = -0.5 * airDensity * area * flapDampingCd
                        * pressureVelocity * abs pressureVelocity
       flapDampingForce = scaleVec flapDampingMag pressureNormal
-      force = addVec (addVec chordForce (addVec normalForce spanDrag))
-                     (addVec thrustForce flapDampingForce)
+      -- Lift/drag/flap-damping act at the aerodynamic centre (quarter-chord).
+      aeroForce = addVec (addVec chordForce (addVec normalForce spanDrag)) flapDampingForce
+      -- Thrust is generated at the HIND (trailing) edge, where the membrane
+      -- unloads aeroelastically and stall happens last (flow follows the wing
+      -- geometry); the jet is shed there. Its lever arm is pinned to the
+      -- trailing-edge point, AFT of the AC that carries lift. For a body-axial
+      -- thrust the chordwise offset is moment-neutral (r×F of an axial force
+      -- depends only on the spanwise/vertical offset), but the origin is kept
+      -- at the unloaded hind edge where the thrust is physically produced.
+      thrustPosition = Vec3 (-1.0 * chord) (side * radius * cos dihedral)
+                            (wingRootHeight + radius * sin dihedral + bend)
+      force = addVec aeroForce thrustForce
       -- Explicit differencing of BODY acceleration as an added-mass force
       -- creates a delayed feedback loop at contacts. Omit this term until an
       -- implicit fluid/body inertia solve is available; do not clamp it into
@@ -532,7 +570,9 @@ stepStrip implicitLoads _phaseRate _flapping side stroke input incidenceRad wp i
       -- Section Cm is positive nose-up. With body +x forward,+y right,+z up,
       -- the axial +Y moment rotates the nose DOWN, so convert the sign here.
       -- Keep the scalar section moment in its original convention for twist.
-      moment = addVec (crossVec position force) (Vec3 0 (-sectionPitchMoment) 0)
+      moment = addVec (crossVec position aeroForce)
+                      (addVec (crossVec thrustPosition thrustForce)
+                              (Vec3 0 (-sectionPitchMoment) 0))
       power = max 0 (negate (dot force flapVelocity))
       next = StripState relaxed alpha normalVelocity lev camberNext bend
                (stripBendSlope old) aeroTwist

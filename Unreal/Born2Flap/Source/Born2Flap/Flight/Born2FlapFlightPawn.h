@@ -253,7 +253,6 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     void SweepWingColliders(float Dt);
     TMap<UBorn2FlapWingMesh*, FVector> WingSweepPrev;
     double LastWingTouchTime = -1e30;
-    double LastWingPushTime = -1e30;
     bool bWingTouching = false;
     void LoadFlightPreferences();
     float Throttle = 0, RollInput = 0, YawInput = 0, PitchInput = 0, LeftFlap = 0, RightFlap = 0, BatterySoc = 1;

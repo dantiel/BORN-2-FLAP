@@ -1726,6 +1726,19 @@ void UBorn2FlapUIRenderer::ApplyPrimitiveProps(UWidget* W, const FProps& Props)
         if (!ToneOf(Props).IsEmpty())
             Im->SetColorAndOpacity(theme::Tone(ToneOf(Props), theme::FG()));
     }
+        else if (UBorder* Br = Cast<UBorder>(W))
+        {
+            // Raw Border primitives get an explicit brush only when `bg` asks for one
+            // (used by modal dialogs for their full-bleed scrim). Default = transparent.
+            if (Props.count("bg"))
+            {
+                const FString Bg = Str(Props.at("bg"));
+                if (Bg == TEXT("scrim"))
+                    Br->SetBrush(FSlateRoundedBoxBrush(FLinearColor(0.f, 0.f, 0.f, 0.55f), 0.f));
+                else if (Bg == TEXT("solid"))
+                    Br->SetBrush(FSlateRoundedBoxBrush(FLinearColor(.015f, .03f, .04f, .78f), 8.f, FLinearColor(.56f, .46f, .28f, .7f), 1.f));
+            }
+        }
     else if (UBorn2FlapWindArrow* A = Cast<UBorn2FlapWindArrow>(W))
     {
         if (Props.count("angle")) A->SetAngle(Num(Props.at("angle"), 0.0));

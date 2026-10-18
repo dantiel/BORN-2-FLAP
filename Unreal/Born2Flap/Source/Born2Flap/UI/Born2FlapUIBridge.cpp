@@ -111,6 +111,12 @@ void ABorn2FlapUIBridge::EndPlay(const EEndPlayReason::Type EndPlayReason)
         FPlatformProcess::TerminateProc(BrainProcess, /*bKillTree=*/true);
     BrainProcess.Reset();
 
+    // Remove the Brain-authored UMG host from the viewport immediately, before
+    // GC gets around to it. Otherwise the old menu's RootHost lingers in the
+    // (persistent) game viewport across the level travel and flashes on top of
+    // the destination map the moment the loading screen drops.
+    CloseRenderer();
+
     if (FileHandle)
     {
         delete FileHandle;
@@ -245,6 +251,23 @@ void ABorn2FlapUIBridge::DrainSource()
             LineBuffer.Add(Byte);
         }
     }
+}
+
+void ABorn2FlapUIBridge::ForceTelemetry()
+{
+    // The `loading` flag flips false→true when ShowLoadingScreen() arms the
+    // loader, but without forcing a write the file would keep the menu map's
+    // last snapshot (`frontend:true, loading:false`) until the next engine tick
+    // — and the engine doesn't tick during the movie. Defeat the dedup so the
+    // destination map's fresh Brain reads `loading:true` and paints nothing.
+    LastTelemetryJson.Empty();
+    WriteTelemetry();
+}
+
+void ABorn2FlapUIBridge::CloseRenderer()
+{
+    if (Renderer)
+        Renderer->Close();
 }
 
 void ABorn2FlapUIBridge::WriteTelemetry()

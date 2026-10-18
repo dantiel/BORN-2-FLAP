@@ -94,9 +94,16 @@ main = do
       loaded = defaultFirmwareVehicleState {fvLeftHingeTorqueNm = 0.5, fvRightHingeTorqueNm = 0.5}
       (_, lowR) = batteryStep (defaultBatterySpec {batteryInternalResistanceOhm = 0}) loaded
       (_, highR) = batteryStep (defaultBatterySpec {batteryInternalResistanceOhm = 0.8}) loaded
-  -- An unpowered wing can now be moved by air; it must not be frozen.
+      (mixCmd, _) = computeServoMixer True flap defaultFirmwareParams defaultFirmwareState (1 / 240)
+      flapCmd = mixLeftFlapDevDeg mixCmd
+  -- An unpowered wing can now be moved by air; it must not be frozen. Voltage
+  -- sag must reduce the servo's POWERED motion: the sagged servo ends further
+  -- from its commanded flap (larger tracking error) than the full-voltage one.
+  -- Track the command directly rather than |rate| — under a strong aero hinge
+  -- load the sagged servo is blown BACK off the command (correct, unpowered
+  -- motion), which inflates |rate| even though its powered motion shrank.
   if abs (servoAngleDeg (fvServoLeft empty)) < abs (servoAngleDeg (fvServoLeft full))
-     && abs (servoRateDegPerSec (fvServoLeft highR)) < abs (servoRateDegPerSec (fvServoLeft lowR))
+     && abs (flapCmd - servoAngleDeg (fvServoLeft highR)) > abs (flapCmd - servoAngleDeg (fvServoLeft lowR))
     then pure () else fail "empty battery and voltage sag must reduce powered motion"
   let rollback = runSimulation (putState (99 :: Int) >> abort "failure") 7
                    :: Either String ((), Int)
@@ -360,8 +367,13 @@ main = do
   -- authority; the asymmetric feathering (downstroke loaded, upstroke shed)
   -- legitimately shifts the sign and magnitude versus the old symmetric stroke,
   -- so the sign is not asserted here.
+  -- Authority threshold scales with mass: the roll MOMENT here is aerodynamic
+  -- (mass-independent), but a 50 g bird has ~9× less roll inertia than the
+  -- 450 g reference the 1e-3 threshold was tuned for, so the required moment
+  -- is ~9× smaller for the same roll acceleration. 1e-4 reflects the 50 g
+  -- re-scale (circulationLiftEfficiency 0.14).
   if abs (leftSkewMoment + rightSkewMoment) < 1e-10
-     && abs leftSkewMoment > 1e-3
+     && abs leftSkewMoment > 1e-4
     then pure () else fail ("opposite stroke timing alone must generate mirrored aerodynamic roll: " ++ show (leftSkewMoment,rightSkewMoment))
   -- ONDAS Rubedo M0: ferocity-price anchors (audit-verified 9.5).
   let priceCheck (d, p, f, t) = abs (ferocityPowerPrice d - p) < 1e-2

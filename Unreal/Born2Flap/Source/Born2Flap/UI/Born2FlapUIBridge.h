@@ -65,6 +65,19 @@ public:
     virtual void Tick(float DeltaSeconds) override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
+    // Force an immediate telemetry write, bypassing the same-as-last-frame
+    // dedup. Used to stamp `loading:true` into the telemetry file just before
+    // OpenLevel so a freshly-spawned Brain on the destination map renders
+    // nothing while the movie player still covers the viewport — no menu flash
+    // bleeding through over the loading screen.
+    void ForceTelemetry();
+
+    // Remove the Brain-authored UMG host from the viewport immediately. Called
+    // right before OpenLevel so the menu cannot linger across the level travel
+    // and flash over the destination map; EndPlay re-invokes it as a safety net
+    // (the call is idempotent).
+    void CloseRenderer();
+
 private:
     void RunUITest(float DeltaSeconds);
     float UITestElapsed=0;

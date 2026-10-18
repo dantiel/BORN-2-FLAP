@@ -37,7 +37,10 @@ module Born2Flap
         telemetry = {} unless telemetry.is_a?(Hash)
         # While the C++ level-loading screen is up, render nothing here: the
         # movie player owns the viewport and the HUD/menu must not bleed through.
-        return Node.new(:overlay, { visible: false }, []) if telemetry[:ui_hidden] || telemetry[:loading]
+        # Also render nothing during the initial :boot phase (before the first
+        # real telemetry arrives) — otherwise a freshly spawned Brain briefly
+        # paints the menu on the destination map right after the loader drops.
+        return Node.new(:overlay, { visible: false }, []) if telemetry[:ui_hidden] || telemetry[:loading] || screen.to_sym == :boot
         children = []
 
         if MENU_SCREENS.include?(screen.to_sym)
