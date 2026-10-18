@@ -51,5 +51,8 @@ private:
     FString LastWindDesc;
     FString LastStatus;
     FString LastCamera;
+    // "HIDE" overlay button collapses the readout column (logo + panels +
+    // banners) but keeps the THROW/MENU/HIDE button row so it can be re-opened.
+    bool bReadoutsHidden = false;
     bool bLastHidden = true;
 };
