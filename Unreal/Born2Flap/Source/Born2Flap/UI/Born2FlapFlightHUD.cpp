@@ -89,6 +89,10 @@ void ABorn2FlapFlightHUD::BeginPlay()
     Super::BeginPlay();
     Renderer = NewObject<UBorn2FlapUIRenderer>(this);
     Renderer->OnComponentAction.AddDynamic(this, &ABorn2FlapFlightHUD::HandleComponentAction);
+    // The engine's DefaultVirtualJoysticks are added to the viewport at Z-order
+    // 0. Keep the cockpit *below* that (negative) so the on-screen sticks always
+    // render on top of the glass cockpit and stay touchable over the HUD.
+    Renderer->ViewportZOrder = -10;
     BuildCockpit();
 }
 
@@ -140,6 +144,7 @@ void ABorn2FlapFlightHUD::BuildCockpit()
             {
                 Nd("Button", P({ {"label", S("THROW")}, {"action", S("flight.throw")} })),
                 Nd("Button", P({ {"label", S("MENU")},  {"action", S("ui.menu")} })),
+                Nd("Button", P({ {"label", S("HIDE")},  {"action", S("ui.hide")} })),
             }),
         })}),
     });
@@ -172,6 +177,20 @@ void ABorn2FlapFlightHUD::HandleComponentAction(const FString& Action, float Val
     {
         if (ABorn2FlapGameMode* GM = GetWorld() ? Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode()) : nullptr)
             GM->ShowMainMenu(true);
+    }
+    else if (Action == TEXT("ui.hide"))
+    {
+        // Collapse the readout column (logo, instruments, energy, wind, status,
+        // camera, hint — VerticalBox children 0..6) but keep the button row
+        // (child 7) so the overlay can always be toggled back open on touch.
+        bReadoutsHidden = !bReadoutsHidden;
+        if (Renderer)
+        {
+            TArray<FOp> Ops;
+            for (int32 i = 0; i < 7; ++i)
+                Ops.Add(UpdateProps(Pth({0, i}), P({ {"visible", N(bReadoutsHidden ? 0.0 : 1.0)} })));
+            Renderer->ApplyOps(MoveTemp(Ops));
+        }
     }
 }
 
