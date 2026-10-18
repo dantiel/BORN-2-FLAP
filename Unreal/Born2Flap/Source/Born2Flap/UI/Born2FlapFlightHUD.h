@@ -33,9 +33,14 @@ private:
     UFUNCTION()
     void HandleComponentAction(const FString& Action, float Value, const FString& Text);
     void BuildCockpit();
+    void BuildButtons();
     void Refresh();
 
     UPROPERTY() TObjectPtr<UBorn2FlapUIRenderer> Renderer;
+    // The action buttons (THROW / MENU / HIDE) live in their own overlay so
+    // they can sit above the virtual joysticks (z-order 10 > 0) and stay
+    // tappable, while the readout column stays below the sticks (z-order -10).
+    UPROPERTY() TObjectPtr<UBorn2FlapUIRenderer> ButtonRenderer;
     ABorn2FlapFlightPawn* CachedBird = nullptr;
 
     // Last-emitted readouts, cached as the *displayed* strings: Refresh only

@@ -13,6 +13,7 @@
 #include "GameFramework/PlayerController.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Engine/World.h"
+#include "Framework/Application/SlateApplication.h"
 
 using namespace born2flap::ui;
 
@@ -22,6 +23,7 @@ namespace {
 FValue S(const char* v) { FValue x; x.kind = FValue::Kind::String; x.str = v; return x; }
 FValue N(double v) { FValue x; x.kind = FValue::Kind::Number; x.num = v; return x; }
 FValue B(bool v) { FValue x; x.kind = FValue::Kind::Bool; x.b = v; return x; }
+FValue A(std::initializer_list<double> Vals) { FValue x; x.kind = FValue::Kind::Array; for (double v : Vals) { FValue e; e.kind = FValue::Kind::Number; e.num = v; x.arr.push_back(e); } return x; }
 
 // A localized string value: look up a semantic key and emit it as UTF-8.
 FValue L(const char* Key) { return S(TCHAR_TO_UTF8(*Born2Flap::I18n::T(Key))); }
@@ -94,15 +96,27 @@ void ABorn2FlapFlightHUD::BeginPlay()
     // render on top of the glass cockpit and stay touchable over the HUD.
     Renderer->ViewportZOrder = -10;
     BuildCockpit();
+
+    // The action buttons float above the sticks (z-order 10 > 0) at the top-right
+    // corner, clear of both on-screen joysticks (bottom corners) and of the
+    // readout column (top-left). Under the modal menu (90) and POI overlay (12).
+    ButtonRenderer = NewObject<UBorn2FlapUIRenderer>(this);
+    ButtonRenderer->OnComponentAction.AddDynamic(this, &ABorn2FlapFlightHUD::HandleComponentAction);
+    ButtonRenderer->ViewportZOrder = 10;
+    BuildButtons();
 }
 
 // The semantic tree. Paths are child indices from the Overlay root ([]):
-//   [0]      the outer VBox
-//   [0,0]    brand banner
-//   [0,1]    "INSTRUMENTE" panel  → [0,1,0] alt, [0,1,1] climb, [0,1,2] speed
-//   [0,2]    "ENERGIE" panel       → [0,2,0] battery, [0,2,1] throttle
-//   [0,3]    "WIND" panel          → [0,3,0] speed, [0,3,1] wind arrow, [0,3,2] desc
-//   [0,4]    status banner
+//   [0]      the width-constrained SizeBox
+//   [0,0]    the outer VBox
+//   [0,0,0]  brand banner
+//   [0,0,1]  "INSTRUMENTE" panel  → [0,0,1,0] alt, [0,0,1,1] climb, [0,0,1,2] speed
+//   [0,0,2]  "ENERGIE" panel       → [0,0,2,0] battery, [0,0,2,1] throttle
+//   [0,0,3]  "WIND" panel          → [0,0,3,0] speed, [0,0,3,1] arrow, [0,0,3,2] desc
+//   [0,0,4]  status banner · [0,0,5] camera banner · [0,0,6] hint banner
+// The THROW / MENU / HIDE buttons are NOT part of this tree — they live in a
+// separate top-right overlay (see BuildButtons) so they are never covered by
+// the on-screen joysticks.
 void ABorn2FlapFlightHUD::BuildCockpit()
 {
     if (!Renderer)
@@ -139,13 +153,7 @@ void ABorn2FlapFlightHUD::BuildCockpit()
 
             Nd("Banner", P({ {"text", L("hud.ready")}, {"tone", S("normal")} })),
             Nd("Banner", P({ {"text", S("")}, {"tone", S("info")}, {"size", S("s")} })),
-            Nd("Banner", P({ {"text", S("F7  HIDE HUD    /    F10  MENU")}, {"tone", S("normal")}, {"size", S("s")} })),
-            Nd("HorizontalBox", P({ {"spacing", N(8)} }),
-            {
-                Nd("Button", P({ {"label", S("THROW")}, {"action", S("flight.throw")} })),
-                Nd("Button", P({ {"label", S("MENU")},  {"action", S("ui.menu")} })),
-                Nd("Button", P({ {"label", S("HIDE")},  {"action", S("ui.hide")} })),
-            }),
+            Nd("Banner", P({ {"text", S("")}, {"tone", S("normal")}, {"size", S("s")} })),
         })}),
     });
 
@@ -157,6 +165,45 @@ void ABorn2FlapFlightHUD::BuildCockpit()
     TArray<FOp> Ops;
     Ops.Add(MoveTemp(Mount));
     Renderer->ApplyOps(MoveTemp(Ops));
+}
+
+// Top-right floating action bar: THROW (hand-launch), MENU (main menu) and
+// HIDE (collapse the readout column). Kept in its own overlay so it renders
+// above the virtual joysticks and can never be covered by them.
+void ABorn2FlapFlightHUD::BuildButtons()
+{
+    if (!ButtonRenderer)
+        return;
+
+    // "visible" also marks the full-bleed Overlay SelfHitTestInvisible so its
+    // empty screen-spanning canvas slot never swallows touches meant for the
+    // virtual joysticks below — only the buttons themselves stay hit-testable.
+    // The top inset clears the notch (safe-area title-safe top inset).
+    float TopInset = 16.f;
+    if (FSlateApplication::IsInitialized())
+    {
+        FDisplayMetrics Metrics;
+        FSlateApplication::Get().GetDisplayMetrics(Metrics);
+        TopInset = FMath::Max(16.f, Metrics.TitleSafePaddingSize.Y + 8.f);
+    }
+    FNode Root = Nd("Overlay", P({ {"align", S("right")}, {"valign", S("top")}, {"margin", A({0.0, (double)TopInset, 12.0, 0.0})}, {"visible", N(1)} }),
+    {
+        Nd("HorizontalBox", P({ {"spacing", N(8)} }),
+        {
+            Nd("Button", P({ {"label", S("THROW")}, {"action", S("flight.throw")}, {"tone", S("good")} })),
+            Nd("Button", P({ {"label", S("MENU")},  {"action", S("ui.menu")},      {"tone", S("ghost")} })),
+            Nd("Button", P({ {"label", S("HIDE")},   {"action", S("ui.hide")},     {"tone", S("ghost")} })),
+        }),
+    });
+
+    FOp Mount;
+    Mount.op = EOp::CreateInstance;
+    Mount.path = FPath();  // root
+    Mount.node = std::move(Root);
+
+    TArray<FOp> Ops;
+    Ops.Add(MoveTemp(Mount));
+    ButtonRenderer->ApplyOps(MoveTemp(Ops));
 }
 
 void ABorn2FlapFlightHUD::HandleComponentAction(const FString& Action, float Value, const FString& Text)
@@ -180,15 +227,13 @@ void ABorn2FlapFlightHUD::HandleComponentAction(const FString& Action, float Val
     }
     else if (Action == TEXT("ui.hide"))
     {
-        // Collapse the readout column (logo, instruments, energy, wind, status,
-        // camera, hint — VerticalBox children 0..6) but keep the button row
-        // (child 7) so the overlay can always be toggled back open on touch.
+        // Collapse the whole readout column. The action bar lives in a separate
+        // overlay, so HIDE always stays reachable to toggle it back open.
         bReadoutsHidden = !bReadoutsHidden;
         if (Renderer)
         {
             TArray<FOp> Ops;
-            for (int32 i = 0; i < 7; ++i)
-                Ops.Add(UpdateProps(Pth({0, i}), P({ {"visible", N(bReadoutsHidden ? 0.0 : 1.0)} })));
+            Ops.Add(UpdateProps(FPath(), P({ {"visible", N(bReadoutsHidden ? 0.0 : 1.0)} })));
             Renderer->ApplyOps(MoveTemp(Ops));
         }
     }
@@ -215,7 +260,7 @@ void ABorn2FlapFlightHUD::Refresh()
 
     // Blind flight is ear-only: collapse the whole cockpit (no banner — just
     // silence and sound). Settings panel owns the screen while open.
-    const bool bCockpitHidden = CachedBird->IsBlindFlight() || CachedBird->IsFlightSettingsOpen() || CachedBird->IsUIHidden();
+    const bool bCockpitHidden = bReadoutsHidden || CachedBird->IsBlindFlight() || CachedBird->IsFlightSettingsOpen() || CachedBird->IsUIHidden();
     if (bCockpitHidden != bLastHidden)
     {
         TArray<FOp> Ops;
