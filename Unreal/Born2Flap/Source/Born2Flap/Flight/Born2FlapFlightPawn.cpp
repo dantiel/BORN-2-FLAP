@@ -1417,18 +1417,30 @@ void ABorn2FlapFlightPawn::UpdateTouchGestures(float Dt, APlayerController* PC)
 
     // Free-look zone: the middle band of the screen, clear of the twin virtual
     // joysticks (bottom corners) and the HUD readout/action bar (top edge).
-    const float ZoneTop = 0.20f, ZoneBottom = 0.68f;
+    const float ZoneTop = 0.18f, ZoneBottom = 0.78f;
 
     float X[2] = { 0.f, 0.f }, Y[2] = { 0.f, 0.f };
     bool Down[2] = { false, false };
     PC->GetInputTouchState(ETouchIndex::Touch1, X[0], Y[0], Down[0]);
     PC->GetInputTouchState(ETouchIndex::Touch2, X[1], Y[1], Down[1]);
 
+    // GetInputTouchState returns viewport-relative PIXEL coordinates (0..width,
+    // 0..height), NOT normalized 0..1 — normalize before the zone test and the
+    // 220°/150° full-drag gains, otherwise the zone never matches and the look
+    // deltas are astronomically large. Without this the gestures are dead.
+    int32 VW = 0, VH = 0;
+    PC->GetViewportSize(VW, VH);
+    if (VW <= 0 || VH <= 0)
+        return;
+    const float InvW = 1.f / VW, InvH = 1.f / VH;
+
     FVector2D Delta[2] = { FVector2D::ZeroVector, FVector2D::ZeroVector };
     bool Moved[2] = { false, false };
 
     for (int32 I = 0; I < 2; ++I)
     {
+        X[I] *= InvW;
+        Y[I] *= InvH;
         const bool bInZone = Down[I] && Y[I] > ZoneTop && Y[I] < ZoneBottom;
         const FVector2D Cur(X[I], Y[I]);
         if (bInZone && !GestureTracked[I])

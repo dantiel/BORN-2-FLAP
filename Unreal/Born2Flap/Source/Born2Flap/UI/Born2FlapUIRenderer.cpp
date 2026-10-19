@@ -719,6 +719,7 @@ UWidget* UBorn2FlapUIRenderer::CreateInstance(const std::string& Type)
     // semantic composite components (pre-styled)
     if (T == TEXT("Panel") || T == TEXT("Value") || T == TEXT("Stat") ||
         T == TEXT("Gauge") || T == TEXT("Banner") || T == TEXT("Button") ||
+        T == TEXT("IconButton") ||
         T == TEXT("Slider") || T == TEXT("Toggle") || T == TEXT("Select") ||
         T == TEXT("Segment") || T == TEXT("Dropdown") || T == TEXT("NumberBox") || T == TEXT("Field") ||
         T == TEXT("Section") ||
