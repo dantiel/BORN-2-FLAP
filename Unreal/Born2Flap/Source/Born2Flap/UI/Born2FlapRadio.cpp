@@ -347,6 +347,13 @@ void ABorn2FlapRadioHUD::BeginPlay()
 {
     Super::BeginPlay();
     Renderer = NewObject<UBorn2FlapUIRenderer>(this);
+    Renderer->OnComponentAction.AddDynamic(this, &ABorn2FlapRadioHUD::HandleComponentAction);
+}
+
+void ABorn2FlapRadioHUD::HandleComponentAction(const FString& Action, float Value, const FString& Text)
+{
+    if (Action == TEXT("radio.mute") && Station)
+        Station->ToggleMute();
 }
 
 void ABorn2FlapRadioHUD::SetStation(UBorn2FlapRadioStation* InStation)
@@ -382,6 +389,9 @@ void ABorn2FlapRadioHUD::BuildPanel()
                     Nd("Banner", P({ {"text", S("—")}, {"tone", S("normal")} })),
                     Nd("Stat",  P({ {"label", L("radio.vol")}, {"value", N(50)}, {"unit", S("%")}, {"tone", S("info")} })),
                 }),
+                // Mute toggle lives on the radio face itself (speaker glyph swaps
+                // RadioOn ↔ RadioOff in Refresh). Icon-only, so it stays compact.
+                Nd("IconButton", P({ {"icon", S("RadioOn")}, {"action", S("radio.mute")}, {"tone", S("ghost")} })),
             }),
         }),
     });
@@ -397,6 +407,7 @@ void ABorn2FlapRadioHUD::BuildPanel()
     LastCoverPath.Empty();
     LastTrackLine.Empty();
     LastVolumePct = -1;
+    bLastMuted = false;
 }
 
 void ABorn2FlapRadioHUD::Tick(float DeltaSeconds)
@@ -448,6 +459,14 @@ void ABorn2FlapRadioHUD::Refresh()
     {
         Ops.Add(UpdateProps(Pth({0, 0, 1, 1}), P({ {"value", N((double)VolumePct)} })));
         LastVolumePct = VolumePct;
+    }
+
+    // Mute state drives the speaker glyph (RadioOn ↔ RadioOff).
+    const bool bMuted = Station->IsMuted();
+    if (bMuted != bLastMuted)
+    {
+        Ops.Add(UpdateProps(Pth({0, 0, 2}), P({ {"icon", S(bMuted ? "RadioOff" : "RadioOn")} })));
+        bLastMuted = bMuted;
     }
 
     if (Ops.Num() > 0)

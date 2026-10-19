@@ -84,4 +84,6 @@ private:
     // Mobile sky-sphere dome (cooked via CDO reference — SkyAtmosphere is SM5-only).
     UPROPERTY() TObjectPtr<UStaticMesh> MobileSkyMesh;
     UPROPERTY() TObjectPtr<UMaterialInterface> MobileSkyMaterial;
+    // The spawned dome actor, re-centred on the camera each tick.
+    UPROPERTY() TObjectPtr<AActor> MobileSkyDome;
 };

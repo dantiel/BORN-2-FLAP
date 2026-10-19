@@ -275,6 +275,141 @@ FSlateBrush ArtBrush(const TCHAR* Name, FVector2D Size, FMargin Margin)
     return Brush;
 }
 
+// ---- procedural glyph icons -----------------------------------------------
+// Flat monochrome icons rasterised into a transient 64×64 RGBA texture so the
+// mobile action bar can ship real icons without extra art. Glyphs are white on
+// transparent; the button tints them via UImage::SetColorAndOpacity.
+namespace {
+constexpr int32 kGlyphSize = 64;
+
+float SdCircle(FVector2D P, FVector2D C, float R) { return (P - C).Size() - R; }
+float SdBox(FVector2D P, FVector2D C, FVector2D Half)
+{
+    const FVector2D D = (P - C).GetAbs() - Half;
+    return FVector2D(FMath::Max(D.X, 0.f), FMath::Max(D.Y, 0.f)).Size() + FMath::Min(FMath::Max(D.X, D.Y), 0.f);
+}
+float SdSegment(FVector2D P, FVector2D A, FVector2D B)
+{
+    const FVector2D Pa = P - A, Ba = B - A;
+    const float H = FMath::Clamp(FVector2D::DotProduct(Pa, Ba) / FMath::Max(1e-4f, FVector2D::DotProduct(Ba, Ba)), 0.f, 1.f);
+    return (Pa - Ba * H).Size();
+}
+// Winding-agnostic triangle signed distance (negative = inside).
+float SdTriangle(FVector2D P, FVector2D A, FVector2D B, FVector2D C)
+{
+    float E1 = FVector2D::CrossProduct(B - A, P - A);
+    float E2 = FVector2D::CrossProduct(C - B, P - B);
+    float E3 = FVector2D::CrossProduct(A - C, P - C);
+    const float Sign = (FVector2D::CrossProduct(B - A, C - A) < 0.f) ? -1.f : 1.f;
+    E1 *= Sign; E2 *= Sign; E3 *= Sign;
+    return -FMath::Min3(E1 / (B - A).Size(), E2 / (C - B).Size(), E3 / (A - C).Size());
+}
+// Anti-aliased coverage from a signed distance (negative = inside).
+float Cov(float D) { return FMath::Clamp(0.5f - D, 0.f, 1.f); }
+
+void Stamp(TArray<uint8>& Buf, int32 X, int32 Y, float A)
+{
+    if (X < 0 || Y < 0 || X >= kGlyphSize || Y >= kGlyphSize) return;
+    const int32 I = (Y * kGlyphSize + X) * 4;
+    const float Alpha = FMath::Clamp(A, 0.f, 1.f);
+    const float Prev = (float)Buf[I + 3] / 255.f;
+    Buf[I + 0] = Buf[I + 1] = Buf[I + 2] = 255;               // white
+    Buf[I + 3] = (uint8)(FMath::Max(Prev, Alpha) * 255.f);
+}
+
+TArray<uint8> RenderGlyph(const FString& Name)
+{
+    TArray<uint8> Buf;
+    Buf.SetNumZeroed(kGlyphSize * kGlyphSize * 4);
+    const auto P = [](int32 X, int32 Y) { return FVector2D((float)X + 0.5f, (float)Y + 0.5f); };
+    for (int32 Y = 0; Y < kGlyphSize; ++Y)
+    {
+        for (int32 X = 0; X < kGlyphSize; ++X)
+        {
+            const FVector2D Q = P(X, Y);
+            float D = 1e6f;   // default: fully outside
+            if (Name == TEXT("launch"))
+            {
+                D = FMath::Min(D, SdTriangle(Q, P(32, 8), P(46, 30), P(18, 30)));  // arrow head
+                D = FMath::Min(D, SdBox(Q, P(32, 40), FVector2D(6, 10)));          // shaft
+            }
+            else if (Name == TEXT("menu"))
+            {
+                D = FMath::Min(D, SdBox(Q, P(32, 18), FVector2D(16, 3)));
+                D = FMath::Min(D, SdBox(Q, P(32, 32), FVector2D(16, 3)));
+                D = FMath::Min(D, SdBox(Q, P(32, 46), FVector2D(16, 3)));
+            }
+            else if (Name == TEXT("eye"))
+            {
+                D = FMath::Min(D, FMath::Abs(SdCircle(Q, P(32, 32), 15)) - 3.f);  // lid ring
+                D = FMath::Min(D, SdCircle(Q, P(32, 32), 5.5f));                  // pupil
+            }
+            else if (Name == TEXT("eyeoff"))
+            {
+                D = FMath::Min(D, FMath::Abs(SdCircle(Q, P(32, 32), 15)) - 3.f);
+                D = FMath::Min(D, SdCircle(Q, P(32, 32), 5.5f));
+                D = FMath::Min(D, SdSegment(Q, P(12, 12), P(52, 52)) - 3.f);      // slash
+            }
+            else if (Name == TEXT("pin"))
+            {
+                D = FMath::Min(D, SdCircle(Q, P(32, 24), 13.f));                  // head
+                D = FMath::Min(D, SdTriangle(Q, P(24, 28), P(40, 28), P(32, 54))); // tail
+            }
+            else if (Name == TEXT("camera"))
+            {
+                D = FMath::Min(D, SdBox(Q, P(32, 34), FVector2D(21, 14)));            // body
+                D = FMath::Min(D, FMath::Abs(SdCircle(Q, P(32, 34), 7.5f)) - 2.5f);   // lens
+                D = FMath::Min(D, SdBox(Q, P(26, 20), FVector2D(6, 4)));              // bump
+            }
+            else if (Name == TEXT("radio"))
+            {
+                D = FMath::Min(D, SdBox(Q, P(20, 32), FVector2D(6, 12)));            // cabinet
+                D = FMath::Min(D, SdTriangle(Q, P(26, 20), P(26, 44), P(38, 32)));   // cone
+                D = FMath::Min(D, FMath::Abs(SdCircle(Q, P(44, 32), 6.f)) - 2.5f);   // wave
+            }
+            else if (Name == TEXT("radiooff"))
+            {
+                D = FMath::Min(D, SdBox(Q, P(20, 32), FVector2D(6, 12)));
+                D = FMath::Min(D, SdTriangle(Q, P(26, 20), P(26, 44), P(38, 32)));
+                D = FMath::Min(D, FMath::Abs(SdCircle(Q, P(44, 32), 6.f)) - 2.5f);
+                D = FMath::Min(D, SdSegment(Q, P(44, 12), P(44, 52)) - 3.f);        // slash
+            }
+            Stamp(Buf, X, Y, Cov(D));
+        }
+    }
+    return Buf;
+}
+
+TMap<FString, TStrongObjectPtr<UTexture2D>> GGlyphCache;
+
+UTexture2D* GetOrCreateGlyphTexture(const FString& Name)
+{
+    if (TStrongObjectPtr<UTexture2D>* Cached = GGlyphCache.Find(Name))
+        return Cached->Get();
+    const TArray<uint8> Pixels = RenderGlyph(Name);
+    UTexture2D* Tex = UTexture2D::CreateTransient(kGlyphSize, kGlyphSize, PF_B8G8R8A8);
+    if (Tex && Tex->GetPlatformData() && Tex->GetPlatformData()->Mips.Num() > 0)
+    {
+        void* Data = Tex->GetPlatformData()->Mips[0].BulkData.Lock(LOCK_READ_WRITE);
+        FMemory::Memcpy(Data, Pixels.GetData(), Pixels.Num());
+        Tex->GetPlatformData()->Mips[0].BulkData.Unlock();
+        Tex->UpdateResource();
+    }
+    GGlyphCache.Add(Name, TStrongObjectPtr<UTexture2D>(Tex));
+    return Tex;
+}
+
+// Resolve an `icon` prop: "glyph:<name>" → procedural glyph, a "/"-containing
+// string → full asset path, otherwise a bare name under /Game/UI/Elements/.
+UTexture2D* ResolveIcon(const FString& Icon)
+{
+    if (Icon.IsEmpty()) return nullptr;
+    if (Icon.StartsWith(TEXT("glyph:"))) return GetOrCreateGlyphTexture(Icon.Mid(6));
+    if (Icon.Contains(TEXT("/"))) return GetOrLoadTexture(Icon);
+    return GetOrLoadTexture(FString::Printf(TEXT("/Game/UI/Elements/%s.%s"), *Icon, *Icon));
+}
+}  // namespace
+
 void ArtButton(UButton* Button, bool Selected, bool Tab)
 {
     if (!Button) return;
@@ -352,6 +487,40 @@ void ArtGhostButton(UButton* Button, bool Selected)
     Button->SetBackgroundColor(FLinearColor::White);
     if (auto* Label = Cast<UTextBlock>(Button->GetContent()))
         Label->SetColorAndOpacity(FSlateColor::UseForeground());
+}
+
+// Compact square-ish action button for the mobile icon bar: rounded, bordered,
+// with the same gold accent as the cockpit panels.
+void ArtIconButton(UButton* Button)
+{
+    if (!Button) return;
+    const FLinearColor Gold(.52f, .40f, .22f, .7f);
+    FButtonStyle Style;
+    Style.Normal    = FSlateRoundedBoxBrush(FLinearColor(.025f, .045f, .055f, .65f), 6.f, Gold, 1.f);
+    Style.Hovered   = FSlateRoundedBoxBrush(FLinearColor(.13f, .17f, .18f, .94f), 6.f, FLinearColor(.85f, .67f, .37f, 1.f), 1.f);
+    Style.Pressed   = FSlateRoundedBoxBrush(FLinearColor(.3f, .065f, .04f, .96f), 6.f, Gold, 1.f);
+    Style.Disabled  = Style.Normal;
+    Style.Disabled.TintColor = FLinearColor(.5f, .5f, .5f, .65f);
+    Style.NormalForeground = Style.HoveredForeground = Style.PressedForeground = theme::FG();
+    Style.NormalPadding = Style.PressedPadding = FMargin(12.f, 9.f);
+    Button->SetStyle(Style);
+    Button->SetBackgroundColor(FLinearColor::White);
+}
+
+// Transparent (ghost) variant of the icon button — text/icon only, hover fill.
+void ArtGhostIconButton(UButton* Button)
+{
+    if (!Button) return;
+    FButtonStyle Style;
+    Style.Normal    = FSlateRoundedBoxBrush(FLinearColor::Transparent, 6.f);
+    Style.Hovered   = FSlateRoundedBoxBrush(FLinearColor(.13f, .17f, .18f, .6f), 6.f);
+    Style.Pressed   = FSlateRoundedBoxBrush(FLinearColor(.3f, .065f, .04f, .96f), 6.f);
+    Style.Disabled  = Style.Normal;
+    Style.Disabled.TintColor = FLinearColor(.5f, .5f, .5f, .65f);
+    Style.NormalForeground = Style.HoveredForeground = Style.PressedForeground = theme::FG();
+    Style.NormalPadding = Style.PressedPadding = FMargin(12.f, 9.f);
+    Button->SetStyle(Style);
+    Button->SetBackgroundColor(FLinearColor::White);
 }
 
 }  // namespace
@@ -898,6 +1067,30 @@ UBorn2FlapComposite* UBorn2FlapUIRenderer::BuildComponent(const FString& Type)
         BindButton(Btn, C);
         return C;
     }
+    if (Type == TEXT("IconButton"))
+    {
+        UBorn2FlapComposite* C = NewComposite(this, TEXT("IconButton"));
+        C->SetPadding(FMargin(0.f));
+        UButton* Btn = NewObject<UButton>(this);
+        Btn->SetBackgroundColor(theme::ACCENT());
+        C->SetContent(Btn);
+        UHorizontalBox* Row = NewObject<UHorizontalBox>(this);
+        Btn->SetContent(Row);
+        UImage* Icon = NewObject<UImage>(this);
+        Icon->SetBrushSize(FVector2D(22, 22));
+        Icon->SetColorAndOpacity(FSlateColor(theme::FG()));
+        Row->AddChildToHorizontalBox(Icon)->SetPadding(FMargin(0, 0, 6, 0));
+        UTextBlock* Label = NewObject<UTextBlock>(this);
+        Label->SetFont(theme::Font(TEXT("m"), 13, true));
+        Label->SetColorAndOpacity(FSlateColor(theme::FG()));
+        Row->AddChildToHorizontalBox(Label);
+        ArtIconButton(Btn);
+        C->Parts.Add(TEXT("button"), Btn);
+        C->Parts.Add(TEXT("icon"), Icon);
+        C->Parts.Add(TEXT("label"), Label);
+        BindButton(Btn, C);
+        return C;
+    }
     if (Type == TEXT("Slider"))
     {
         UBorn2FlapComposite* C = NewComposite(this, TEXT("Slider"));
@@ -1355,6 +1548,33 @@ void UBorn2FlapUIRenderer::ApplyCompositeProps(UBorn2FlapComposite* C, const FPr
                 Label->SetColorAndOpacity(FSlateColor(FLinearColor(0.06f, 0.06f, 0.08f, 1.0f)));
             ArtButton(Btn, Tone == TEXT("good") || Tone == TEXT("danger"));
         }
+        StyleText(Label, Props);
+    }
+    else if (Type == TEXT("IconButton"))
+    {
+        UButton* Btn = Cast<UButton>(C->Part(TEXT("button")));
+        UImage* Icon = Cast<UImage>(C->Part(TEXT("icon")));
+        UTextBlock* Label = Cast<UTextBlock>(C->Part(TEXT("label")));
+        if (Props.count("icon") && Icon)
+        {
+            if (UTexture2D* Tex = ResolveIcon(Str(Props.at("icon"))))
+            {
+                Icon->SetBrushFromTexture(Tex);
+                Icon->SetBrushSize(FVector2D(22, 22));
+            }
+        }
+        if (Props.count("label") && Label) SetText(Label, Props.at("label"));
+        // A label-less IconButton is a pure icon (the text collapses, no dead gap).
+        if (Label)
+            Label->SetVisibility(Label->GetText().IsEmpty() ? ESlateVisibility::Collapsed : ESlateVisibility::SelfHitTestInvisible);
+        if (Props.count("disabled") && Btn) Btn->SetIsEnabled(!Props.at("disabled").AsBool(false));
+
+        const bool bGhost = (Tone == TEXT("ghost") || Tone == TEXT("ghost-active"));
+        if (bGhost) ArtGhostIconButton(Btn);
+        else { if (!Tone.IsEmpty() && Btn) Btn->SetBackgroundColor(ToneColor); ArtIconButton(Btn); }
+        const FLinearColor Ink = bGhost ? theme::FG() : FLinearColor(0.06f, 0.06f, 0.08f, 1.0f);
+        if (Icon) Icon->SetColorAndOpacity(FSlateColor(Ink));
+        if (Label) Label->SetColorAndOpacity(FSlateColor(Ink));
         StyleText(Label, Props);
     }
     else if (Type == TEXT("Slider"))

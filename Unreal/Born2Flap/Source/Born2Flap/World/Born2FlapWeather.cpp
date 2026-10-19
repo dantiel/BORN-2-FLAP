@@ -206,12 +206,13 @@ void ABorn2FlapWeather::EnsureMobileSky()
     Dome->SetRootComponent(Sky);
     Sky->RegisterComponent();
 
-    // Follow the camera so the horizon always reads (infinite-horizon illusion).
+    // Centre the dome on the active CAMERA (not the pawn/view-target). Centring
+    // on the pawn made the sphere's lower hemisphere dip below the horizon when
+    // the chase/ground camera moved away — a visible circle on the ground. A
+    // camera-centred dome keeps the horizon at infinity; Tick re-centres it.
+    MobileSkyDome = Dome;
     if (APlayerCameraManager* CamMgr = UGameplayStatics::GetPlayerCameraManager(this, 0))
-    {
-        if (AActor* ViewTarget = CamMgr->GetViewTarget())
-            Dome->AttachToActor(ViewTarget, FAttachmentTransformRules::SnapToTargetNotIncludingScale);
-    }
+        Dome->SetActorLocation(CamMgr->GetCameraLocation());
     UE_LOG(LogTemp, Display, TEXT("MobileSky: spawned sky-sphere dome (SkyAtmosphere is SM5-only)"));
 #endif
 }
@@ -270,6 +271,9 @@ void ABorn2FlapWeather::Tick(float DeltaSeconds)
     if(auto* Camera=UGameplayStatics::GetPlayerCameraManager(this,0))
     {
         const FVector Center=Camera->GetCameraLocation();
+        // Re-centre the sky dome on the camera every frame (see EnsureMobileSky).
+        if (MobileSkyDome)
+            MobileSkyDome->SetActorLocation(Center);
         for(int32 I=0;I<Positions.Num();++I)
         {
             FVector Velocity=Born2FlapWeather::Wind(Level,Conditions,Positions[I],Time)*100;
