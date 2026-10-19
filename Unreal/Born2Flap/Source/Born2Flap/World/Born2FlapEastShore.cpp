@@ -1,6 +1,7 @@
 #include "World/Born2FlapBayTerrain.h"
 #include "Components/HierarchicalInstancedStaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
+#include "Materials/MaterialInterface.h"
 
 namespace Born2FlapBay
 {
@@ -27,6 +28,17 @@ double EastShoreHeight(double X,double Y,double Original)
     const double Detail=FMath::PerlinNoise2D(FVector2D(X*.006,Y*.005));
     H+=(Rock*75+Detail*12)*FMath::SmoothStep(-13000.,-7000.,D)
         *(1-FMath::SmoothStep(800.,4500.,D));
+    // Broad granite shoulders break up the former smooth spit. Fade to the
+    // original waterline; the 2 m collision grid resolves this relief too.
+    const double Shoulder=FMath::SmoothStep(54000.,65000.,X)
+        *(1-FMath::SmoothStep(90000.,103000.,X))
+        *FMath::SmoothStep(11000.,19000.,Y)*(1-FMath::SmoothStep(-6500.,-1800.,D));
+    H+=Shoulder*(260+310*FMath::PerlinNoise2D(FVector2D(X*.00045,Y*.00045))
+        +95*FMath::PerlinNoise2D(FVector2D(X*.002,Y*.002)));
+    // The concrete compound occupies a small cut terrace behind the shoulder.
+    const double Pad=(1-FMath::SmoothStep(2300.,3400.,FMath::Abs(X-81600)))
+        *(1-FMath::SmoothStep(1800.,2900.,FMath::Abs(Y-28800)));
+    H=FMath::Lerp(H,740.,Pad);
     return FMath::Lerp(Original,H,Mask);
 }
 }
@@ -47,6 +59,10 @@ void ABorn2FlapBayTerrain::BuildEastShore()
     auto* RocksA=Group(TEXT("/Game/Shiomori/EastShore/SM_CoastRockA"),true);
     auto* RocksB=Group(TEXT("/Game/Shiomori/EastShore/SM_CoastRockB"),true);
     auto* Stone=Group(TEXT("/Game/Nature/SM_Rock2"),true);
+    auto* Granite=LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Shiomori/Materials/M_EastGranite"));
+    if(Granite)Stone->SetMaterial(0,Granite);
+    auto* DarkStone=Group(TEXT("/Game/Nature/SM_Rock2"),true);
+    if(auto* Basalt=LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Shiomori/Materials/M_EastBasalt")))DarkStone->SetMaterial(0,Basalt);
     auto* Shrub=Group(TEXT("/Game/Shiomori/EastShore/SM_CoastalShrub"));
     auto* Grass=Group(TEXT("/Game/Nature/SM_Grass1"));
     auto* Fern=Group(TEXT("/Game/Nature/SM_Fern0"));
@@ -71,7 +87,21 @@ void ABorn2FlapBayTerrain::BuildEastShore()
         C->AddInstance(FTransform(Q,FVector(X,Y,Ground-Bury)-Base,FVector(S)),true);
     };
     FRandomStream R(131071);
+    // Embedded granite, rather than volcanic towers: low broken outcrops.
+    for(int I=0;I<170;++I)
+    {
+        const double X=R.FRandRange(59500,96000),Y=R.FRandRange(16500,43500);
+        if(FMath::Abs(X-81600)<3900 && FMath::Abs(Y-28800)<3400)continue;
+        if(Born2FlapBay::Height(X,Y)<220)continue;
+        const double Size=R.FRandRange(230,760);
+        Place(Stone,X,Y,Size,true,Size*.43,R);
+    }
     // Irregular clusters of low wave-worn formations across the upper strand.
+    for(int I=0;I<24;++I)
+    {
+        const double X=R.FRandRange(60000,94000),Y=R.FRandRange(34500,43500),Size=R.FRandRange(35,95);
+        Place(DarkStone,X,Y,Size,true,Size*.55,R);
+    }
     for(int I=0;I<65;++I)
     {
         const double X=R.FRandRange(59000,94000),Y=Born2FlapBay::EastShoreEdge(X)+R.FRandRange(-5600,700);
@@ -102,6 +132,7 @@ void ABorn2FlapBayTerrain::BuildEastShore()
     for(int I=0;I<23000;++I)
     {
         const double X=R.FRandRange(53000,101000),Y=R.FRandRange(12000,53000);
+        if(FMath::Abs(X-81600)<3500 && FMath::Abs(Y-28800)<2900)continue;
         if(Born2FlapBay::EastShoreMask(X,Y)<.35)continue;
         const double H=Born2FlapBay::Height(X,Y),D=Y-Born2FlapBay::EastShoreEdge(X);
         if(H<115 || D>-1700)continue;

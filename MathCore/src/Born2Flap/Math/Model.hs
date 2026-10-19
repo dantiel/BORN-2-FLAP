@@ -22,7 +22,7 @@ module Born2Flap.Math.Model
   , kestrelLightModel
   ) where
 
-import Born2Flap.Math.Planform (WingShape, defaultBirdWing, scaleWing)
+import Born2Flap.Math.Planform (WingShape(..), defaultBirdWing, scaleWing)
 import Born2Flap.Math.Structure
   ( Spar(..), SparKind(..), SparInventory(..), kestrelSpars )
 
@@ -39,12 +39,36 @@ data WingModel = WingModel
 kestrelModel :: WingModel
 kestrelModel = WingModel "kestrel" defaultBirdWing kestrelSpars 0.050
 
+-- | Horizontal servo mount angle of the RavenCrow ornithopter [deg]. The flap
+-- hinge axis is yawed this much in the horizontal plane, so each stroke sweeps
+-- the wing fore/aft; the section's angle of attack therefore varies with its
+-- up/down position — a position-dependent "drag rudder". The kestrel (and every
+-- other model sharing 'defaultBirdWing') keeps this at zero = parallel, pure-
+-- dihedral flapping. The servo-arm angle below cancels the neutral-sweep shift
+-- this yaw introduces.
+ravenServoMountAngleDeg :: Double
+ravenServoMountAngleDeg = 8
+
+-- | Horizontal servo-arm angle [deg]: rotates the leading-edge carbon spar at
+-- the servo arm so the wing's neutral (mid-stroke) sweep stays at the design
+-- outline even though the servo is yawed by 'ravenServoMountAngleDeg'. Equal to
+-- the mount angle ⇒ fully compensated neutral sweep; set independently to bias
+-- the sweep. Future wing pairs (e.g. a dragonfly's front vs hind pair) set their
+-- own mount/arm pair.
+ravenServoArmAngleDeg :: Double
+ravenServoArmAngleDeg = ravenServoMountAngleDeg
+
 -- | RavenCrow (nature valley): 0.66 m half-span (1.32 m full span), the kestrel
 -- outline scaled 1.2×. Its spars are its OWN list (the kestrel construction at
 -- 1.2×, written out with specific diameters/lengths so any rod can be edited
 -- independently). Mass scales ~s³ (structural similarity): 50 g × 1.2³.
 ravenModel :: WingModel
-ravenModel = WingModel "raven" (scaleWing 1.2 defaultBirdWing) ravenSpars 0.086
+ravenModel = WingModel "raven" ravenWing ravenSpars 0.086
+  where
+    ravenWing = (scaleWing 1.2 defaultBirdWing)
+      { wsMountAngleDeg = ravenServoMountAngleDeg
+      , wsArmAngleDeg = ravenServoArmAngleDeg
+      }
 
 -- | Prototype (training arena): 0.495 m half-span (0.99 m full span), the
 -- kestrel outline scaled 0.9×, with its own 0.9× spar list. Mass 50 g × 0.9³.

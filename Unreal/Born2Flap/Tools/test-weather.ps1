@@ -2,14 +2,14 @@ param(
     [string]$EngineRoot='V:\UE_5.8',
     [ValidateSet('Shiomori','Ravenstonefield','Training')][string]$Level='Shiomori',
     [string]$Weather='parhelion', [string]$DayTime='morning',
-    [switch]$All, [switch]$Menu, [switch]$Experience, [switch]$BirdWater, [switch]$Volcanic, [switch]$Campus, [switch]$Cliffs, [switch]$EastShore, [switch]$EastStrand, [switch]$SandDetail
+    [switch]$All, [switch]$Menu, [switch]$Experience, [switch]$BirdWater, [switch]$Volcanic, [switch]$Campus, [switch]$Cliffs, [switch]$EastShore, [switch]$EastStrand, [switch]$SandDetail, [switch]$EasternStation
 )
 $ErrorActionPreference='Stop'
 if($BirdWater){$Experience=$true;$Level='Shiomori'}
 if($Volcanic){$Experience=$true;$Level='Shiomori'}
 if($Campus){$Experience=$true;$Level='Shiomori'}
 if($Cliffs){$Experience=$true;$Level='Shiomori'}
-if($EastStrand -or $SandDetail){$EastShore=$true}
+if($EastStrand -or $SandDetail -or $EasternStation){$EastShore=$true}
 if($EastShore){$Experience=$true;$Level='Shiomori'}
 $project=(Resolve-Path (Join-Path $PSScriptRoot '../Born2Flap.uproject')).Path
 $cases=, @($Level,$Weather,$DayTime)
@@ -35,6 +35,7 @@ foreach($case in $cases){
     if($EastShore){$arguments+='-B2FEastShoreTest'}
     if($EastStrand){$arguments+='-B2FEastStrandTest'}
     if($SandDetail){$arguments+='-B2FSandDetailTest'}
+    if($EasternStation){$arguments+='-B2FEasternStationTest'}
     $process=Start-Process -FilePath (Join-Path $EngineRoot 'Engine/Binaries/Win64/UnrealEditor-Cmd.exe') -ArgumentList $arguments -WindowStyle Hidden -PassThru
     if(!$process.WaitForExit(180000)){Stop-Process -Id $process.Id;throw "Weather test timed out: $log"}
     $marker=if($Menu){'WeatherMenuTest PASS'}elseif($Experience){'WeatherExperienceTest PASS'}else{'WeatherTest PASS'}

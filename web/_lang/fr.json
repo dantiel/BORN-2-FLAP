@@ -3,7 +3,6 @@
   "dir": "ltr",
   "title": "BORN2FLAP — Simulateur de vol d'ornithoptère",
   "meta_desc": "BORN2FLAP est un simulateur de vol d'ornithoptère en temps réel : ailes segmentées, décrochage dynamique et flexion aéroélastique. Chaque battement d'aile compte.",
-
   "asset_prefix": "..",
   "lang_href_en": "../",
   "lang_href_de": "../de/",
@@ -21,7 +20,6 @@
   "lang_class_ja": "",
   "lang_class_ko": "",
   "lang_class_ru": "",
-
   "nav_home": "BORN2FLAP",
   "nav_essence": "Essence",
   "nav_flight": "L'Aile",
@@ -30,7 +28,6 @@
   "nav_open": "Open source",
   "nav_tutorials": "Tutoriels",
   "nav_documentation": "Documentation",
-
   "hero_kicker": "UN SIMULATEUR DE VOL D'ORNITHOPTÈRE",
   "hero_title_a": "BORN",
   "hero_title_b": "2",
@@ -42,7 +39,6 @@
   "hero_cta_epic": "Obtenez-le sur Epic",
   "hero_cta_source": "Lire le code",
   "hero_version": "Unreal Engine 5 · Haskell MathCore · Licence MIT",
-
   "essence_num": "01",
   "essence_title": "Essence",
   "essence_lead": "Un ornithoptère n'est pas un quad. C'est une aile qui bat.",
@@ -53,7 +49,6 @@
   "essence_p2_body": "Radio CRSF, mixeurs ONDAS, PID et noyaux de servos portés du firmware réel. Pilotez avec une vraie radiocommande.",
   "essence_p3_title": "Conséquence réelle",
   "essence_p3_body": "Flèche, vrillage, cambrure et raideur changent le vol. Construisez-le, puis survivez-lui.",
-
   "flight_num": "02",
   "flight_title": "L'Aile",
   "flight_lead": "Aéroélastique, honnête, vivante.",
@@ -74,7 +69,6 @@
   "flight_spec_wave_val": "dwell asymétrique / pointue, verrouillée",
   "flight_spec_step_label": "Pas de temps",
   "flight_spec_step_val": "fixe 240 Hz",
-
   "arch_num": "03",
   "arch_title": "Architecture",
   "arch_lead": "Trois langages, un cœur qui bat.",
@@ -87,8 +81,7 @@
   "arch_ruby_title": "Cerveau Ruby",
   "arch_ruby_desc": "État de l'app, menus, règles et orchestration — l'esprit lent derrière les mathématiques rapides.",
   "arch_pipeline": "RC / Gamepad  ──►  Firmware (CRSF · mixeur · PID)\n                         │\n                         ▼\n              Haskell MathCore (fixe 240 Hz)\n                         │\n                         ▼\n              C / C++ FFI  ──►  Unreal / Chaos",
-
-  "game_num": "04",
+  "game_num": "05",
   "game_title": "Gameplay",
   "game_lead": "Facile à commencer, dur à maîtriser.",
   "game_free_title": "Vol libre",
@@ -103,13 +96,11 @@
   "game_landing_desc": "Atterrissages au point dans le vent — la plus ancienne discipline, la plus dure.",
   "game_bench_title": "Banc d'essai",
   "game_bench_desc": "Vue en soufflerie : vecteurs de force, cartes de décrochage, déformation de l'aile en direct.",
-
-  "open_num": "06",
+  "open_num": "07",
   "open_title": "Open source",
   "open_lead": "Commercial et libre à la fois.",
   "open_body": "BORN2FLAP sort sur Steam et l'Epic Games Store, et son propre code est publié sous <strong>licence MIT</strong>. Le noyau de physique, le pont, le cerveau — ouverts. Pilotez le jeu, prenez l'aile et construisez la vôtre. Unreal Engine et les assets tiers conservent leurs propres licences. Projets open source liés : <a href=\"https://dantiel.github.io/OrniFlight/\">OrniFlight</a> (axé sur les contrôleurs de vol STM32) et <a href=\"https://dantiel.github.io/PteronautOS/\">PteronautOS</a> (plus polyvalent sur du matériel simple) — chacun avec son propre configurateur et firmware.",
   "open_license": "Licence MIT",
-
   "footer_github": "GitHub",
   "footer_docs": "Documentation",
   "footer_tutorials": "Tutoriels",
@@ -117,43 +108,33 @@
   "footer_epic": "Epic Games",
   "footer_hermetic": "Écrit dans l'éther par des cœurs féroces.",
   "footer_credit": "BORN2FLAP ·",
-
   "subnav_scroll": "Revenir en haut",
   "subnav_home": "Retour à BORN2FLAP",
-
   "doc_title": "Documentation — BORN2FLAP",
   "doc_h1": "Documentation",
   "doc_lead": "L'aile, les mathématiques et la machine — expliquées.",
   "doc_h2_articles": "Articles",
-
   "ph_title": "Physique — BORN2FLAP",
   "ph_h1": "Physique",
   "ph_lead": "Le modèle réduit en temps réel.",
-
   "wing_title": "L'Aile — BORN2FLAP",
   "wing_h1": "L'Aile",
   "wing_lead": "Plan, profil, structure.",
-
   "wave_title": "Forme d'onde — BORN2FLAP",
   "wave_h1": "Forme d'onde",
   "wave_lead": "Oscillation verrouillée.",
-
   "ctl_title": "Contrôles — BORN2FLAP",
   "ctl_h1": "Contrôles",
   "ctl_lead": "CRSF, mixeur, firmware.",
-
   "tut_title": "Tutoriels — BORN2FLAP",
   "tut_h1": "Tutoriels",
   "tut_lead": "Du premier battement à l'accord manuel.",
-
   "ff_title": "Premier vol — BORN2FLAP",
   "ff_h1": "Premier vol",
   "ff_lead": "Décollez, restez en l'air.",
-
   "wd_title": "Conception d'aile — BORN2FLAP",
   "wd_h1": "Conception d'aile",
   "wd_lead": "La géométrie est le destin.",
-
   "tune_title": "Réglage — BORN2FLAP",
   "tune_h1": "Réglage",
   "tune_lead": "Accordez l'aile à vos mains."

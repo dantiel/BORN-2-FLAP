@@ -1,5 +1,48 @@
 # Shiomori eastern spit
 
+## Eastern granite shoulder and restricted installation (2026-10-18)
+
+The outer east headland now has an additional shared terrain/collision profile:
+low irregular granite shoulders, embedded pale mineral-speckled outcrops and
+only a few small, mostly buried dark stones. The relief fades before the existing
+shingle waterline. Granite ground shading uses world-space mineral grains with
+pixel-footprint filtering, mixed into the existing shore material.
+
+A small, unnamed fenced compound occupies a cut terrace at approximately
+world `(81600, 28800, 740)` cm. It contains a low windowless concrete bunker,
+closed steel door with lock hardware, and three 11.4 m concave satellite dishes.
+Its purpose is deliberately unexplained. The wooded shoulder is intended to
+conceal most of it from the eastern vegetation beach. Thirty four-legged
+concrete armour units occupy the outer waterline. These are runtime geometry,
+so a full saved-map regeneration is unnecessary.
+
+East of X=90000 cm, north of Y=-3000 cm, the flight HUD warns of restricted
+airspace. Crossing X=96000 returns the aircraft to launch; the limit applies
+at every altitude. The compound and tetrapods remain on the accessible side.
+F7 hides this notice with the rest of the HUD, but does not disable the boundary.
+
+Implementation: `Born2FlapEasternStation.cpp`, `Born2FlapEastShore.cpp`,
+`eastern_station_materials.py`. Refresh only the station and terrain surfaces
+with `Tools/rebuild_eastern_station.py` in the Unreal Python commandlet; this
+avoids unnecessarily rewriting the existing coastal scans.
+
+Validation commands after closing Unreal Editor and building:
+
+```
+Tools/test-shiomori.ps1 -NoRender -EastShore
+Tools/test-weather.ps1 -EasternStation -Weather sunny -DayTime noon
+```
+
+The collision test includes the granite shoulder, cut terrace and bunker door.
+The render mode captures the beach vegetation sightline, compound approach,
+tetrapods from the sea and an aerial overview. Visual concealment is an
+acceptance requirement, not established by a successful build.
+
+Current verification: initial editor build and Python syntax checks passed.
+The subsequent material-generation run encountered open-editor asset locks;
+final build, material compilation, collision checks and visual inspection are
+pending. Do not treat this section as visual acceptance or release validation.
+
 The seaward end of the eastern peninsula (positive world X) is a low shingle
 and rock shore. It deliberately stays distinct from the high western cliffs.
 The existing central bathing beach, houses and west campus remain outside the

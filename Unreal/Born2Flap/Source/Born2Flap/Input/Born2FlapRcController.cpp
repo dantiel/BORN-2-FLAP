@@ -106,6 +106,26 @@ void FBorn2FlapRcController::SaveCalibration()
     Config.Write(ConfigPath);
     UE_LOG(LogTemp, Display, TEXT("RcCalibration saved device=%s enabled=%d"), *DeviceName, bEnabled);
 }
+void FBorn2FlapRcController::SaveButtons()
+{
+    FConfigFile Config;
+    Config.Read(ConfigPath);
+    Config.bCanSaveAllSections = true;
+    Config.SetInt64(*DeviceId, TEXT("LaunchButton"), LaunchButton);
+    Config.SetInt64(*DeviceId, TEXT("ResetButton"), ResetButton);
+    IFileManager::Get().MakeDirectory(*FPaths::GetPath(ConfigPath), true);
+    Config.Write(ConfigPath);
+}
+void FBorn2FlapRcController::SaveEnabled()
+{
+    FConfigFile Config;
+    Config.Read(ConfigPath);
+    Config.bCanSaveAllSections = true;
+    Config.SetString(TEXT("Selection"), TEXT("Device"), *DeviceId);
+    Config.SetBool(TEXT("Selection"), TEXT("Enabled"), bEnabled);
+    IFileManager::Get().MakeDirectory(*FPaths::GetPath(ConfigPath), true);
+    Config.Write(ConfigPath);
+}
 void FBorn2FlapRcController::SelectDevice(int32 Index)
 {
 #if PLATFORM_WINDOWS
@@ -261,10 +281,20 @@ void FBorn2FlapRcController::ToggleEnabled()
 }
 void FBorn2FlapRcController::LearnLaunch()
 {
+    if (!bConnected)
+    {
+        Notice = TEXT("Kein Sender verbunden.");
+        return;
+    }
     LearnButton = 1;
 }
 void FBorn2FlapRcController::LearnReset()
 {
+    if (!bConnected)
+    {
+        Notice = TEXT("Kein Sender verbunden.");
+        return;
+    }
     LearnButton = 2;
 }
 TArray<FString> FBorn2FlapRcController::GetDeviceNames() const
@@ -293,13 +323,40 @@ void FBorn2FlapRcController::Tick(APlayerController *Player, float Dt)
     {
         ScanTime = 0;
         D.Scan();
+        TArray<FString> Present;
+        for (const auto &Dev : D.devices)
+            Present.Add(FString(Dev.id.c_str()));
+        bool bAutoEnabled = false;
         if (!bConnected)
-            for (int32 I = 0; I < int32(D.devices.size()); ++I)
-                if (DeviceId == D.devices[I].id.c_str() || (DeviceId.IsEmpty() && I == 0))
+        {
+            // 1) A freshly plugged USB transmitter is selected automatically
+            //    (its id was not present in the previous scan).
+            for (int32 I = 0; I < Present.Num(); ++I)
+                if (!PrevDeviceIds.Contains(Present[I]))
+                {
+                    SelectDevice(I);
+                    bAutoEnabled = true;
+                    break;
+                }
+        }
+        if (!bConnected)
+        {
+            // 2) Otherwise re-select the remembered device (or the first one).
+            for (int32 I = 0; I < Present.Num(); ++I)
+                if (DeviceId == Present[I] || (DeviceId.IsEmpty() && I == 0))
                 {
                     SelectDevice(I);
                     break;
                 }
+        }
+        // A freshly connected transmitter is armed only when its calibration is
+        // already known; otherwise it stays disabled until the user calibrates.
+        if (bAutoEnabled && bConnected)
+        {
+            bEnabled = Calibration.Valid();
+            SaveEnabled();
+        }
+        PrevDeviceIds = MoveTemp(Present);
     }
     if (bConnected)
     {
@@ -353,7 +410,7 @@ void FBorn2FlapRcController::Tick(APlayerController *Player, float Dt)
                 {
                     (LearnButton == 1 ? LaunchButton : ResetButton) = I;
                     LearnButton = 0;
-                    SaveCalibration();
+                    SaveButtons();
                     Notice = TEXT("Taster gespeichert.");
                 }
             }

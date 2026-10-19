@@ -9,7 +9,7 @@ def install(scope, api):
     fm=scope['foliage_meshes'];tag=api['TAG'] if 'TAG' in api else 'ShiomoriCampusV2'
     tx,ty=api['tx'],api['ty'];sight=math.radians(api['sight'])
     direction=(math.cos(sight),math.sin(sight))
-    paths=api['path']+api['shrine_path'][1:]
+    paths=api['stair_path']+api['path'][1:]+api['shrine_path'][1:]
     def segment_distance(x,y,a,b):
         dx,dy=b[0]-a[0],b[1]-a[1];t=max(0,min(1,((x-a[0])*dx+(y-a[1])*dy)/max(1,dx*dx+dy*dy)))
         return math.hypot(x-a[0]-t*dx,y-a[1]-t*dy)
@@ -17,7 +17,7 @@ def install(scope, api):
         dx,dy=x-tx,y-ty;along=dx*direction[0]+dy*direction[1];side=abs(dx*direction[1]-dy*direction[0])
         if math.hypot(dx,dy)<(1300 if height>150 else 650):return False
         if height>150 and -1800<along<22000 and side<1400+height*.4:return False
-        if any(segment_distance(x,y,a,b)<(550 if height>200 else 200) for a,b in zip(paths,paths[1:])):return False
+        if any(segment_distance(x,y,a,b)<(650 if height>200 else 360) for a,b in zip(paths,paths[1:])):return False
         if math.hypot(x-api['qx'],y-api['qy'])<650:return False
         return True
     count=0

@@ -90,7 +90,7 @@ b2f_math_get_wing_forces contextPointer capacity leftPointer rightPointer
     failure :: SomeException -> IO Int32
     failure _ = pure 0
 b2f_math_abi_version :: IO Word32
-b2f_math_abi_version = pure 13
+b2f_math_abi_version = pure 14
 
 b2f_math_runtime_init :: IO Int32
 b2f_math_runtime_init = pure 1
@@ -184,14 +184,17 @@ data TuningConfig = TuningConfig
   , tgBatteryVoltage    :: !Double  -- ^ nominal voltage [V]
   , tgBatteryResistance :: !Double  -- ^ internal resistance [Ω]
   , tgBatteryCapacity   :: !Double  -- ^ capacity [Ah]
+  , tgBatteryCRating    :: !Double  -- ^ continuous discharge rating (C), e.g. 30
+  , tgBatteryBurstCRating :: !Double  -- ^ burst discharge rating (C), e.g. 60 = momentarily double
   , tgFlapBaseFreqDh    :: !Double  -- ^ flap frequency ceiling [deci-Hz, 10..200]
   , tgTailElevatorAngleDeg :: !Double  -- ^ tail elevator angle (flap stroke centre trim) [deg]
   , tgGlideAngleDeg     :: !Double  -- ^ glide incidence [deg]
   , tgStrokeFerocity    :: !Double  -- ^ downstroke ferocity [0..100]
   , tgAileronScale      :: !Double  -- ^ aileron mix [0..100]
   , tgElevatorScale     :: !Double  -- ^ elevator mix [0..100]
-  , tgMountAngleDeg     :: !Double  -- ^ wing mount incidence (common flap/glide trim) [deg]
+  , tgFlapCentreDeg     :: !Double  -- ^ flap stroke centre trim (dihedral), like tail elevator [deg]
   , tgBodyMassKg        :: !Double  -- ^ airframe mass [kg], scales the wing planform
+  , tgVerticalMountAngleDeg :: !Double  -- ^ real wing mount incidence (nose-up +) [deg]
   }
 
 b2f_math_create_firmware_vehicle :: Ptr () -> IO (Ptr ())
@@ -300,10 +303,10 @@ b2f_math_reconfigure_firmware_vehicle contextPointer tuningPointer
 
 peekTuning :: Ptr () -> IO TuningConfig
 peekTuning pointer = do
-  values <- mapM (peekElemOff (castPtr pointer :: Ptr CDouble)) [0 .. 13]
+  values <- mapM (peekElemOff (castPtr pointer :: Ptr CDouble)) [0 .. 16]
   case map (\(CDouble value) -> value) values of
-    [speed, stall, backdrive, voltage, resistance, capacity, freq, tailElev, glide, ferocity, aileron, elevator, mount, mass] ->
-      pure (TuningConfig speed stall backdrive voltage resistance capacity freq tailElev glide ferocity aileron elevator mount mass)
+    [speed, stall, backdrive, voltage, resistance, capacity, cRating, burstRating, freq, tailElev, glide, ferocity, aileron, elevator, flapCentre, mass, verticalMount] ->
+      pure (TuningConfig speed stall backdrive voltage resistance capacity cRating burstRating freq tailElev glide ferocity aileron elevator flapCentre mass verticalMount)
     _ -> error "unreachable tuning layout"
 
 applyTuning :: TuningConfig -> FwContext -> FwContext
@@ -313,10 +316,13 @@ applyTuning t ctx =
         , servoStallTorqueNm = max 0 (tgStallTorque t)
         , servoBackdriveDegPerSecNm = max 0 (tgBackdrive t)
         }
+      cRate = clampRange 1 200 (tgBatteryCRating t)
       battery = (fwcBattery ctx)
         { batteryNominalVoltage = max 0 (tgBatteryVoltage t)
         , batteryInternalResistanceOhm = max 0 (tgBatteryResistance t)
         , batteryCapacityAh = max 0 (tgBatteryCapacity t)
+        , batteryCRating = cRate
+        , batteryBurstCRating = max cRate (clampRange 1 400 (tgBatteryBurstCRating t))
         }
       profile = (fwProfile (fwcParams ctx))
         { profTailElevatorAngleDeg = clampRange (-15) 15 (tgTailElevatorAngleDeg t)
@@ -344,7 +350,8 @@ applyTuning t ctx =
       params = (fwcParams ctx)
         { fwServoSpeedMs = 60000 / servoSpeedDegS
         , fwFlapBaseFreqDh = flapBaseFreqDh
-        , fwMountIncidenceDeg = clampRange (-15) 15 (tgMountAngleDeg t)
+        , fwFlapCentreDeg = clampRange (-15) 15 (tgFlapCentreDeg t)
+        , fwVerticalMountIncidenceDeg = clampRange (-15) 15 (tgVerticalMountAngleDeg t)
         , fwProfile = profile
         }
   in ctx { fwcServo = servo, fwcBattery = battery, fwcParams = params, fwcMass = max 0.01 (tgBodyMassKg t) }

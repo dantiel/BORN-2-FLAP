@@ -30,4 +30,6 @@
     %HBox{ spacing: 12 }
       %Button{ label: "#{t('menu.prev')}", action: "menu.prevWorld" }
       %Button{ label: "#{t('menu.play')}  #{world_title}", action: "menu.#{world_id.downcase}", tone: "good" }
+      - if world_id == "Shiomori"
+        %Button{ label: "HARVEST WATCH - guard the sweet potatoes", action: "menu.harvestwatch", tone: "accent" }
       %Button{ label: "#{t('menu.next')}", action: "menu.nextWorld" }

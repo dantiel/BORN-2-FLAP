@@ -1,4 +1,5 @@
-﻿#include "Game/Born2FlapHUD.h"
+#include "Game/Born2FlapHUD.h"
+#include "Game/Born2FlapHarvestWatch.h"
 #include "Flight/Born2FlapFlightPawn.h"
 #include "Game/Born2FlapGameMode.h"
 #include "Engine/Canvas.h"
@@ -37,6 +38,24 @@ void ABorn2FlapHUD::DrawHUD()
     auto *Bird = Cast<ABorn2FlapFlightPawn>(GetOwningPawn());
     if (!Bird)
         return;
+    // A gameplay boundary notice, also visible with the semantic/Brain HUD.
+    // Use canvas text rather than development-only debug messages.
+    if(const auto* Mode=Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode());Mode && Mode->IsCoastLevel())
+    {
+        const FVector Position=Bird->GetActorLocation();
+        if(Position.X>90000 && Position.Y>-3000 && !Bird->IsUIHidden())
+            DrawText(TEXT("RESTRICTED AIRSPACE AHEAD - TURN BACK"),FLinearColor(.95,.72,.3),
+                Canvas->SizeX*.5f-225,Canvas->SizeY*.22f,GEngine->GetMediumFont(),1.f);
+    }
+    if(const auto* Mode=Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode());Mode && Mode->IsHarvestWatch() && !Mode->IsMenuOpen() && !Bird->IsUIHidden() && !Bird->IsFlightSettingsOpen())
+        for(TActorIterator<ABorn2FlapHarvestWatch> It(GetWorld());It;++It)
+        {
+            const float X=Canvas->SizeX*.5f-390,Y=Canvas->SizeY-150;
+            DrawRect(FLinearColor(.015,.025,.018,.88),X-12,Y-8,805,62);
+            DrawText(It->Status(),FLinearColor(.93,.85,.60),X,Y,GEngine->GetSmallFont(),1.f);
+            DrawText(It->PlotStatus(),FLinearColor(.77,.84,.72),X,Y+28,GEngine->GetSmallFont(),.86f);
+            break;
+        }
     // F9 stream overlay: a faint line from screen centre showing the mouse
     // control-input direction (not the cursor position). Drawn before the Brain
     // early-return so it also shows while the Ruby Brain authors the panels —
@@ -46,7 +65,13 @@ void ABorn2FlapHUD::DrawHUD()
         if (PC->WasInputKeyJustPressed(born2flap::keybinds::Get(TEXT("ToggleMouseInd"))))
             bShowMouseIndicator = !bShowMouseIndicator;
     if (bShowMouseIndicator)
-        DrawMouseIndicator(*Bird);
+    {
+        const FBorn2FlapRcController* Rc = Bird->GetRcController();
+        if (Rc && Rc->IsEnabled() && Rc->IsConnected())
+            DrawRcSticks(*Bird, *Rc);
+        else
+            DrawMouseIndicator(*Bird);
+    }
     // Brain path: the Ruby Brain authors every panel (cockpit / RC / channels /
     // radio / menu / poi / splash) — the imperative canvas stays dormant.
     if (auto* GM = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode()))
@@ -237,7 +262,62 @@ void ABorn2FlapHUD::DrawMouseIndicator(const ABorn2FlapFlightPawn& Bird)
         DrawLine(X0, Y0, X1, Y1, FLinearColor(Ring.R, Ring.G, Ring.B, Ring.A * Alpha), 0.8f);
     }
     DrawText(TEXT("MOUSE"), FLinearColor(Line.R, Line.G, Line.B, Line.A * (0.3f + 0.7f * Mag)),
-             CX + 8.f, CY + 8.f, GEngine->GetSmallFont(), .7f);
+              CX + 8.f, CY + 8.f, GEngine->GetSmallFont(), .7f);
+}
+void ABorn2FlapHUD::DrawRcSticks(const ABorn2FlapFlightPawn& Bird, const FBorn2FlapRcController& Rc)
+{
+    // Two translucent transmitter gimbals pinned to the bottom of the screen —
+    // the in-flight mirror of the RC panel's STICKS tab. Left = throttle/yaw,
+    // right = pitch/roll (Mode 2). Only shown when RC control is actually armed.
+    const auto& Ch = Rc.GetChannels();
+    const float Gas   = FMath::Clamp((float)Ch[0], 0.f, 1.f);
+    const float Roll  = FMath::Clamp((float)Ch[1], -1.f, 1.f);
+    const float Pitch = FMath::Clamp((float)Ch[2], -1.f, 1.f);
+    const float Yaw   = FMath::Clamp((float)Ch[3], -1.f, 1.f);
+
+    const float Size   = 150.f;
+    const float Gap    = 40.f;
+    const float Bottom = Canvas->SizeY - 30.f;
+    const float Top    = Bottom - Size;
+    const float LeftCX  = Canvas->SizeX * 0.5f - Size - Gap * 0.5f;
+    const float RightCX = Canvas->SizeX * 0.5f + Size + Gap * 0.5f;
+    const FLinearColor Gold(0.95f, 0.72f, 0.30f);
+    const FLinearColor Cyan(0.42f, 0.85f, 0.9f);
+
+    auto Gimbal = [&](float CX, float StickX, float StickY, const FLinearColor& Tone,
+                      const TCHAR* Vert, const TCHAR* Horiz)
+    {
+        const float X = CX - Size * 0.5f;
+        const float Y = Top;
+        const float CenterX = CX;
+        const float CenterY = Top + Size * 0.5f;
+        // Translucent bezel + hairline outline (never an opaque white block).
+        DrawRect(FLinearColor(0.02f, 0.04f, 0.05f, 0.45f), X, Y, Size, Size);
+        const FLinearColor Edge(0.40f, 0.52f, 0.58f, 0.85f);
+        DrawLine(X, Y, X + Size, Y, Edge, 1.5f);
+        DrawLine(X + Size, Y, X + Size, Y + Size, Edge, 1.5f);
+        DrawLine(X + Size, Y + Size, X, Y + Size, Edge, 1.5f);
+        DrawLine(X, Y + Size, X, Y, Edge, 1.5f);
+        // Crosshair.
+        const float Reach = Size * 0.42f;
+        const FLinearColor Hair(0.30f, 0.40f, 0.46f, 0.5f);
+        DrawLine(CenterX - Reach, CenterY, CenterX + Reach, CenterY, Hair, 1.f);
+        DrawLine(CenterX, CenterY - Reach, CenterX, CenterY + Reach, Hair, 1.f);
+        // Shaft + knob (screen Y grows downward, so +Y stick deflects upward).
+        const float Range = Size * 0.33f;
+        const float KX = CenterX + FMath::Clamp(StickX, -1.f, 1.f) * Range;
+        const float KY = CenterY - FMath::Clamp(StickY, -1.f, 1.f) * Range;
+        DrawLine(CenterX, CenterY, KX, KY, Tone, 2.4f);
+        DrawRect(FLinearColor(Tone.R, Tone.G, Tone.B, Tone.A * 0.35f), KX - 6.f, KY - 6.f, 12.f, 12.f);
+        DrawRect(Tone, KX - 3.f, KY - 3.f, 6.f, 6.f);
+        // Axis labels.
+        DrawText(Vert,  Gold, CX - 16.f, Y - 20.f, GEngine->GetSmallFont(), 0.7f);
+        DrawText(Horiz, FLinearColor(0.63f, 0.71f, 0.72f), CX - 14.f, Y + Size + 6.f, GEngine->GetSmallFont(), 0.7f);
+    };
+
+    Gimbal(LeftCX,  Yaw, Gas * 2.f - 1.f, Gold, TEXT("THROTTLE"), TEXT("YAW"));
+    Gimbal(RightCX, Roll, Pitch,          Cyan, TEXT("PITCH"),    TEXT("ROLL"));
+    DrawText(TEXT("RC"), Cyan, Canvas->SizeX * 0.5f - 10.f, Bottom + 4.f, GEngine->GetSmallFont(), 0.7f);
 }
 void ABorn2FlapHUD::DrawChannels(const ABorn2FlapFlightPawn& Bird)
 {

@@ -27,6 +27,7 @@ class UInstancedStaticMeshComponent;
 class UStaticMeshComponent;
 class USceneComponent;
 class UMaterialInstanceDynamic;
+class UNiagaraComponent;
 
 UCLASS()
 class BORN2FLAP_API ABorn2FlapInsectSwarm : public AActor
@@ -125,6 +126,11 @@ private:
 
     UPROPERTY() TArray<TObjectPtr<UInstancedStaticMeshComponent>> Swarm;
     UPROPERTY() TArray<TObjectPtr<UMaterialInstanceDynamic>> SwarmMaterials;
+    // GPU-Niagara replacement for the SWARM speck layer (HIGH/EPIC only). The
+    // heroes stay real meshes regardless — they are the detailed, catchable
+    // individuals, not background particles. ISM swarm = software fallback.
+    UPROPERTY() TObjectPtr<UNiagaraComponent> SwarmFX;
+    bool bNiagaraSwarm=false;
 
     TArray<FBoid> Boids;
     TArray<FHero> Heroes;

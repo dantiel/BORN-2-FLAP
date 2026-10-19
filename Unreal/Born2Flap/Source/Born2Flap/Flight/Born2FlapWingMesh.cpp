@@ -87,6 +87,10 @@ double SampleStationField(const B2F_WingSection* Shape, int32 Count, double Stat
 // readable without stretching it into a multi-span flag.
 constexpr double AeroBendVisualGain  = 44.0;
 constexpr double AeroTwistVisualGain = 9.0;
+// Neon turtle flipper planform (Design 3), shared by the rest-mesh builder and
+// ApplyShape so the chord bounds never drift apart.
+constexpr double TurtleFlipperSpan      = 72.0;
+constexpr double TurtleFlipperRootChord = 24.0;
 }
 
 void UBorn2FlapWingMesh::InitializeWing(int32 Side, int32 Design)
@@ -140,22 +144,48 @@ void UBorn2FlapWingMesh::InitializeWing(int32 Side, int32 Design)
     }
     else if(Design==3)
     {
-        // Neon turtle front flipper: a broad, rounded paddle (swimming fin).
-        // U 0..1 = leading edge (forward) -> trailing edge (aft); V 0..1 = root -> tip.
-        const FLinearColor Turquoise(0.0, 0.85, 0.78), Gold(0.99, 0.72, 0.16);
-        auto HalfChord = [](double V){ return 15.0 * FMath::Sqrt(FMath::Max(0.0, 1.0 - 0.82*V*V)); };
-        Patch(30,16,[&](double U,double V){
-            const double Span=V*46.0, HC=HalfChord(V);
-            const double X=(1.0-2.0*U)*HC;
-            const double Z=1.8*FMath::Sin(PI*V)*(1.0-0.6*U);
-            return FVector(X,Span,Z);
-        },Turquoise);
-        // Gold leading-edge rim (the Sanxingdui gold-foil seam), lifted clear of the surface.
-        Patch(5,16,[&](double U,double V){
-            const double Span=V*46.0, HC=HalfChord(V);
-            const double X=HC-U*2.6;
-            return FVector(X,Span,1.8*FMath::Sin(PI*V)+0.4);
-        },Gold);
+        // Neon turtle front flipper — an undercambered aerofoil with real thickness.
+        // A NACA-4-digit half-thickness (rounded leading edge, sharp trailing edge) is
+        // lofted over a cambered mean line along the span; the lower surface stays
+        // concave (undercambered) so the fin reads as a bird/insect wing rather than a
+        // flat membrane. ApplyShape still flexes the whole thing like a membrane —
+        // solver camber/twist/bend ride on top of the static shape — so the aeroelastic
+        // behaviour is unchanged. U 0..1 = leading edge -> trailing edge; V 0..1 = root -> tip.
+        const FLinearColor Turquoise(0.0, 0.85, 0.78);
+        auto HalfChord = [](double V){ return TurtleFlipperRootChord * FMath::Sqrt(FMath::Max(0.0, 1.0 - 0.82*V*V)); };
+        auto CamberLine = [](double X, double C){ return C * FMath::Sin(PI * X); };
+        auto HalfThick  = [](double X, double T){
+            const double N = 0.2969*FMath::Sqrt(X) - 0.1260*X - 0.3516*X*X + 0.2843*X*X*X - 0.1015*X*X*X*X;
+            return T * N / 0.1015;   // peak half-thickness ≈ T at ~30% chord
+        };
+        auto SurfZ = [&](double X, double S, int32 Sign){
+            const double Taper = 1.0 - 0.35*S;             // thinner + flatter toward the tip
+            const double Arch  = 1.2 * FMath::Sin(PI * S);  // gentle spanwise up-bow
+            return CamberLine(X, 3.5*Taper) + Sign * HalfThick(X, 1.2*Taper) + Arch;
+        };
+        const int32 NC = 20, NS = 16;
+        auto AddSurface = [&](int32 Sign){
+            const int32 Base = RestVertices.Num();
+            for(int32 J = 0; J <= NS; ++J)
+                for(int32 I = 0; I <= NC; ++I)
+                {
+                    const double X = double(I) / NC;   // chord fraction (0 LE .. 1 TE)
+                    const double S = double(J) / NS;   // span fraction (0 root .. 1 tip)
+                    const double HC = HalfChord(S);
+                    RestVertices.Add(FVector((1.0 - 2.0*X)*HC, Side*(S*TurtleFlipperSpan), SurfZ(X, S, Sign)));
+                    UV.Add(FVector2D(X, S));           // U = chord, V = span
+                    Colours.Add(Turquoise);
+                    if (J < NS && I < NC)
+                    {
+                        const int32 A = Base + J*(NC+1) + I, B = A + 1, D = A + NC + 1, E = D + 1;
+                        const bool CCW = (Side > 0) == (Sign > 0);   // upper faces +Z, lower faces -Z
+                        if (CCW) Triangles.Append({A,B,D, B,E,D});
+                        else      Triangles.Append({A,D,B, B,D,E});
+                    }
+                }
+        };
+        AddSurface(+1);   // upper surface (facing +Z)
+        AddSurface(-1);   // lower surface (undercambered, facing -Z)
     }
     else
         Patch(32,16,[](double U,double V){const double Y=100*V;return FVector(SampleMembrane(MembraneLE,13,Y)+U*(SampleMembrane(MembraneTE,13,Y)-SampleMembrane(MembraneLE,13,Y)),Y,0);},FLinearColor(.09,.24,.29));
@@ -178,7 +208,7 @@ void UBorn2FlapWingMesh::ApplyShape(const B2F_WingSection* Shape)
     for(int32 I=0;I<Vertices.Num();++I)
     {
         const FVector R=RestVertices[I];
-        const double V=FMath::Clamp(FMath::Abs(R.Y)/(WingDesign==1?95.:(WingDesign==2?100.:(WingDesign==3?46.:102.))),0.,1.);
+        const double V=FMath::Clamp(FMath::Abs(R.Y)/(WingDesign==1?95.:(WingDesign==2?100.:(WingDesign==3?TurtleFlipperSpan:102.))),0.,1.);
         double Camber=FMath::Lerp(.035,.025,V),Twist=FMath::DegreesToRadians(FMath::Lerp(5.,-2.,V)),Bend=0;
         if(Shape)
         {
@@ -209,7 +239,7 @@ void UBorn2FlapWingMesh::ApplyShape(const B2F_WingSection* Shape)
             const double RootRamp=FMath::Clamp(V/Shape[0].span_fraction,0.,1.);
             Bend=SampleStationField(Shape,B2F_WING_STATIONS,Station,&B2F_WingSection::bend_m)*100*RootRamp*AeroBendVisualGain;
         }
-        const double FlipperHalfChord=15.0*FMath::Sqrt(FMath::Max(0.0,1.0-0.82*V*V));
+        const double FlipperHalfChord=TurtleFlipperRootChord*FMath::Sqrt(FMath::Max(0.0,1.0-0.82*V*V));
         const double Leading=WingDesign==3?FlipperHalfChord:(WingDesign==2?SampleMembrane(MembraneLE,13,V*100):17-14*V);
         const double Trailing=WingDesign==3?-FlipperHalfChord:(WingDesign==2?SampleMembrane(MembraneTE,13,V*100):Leading-47.);
         const double Chord=Trailing-Leading;                                   // signed (LE forward +, TE aft -)

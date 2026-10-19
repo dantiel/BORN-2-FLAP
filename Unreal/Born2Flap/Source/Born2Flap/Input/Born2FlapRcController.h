@@ -67,12 +67,20 @@ class FBorn2FlapRcController
     std::array<bool, 8> Available{};
     std::array<bool, 128> PreviousButtons{};
     FString DeviceId, DeviceName = TEXT("Kein Sender ausgewaehlt"), ConfigPath;
+    TArray<FString> PrevDeviceIds;
     float ScanTime = 3;
     int32 Stage = -1, LearnButton = 0, LaunchButton = -1, ResetButton = -1;
     bool bPanel = false, bEnabled = false, bConnected = false, bLaunch = false, bReset = false;
     void SelectDevice(int32 Index);
     void LoadCalibration();
     void SaveCalibration();
+    // Persist the learned transmitter buttons (START/RESET) independently of a
+    // full 5-channel calibration, so a user who only wants to map their buttons
+    // does not silently lose them.
+    void SaveButtons();
+    // Persist device selection + the global enable flag without requiring a
+    // valid calibration (used when a freshly plugged transmitter is armed).
+    void SaveEnabled();
     // Persist a single channel immediately (partial configs survive a menu
     // close before all 5 channels are assigned; SaveCalibration guards on Valid()).
     void WriteChannel(int32 Channel);

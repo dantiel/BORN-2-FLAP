@@ -1,46 +1,60 @@
-%Overlay{ align: "center", valign: "center" }
-  %SizeBox{ width: 980, height: 820 }
-    %Panel{ title: "#{t('rc.title')}", padding: 24 }
-      %ScrollPage{}
-        %Caption{ title: "#{t('rc.transmitter')}" }
-        %VBox{ spacing: 14 }
-          %Segment{ options: #{tabs}, value: #{page}, action: "rc.page" }
-          %Section{ title: "#{t('rc.sticks')}", open: true, visible: #{page == 0} }
-            %HBox{ spacing: 48 }
-              - [left_stick, right_stick].each do |s|
-                %VBox{ spacing: 8 }
-                  %SizeBox{ width: 230, height: 230 }
-                    %Stick{ x: #{s[:x]}, y: #{s[:y]}, size: 230, tone: "info" }
-                  %TextBlock{ text: #{s[:title].inspect}, tone: "accent", size: "s" }
-                  %TextBlock{ text: "#{s[:vert]}  /  #{s[:horiz]}", tone: "dim", size: "xs" }
-            %Field{ label: "#{t('rc.channel_monitor')}" }
-            %VBox{ spacing: 6 }
-              - channel_rows.each do |c|
-                %Gauge{ label: #{c[:label].inspect}, value: #{c[:value]}, readout: #{c[:readout].inspect}, tone: "#{c[:tone]}" }
-          %Section{ title: "#{t('rc.device')}", open: true, visible: #{page == 1} }
-            %Banner{ text: #{rc_device.inspect}, tone: "accent" }
-            %TextBlock{ text: #{rc_status.inspect}, tone: "info", size: "m" }
-            %TextBlock{ text: #{rc_instruction.inspect}, tone: "accent", size: "s" }
-            - unless rc_notice.empty?
-              %TextBlock{ text: #{rc_notice.inspect}, tone: "warn", size: "s" }
-            %Field{ label: "#{t('rc.device')}" }
-            %HBox{ spacing: 8 }
-              %Button{ label: "#{t('rc.next_device')}", action: "rc.device.next" }
-              %Button{ label: "#{rc_enabled ? t('rc.disable') : t('rc.enable')}", action: "rc.enable.toggle", tone: "dim" }
-            %Field{ label: "#{t('rc.calibration')}" }
-            %HBox{ spacing: 8 }
-              %Button{ label: "#{t('rc.start')}", action: "rc.calibrate.start", tone: "good" }
-              %Button{ label: "#{t('rc.next_step')}", action: "rc.calibrate.advance" }
-              %Button{ label: "#{t('rc.cancel')}", action: "rc.calibrate.cancel", tone: "danger" }
-            %HBox{ spacing: 8 }
-              %Button{ label: "#{t('rc.learn_start')}", action: "rc.learn.launch", tone: "dim" }
-              %Button{ label: "#{t('rc.learn_reset')}", action: "rc.learn.reset", tone: "dim" }
-          %Section{ title: "#{t('rc.channel_mapping')}", open: true, visible: #{page == 2} }
-            - rc_mappings.each_with_index do |m, i|
+%Overlay{}
+  %Overlay{ align: "center", valign: "center" }
+    %SizeBox{ width: 980, height: 820 }
+      %Panel{ title: "#{t('rc.title')}", padding: 24 }
+        %ScrollPage{}
+          %Caption{ title: "#{t('rc.transmitter')}" }
+          %VBox{ spacing: 14 }
+            %Segment{ options: #{tabs}, value: #{page}, action: "rc.page" }
+            %Section{ title: "#{t('rc.sticks')}", open: true, visible: #{page == 0} }
+              %HBox{ spacing: 48 }
+                - [left_stick, right_stick].each do |s|
+                  %VBox{ spacing: 8 }
+                    %SizeBox{ width: 230, height: 230 }
+                      %Stick{ x: #{s[:x]}, y: #{s[:y]}, size: 230, tone: "info" }
+                    %TextBlock{ text: #{s[:title].inspect}, tone: "accent", size: "s" }
+                    %TextBlock{ text: "#{s[:vert]}  /  #{s[:horiz]}", tone: "dim", size: "xs" }
+              %Field{ label: "#{t('rc.channel_monitor')}" }
+              %VBox{ spacing: 6 }
+                - channel_rows.each do |c|
+                  %Gauge{ label: #{c[:label].inspect}, value: #{c[:value]}, readout: #{c[:readout].inspect}, tone: "#{c[:tone]}" }
+            %Section{ title: "#{t('rc.device')}", open: true, visible: #{page == 1} }
+              %Banner{ text: #{rc_device.inspect}, tone: "accent" }
+              %TextBlock{ text: #{rc_status.inspect}, tone: "info", size: "m" }
+              %TextBlock{ text: #{rc_instruction.inspect}, tone: "accent", size: "s" }
+              - unless rc_notice.empty?
+                %TextBlock{ text: #{rc_notice.inspect}, tone: "warn", size: "s" }
+              %Field{ label: "#{t('rc.device')}" }
               %HBox{ spacing: 8 }
-                %TextBlock{ text: #{m.inspect}, tone: "dim", size: "s" }
-                %Button{ label: "#{t('rc.learn_axis')}", action: "rc.learn.axis.#{i}" }
-                %Button{ label: "#{t('rc.invert')}", action: "rc.invert.#{i}" }
-                %Select{ label: "#{t('rc.axis')}", options: ["X", "Y", "Z", "RX", "RY", "RZ", "SLIDER 1", "SLIDER 2"], value: #{rc_channel_axes[i] || 0}, action: "rc.axis.#{i}" }
-            %TextBlock{ text: #{rc_buttons.inspect}, tone: "dim", size: "xs" }
-        %Button{ label: "#{t('menu.back')}", action: "rc.close" }
+                %Button{ label: "#{t('rc.next_device')}", action: "rc.device.next" }
+                %Button{ label: "#{rc_enabled ? t('rc.disable') : t('rc.enable')}", action: "rc.enable.toggle", tone: "dim" }
+              %Field{ label: "#{t('rc.calibration')}" }
+              %HBox{ spacing: 8 }
+                %Button{ label: "#{t('rc.start')}", action: "rc.calibrate.start", tone: "good" }
+              %HBox{ spacing: 8 }
+                %Button{ label: "#{t('rc.learn_start')}", action: "rc.learn.launch", tone: "dim" }
+                %Button{ label: "#{t('rc.learn_reset')}", action: "rc.learn.reset", tone: "dim" }
+            %Section{ title: "#{t('rc.channel_mapping')}", open: true, visible: #{page == 2} }
+              - rc_mappings.each_with_index do |m, i|
+                %HBox{ spacing: 8 }
+                  %TextBlock{ text: #{m.inspect}, tone: "dim", size: "s" }
+                  %Button{ label: "#{t('rc.learn_axis')}", action: "rc.learn.axis.#{i}" }
+                  %Button{ label: "#{t('rc.invert')}", action: "rc.invert.#{i}" }
+                  %Select{ label: "#{t('rc.axis')}", options: ["X", "Y", "Z", "RX", "RY", "RZ", "SLIDER 1", "SLIDER 2"], value: #{rc_channel_axes[i] || 0}, action: "rc.axis.#{i}" }
+              %TextBlock{ text: #{rc_buttons.inspect}, tone: "dim", size: "xs" }
+          %Button{ label: "#{t('menu.back')}", action: "rc.close" }
+  - if wizard_active
+    %Border{ bg: "scrim" }
+      %Overlay{ align: "center", valign: "center" }
+        %SizeBox{ width: 720, height: 460 }
+          %Panel{ title: "#{t('rc.calibration')}", padding: 28 }
+            %VBox{ spacing: 16 }
+              %Banner{ text: #{rc_device.inspect}, tone: "accent" }
+              %ProgressBar{ value: #{wizard_step / 7.0}, tone: "accent" }
+              %TextBlock{ text: #{rc_instruction.inspect}, tone: "accent", size: "l", align: "center", wrap: true }
+              - unless rc_notice.empty?
+                %TextBlock{ text: #{rc_notice.inspect}, tone: "warn", size: "s", align: "center", wrap: true }
+              %Overlay{ align: "center" }
+                %HBox{ spacing: 12 }
+                  %Button{ label: "#{t('rc.next_step')}", action: "rc.calibrate.advance", tone: "good" }
+                  %Button{ label: "#{t('rc.cancel')}", action: "rc.calibrate.cancel", tone: "danger" }

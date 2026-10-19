@@ -1,4 +1,5 @@
 #include "Game/Born2FlapGameMode.h"
+#include "Game/Born2FlapHarvestWatch.h"
 #include "Born2Flap.h"
 #include "World/Born2FlapBayTerrain.h"
 #include "Game/Born2FlapHUD.h"
@@ -133,6 +134,9 @@ void ABorn2FlapGameMode::InitGame(const FString &MapName, const FString &Options
     if (Level.IsEmpty())
         FParse::Value(FCommandLine::Get(), TEXT("B2FLevel="), Level);
     bCoastLevel = Level.Equals(TEXT("Shiomori"),ESearchCase::IgnoreCase) || (Level.IsEmpty() && MapName.Contains(TEXT("SHIOMORI")));
+    FString Activity=UGameplayStatics::ParseOption(Options,TEXT("Activity"));
+    if(Activity.IsEmpty())FParse::Value(FCommandLine::Get(),TEXT("B2FActivity="),Activity);
+    bHarvestWatch=bCoastLevel && (Activity.Equals(TEXT("HarvestWatch"),ESearchCase::IgnoreCase) || FParse::Param(FCommandLine::Get(),TEXT("B2FHarvestTest")) || FParse::Param(FCommandLine::Get(),TEXT("B2FHarvestCapture")));
     bNatureLevel = !Level.Equals(TEXT("Training"), ESearchCase::IgnoreCase) &&
                    !FParse::Param(FCommandLine::Get(), TEXT("B2FFlightTest")) &&
                    !FParse::Param(FCommandLine::Get(), TEXT("B2FSoakTest")) &&
@@ -167,7 +171,7 @@ void ABorn2FlapGameMode::InitGame(const FString &MapName, const FString &Options
     Conditions=FApp::IsUnattended() ? Born2FlapWeather::Defaults(GetLevelId()) : Born2FlapWeather::Load(GetLevelId());
     FString Weather=UGameplayStatics::ParseOption(Options,TEXT("Weather"));
     FString DayTime=UGameplayStatics::ParseOption(Options,TEXT("DayTime"));
-    InitialPoiKey=UGameplayStatics::ParseOption(Options,TEXT("PoiKey"));
+    InitialPoiKey=bHarvestWatch?TEXT("Harvest Watch - field launch"):UGameplayStatics::ParseOption(Options,TEXT("PoiKey"));
     InitialPoiNumber=FCString::Atoi(*UGameplayStatics::ParseOption(Options,TEXT("PoiNum")));
     if(Weather.IsEmpty()) FParse::Value(FCommandLine::Get(),TEXT("B2FWeather="),Weather);
     if(DayTime.IsEmpty()) FParse::Value(FCommandLine::Get(),TEXT("B2FDayTime="),DayTime);
@@ -320,7 +324,7 @@ void ABorn2FlapGameMode::BeginPlay()
     {
         FActorSpawnParameters RacingParams;
         RacingParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-        World->SpawnActor<ABorn2FlapRacingManager>(FVector::ZeroVector, FRotator::ZeroRotator, RacingParams);
+        if(!bHarvestWatch)World->SpawnActor<ABorn2FlapRacingManager>(FVector::ZeroVector, FRotator::ZeroRotator, RacingParams);
     }
     // Unified radio: one station + one semantic HUD drive every level. The
     // playlist is data-driven per level (Config/DefaultGame.ini).
@@ -350,12 +354,16 @@ void ABorn2FlapGameMode::BeginPlay()
         FActorSpawnParameters BugParams;
         BugParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
         World->SpawnActor<ABorn2FlapInsectSwarm>(FVector::ZeroVector, FRotator::ZeroRotator, BugParams);
+        // Wind-blown foliage rides the atmospheric field near the trees. Runs on
+        // both the coast and the valley — wherever groves stand to shed leaves.
+        World->SpawnActor<ABorn2FlapWindLeaves>(FVector::ZeroVector, FRotator::ZeroRotator, Params);
     }
     if(bCoastLevel)
     {
         Born2Flap::Loading::Report(0.40f, TEXT("BUILDING COASTLINE"));
         World->SpawnActor<ABorn2FlapBayTerrain>();
         World->SpawnActor<ABorn2FlapSurf>();
+        World->SpawnActor<ABorn2FlapHarvestWatch>();
     }
     if(bCoastLevel)
     {
@@ -372,7 +380,6 @@ void ABorn2FlapGameMode::BeginPlay()
         // Entry still supports the procedural fallback for old launch scripts.
         if (!TActorIterator<ABorn2FlapValley>(World))
             World->SpawnActor<ABorn2FlapValley>();
-        World->SpawnActor<ABorn2FlapWindLeaves>(FVector::ZeroVector, FRotator::ZeroRotator, Params);
         return;
     }
     if (bVoidLevel)
@@ -589,6 +596,7 @@ void ABorn2FlapGameMode::PopulatePOIs()
         // XY gives natural, hand-launchable reset points along the shore. The
         // old "Tidewalk"/"Shoreline" lookouts sat within ~80 m of the launch
         // beach and were redundant with poi.shiomori_beach.
+        if(bHarvestWatch)AddPoi(TEXT("Harvest Watch - field launch"),FVector(0,-19400,480),90.f);
         AddPoi(TEXT("poi.shiomori_beach"), 0.0, 0.0);
         static const TCHAR* Views[] = {
             TEXT("Bay overlook"), TEXT("Basalt cove"),
@@ -883,7 +891,21 @@ void ABorn2FlapGameMode::Tick(float DeltaSeconds)
             }
             if(FParse::Param(FCommandLine::Get(),TEXT("B2FEastShoreCollisionTest")))
             {
-                UE_LOG(LogTemp,Display,TEXT("EastShoreCollisionTest %s: twelve terrain/shore/seabed probes"),EastShorePass?TEXT("PASS"):TEXT("FAIL"));
+                // New granite shoulder and terrace probes deliberately avoid
+                // placed stones: terrain collision must agree with flight height.
+                for(const FVector2D Point:{FVector2D(65000,20000),FVector2D(72000,32000),FVector2D(81600,28800)})
+                {
+                    FHitResult Hit;const double H=Born2FlapBay::Height(Point.X,Point.Y);
+                    const bool Found=GetWorld()->LineTraceSingleByChannel(Hit,FVector(Point.X,Point.Y,H+50),FVector(Point.X,Point.Y,H-100),ECC_Visibility);
+                    const double Error=Found?FMath::Abs(Hit.ImpactPoint.Z-H):9999;
+                    EastShorePass &= Found && Error<25;
+                    UE_LOG(LogTemp,Display,TEXT("EastGraniteCollision x=%.0f y=%.0f error=%.1f"),Point.X,Point.Y,Error);
+                }
+                FHitResult Door;
+                const bool Locked=GetWorld()->LineTraceSingleByChannel(Door,FVector(79500,28130,900),FVector(79900,28130,900),ECC_Visibility);
+                EastShorePass &= Locked;
+                UE_LOG(LogTemp,Display,TEXT("EastBunkerDoor blocked=%d"),Locked);
+                UE_LOG(LogTemp,Display,TEXT("EastShoreCollisionTest %s: shore, granite, terrace and locked bunker"),EastShorePass?TEXT("PASS"):TEXT("FAIL"));
                 FPlatformMisc::RequestExitWithStatus(false,EastShorePass?0:1);return;
             }
             const double Above=Born2FlapBay::WindExposure(FVector(34000,20000,15000),FVector(-1,0,0));
@@ -1274,7 +1296,7 @@ void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, c
     if (Action == TEXT("bird.select"))
     {
         if (auto* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
-            Bird->SelectBirdModel(FMath::Clamp(FMath::RoundToInt(Value), 0, 3));
+            Bird->SelectBirdModel(FMath::Clamp(FMath::RoundToInt(Value), 0, 4));
         return;
     }
     if (Action == TEXT("radio.play") || Action == TEXT("radio.volume") || Action == TEXT("radio.mute"))
@@ -1409,6 +1431,7 @@ void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, c
     struct FEntry { const TCHAR* ActionKey; const TCHAR* Map; const TCHAR* Level; };
     static const FEntry Entries[] = {
         { TEXT("menu.ravenstonefield"), TEXT("/Game/Ravenstonefield/Maps/RAVENSTONEFIELD"), TEXT("Ravenstonefield") },
+        { TEXT("menu.harvestwatch"), TEXT("/Game/Shiomori/Maps/SHIOMORI"), TEXT("Shiomori") },
         { TEXT("menu.shiomori"),        TEXT("/Game/Shiomori/Maps/SHIOMORI"),               TEXT("Shiomori") },
         { TEXT("menu.training"),        TEXT("/Engine/Maps/Entry"),                         TEXT("Training") },
         { TEXT("menu.neonabyss"),       TEXT("/Game/NeonAbyss/Maps/NEONABYSS"),             TEXT("NeonAbyss") },
@@ -1418,6 +1441,7 @@ void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, c
         if (Action == E.ActionKey)
         {
             FString Options = Born2FlapWeather::TravelOptions(E.Level, MenuLevelConditions.FindChecked(E.Level));
+            if(Action==TEXT("menu.harvestwatch"))Options+=TEXT("?Activity=HarvestWatch");
             if (const int32* Sel = MenuSelectedPoi.Find(E.Level))
             {
                 const TArray<FBorn2FlapPoi> Cat = Born2FlapPoi::Catalog(E.Level);
@@ -1494,7 +1518,13 @@ FString ABorn2FlapGameMode::BuildBrainTelemetry() const
     ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0));
     // F7 suspends all visual telemetry, including open panels. Keep routing and
     // input acknowledgement alive; the next snapshot restores the current UI.
-    if (Bird && Bird->IsUIHidden())
+    // Exception: the F10 menu is the one surface that must escape F7. Opening
+    // the menu with the HUD hidden already switches the game to UIOnly + frees
+    // the cursor; if `ui_hidden` still short-circuits here, the Brain never sees
+    // `menu` and renders nothing — leaving the game stuck in UIOnly with no
+    // visible menu and no flight input ("broken UI"). Fall through instead so
+    // `menu`/`menu_inlevel` reach the Brain and the menu frame renders.
+    if (Bird && Bird->IsUIHidden() && !bMenuOpen)
         return TEXT("{\"frontend\":false,\"ui_hidden\":true,\"hud\":false}");
     if (Bird)
     {

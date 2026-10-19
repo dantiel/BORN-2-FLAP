@@ -251,7 +251,8 @@ def install(scope):
 
     # Independent inherited property: restrained lawns/paving, a forecourt,
     # inland hangar and a short service connection to the road's west end.
-    box('HotelGround','Paving',(-59300,-12600,158),(17100,10800,16))
+    from campus_landscape import install as landscape
+    stair_path, stair_bottom, landscape_surface, landscape_point = landscape(locals())
     box('LaunchGround','Grass',(-53500,-19300,162),(4800,4300,16))
     box('HangarGround','Paving',(-60000,-29100,160),(11700,4200,20))
     def route(points,width,mat='Paving',zone='Ground'):
@@ -289,24 +290,8 @@ def install(scope):
     service_points.append((-62500,-16700,920));route(service_points,500)
     # A restrained service lane reconnects the separate property to the town road.
     route([(-44000-SITE_OFFSET[0],-4400-SITE_OFFSET[1],170),(-50000,-29500,170),(-61500,-29100,170)],450)
-    # Solid retaining terrace and a ground-hugging apron of headland material;
-    # this prevents a floating platform after moving onto the sloping land.
-    box('Terrace','Stone',(-59300,-12600,450),(17100,10800,900))
-    inner=[(-67850,-18000),(-50750,-18000),(-50750,-7200),(-67850,-7200)]
-    outer=[(-69500,-19200),(-49600,-19200),(-49600,-5300),(-69500,-5300)]
-    for k in range(4):
-        j=(k+1)%4
-        for n in range(24):
-            def lerp(a,b,t):return (a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t)
-            ia=lerp(inner[k],inner[j],n/24);ib=lerp(inner[k],inner[j],(n+1)/24)
-            oa=lerp(outer[k],outer[j],n/24);ob=lerp(outer[k],outer[j],(n+1)/24)
-            face(('Terrace','Headland'),[(ia[0],ia[1],900),(oa[0],oa[1],ground(*oa)+4),(ob[0],ob[1],ground(*ob)+4),(ib[0],ib[1],900)])
     # The separate launch lawn is a low supported pad, not a floating carpet.
     box('Terrace','Headland',(-53500,-19300,465),(4800,4300,690))
-    # Low perimeter stone walls leave entrance/handling gaps.
-    for a,b in (((-67500,-7400,185),(-61500,-7400,185)),((-67500,-7400,185),(-67500,-16000,185))):
-        beam('ForecourtGarden','Stone',(a[0],a[1],a[2]+35),(b[0],b[1],b[2]+35),65,80)
-
     # Open hangar: 26 x 22 m, clear 16 x 6 m doorway, two 6 m span bays
     # separated by an 8 m central handling aisle. No invisible solid body.
     hx,hy=-61500,-27900
@@ -388,14 +373,14 @@ def install(scope):
     # Mainland coastal garden: ground follows the existing runtime headland.
     tx,ty=-56500.,3000.;tz=ground(tx,ty)+8
     sight=math.degrees(math.atan2(ISLAND[1]-(ty+SITE_OFFSET[1]),ISLAND[0]-(tx+SITE_OFFSET[0])));yaw=sight-90
-    path=[(-58500,-7200),(-58500,-5300),(-58400,-2000),(-58500,1000),
+    path=[stair_path[-1],(-58400,-2000),(-58500,1000),
           (tx-math.cos(math.radians(sight))*1800,ty-math.sin(math.radians(sight))*1800),(tx,ty)]
     # Dense path samples keep slopes grounded and continuous.
     for a,b in zip(path,path[1:]):
         points=[]
         for i in range(11):
             t=i/10;x=a[0]+(b[0]-a[0])*t;y=a[1]+(b[1]-a[1])*t
-            points.append((x,y,(914*(1-t)+(ground(*b)+4)*t) if a==path[0] else ground(x,y)+4))
+            points.append((x,y,ground(x,y)+4))
         route(points,220,'Paving','ShorePath')
     for i,(x,y) in enumerate(((-59900,-4700),(-60000,-2200),(-59800,500),(-60800,4000),(-60200,6500))):
         z=ground(x,y)
@@ -421,7 +406,7 @@ def install(scope):
         a.static_mesh_component.set_collision_profile_name('BlockAll')
         a.static_mesh_component.set_editor_property('disallow_nanite',True)
         return a
-    shrine_asset('CoastalTorii',(tx,ty,ground(tx,ty)-3),480,yaw)
+    shrine_asset('CoastalTorii',(tx,ty,ground(tx,ty)-3),720,yaw)
     # Compact attributed hokora retains its weathered stone pedestal and timber details.
     qx,qy=-58000.,6200.;qz=ground(qx,qy)
     shrine_asset('CoastalShrine',(qx,qy,qz-3),360,180)
