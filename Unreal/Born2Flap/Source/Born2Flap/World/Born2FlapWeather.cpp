@@ -206,6 +206,19 @@ void ABorn2FlapWeather::EnsureMobileSky()
     Dome->SetRootComponent(Sky);
     Sky->RegisterComponent();
 
+    // Scale the sphere to a fixed large radius (~900 m) regardless of the mesh's
+    // native size, so the horizon sits near the far plane and the opaque lower
+    // hemisphere never dips into the visible ground — the hard "circle on the
+    // floor" at the nearer view range. Never distance-cull the dome so it stays
+    // visible at the widened horizon.
+    if (Mesh)
+    {
+        const float R = Mesh->GetBounds().SphereRadius;
+        if (R > 1.f)
+            Dome->SetActorScale3D(FVector(90000.f / R));
+    }
+    Sky->LDMaxDrawDistance = 0.f;
+
     // Centre the dome on the active CAMERA (not the pawn/view-target). Centring
     // on the pawn made the sphere's lower hemisphere dip below the horizon when
     // the chase/ground camera moved away — a visible circle on the ground. A
