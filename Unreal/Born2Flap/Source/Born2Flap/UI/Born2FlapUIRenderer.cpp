@@ -1078,7 +1078,7 @@ UBorn2FlapComposite* UBorn2FlapUIRenderer::BuildComponent(const FString& Type)
         Btn->SetContent(Row);
         UImage* Icon = NewObject<UImage>(this);
         Icon->SetBrushSize(FVector2D(22, 22));
-        Icon->SetColorAndOpacity(FSlateColor(theme::FG()));
+        Icon->SetColorAndOpacity(theme::FG());
         Row->AddChildToHorizontalBox(Icon)->SetPadding(FMargin(0, 0, 6, 0));
         UTextBlock* Label = NewObject<UTextBlock>(this);
         Label->SetFont(theme::Font(TEXT("m"), 13, true));
@@ -1573,7 +1573,7 @@ void UBorn2FlapUIRenderer::ApplyCompositeProps(UBorn2FlapComposite* C, const FPr
         if (bGhost) ArtGhostIconButton(Btn);
         else { if (!Tone.IsEmpty() && Btn) Btn->SetBackgroundColor(ToneColor); ArtIconButton(Btn); }
         const FLinearColor Ink = bGhost ? theme::FG() : FLinearColor(0.06f, 0.06f, 0.08f, 1.0f);
-        if (Icon) Icon->SetColorAndOpacity(FSlateColor(Ink));
+        if (Icon) Icon->SetColorAndOpacity(Ink);
         if (Label) Label->SetColorAndOpacity(FSlateColor(Ink));
         StyleText(Label, Props);
     }
