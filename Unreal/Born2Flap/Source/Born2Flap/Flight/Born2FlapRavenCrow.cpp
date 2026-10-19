@@ -116,7 +116,8 @@ FLinearColor TurtleHeadPaint(double U, double V)
 void BuildTurtleEllipsoid(AActor* Owner, USceneComponent* Parent, FName Name,
                           const FVector& Centre, const FVector& Radii,
                           const TCHAR* MaterialPath,
-                          const TFunction<FLinearColor(double,double)>& Paint)
+                          const TFunction<FLinearColor(double,double)>& Paint,
+                          double AftTaper = 0.0, double ForeTaper = 0.0)
 {
     const int32 Longs = 44, Lats = 16;
     TArray<FVector> V, N;
@@ -130,11 +131,21 @@ void BuildTurtleEllipsoid(AActor* Owner, USceneComponent* Parent, FName Name,
             const double Theta = 2.0 * PI * double(I) / Longs;
             const double S = FMath::Sin(Phi), Co = FMath::Cos(Phi);
             const FVector Dir(FMath::Cos(Theta) * S, FMath::Sin(Theta) * S, Co);
-            V.Add(Centre + FVector(Radii.X * Dir.X, Radii.Y * Dir.Y, Radii.Z * Dir.Z));
+            // Teardrop planform: when AftTaper > 0 the shell narrows aft (blunt nose,
+            // pointed tail) while the dome height is preserved — an aerodynamic carapace.
+            // ForeTaper mirrors that for the head: the snout (nose, +X) tapers to a
+            // blunt point while the cranium stays full — a turtle's beak, not a sphere.
+            double PlanTaper = 1.0;
+            if (AftTaper > 0.0)
+                PlanTaper = FMath::Pow(FMath::Clamp((Dir.X + 1.0) * 0.5, 0.0, 1.0), AftTaper);
+            if (ForeTaper > 0.0)
+                PlanTaper *= FMath::Pow(FMath::Clamp((1.0 - Dir.X) * 0.5, 0.0, 1.0), ForeTaper);
+            V.Add(Centre + FVector(Radii.X * Dir.X, Radii.Y * Dir.Y * PlanTaper, Radii.Z * Dir.Z));
             N.Add(FVector(Dir.X / (Radii.X * Radii.X), Dir.Y / (Radii.Y * Radii.Y), Dir.Z / (Radii.Z * Radii.Z)).GetSafeNormal());
-            const double U = double(I) / Longs, Vv = double(J) / Lats;
-            C.Add(Paint(U, Vv));
-            UV.Add(FVector2D(U, Vv));
+            const double U = double(I) / Longs;
+            const double Vv = double(J) / Lats;          // geometric: 0 = apex (top), 1 = rim (bottom)
+            C.Add(Paint(U, Vv));                          // vertex livery (now superseded by the texture)
+            UV.Add(FVector2D(U, 1.0 - Vv));               // flip texture V (Unreal samples image bottom at V=0)
         }
     for (int32 J = 0; J < Lats; ++J)
         for (int32 I = 0; I < Longs; ++I)
@@ -158,24 +169,27 @@ void BuildTurtleEllipsoid(AActor* Owner, USceneComponent* Parent, FName Name,
 // Shell + plastron.
 void BuildTurtleShell(AActor* Owner, USceneComponent* Parent)
 {
-    BuildTurtleEllipsoid(Owner, Parent, TEXT("TurtleShell_3"), FVector(0, 0, 2), FVector(36, 26, 18),
-                         TEXT("/Game/NeonAbyss/M_TurtleShell"), &TurtleShellPaint);
+    // Flat, wide, aft-tapered aerodynamic carapace (a gliding pancake-disc, not a
+    // balloon): the dome height collapses from a tall oval to a low, elongated disc
+    // that still tapers to a point aft via AftTaper.
+    BuildTurtleEllipsoid(Owner, Parent, TEXT("TurtleShell_3"), FVector(0, 0, 1), FVector(46, 32, 9),
+                          TEXT("/Game/NeonAbyss/M_TurtleShell"), &TurtleShellPaint, 0.55);
     FShardMesh Plastron;
     Plastron.MaterialPath = TEXT("/Game/NeonAbyss/M_TurtleShell");
-    Plastron.Fold({18, 0, -6}, {8, 20, -14}, {-30, 0, -8}, {8, -20, -14}, -6, NeonBody);
+    Plastron.Fold({18, 0, -4}, {8, 24, -7}, {-32, 0, -5}, {8, -24, -7}, -5, NeonBody);
     Plastron.Install(Owner, Parent, TEXT("TurtlePlastron_3"));
 }
 
-// Head + amber eyes.
+// Head (the eyes are painted onto the head texture, so no separate eye meshes).
 void BuildTurtleHead(AActor* Owner, USceneComponent* Parent)
 {
-    BuildTurtleEllipsoid(Owner, Parent, TEXT("TurtleHead_3"), FVector(34, 0, 10), FVector(9, 7.5, 7.5),
-                         TEXT("/Game/NeonAbyss/M_TurtleShell"), &TurtleHeadPaint);
-    for (int Side : {-1, 1})
-        BuildTurtleEllipsoid(Owner, Parent, *FString::Printf(TEXT("TurtleEye%d_3"), Side),
-                             FVector(40, Side * 6, 13), FVector(1.6, 1.6, 1.6),
-                             TEXT("/Game/NeonAbyss/M_TurtleShell"),
-                             [](double, double) { return FLinearColor(.98, .72, .16); });
+    // A turtle's head, not a balloon: rounded cranium that tapers forward into a
+    // blunt beak/snout (ForeTaper) and slightly inward at the neck (AftTaper),
+    // with a lower, flatter profile to read aerodynamic against the flat carapace.
+    BuildTurtleEllipsoid(Owner, Parent, TEXT("TurtleHead_3"), FVector(44, 0, 5), FVector(14, 11, 9),
+                          TEXT("/Game/NeonAbyss/M_TurtleHead"), &TurtleHeadPaint,
+                          0.4,  // neck tapers slightly aft
+                          0.9); // snout tapers forward into the beak
 }
 
 // The hind-fin pair (rudder/elevator), folded shards on the tail pivot.
@@ -185,7 +199,9 @@ void BuildTurtleHindFins(AActor* Owner, USceneComponent* Parent)
     {
         FShardMesh Fin;
         Fin.MaterialPath = TEXT("/Game/NeonAbyss/M_TurtleShell");
-        Fin.Fold({0, Side * 6.0, 0}, {0, Side * 15.0, 2}, {-16, Side * 11.0, -2}, {-16, Side * 4.0, -3}, 3, NeonBody);
+        // Trailing rear flippers: stretched aft and wider so they trail clear of the
+        // flattened body, reading as the turtle's hind paddles in the aether.
+        Fin.Fold({0, Side * 8.0, 0}, {0, Side * 27.0, 2}, {-30, Side * 22.0, -2}, {-30, Side * 6.0, -4}, 4, NeonBody);
         Fin.Install(Owner, Parent, *FString::Printf(TEXT("TurtleHind%d_3"), Side));
     }
 }
@@ -305,7 +321,7 @@ USceneComponent* Born2FlapRaven::Build(AActor* Owner, USceneComponent* Parent,
         BuildTurtleHindFins(Owner, TailPivot);
         for (int Side : {-1, 1})
         {
-            auto* Shoulder = Node(*FString::Printf(TEXT("TurtleShoulder%d"), Side), RavenRoot, FVector(6, Side * 24.0, 4));
+            auto* Shoulder = Node(*FString::Printf(TEXT("TurtleShoulder%d"), Side), RavenRoot, FVector(6, Side * 29.0, 4));
             if (Side < 0) OutLeftShoulder = Shoulder; else OutRightShoulder = Shoulder;
             auto* Flipper = NewObject<UBorn2FlapWingMesh>(Owner, *FString::Printf(TEXT("TurtleFlipper%d_3"), Side));
             Owner->AddInstanceComponent(Flipper);
@@ -402,10 +418,10 @@ void ABorn2FlapFlightPawn::BuildRavenCrow()
 
 void ABorn2FlapFlightPawn::SelectBirdModel(int32 Index)
 {
-    BirdModel = FMath::Clamp(Index, 0, 3);
+    BirdModel = FMath::Clamp(Index, 0, 4);
     if (PrototypeRoot) PrototypeRoot->SetVisibility(!bBlind && BirdModel == 1, true);
     if (RavenRoot) RavenRoot->SetVisibility(!bBlind && BirdModel == 0, true);
-    if (MembraneRoot) MembraneRoot->SetVisibility(!bBlind && BirdModel == 2, true);
+    if (MembraneRoot) MembraneRoot->SetVisibility(!bBlind && (BirdModel == 2 || BirdModel == 4), true);
     if (TurtleRoot) TurtleRoot->SetVisibility(!bBlind && BirdModel == 3, true);
     // Each silhouette is a distinct bird: its own dry mass (fed to Chaos) and
     // its own wing planform + carbon-rod inventory (fed to the Haskell solver

@@ -43,6 +43,8 @@ module Born2Flap
             rc_status: (locals[:rc_status] || "").to_s,
             rc_instruction: (locals[:rc_instruction] || "").to_s,
             rc_notice: (locals[:rc_notice] || "").to_s,
+            wizard_active: (locals[:rc_stage] || -1).to_i >= 0,
+            wizard_step: (locals[:rc_stage] || -1).to_i + 1,
             rc_enabled: locals[:rc_enabled] ? true : false,
             rc_buttons: (locals[:rc_buttons] || "").to_s,
             rc_channel_axes: locals[:rc_channel_axes] || [],

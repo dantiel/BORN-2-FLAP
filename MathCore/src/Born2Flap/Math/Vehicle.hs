@@ -138,6 +138,28 @@ aeroCamberThrustGain = 2.2
 flapAdvanceThrustGain :: Double
 flapAdvanceThrustGain = 0.04
 
+-- | NOTE: there is deliberately NO hardcoded "tip jet" force. Outward/inward
+-- spanwise flow is EMERGENT: the local span axis (rotated by sweep, dihedral and
+-- flex via 'dihedralLocal') sees the body's spanwise velocity through
+-- 'spanVelocity', and 'spanDrag' below reacts to that actual flow — a
+-- backward-swept wing draws flow inward, a forward-swept wing sheds it outward,
+-- with no special case. The tip vortex (the radial spill at the tip that grows
+-- when the section stalls) is the induced drag already charged on the bound
+-- circulation ('inducedCd'): it is the lift's own cost, not a separate jet, so
+-- a forward-swept or low-lift wing correctly gets none of it. The pitch/roll
+-- lever the spanwise flow supplies comes from 'spanDrag' acting at the spanwise
+-- lever arm plus the tilted (dihedral/anhedral/flexed) 'strokeLiftForce' and
+-- lift normal — all emergent from geometry, none from a tip-jet constant.
+
+-- | Downstroke lift coefficient: the fraction of the flap-push momentum shed as
+-- LIFT (reaction along the local normal on the power stroke) rather than thrust.
+-- A flapping downstroke pushes air down, so this reaction is upward — the
+-- "extra lift from flapping down" channel, kept separate from the forward jet so
+-- it adds lift without borrowing cruise thrust. Sized so a 50 g bird's flapping
+-- downstroke supports its weight at low speed (probe: hover z > 0.49 N).
+strokeLiftCoeff :: Double
+strokeLiftCoeff = 1.5
+
 -- | Ground-effect constants (dimensionless). Ground effect is the image-vortex
 -- cushion a wing feels close to a surface. For a GLIDING wing it only boosts
 -- lift (higher effective aspect ratio → less downwash → more Cl at the same
@@ -325,26 +347,26 @@ stepWingWithStroke flapping side stroke strokeRate input model incidenceRad stat
 -- Force-only evaluation for the implicit roll Jacobian. Structural relaxation
 -- and separation transport only modify next state; commit those once after
 -- solving, rather than doing a full beam solve at every trial velocity.
-wingLoadsWithStroke :: Bool -> Double -> Double -> Double -> Double -> VehicleInput -> WingModel -> [StripState] -> [StripResult]
-wingLoadsWithStroke flapping side stroke rate phaseRate input model states =
-  prepareWingLoads flapping side stroke phaseRate input model states (vx (bodyRatesRadS input)) rate
+wingLoadsWithStroke :: Bool -> Double -> Double -> Double -> Double -> VehicleInput -> WingModel -> Double -> [StripState] -> [StripResult]
+wingLoadsWithStroke flapping side stroke rate phaseRate input model incidenceRad states =
+  prepareWingLoads flapping side stroke phaseRate input model incidenceRad states (vx (bodyRatesRadS input)) rate
 
 -- Cache the fixed geometry and aerodynamic history outside Newton's candidate
 -- velocities. Rebuilding every strip for every finite-difference column made
 -- the 240 Hz physics consume most of the game thread on small aircraft.
-prepareWingLoads :: Bool -> Double -> Double -> Double -> VehicleInput -> WingModel -> [StripState]
+prepareWingLoads :: Bool -> Double -> Double -> Double -> VehicleInput -> WingModel -> Double -> [StripState]
                  -> Double -> Double -> [StripResult]
-prepareWingLoads flapping side stroke phaseRate input model states =
-  let strips = zipWith (stepStrip True phaseRate flapping side stroke input 0 (wmWing model)) [0..] states
+prepareWingLoads flapping side stroke phaseRate input model incidenceRad states =
+  let strips = zipWith (stepStrip True phaseRate flapping side stroke input incidenceRad (wmWing model)) [0..] states
   in \rollRate rate -> map (\strip -> strip rollRate rate) strips
 
 -- Commit aero memory/structure after the implicit solve using the same loads
 -- as its residual. Hysteretic state transitions are not Newton unknowns.
-stepCoupledWing :: Bool -> Double -> Double -> Double -> Double -> VehicleInput -> WingModel -> [StripState]
+stepCoupledWing :: Bool -> Double -> Double -> Double -> Double -> VehicleInput -> WingModel -> Double -> [StripState]
                 -> ([StripResult], [StripState])
-stepCoupledWing flapping side stroke rate phaseRate input model states =
+stepCoupledWing flapping side stroke rate phaseRate input model incidenceRad states =
   let wp=wmWing model
-      raw=wingLoadsWithStroke flapping side stroke rate phaseRate input model states
+      raw=wingLoadsWithStroke flapping side stroke rate phaseRate input model incidenceRad states
       results=applyStructure (wmSpars model) wp input (transportSeparation side input wp raw)
   in (results,map resultState results)
 
@@ -366,11 +388,29 @@ stepStrip implicitLoads _phaseRate _flapping side stroke input incidenceRad wp i
       !radius = wsShoulderM wp + dr * (fromIntegral index + 0.5)
       !chord = shapeChord wp fraction
       !twist = shapeTwistRad wp fraction + incidenceRad
-      !dihedral = stroke + shapeDihedralRad wp fraction
+      -- Horizontal servo mount: the flap hinge is yawed by mountRad in the
+      -- horizontal plane. A stroke about that yawed hinge decomposes into a
+      -- vertical (dihedral) component ∝ cos mountRad and a horizontal (sweep)
+      -- component ∝ sin mountRad. The stroke-proportional sweep term is what
+      -- makes the section's angle of attack vary with its up/down position —
+      -- a position-dependent "drag rudder". The arm angle rotates the LE spar
+      -- at the arm to cancel the mount's neutral-sweep shift (armRad = mountRad
+      -- ⇒ neutral sweep unchanged). mountRad/armRad are zero for the kestrel,
+      -- so it keeps pure parallel flapping.
+      !mountRad = radians (wsMountAngleDeg wp)
+      !armRad = radians (wsArmAngleDeg wp)
+      !dihedral = stroke * cos mountRad + shapeDihedralRad wp fraction
       !profile = shapeSection wp fraction
       !camberPrev = stripCamber old
       !aeroTwist = stripTwistAero old
       !bend = stripBendM old
+      !bendSlope = stripBendSlope old
+      -- Flex reorients the surface: the out-of-plane flap slope adds to the
+      -- geometric dihedral, so a loaded tip (bent up) flies at a higher local
+      -- dihedral than the stroke alone would set. The force axes (normal/chord/
+      -- span) use this local dihedral; the geometric 'dihedral' still sets the
+      -- physical strip position and lever arms.
+      !dihedralLocal = dihedral + bendSlope
       -- Ground effect: proximity to the surface below, normalised by the total
       -- wingspan (2 × half-span). Each strip sees its OWN flap height, so the
       -- downstroke pushes the tip into the cushion and the upstroke lifts it
@@ -388,12 +428,12 @@ stepStrip implicitLoads _phaseRate _flapping side stroke input incidenceRad wp i
       -- the wing contributes no pitch moment and the tail downforce alone
       -- trims the bird nose-up regardless of CG slider position.
       !position = Vec3 (-0.25 * chord) (side * radius * cos dihedral) (wingRootHeight + radius * sin dihedral + bend)
-      !normal = Vec3 0 (-side * sin dihedral) (cos dihedral)
+      !normal = Vec3 0 (-side * sin dihedralLocal) (cos dihedralLocal)
       -- Resolve flow in the swept section plane. Ignoring sweep here removed
       -- its differential lift in sideslip, despite it being in the planform.
-      !sweep = shapeSweepRad wp fraction
-      !chordAxis = Vec3 (cos sweep) (side * sin sweep * cos dihedral) (sin sweep * sin dihedral)
-      !spanAxis = Vec3 (-sin sweep) (side * cos sweep * cos dihedral) (cos sweep * sin dihedral)
+      !sweep = shapeSweepRad wp fraction + (mountRad - armRad) + sin mountRad * stroke
+      !chordAxis = Vec3 (cos sweep) (side * sin sweep * cos dihedralLocal) (sin sweep * sin dihedralLocal)
+      !spanAxis = Vec3 (-sin sweep) (side * cos sweep * cos dihedralLocal) (cos sweep * sin dihedralLocal)
       -- Flap velocity is the wing surface's motion through the air about the
       -- shoulder hinge. It exists in BOTH flapping and glide: in glide a
       -- differential-dihedral (roll) command rotates the wing, so the surface
@@ -527,10 +567,26 @@ stepStrip implicitLoads _phaseRate _flapping side stroke input incidenceRad wp i
       staticJet = 0.5 * airDensity * area * flapSpeed * flapSpeed * flapJetCoeff * camberBoost
       advanceJet = 0.5 * airDensity * area * max 0 chordVelocity * flapSpeed * flapJetCoeff * camberBoost * flapAdvanceThrustGain
       flapThrust = let jet = staticJet + advanceJet
-                           in if worldStrokeRate < 0
-                                then jet * (1 + groundEffectThrustGain * ge)
-                                else jet * groundEffectUpstrokeRecover * ge
-      thrustForce = Vec3 flapThrust 0 0
+                            in if worldStrokeRate < 0
+                                 then jet * (1 + groundEffectThrustGain * ge)
+                                 else jet * groundEffectUpstrokeRecover * ge
+      -- Thrust follows the local (flexed) chord axis — the chord crossflow
+      -- direction — not the body axis. This reorients the jet in anhedral/
+      -- dihedral (a vertical/lateral component from sweep × dihedral) without
+      -- touching the tuned forward-thrust magnitude, so cruise thrust survives.
+      thrustForce = scaleVec flapThrust chordAxis
+      -- Downstroke lift: the flap-push reaction. On the power stroke the wing
+      -- pushes air DOWN, so the reaction is UP along the (flexed) normal — the
+      -- "extra portion of lift from flapping down" the owner flagged. Kept as a
+      -- separate channel from the forward jet so it adds lift without borrowing
+      -- cruise thrust.
+      strokeLift = 0.5 * airDensity * area * flapSpeed * flapSpeed * strokeLiftCoeff
+      strokeLiftDir = scaleVec (negate (signum worldStrokeRate)) normal
+      strokeLiftForce = scaleVec
+        (strokeLift * (if worldStrokeRate < 0
+                          then 1.0 + groundEffectThrustGain * ge
+                          else groundEffectUpstrokeRecover * ge))
+        strokeLiftDir
       -- Flat-plate pressure drag on the wing surface moving normal to itself.
       -- This is the "air resistance" a broad wing feels when it sweeps up/down
       -- (flap stroke or differential-dihedral roll): independent of the
@@ -558,7 +614,7 @@ stepStrip implicitLoads _phaseRate _flapping side stroke input incidenceRad wp i
       -- at the unloaded hind edge where the thrust is physically produced.
       thrustPosition = Vec3 (-1.0 * chord) (side * radius * cos dihedral)
                             (wingRootHeight + radius * sin dihedral + bend)
-      force = addVec aeroForce thrustForce
+      force = addVec aeroForce (addVec thrustForce strokeLiftForce)
       -- Explicit differencing of BODY acceleration as an added-mass force
       -- creates a delayed feedback loop at contacts. Omit this term until an
       -- implicit fluid/body inertia solve is available; do not clamp it into
@@ -577,7 +633,7 @@ stepStrip implicitLoads _phaseRate _flapping side stroke input incidenceRad wp i
       -- Section Cm is positive nose-up. With body +x forward,+y right,+z up,
       -- the axial +Y moment rotates the nose DOWN, so convert the sign here.
       -- Keep the scalar section moment in its original convention for twist.
-      moment = addVec (crossVec position aeroForce)
+      moment = addVec (crossVec position (addVec aeroForce strokeLiftForce))
                       (addVec (crossVec thrustPosition thrustForce)
                               (Vec3 0 (-sectionPitchMoment) 0))
       power = max 0 (negate (dot force flapVelocity))

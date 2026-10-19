@@ -11,7 +11,7 @@
 
 #include "CoreMinimal.h"
 #include "Components/Widget.h"
-#include "Brushes/SlateRoundedBoxBrush.h"
+#include "Brushes/SlateColorBrush.h"
 #include "Born2FlapStick.generated.h"
 
 class SBorn2FlapStick : public SLeafWidget
@@ -73,25 +73,32 @@ public:
         const float S = FMath::Max(1.f, FMath::Min(Size.X, Size.Y));
         const FVector2D Center = Size * 0.5f;
         const float Half = S * 0.5f;
-        const float CornerRadius = S * 0.14f;
         const FVector2D BezelPos(Center.X - Half, Center.Y - Half);
         const FVector2D BezelSize(S, S);
 
-        // 1. Bezel (dark rounded square).
+        // 1. Bezel — a translucent dark square drawn with a solid-colour brush.
+        //    Deliberately NOT a rounded-box brush: that material can fall back
+        //    to an opaque white box in the runtime UMG path, which is why the
+        //    gimbal read as a blank white square.
         {
-            FSlateBrush Bezel = FSlateRoundedBoxBrush(HousingColor, CornerRadius);
+            FSlateColorBrush Bezel(HousingColor);
             FSlateDrawElement::MakeBox(OutDrawElements, LayerId,
                 AllottedGeometry.ToPaintGeometry(BezelSize, FSlateLayoutTransform(BezelPos)),
                 &Bezel, ESlateDrawEffect::None, FLinearColor::White);
         }
 
-        // 2. Bezel outline.
+        // 2. Bezel outline (four hairline strokes).
         {
-            FSlateBrush Outline = FSlateRoundedBoxBrush(FLinearColor(0.f, 0.f, 0.f, 0.f),
-                CornerRadius, OutlineColor, 1.5f);
-            FSlateDrawElement::MakeBox(OutDrawElements, LayerId + 1,
-                AllottedGeometry.ToPaintGeometry(BezelSize, FSlateLayoutTransform(BezelPos)),
-                &Outline, ESlateDrawEffect::None, FLinearColor::White);
+            const float Thick = FMath::Max(1.f, S * 0.012f);
+            TArray<FVector2D> Frame;
+            Frame.Add(FVector2D(BezelPos.X, BezelPos.Y));
+            Frame.Add(FVector2D(BezelPos.X + S, BezelPos.Y));
+            Frame.Add(FVector2D(BezelPos.X + S, BezelPos.Y + S));
+            Frame.Add(FVector2D(BezelPos.X, BezelPos.Y + S));
+            Frame.Add(FVector2D(BezelPos.X, BezelPos.Y));
+            FSlateDrawElement::MakeLines(OutDrawElements, LayerId + 1,
+                AllottedGeometry.ToPaintGeometry(), Frame,
+                ESlateDrawEffect::None, OutlineColor, true, Thick);
         }
 
         // 3. Crosshair (dim centre guide).
@@ -129,26 +136,31 @@ public:
                 ESlateDrawEffect::None, Color, true, Thick);
         }
 
-        // 6. Knob (filled disc).
+        // 6. Knob (solid-colour disc with a soft halo pass).
         {
             const float KnobR = S * 0.105f;
-            FSlateBrush KnobBrush = FSlateRoundedBoxBrush(Color, KnobR);
+            FSlateColorBrush Halo(FLinearColor(Color.R, Color.G, Color.B, Color.A * 0.35f));
             FSlateDrawElement::MakeBox(OutDrawElements, LayerId + 4,
+                AllottedGeometry.ToPaintGeometry(FVector2D(KnobR * 2.4f, KnobR * 2.4f),
+                    FSlateLayoutTransform(Knob - FVector2D(KnobR * 1.2f, KnobR * 1.2f))),
+                &Halo, ESlateDrawEffect::None, FLinearColor::White);
+            FSlateColorBrush KnobBrush(Color);
+            FSlateDrawElement::MakeBox(OutDrawElements, LayerId + 5,
                 AllottedGeometry.ToPaintGeometry(FVector2D(KnobR * 2.f, KnobR * 2.f),
                     FSlateLayoutTransform(Knob - FVector2D(KnobR, KnobR))),
                 &KnobBrush, ESlateDrawEffect::None, FLinearColor::White);
         }
 
-        return LayerId + 5;
+        return LayerId + 6;
     }
 
 private:
     float X = 0.f;
     float Y = 0.f;
     FLinearColor Color = FLinearColor(0.561f, 0.714f, 0.812f, 1.0f);
-    FLinearColor HousingColor = FLinearColor(0.03f, 0.045f, 0.06f, 0.9f);
-    FLinearColor OutlineColor = FLinearColor(0.36f, 0.44f, 0.48f, 0.55f);
-    FLinearColor CrosshairColor = FLinearColor(0.20f, 0.26f, 0.30f, 0.9f);
+    FLinearColor HousingColor = FLinearColor(0.02f, 0.04f, 0.055f, 0.55f);
+    FLinearColor OutlineColor = FLinearColor(0.40f, 0.52f, 0.58f, 0.9f);
+    FLinearColor CrosshairColor = FLinearColor(0.28f, 0.36f, 0.42f, 0.6f);
     float StickSize = 160.f;
 };
 

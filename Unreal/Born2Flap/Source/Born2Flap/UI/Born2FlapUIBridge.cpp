@@ -502,8 +502,8 @@ void ABorn2FlapUIBridge::RunUITest(float Dt)
         case 3: Click(TEXT("settings.page"),1); break;
         case 4: Click(TEXT("bird.weight"),.42f); break;
         case 5: bUITestPassed &= Bird && FMath::IsNearlyEqual(Bird->GetBodyMassKg(),.42f,.001f); Click(TEXT("settings.page"),4); break;
-        case 6: Click(TEXT("tuning.display.MountAngle"),3); break;
-        case 7: bUITestPassed &= Bird && FMath::IsNearlyEqual(Bird->GetTuning(ETuningField::MountAngle),3.f); Click(TEXT("editor.close")); break;
+        case 6: Click(TEXT("tuning.display.FlapCentre"),3); break;
+        case 7: bUITestPassed &= Bird && FMath::IsNearlyEqual(Bird->GetTuning(ETuningField::FlapCentre),3.f); Click(TEXT("editor.close")); break;
         case 8: bUITestPassed &= Bird && !Bird->IsFlightSettingsOpen(); break;
         }
     } else {

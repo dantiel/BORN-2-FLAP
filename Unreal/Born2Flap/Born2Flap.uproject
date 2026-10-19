@@ -11,6 +11,11 @@
       "Name": "Born2Flap",
       "Type": "Runtime",
       "LoadingPhase": "Default"
+    },
+    {
+      "Name": "Born2FlapEditor",
+      "Type": "Editor",
+      "LoadingPhase": "Default"
     }
   ]
 }

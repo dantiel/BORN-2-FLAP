@@ -22,6 +22,9 @@
 #include "Misc/Parse.h"
 #include "HAL/IConsoleManager.h"
 #include "UnrealClient.h"
+#include "NiagaraComponent.h"
+#include "NiagaraSystem.h"
+#include "Rendering/Born2FlapGraphics.h"
 #include "Water/Born2FlapSurf.h"
 #include "Audio/Born2FlapSoundscape.h"
 #include "AudioMixerBlueprintLibrary.h"
@@ -37,6 +40,10 @@ ABorn2FlapWeather::ABorn2FlapWeather()
     Precipitation->SetupAttachment(RootComponent);
     Precipitation->SetCollisionEnabled(ECollisionEnabled::NoCollision);
     Precipitation->SetCastShadow(false);
+    PrecipitationFX=CreateDefaultSubobject<UNiagaraComponent>(TEXT("PrecipitationFX"));
+    PrecipitationFX->SetupAttachment(RootComponent);
+    PrecipitationFX->SetAutoActivate(false);
+    PrecipitationFX->SetVisibility(false);
     Splashes=CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("RainSplashes"));
     Splashes->SetupAttachment(RootComponent);
     Splashes->SetCollisionEnabled(ECollisionEnabled::NoCollision);
@@ -133,6 +140,29 @@ void ABorn2FlapWeather::Apply()
         Clouds->SetVisibility(W.Cloud>.2f);
     }
     Precipitation->ClearInstances();
+    // HIGH/EPIC: GPU-Niagara drives rain/snow. LOW/MEDIUM (or a missing system
+    // asset) falls back to the instanced-mesh path below.
+    bNiagara=Born2FlapGraphics::SupportsNiagara() && (W.Rain || W.Snow);
+    if(PrecipitationFX)
+    {
+        if(bNiagara)
+        {
+            PrecipitationFX->SetAsset(LoadObject<UNiagaraSystem>(nullptr,W.Snow ? TEXT("/Game/Weather/NS_Snow") : TEXT("/Game/Weather/NS_Rain")));
+            // An empty (emitter-less) system renders nothing — treat it as
+            // "not ready" and fall back to the ISM path rather than blanking rain.
+            if(PrecipitationFX->GetAsset() && PrecipitationFX->GetAsset()->GetEmitterHandles().Num()>0)
+            {
+                PrecipitationFX->SetVisibility(true);
+                PrecipitationFX->Activate(true);
+            }
+            else bNiagara=false;
+        }
+        else
+        {
+            PrecipitationFX->SetVisibility(false);
+            PrecipitationFX->Deactivate();
+        }
+    }
     SurfaceCollection=LoadObject<UMaterialParameterCollection>(nullptr,TEXT("/Game/Weather/MPC_Weather"));
     Wetness=W.Rain ? .45f : 0;
     SnowCoverage=W.Snow ? .30f : 0;
@@ -142,7 +172,7 @@ void ABorn2FlapWeather::Apply()
     for(int I=0;I<96;++I) Splashes->AddInstance(FTransform(FQuat::Identity,FVector::ZeroVector,FVector::ZeroVector));
     Positions.Reset(); Floors.Reset();
     const int32 Count=W.Rain ? 480 : (W.Snow ? 300 : 0);
-    if(Count)
+    if(Count && !bNiagara)
     {
         Precipitation->SetStaticMesh(LoadObject<UStaticMesh>(nullptr,W.Snow ? TEXT("/Engine/BasicShapes/Sphere") : TEXT("/Engine/BasicShapes/Cube")));
         Precipitation->SetMaterial(0,LoadObject<UMaterialInterface>(nullptr,W.Snow ? TEXT("/Game/Weather/M_Snow") : TEXT("/Game/Weather/M_Rain")));
@@ -215,6 +245,13 @@ void ABorn2FlapWeather::Tick(float DeltaSeconds)
     if(auto* Camera=UGameplayStatics::GetPlayerCameraManager(this,0))
     {
         const FVector Center=Camera->GetCameraLocation();
+        if(bNiagara && PrecipitationFX && PrecipitationFX->GetAsset())
+        {
+            // Local-space system follows the camera; wind in cm/s to match the
+            // ISM path's Velocity=Wind(...)*100 convention.
+            PrecipitationFX->SetWorldLocation(Center);
+            PrecipitationFX->SetVectorParameter(TEXT("Wind"),Flow*100);
+        }
         for(int32 I=0;I<Positions.Num();++I)
         {
             FVector Velocity=Born2FlapWeather::Wind(Level,Conditions,Positions[I],Time)*100;
@@ -309,6 +346,12 @@ void ABorn2FlapWeather::CheckExperienceTest()
         const FVector Targets[]={FVector(73000,48500,150),Close+FVector(3200,1100,-130),FVector(73000,35000,300),Wood+FVector(-1800,-3500,0)};
         ExperienceCamera->SetActorLocationAndRotation(Eyes[Index],(Targets[Index]-Eyes[Index]).Rotation());
         CastChecked<ACameraActor>(ExperienceCamera)->GetCameraComponent()->SetFieldOfView(70);
+        if(FParse::Param(FCommandLine::Get(),TEXT("B2FEasternStationTest")))
+        {
+            const FVector StationEyes[]={FVector(50500,17000,Born2FlapBay::Height(50500,17000)+180),FVector(76900,27900,Born2FlapBay::Height(76900,27900)+180),FVector(86500,55000,1100),FVector(73500,36500,6500)};
+            const FVector StationTargets[]={FVector(81100,29000,1500),FVector(81200,29300,1100),FVector(88500,52000,0),FVector(81500,29000,900)};
+            ExperienceCamera->SetActorLocationAndRotation(StationEyes[Index],(StationTargets[Index]-StationEyes[Index]).Rotation());
+        }
         if(FParse::Param(FCommandLine::Get(),TEXT("B2FEastStrandTest")))
         {
             // Inspect both ends of the old coarse-sand patch and the woodland toe.

@@ -104,13 +104,13 @@ void SendUpdate(UBorn2FlapUIRenderer* R, const TArray<int32>& Path, FProps Props
 // is not published on the table, so presets keep the simulator default (20).
 struct FServoPreset { const TCHAR* Name; float SpeedDegS; float StallTorqueNm; float Backdrive; float Voltage; };
 static const FServoPreset ServoPresets[] = {
-    { TEXT("Blue Arrow AF D43S-6.0-MG"), 1500.f, 0.17f, 20.f, 6.0f },
-    { TEXT("VOTIK PTK 7465 / 7465W MG"),   667.f, 0.56f, 20.f, 8.4f },
-    { TEXT("VOTIK PTK 7465 Plus"),         750.f, 0.74f, 20.f, 7.4f },
-    { TEXT("Blue Arrow D0576HT-MG-HV"),   1000.f, 0.41f, 20.f, 7.4f },
-    { TEXT("Inservos D0474HT-MG-HV"),      750.f, 0.35f, 20.f, 7.4f },
-    { TEXT("KST MR320"),                   750.f, 0.54f, 20.f, 7.4f },
-    { TEXT("SAVOX SV-1270TG"),             545.f, 3.43f, 20.f, 7.4f },
+    { TEXT("Blue Arrow AF D43S-6.0-MG"), 1500.f, 0.31f, 20.f, 6.0f },
+    { TEXT("VOTIK PTK 7465 / 7465W MG"),   667.f, 1.01f, 20.f, 8.4f },
+    { TEXT("VOTIK PTK 7465 Plus"),         750.f, 1.33f, 20.f, 7.4f },
+    { TEXT("Blue Arrow D0576HT-MG-HV"),   1000.f, 0.74f, 20.f, 7.4f },
+    { TEXT("Inservos D0474HT-MG-HV"),      750.f, 0.63f, 20.f, 7.4f },
+    { TEXT("KST MR320"),                   750.f, 0.97f, 20.f, 7.4f },
+    { TEXT("SAVOX SV-1270TG"),             545.f, 6.17f, 20.f, 7.4f },
 };
 constexpr int32 ServoPresetCount = (int32)(sizeof(ServoPresets) / sizeof(ServoPresets[0]));
 
@@ -441,6 +441,7 @@ void ABorn2FlapMenu::Build()
         for(int32 I=LocationStart;I<(int32)PaneChildren.size();++I)
             PaneChildren[I].props["visible"]=B(SelectedPage==(I<WeatherStart ? 0 : I<RouteStart ? 1 : 2));
         PaneChildren.push_back(Nd("Button", P({ {"label", S(FString(TEXT("FLY  ")) + WD.Title)}, {"action", S(TEXT("menu.") + Level.ToLower())}, {"tone", S("good")} })));
+        if(Level==TEXT("Shiomori"))PaneChildren.push_back(Nd("Button",P({{"label",S("HARVEST WATCH - guard the sweet potatoes")},{"action",S("menu.harvestwatch")},{"tone",S("accent")}})));
 
         PaneChildren.push_back(Nd("Spacer", P({})));
         PaneChildren.push_back(Nd("TextBlock", P({ {"text", S(FString::Printf(TEXT("WORLD %d OF %d"), SelectedWorld + 1, WorldCount))}, {"size", S("xs")}, {"align", S("center")}, {"tone", S("dim")} })));
@@ -622,7 +623,7 @@ void ABorn2FlapMenu::BuildFlightDesk(std::vector<FNode>& Out)
     Push(Nd("TextBlock", P({ {"text", S("CHOOSE YOUR SILHOUETTE")}, {"tone", S("accent")}, {"size", S("l")} })), 0);
     {
         FValue Silhouettes; Silhouettes.kind = FValue::Kind::Array;
-        for (const TCHAR* Name : { TEXT("RAVENCROW"), TEXT("PROTOTYPE"), TEXT("COMMON KESTREL"), TEXT("NEON TURTLE") }) Silhouettes.arr.push_back(S(FString(Name)));
+        for (const TCHAR* Name : { TEXT("RAVENCROW"), TEXT("PROTOTYPE"), TEXT("COMMON KESTREL"), TEXT("NEON TURTLE"), TEXT("KESTREL LIGHT") }) Silhouettes.arr.push_back(S(FString(Name)));
         Push(Nd("Segment", P({
             {"options", std::move(Silhouettes)},
             {"value", N(CurModel)},
@@ -668,7 +669,8 @@ void ABorn2FlapMenu::BuildFlightDesk(std::vector<FNode>& Out)
         Push(Nd("Toggle", std::move(Props)), 1);
     }
     Push(Nd("TextBlock", P({ {"text", S("MOUNT")}, {"tone", S("accent")}, {"size", S("l")} })), 1);
-    PushTuning(ETuningField::MountAngle, 1);
+    PushTuning(ETuningField::FlapCentre, 1);
+    PushTuning(ETuningField::VerticalMountAngle, 1);
 
     // ---- SERVO & POWER (2) ----
     Push(Nd("TextBlock", P({ {"text", S("SERVO")}, {"tone", S("accent")}, {"size", S("l")} })), 2);
@@ -1372,6 +1374,7 @@ void ABorn2FlapMenu::OnAction(const FString& Action, float Value, const FString&
     struct FEntry { const TCHAR* Action; const TCHAR* Map; const TCHAR* Level; };
     static const FEntry Entries[] = {
         { TEXT("menu.ravenstonefield"), TEXT("/Game/Ravenstonefield/Maps/RAVENSTONEFIELD"), TEXT("Ravenstonefield") },
+        { TEXT("menu.harvestwatch"), TEXT("/Game/Shiomori/Maps/SHIOMORI"), TEXT("Shiomori") },
         { TEXT("menu.shiomori"),        TEXT("/Game/Shiomori/Maps/SHIOMORI"),               TEXT("Shiomori") },
         { TEXT("menu.training"),        TEXT("/Engine/Maps/Entry"),                         TEXT("Training") },
         { TEXT("menu.neonabyss"),       TEXT("/Game/NeonAbyss/Maps/NEONABYSS"),             TEXT("NeonAbyss") },
@@ -1382,6 +1385,7 @@ void ABorn2FlapMenu::OnAction(const FString& Action, float Value, const FString&
         {
             PersistSettings();
             FString Options = Born2FlapWeather::TravelOptions(E.Level, LevelConditions.FindChecked(E.Level));
+            if(Action==TEXT("menu.harvestwatch"))Options+=TEXT("?Activity=HarvestWatch");
             if (const int32* Sel = SelectedPoi.Find(E.Level))
             {
                 const TArray<FBorn2FlapPoi> Cat = Born2FlapPoi::Catalog(E.Level);
@@ -1411,7 +1415,7 @@ void ABorn2FlapMenu::OnAction(const FString& Action, float Value, const FString&
     }
     if (Action == TEXT("bird.model"))
     {
-        Settings.BirdModel = FMath::Clamp(FMath::RoundToInt(Value), 0, 3);
+        Settings.BirdModel = FMath::Clamp(FMath::RoundToInt(Value), 0, 4);
         Settings.CgOffsetMm = FMath::Clamp(Settings.CgOffsetMm, -CgRangeMm(), CgRangeMm());
         if (Bird.IsValid()) Bird->SelectBirdModel(Settings.BirdModel);
         Build();   // CG slider min/max scale with the new craft's length

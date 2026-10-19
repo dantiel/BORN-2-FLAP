@@ -35,7 +35,8 @@ float MenuSettingsTuningClamp(ETuningField Field, float Value)
     case ETuningField::StrokeFerocity:    return FMath::Clamp(Value, 0.f, 100.f);
     case ETuningField::AileronScale:      return FMath::Clamp(Value, 0.f, 100.f);
     case ETuningField::ElevatorScale:     return FMath::Clamp(Value, 0.f, 100.f);
-    case ETuningField::MountAngle:        return FMath::Clamp(Value, -15.f, 15.f);
+    case ETuningField::FlapCentre:        return FMath::Clamp(Value, -15.f, 15.f);
+    case ETuningField::VerticalMountAngle: return FMath::Clamp(Value, -15.f, 15.f);
     default: return 0.f;
     }
 }
@@ -56,7 +57,8 @@ float MenuSettingsGetTuning(const FMenuSettings& S, ETuningField Field)
     case ETuningField::StrokeFerocity:    return float(S.Tuning.stroke_ferocity);
     case ETuningField::AileronScale:      return float(S.Tuning.aileron_scale);
     case ETuningField::ElevatorScale:     return float(S.Tuning.elevator_scale);
-    case ETuningField::MountAngle:        return float(S.Tuning.mount_angle_deg);
+    case ETuningField::FlapCentre:        return float(S.Tuning.flap_centre_deg);
+    case ETuningField::VerticalMountAngle: return float(S.Tuning.vertical_mount_angle_deg);
     default: return 0.f;
     }
 }
@@ -78,7 +80,8 @@ void MenuSettingsSetTuning(FMenuSettings& S, ETuningField Field, float Value)
     case ETuningField::StrokeFerocity:    S.Tuning.stroke_ferocity = Value; break;
     case ETuningField::AileronScale:      S.Tuning.aileron_scale = Value; break;
     case ETuningField::ElevatorScale:     S.Tuning.elevator_scale = Value; break;
-    case ETuningField::MountAngle:        S.Tuning.mount_angle_deg = Value; break;
+    case ETuningField::FlapCentre:        S.Tuning.flap_centre_deg = Value; break;
+    case ETuningField::VerticalMountAngle: S.Tuning.vertical_mount_angle_deg = Value; break;
     default: return;
     }
 }

@@ -155,18 +155,21 @@ ABorn2FlapFlightPawn::ABorn2FlapFlightPawn()
     // Plus flap servo, 3S 1.3 Ah) plus the simulator's controller base.
     // LoadFlightPreferences may override these before the first ApplyTuning.
     Tuning.servo_no_load_speed_deg_s = 750;
-    Tuning.servo_stall_torque_nm = 0.74f;
+    Tuning.servo_stall_torque_nm = 1.332f;
     Tuning.servo_backdrive_deg_s_nm = 20;
     Tuning.battery_voltage = 11.1;
     Tuning.battery_resistance_ohm = 0.08;
     Tuning.battery_capacity_ah = 1.3;
+    Tuning.battery_c_rating = 30;
+    Tuning.battery_burst_c_rating = 60;
     Tuning.flap_base_freq_dhz = 32;
     Tuning.tail_elevator_angle_deg = 0;
     Tuning.glide_angle_deg = -4;
     Tuning.stroke_ferocity = 50;
     Tuning.aileron_scale = 10;
     Tuning.elevator_scale = 55;
-    Tuning.mount_angle_deg = 0;
+    Tuning.flap_centre_deg = 0;
+    Tuning.vertical_mount_angle_deg = 0;
 }
 ABorn2FlapFlightPawn::~ABorn2FlapFlightPawn() = default;
 namespace
@@ -181,13 +184,16 @@ float TuningClamp(ETuningField Field, float Value)
     case ETuningField::BatteryVoltage:    return FMath::Clamp(Value, 3.7f, 22.2f);
     case ETuningField::BatteryResistance: return FMath::Clamp(Value, 0.01f, 0.5f);
     case ETuningField::BatteryCapacity:   return FMath::Clamp(Value, 0.1f, 5.f);
+    case ETuningField::BatteryCRating:    return FMath::Clamp(Value, 1.f, 200.f);
+    case ETuningField::BatteryBurstCRating: return FMath::Clamp(Value, 1.f, 400.f);
     case ETuningField::FlapBaseFreq:      return FMath::Clamp(Value, 10.f, 200.f);
     case ETuningField::TailElevatorAngle:    return FMath::Clamp(Value, -15.f, 15.f);
     case ETuningField::GlideAngle:        return FMath::Clamp(Value, -15.f, 15.f);
     case ETuningField::StrokeFerocity:    return FMath::Clamp(Value, 0.f, 100.f);
     case ETuningField::AileronScale:      return FMath::Clamp(Value, 0.f, 100.f);
     case ETuningField::ElevatorScale:     return FMath::Clamp(Value, 0.f, 100.f);
-    case ETuningField::MountAngle:        return FMath::Clamp(Value, -15.f, 15.f);
+    case ETuningField::FlapCentre:        return FMath::Clamp(Value, -15.f, 15.f);
+    case ETuningField::VerticalMountAngle: return FMath::Clamp(Value, -15.f, 15.f);
     default: return 0.f;
     }
 }
@@ -202,13 +208,16 @@ float ABorn2FlapFlightPawn::GetTuning(ETuningField Field) const
     case ETuningField::BatteryVoltage:    return float(Tuning.battery_voltage);
     case ETuningField::BatteryResistance: return float(Tuning.battery_resistance_ohm);
     case ETuningField::BatteryCapacity:   return float(Tuning.battery_capacity_ah);
+    case ETuningField::BatteryCRating:    return float(Tuning.battery_c_rating);
+    case ETuningField::BatteryBurstCRating: return float(Tuning.battery_burst_c_rating);
     case ETuningField::FlapBaseFreq:      return float(Tuning.flap_base_freq_dhz);
     case ETuningField::TailElevatorAngle:    return float(Tuning.tail_elevator_angle_deg);
     case ETuningField::GlideAngle:        return float(Tuning.glide_angle_deg);
     case ETuningField::StrokeFerocity:    return float(Tuning.stroke_ferocity);
     case ETuningField::AileronScale:      return float(Tuning.aileron_scale);
     case ETuningField::ElevatorScale:     return float(Tuning.elevator_scale);
-    case ETuningField::MountAngle:        return float(Tuning.mount_angle_deg);
+    case ETuningField::FlapCentre:        return float(Tuning.flap_centre_deg);
+    case ETuningField::VerticalMountAngle: return float(Tuning.vertical_mount_angle_deg);
     default: return 0.f;
     }
 }
@@ -223,13 +232,16 @@ void ABorn2FlapFlightPawn::SetTuning(ETuningField Field, float Value)
     case ETuningField::BatteryVoltage:    Tuning.battery_voltage = Value; break;
     case ETuningField::BatteryResistance: Tuning.battery_resistance_ohm = Value; break;
     case ETuningField::BatteryCapacity:   Tuning.battery_capacity_ah = Value; break;
+    case ETuningField::BatteryCRating:    Tuning.battery_c_rating = Value; break;
+    case ETuningField::BatteryBurstCRating: Tuning.battery_burst_c_rating = FMath::Max(Value, Tuning.battery_c_rating); break;
     case ETuningField::FlapBaseFreq:      Tuning.flap_base_freq_dhz = Value; break;
     case ETuningField::TailElevatorAngle:    Tuning.tail_elevator_angle_deg = Value; break;
     case ETuningField::GlideAngle:        Tuning.glide_angle_deg = Value; break;
     case ETuningField::StrokeFerocity:    Tuning.stroke_ferocity = Value; break;
     case ETuningField::AileronScale:      Tuning.aileron_scale = Value; break;
     case ETuningField::ElevatorScale:     Tuning.elevator_scale = Value; break;
-    case ETuningField::MountAngle:        Tuning.mount_angle_deg = Value; break;
+    case ETuningField::FlapCentre:        Tuning.flap_centre_deg = Value; break;
+    case ETuningField::VerticalMountAngle: Tuning.vertical_mount_angle_deg = Value; break;
     default: return;
     }
     ApplyTuning();
@@ -424,6 +436,8 @@ void ABorn2FlapFlightPawn::BeginPlay()
                 Wing->SetPaintTexture(Membrane);
     }
     LoadFlightPreferences();
+    if(const auto* Mode=Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode());Mode && Mode->IsHarvestWatch())
+        BirdModel=2;
     if (BirdModel < 0)
         BirdModel = DefaultBirdModel();   // no explicit menu choice yet → level default
     SelectBirdModel(BirdModel);   // applies the loaded mass + CG for this model
@@ -559,6 +573,7 @@ float ABorn2FlapFlightPawn::GetAltitude() const
 {
     const FVector P = Body->GetComponentLocation();
     const auto *Mode = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode());
+
     const double Ground = Mode ? Mode->GroundHeight(P.X, P.Y) : 0;
     return FMath::Max(0.f, float((P.Z - Ground) / 100.0 - .12));
 }
@@ -1196,10 +1211,19 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
                 }
                 else if (bFpvAirView)
                 {
-                    if (Scroll > 0.f)
+                    // FPV sits at the innermost end of the chase arm. Keep the wheel
+                    // consistent with the chase dolly: wheel-down zooms back out and
+                    // leaves FPV only once the arm has passed the switch point —
+                    // continuous, not a reversed binary jump. Wheel-up stays fully
+                    // zoomed in.
+                    if (Scroll < 0.f)
                     {
-                        bFpvAirView = false;
-                        if (PC->PlayerCameraManager) PC->PlayerCameraManager->SetGameCameraCutThisFrame();
+                        ChaseArmLength = FMath::Clamp(ChaseArmLength - Scroll * 60.f, 60.f, 2000.f);
+                        if (ChaseArmLength > 90.f)
+                        {
+                            bFpvAirView = false;
+                            if (PC->PlayerCameraManager) PC->PlayerCameraManager->SetGameCameraCutThisFrame();
+                        }
                     }
                 }
                 else
@@ -1326,6 +1350,14 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     const FVector P = Body->GetComponentLocation(), V = Body->GetPhysicsLinearVelocity() / 100.0;
     const FVector Omega = Body->GetPhysicsAngularVelocityInRadians();
     const auto *Mode = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode());
+    if(Mode && Mode->IsCoastLevel() && P.Y>-3000 && P.X>90000)
+    {
+        if(P.X>96000)
+        {
+            UE_LOG(LogTemp,Display,TEXT("EasternNoFlyBoundary: returning to launch"));
+            ResetFlight();return;
+        }
+    }
     // Flight-safety reset: the velocity/angular-rate caps are configurable
     // (0 = off, 1 = very low / acro-friendly, 2 = normal). NaN/Inf and the hard
     // world bounds always stay — those are genuine glitch guards, not acro trips.
@@ -1420,17 +1452,20 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         }
     }
     VisualRoot->SetRelativeRotation(FRotator::ZeroRotator);
-    // A 2-servo ornithopter has one actuator per wing: the flap hinge. The wing
-    // rotates around that single axis; pitch and roll are already encoded in
-    // LeftFlap/RightFlap (stroke-centre shift / differential). The mount angle is
-    // a common flap/glide trim: it tilts the whole wing nose-up/nose-down about
-    // the span axis (Pitch), so it must also show in the rendered bird. Positive
-    // mount incidence = nose-up = positive Unreal pitch.
-    const float MountPitch = float(Tuning.mount_angle_deg);
+    // Two independent mount trims:
+    //   * flap_centre_deg  → FLAP-STROKE-CENTRE (dihedral) trim. It shifts the
+    //     servo stroke centre and is ALREADY visible in LeftFlap/RightFlap (the
+    //     Roll slot below). No extra pitch here.
+    //   * vertical_mount_angle_deg → REAL wing incidence (nose-up +). Applied as
+    //     a shoulder PITCH (rotation about the span axis) so the wing visibly
+    //     tilts leading-edge-up when positive. This is the knob the solver feeds
+    //     into the strip's geometric twist, so visual and physics now share one
+    //     axis and sign.
     // Grounded anti-sink: hold the wings near the +16° neutral dihedral so a
     // residual flap cannot dip the tips below the body plane and into the sand.
     // The clamp only bites once the bird is settled (not while flying), so it
     // never fights the aeroelastic stroke during a landing approach.
+    const float MountPitch = float(Tuning.vertical_mount_angle_deg);
     float FlapL = LeftFlap, FlapR = RightFlap;
     if (!bFlying && Throttle < 0.05f)
     {

@@ -32,7 +32,7 @@ const TArray<FBorn2FlapDayTime>& DayTimes()
 TArray<FString> WeatherOptions(const FString& Level)
 {
     if(Level==TEXT("Training")) return {TEXT("sunny"),TEXT("cloudy"),TEXT("rain")};
-    if(Level==TEXT("Shiomori")) return {TEXT("sunny"),TEXT("cloudy"),TEXT("rain"),TEXT("mist"),TEXT("parhelion")};
+        if(Level==TEXT("Shiomori")) return {TEXT("sunny"),TEXT("cloudy"),TEXT("rain"),TEXT("mist"),TEXT("snow"),TEXT("parhelion")};
     // Parhelion is a Shiomori-Bay-only phenomenon (the ice-halo weather). The
     // default nature level (Ravenstonefield) never offers it.
     return {TEXT("sunny"),TEXT("cloudy"),TEXT("rain"),TEXT("mist"),TEXT("snow")};

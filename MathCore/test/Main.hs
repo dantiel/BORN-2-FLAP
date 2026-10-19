@@ -32,7 +32,7 @@ main = do
      ix>2*wingDry && ix<2*wingDry*1.15 && iy>0 && iz>0
     then pure () else fail "component mass budget and narrow-body roll inertia"
   let flow=VehicleInput (1/240) (Vec3 8 0 (-1)) (Vec3 0.3 0.1 0) 0 0 0 0 5
-      loads flag rate=wingLoadsWithStroke flag 1 0.1 rate 0 flow kestrelModel initialStrips
+      loads flag rate=wingLoadsWithStroke flag 1 0.1 rate 0 flow kestrelModel 0 initialStrips
   if all (\rate -> loads False rate == loads True rate) [-8,0,8]
     then pure () else fail "identical wing state must yield identical forces in glide and flap"
   -- Coupled inertia: internal motor impulses conserve angular momentum;
@@ -65,12 +65,12 @@ main = do
   -- air velocity (including compensation for translation of the high root).
   let wingInput=VehicleInput dt (Vec3 8 0 0) zero 0 0 0 0 1000
       sumForce=foldr (addVec . resultForce) zero
-      steady=sumForce (wingLoadsWithStroke False 1 0 0 0 wingInput kestrelModel initialStrips)
+      steady=sumForce (wingLoadsWithStroke False 1 0 0 0 wingInput kestrelModel 0 initialStrips)
       counter=sumForce (wingLoadsWithStroke False 1 0 (-1) 0
-                 (wingInput {bodyRatesRadS=Vec3 1 0 0,bodyVelocityMS=Vec3 8 wingRootHeight 0}) kestrelModel initialStrips)
+                 (wingInput {bodyRatesRadS=Vec3 1 0 0,bodyVelocityMS=Vec3 8 wingRootHeight 0}) kestrelModel 0 initialStrips)
       falling=wingInput {bodyVelocityMS=Vec3 8 0 (-1)}
-      before=sumForce (wingLoadsWithStroke True 1 0 (-1e-8) (-0.1) falling kestrelModel initialStrips)
-      after=sumForce (wingLoadsWithStroke True 1 0 1e-8 (-0.1) falling kestrelModel initialStrips)
+      before=sumForce (wingLoadsWithStroke True 1 0 (-1e-8) (-0.1) falling kestrelModel 0 initialStrips)
+      after=sumForce (wingLoadsWithStroke True 1 0 1e-8 (-0.1) falling kestrelModel 0 initialStrips)
   if magnitude (addVec steady (scaleVec (-1) counter)) < 1e-8
      && magnitude (addVec before (scaleVec (-1) after)) < 1e-6
     then pure () else fail "world-stationary wing flow and continuous implicit reversal loads must hold"

@@ -103,7 +103,7 @@ void ABorn2FlapBayTerrain::BeginPlay()
     for(TActorIterator<AActor> It(GetWorld());It;++It)
         if(It->ActorHasTag(TEXT("Distant mountains behind")) || It->ActorHasTag(TEXT("Distant mountains east")) || It->ActorHasTag(TEXT("Distant mountains west")))
         { It->SetActorHiddenInGame(true);It->SetActorEnableCollision(false); }
-    BuildLand();PlantWoodland();BuildCliffDetails();BuildEastShore();
+    BuildLand();PlantWoodland();BuildCliffDetails();BuildEastShore();BuildEasternStation();
 }
 void ABorn2FlapBayTerrain::BuildLand()
 {

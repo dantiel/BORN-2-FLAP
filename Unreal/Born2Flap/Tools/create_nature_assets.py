@@ -135,7 +135,7 @@ def main():
         if not rock:
             continue
         try:
-            nanite = u.StaticMeshNaniteSettings()
+            nanite = u.MeshNaniteSettings()
             nanite.set_editor_property('enabled', True)
             MESH.set_nanite_settings(rock, nanite)
             LIB.save_loaded_asset(rock)

@@ -39,6 +39,10 @@ namespace Born2FlapGraphics
 
     BORN2FLAP_API FSettings ForQuality(EQuality Q);
     BORN2FLAP_API void Apply(const FSettings& S);
+    // Niagara particle effects (rain/snow/insect swarm) run on the hardware
+    // path only (HIGH/EPIC); LOW/MEDIUM keep the instanced-mesh software
+    // fallback. Mirrors the rest of the tier ladder.
+    BORN2FLAP_API bool SupportsNiagara();
     // Read/save the tier to Config/FlightPreferences.ini [Graphics] Quality.
     BORN2FLAP_API int32 LoadQuality();
     BORN2FLAP_API void SaveQuality(int32 Q);

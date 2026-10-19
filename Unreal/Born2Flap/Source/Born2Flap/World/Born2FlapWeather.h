@@ -57,6 +57,7 @@ class UVolumetricCloudComponent;
 class UPostProcessComponent;
 class UMaterialInstanceDynamic;
 class UMaterialParameterCollection;
+class UNiagaraComponent;
 
 UCLASS()
 class BORN2FLAP_API ABorn2FlapWeather : public AActor
@@ -90,6 +91,10 @@ private:
     UPROPERTY() TObjectPtr<UInstancedStaticMeshComponent> Splashes;
     UPROPERTY() TObjectPtr<UMaterialParameterCollection> SurfaceCollection;
     UPROPERTY() TObjectPtr<UInstancedStaticMeshComponent> Precipitation;
+    // GPU-Niagara replacement for Precipitation (HIGH/EPIC only). The ISM path
+    // above stays as the software fallback for LOW/MEDIUM.
+    UPROPERTY() TObjectPtr<UNiagaraComponent> PrecipitationFX;
+    bool bNiagara=false;
     UPROPERTY() TObjectPtr<UVolumetricCloudComponent> Clouds;
     UPROPERTY() TObjectPtr<UPostProcessComponent> PostProcess;
     UPROPERTY() TObjectPtr<UMaterialInstanceDynamic> HaloMaterial;

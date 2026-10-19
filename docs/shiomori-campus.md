@@ -111,3 +111,24 @@ The final seven captures, passing logs and rebuild manifest are preserved locall
   flattening utility uses NumPy. `-B2FCampusPlacementOnly` may be supplied to
   the rebuild command when only geometry/placement changed and all campus
   materials already exist; omit it after editing material definitions.
+
+
+### Organic terrace revision, 18 October 2026
+
+The campus generator now replaces the 171 x 108 m rectangular platform and
+straight embankment with an asymmetric rounded terrace. A grass shoulder and
+smoothly graded headland apron meet the native terrain, with loose fern, grass
+and partly buried rock groups on the park-facing slope. The separate inland
+launch field and hangar retain their handling surfaces.
+
+A 4.6?5.6 m wide curving stone stair descends from the hotel forecourt toward
+the park, independently of the hotel axes. Three flights are separated by two
+long landings, with low stone cheeks and restrained metal handrails. Shared
+step edges prevent cracks on the bends; the embankment is recessed beneath
+the stairs. Planting clearance includes the complete stair route. The imported
+torii is enlarged from 4.8 m to 7.2 m high, keeping its island-facing orientation.
+
+`campus_landscape.py` supplies the terrain and stairs to both rebuild entry
+points. The original map is backed up in `.setup/campus-organic-20261018/`.
+Generation checks cover upward terrain faces, shared stair edges and risers
+at most 15 cm. The targeted rebuild saved SHIOMORI on 19 October 2026: 1,877 campus actors, 47 mesh batches and 61,474 triangles. All 180 existing volcanic actors were preserved. The rebuild exited successfully and logged CAMPUS_MAP_SAVED without Python errors or file-lock failures. Visual verification is left to the user, as requested. Evidence: `.setup/campus-organic-20261018/rebuild.log`.

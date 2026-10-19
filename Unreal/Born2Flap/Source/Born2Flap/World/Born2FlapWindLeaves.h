@@ -42,6 +42,7 @@ private:
     };
 
     FVector CameraLocation() const;
+    void ScanTrees();
     void RespawnBlades(bool bForce);
     FLeaf SpawnLeaf(FRandomStream& R, const FVector& Cam);
     FBlade SpawnBlade(FRandomStream& R, const FVector& Cam);
@@ -51,9 +52,17 @@ private:
 
     TArray<FLeaf> LeafPool;
     TArray<FBlade> BladePool;
+    // Cached tree locations (StaticMeshActors with tree meshes) so leaves shed
+    // from actual canopies rather than drifting anywhere around the camera.
+    TArray<FVector> TreePositions;
+    TArray<float> TreeHeights;
     FVector LastCam = FVector::ZeroVector;
     bool bInitialized = false;
 
+    // Airborne leaf count tracks horizontal wind strength: calm air keeps a few
+    // stragglers aloft, a gale strips the canopy. The pool stays MaxLeaves; the
+    // inactive tail is parked at zero scale until stronger wind reveals it.
+    static constexpr int32 MinLeaves = 50;
     static constexpr int32 MaxLeaves = 520;
     static constexpr int32 MaxBlades = 320;
 };

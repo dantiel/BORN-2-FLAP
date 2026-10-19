@@ -4,6 +4,9 @@
 #include "Components/InstancedStaticMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/SceneComponent.h"
+#include "NiagaraComponent.h"
+#include "NiagaraSystem.h"
+#include "Rendering/Born2FlapGraphics.h"
 #include "Engine/StaticMesh.h"
 #include "Materials/MaterialInterface.h"
 #include "Materials/MaterialInstanceDynamic.h"
@@ -15,6 +18,10 @@ ABorn2FlapInsectSwarm::ABorn2FlapInsectSwarm()
 {
     PrimaryActorTick.bCanEverTick = true;
     RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("InsectSwarmRoot"));
+    SwarmFX = CreateDefaultSubobject<UNiagaraComponent>(TEXT("InsectSwarmFX"));
+    SwarmFX->SetupAttachment(RootComponent);
+    SwarmFX->SetAutoActivate(false);
+    SwarmFX->SetVisibility(false);
 }
 
 auto ABorn2FlapInsectSwarm::Species(EInsectType Type) -> const FSpecies*
@@ -257,8 +264,34 @@ void ABorn2FlapInsectSwarm::BeginPlay()
         SwarmCounts[T] = FMath::Max(0, FMath::RoundToInt(S->SwarmCount * A));
         HeroCounts[T]  = FMath::Max(0, FMath::RoundToInt(S->HeroCount * A));
     }
-    BuildSwarm();
+    // Heroes are the detailed, catchable individuals — always real meshes.
     BuildHeroes();
+    // The cheap speck swarm migrates to GPU-Niagara on HIGH/EPIC; the ISM path
+    // stays as the software fallback (LOW/MEDIUM, or when the system is absent).
+    bNiagaraSwarm = Born2FlapGraphics::SupportsNiagara();
+    if (SwarmFX)
+    {
+        if (bNiagaraSwarm)
+        {
+            if (auto* System = LoadObject<UNiagaraSystem>(nullptr, TEXT("/Game/Nature/Insects/NS_InsectSwarm")))
+            {
+                if (System->GetEmitterHandles().Num() > 0)
+                {
+                    SwarmFX->SetAsset(System);
+                    SwarmFX->SetVisibility(true);
+                    SwarmFX->Activate(true);
+                }
+                else bNiagaraSwarm = false;
+            }
+            else bNiagaraSwarm = false;
+        }
+        if (!bNiagaraSwarm)
+        {
+            SwarmFX->SetVisibility(false);
+            SwarmFX->Deactivate();
+        }
+    }
+    if (!bNiagaraSwarm) BuildSwarm();
     bReady = true;
 }
 
@@ -395,6 +428,17 @@ void ABorn2FlapInsectSwarm::Tick(float DeltaSeconds)
     Super::Tick(DeltaSeconds);
     if (!bReady)
         return;
-    TickSwarm(DeltaSeconds);
     TickHeroes(DeltaSeconds);
+    if (bNiagaraSwarm)
+    {
+        if (SwarmFX && SwarmFX->GetAsset())
+        {
+            const double Time = GetWorld()->GetTimeSeconds();
+            SwarmFX->SetVectorParameter(TEXT("Wind"), WindAt(GetActorLocation(), Time) * 100.0);
+        }
+    }
+    else
+    {
+        TickSwarm(DeltaSeconds);
+    }
 }

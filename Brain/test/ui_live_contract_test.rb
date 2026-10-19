@@ -33,8 +33,8 @@ class UiLiveContractTest < Minitest::Test
   end
 
   def test_tuning_uses_native_metadata_and_exact_keys
-    t=Born2Flap::UI::Views::TuningEditor.render(:editor,tuning_fields:[{key:'MountAngle',label:'Mount',unit:'°',min:-15,max:15,step:1,value:3,help:'Trim'}])
-    slider=t.each.find { |n| n[:action]=='tuning.display.MountAngle' }
+    t=Born2Flap::UI::Views::TuningEditor.render(:editor,tuning_fields:[{key:'FlapCentre',label:'Flap',unit:'°',min:-15,max:15,step:1,value:3,help:'Trim'}])
+    slider=t.each.find { |n| n[:action]=='tuning.display.FlapCentre' }
     assert_equal 3,slider[:value]
     assert_equal 'Trim',slider[:tooltip]
   end

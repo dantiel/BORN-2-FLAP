@@ -38,6 +38,7 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     double GetBestLapTime() const { return BestLapTime; }
     bool IsRaceComplete() const { return Gates.Num() > 0 && GatesPassed >= Gates.Num(); }
     bool IsCoastLevel() const { return bCoastLevel; }
+    bool IsHarvestWatch() const { return bHarvestWatch; }
     bool IsVoidLevel() const { return bVoidLevel; }
     bool IsMenuOpen() const { return bMenuOpen; }
     bool IsWater(double X,double Y) const;
@@ -110,6 +111,7 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     int32 InitialPoiNumber = 0; // ?PoiNum= (gates), 0 = none
     bool bNatureLevel = true;
     bool bCoastLevel = false;
+    bool bHarvestWatch = false;
     bool bVoidLevel = false;
     FBorn2FlapConditions Conditions;
     UPROPERTY() TObjectPtr<ABorn2FlapWeather> WeatherActor;

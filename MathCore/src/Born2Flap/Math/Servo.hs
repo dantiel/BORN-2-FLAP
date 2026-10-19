@@ -25,6 +25,7 @@ module Born2Flap.Math.Servo
   , servoBackdriveTorque
   , reflectedDriveInertia
   , batteryVoltageUnderLoad
+  , batteryVoltageUnderLoadBoost
   ) where
 
 -- ── Servo specification (selectable in the game) ───────────────────
@@ -52,6 +53,8 @@ data BatterySpec = BatterySpec
   , batteryInternalResistanceOhm :: !Double
   , batteryCapacityAh :: !Double
   , batteryStateOfCharge :: !Double  -- ^ 0..1
+  , batteryCRating :: !Double        -- ^ continuous discharge rating (C), e.g. 30
+  , batteryBurstCRating :: !Double   -- ^ burst discharge rating (C), e.g. 60 = momentarily double
   } deriving stock (Eq, Show)
 
 defaultBatterySpec :: BatterySpec
@@ -60,6 +63,8 @@ defaultBatterySpec = BatterySpec
   , batteryInternalResistanceOhm = 0.05
   , batteryCapacityAh = 0.35
   , batteryStateOfCharge = 1.0
+  , batteryCRating = 30
+  , batteryBurstCRating = 60
   }
 
 -- | Terminal voltage under a current draw: V = V_nom·soc − I·R_internal.
@@ -67,6 +72,23 @@ batteryVoltageUnderLoad :: BatterySpec -> Double -> Double
 batteryVoltageUnderLoad battery currentDrawA =
   max 0 (batteryNominalVoltage battery * batteryStateOfCharge battery
          - currentDrawA * batteryInternalResistanceOhm battery)
+
+-- | Terminal voltage under load with the LiPo burst reservoir. A C-rated pack
+-- can only sustain its continuous current (C·Ah); the burst rating (e.g. 60C vs
+-- 30C) lets it momentarily deliver up to double that — while the burst
+-- reservoir @boost@ (0..1) holds energy, the effective internal resistance
+-- drops, so a hard downstroke punch sags less and the servo punches harder. As
+-- the reservoir drains the sag returns. This is the battery-side half of the
+-- ferocity cost: a snapped stroke needs the burst, and pays for it in sag.
+batteryVoltageUnderLoadBoost :: BatterySpec -> Double -> Double -> Double
+batteryVoltageUnderLoadBoost battery currentDrawA boost =
+  let contA = max 0.01 (batteryCRating battery * batteryCapacityAh battery)
+      burstA = max contA (batteryBurstCRating battery * batteryCapacityAh battery)
+      -- Sag halves at full boost for a 2× burst rating, linearly interpolated.
+      sagFactor = 1 / (1 + (burstA / contA - 1) * clampRate 0 1 boost)
+      rEff = batteryInternalResistanceOhm battery * sagFactor
+  in max 0 (batteryNominalVoltage battery * batteryStateOfCharge battery
+            - currentDrawA * rEff)
 
 -- ── Servo state ────────────────────────────────────────────────────
 

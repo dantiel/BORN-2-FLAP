@@ -12,6 +12,8 @@ source=here/'create_shiomori_map.py';tree=ast.parse(source.read_text(encoding='u
 scope=dict(__file__=str(source),assets=u.AssetToolsHelpers.get_asset_tools(),lib=lib,ela=ela,count=0)
 exec(compile(ast.Module(body=[n for n in tree.body if isinstance(n,(ast.Import,ast.ImportFrom,ast.FunctionDef))],type_ignores=[]),str(source),'exec'),scope)
 node,custom,output=[scope[k] for k in ('node','custom','output')]
+from eastern_station_materials import build as build_station_materials, granite
+build_station_materials(scope)
 for name in ('coast_sand_rocks_02','dry_river_pebbles','gravelly_sand'):
     for channel in ('Diffuse','nor_dx','Rough'):
         label='T_East_'+name+'_'+channel;path='/Game/Shiomori/EastShore/Textures/'+label
@@ -84,6 +86,12 @@ float3 t=lerp(peb,grass,W.x);
 return normalize(N+float3(t.xy,0)*.6);''',{'P':p,'N':n,'W':weights,'T':surface('dry_river_pebbles','nor_dx'),'G':tex('/Game/Shiomori/Cliffs/Textures/T_Cliff_leafy_grass_nor_dx')},3)
 rough=custom(m,HLSL+'''float r=shore.sampleSurface(T,TSampler,P.xy/190,false).r;
 return lerp(clamp(r,.55,.93),.26,1-smoothstep(-45,70,P.z));''',{'P':p,'T':surface('dry_river_pebbles','Rough')},1)
+granite_colour,granite_normal=granite(scope,m)
+granite_weight=custom(m,'''float shoulder=smoothstep(54000,65000,P.x)*(1-smoothstep(96000,105000,P.x))*smoothstep(11000,19000,P.y);
+float patch=.5+.25*sin(P.x*.0011+sin(P.y*.0017))+.2*sin(P.y*.0021);
+return shoulder*smoothstep(130,400,P.z)*saturate(.3+(1-N.z)*2.5+smoothstep(.48,.7,patch)*.6);''',{'P':p,'N':n},1)
+bc=custom(m,'return lerp(A,B,W);',{'A':bc,'B':granite_colour,'W':granite_weight},3)
+detail=custom(m,'return normalize(lerp(A,B,W));',{'A':detail,'B':granite_normal,'W':granite_weight},3)
 mask=custom(m,'''return smoothstep(48000,59000,P.x)*(1-smoothstep(94000,108000,P.x))
 *smoothstep(9000,24000,P.y)*(1-smoothstep(62000,71000,P.y));''',{'P':p},1)
 for key,value,size in [('BASE_COLOR',bc,3),('NORMAL',detail,3),('ROUGHNESS',rough,1)]:

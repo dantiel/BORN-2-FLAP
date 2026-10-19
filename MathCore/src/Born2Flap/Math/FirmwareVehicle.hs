@@ -47,6 +47,7 @@ data FirmwareVehicleState = FirmwareVehicleState
   , fvLeftHingeTorqueNm  :: !Double   -- ^ aero load fed to the servo next step
   , fvRightHingeTorqueNm :: !Double
   , fvBatterySoc      :: !Double     -- ^ 0..1, drains under servo current
+  , fvBatteryBoost    :: !Double     -- ^ 0..1, LiPo burst reservoir (C-rating headroom)
   , fvPhaseEnvelope   :: !PhaseEnvelopeState  -- ^ ONDAS A-layer
   , fvResonance       :: !ResonanceState      -- ^ ONDAS C-layer
   , fvStabilized      :: !Bool      -- ^ ONDAS stabilized-mode master switch
@@ -65,6 +66,7 @@ defaultFirmwareVehicleState = FirmwareVehicleState
   , fvLeftHingeTorqueNm = 0
   , fvRightHingeTorqueNm = 0
   , fvBatterySoc = 1.0
+  , fvBatteryBoost = 1.0
   , fvPhaseEnvelope = defaultPhaseEnvelope
   , fvResonance = defaultResonance
   , fvStabilized = False
@@ -128,6 +130,7 @@ stepFirmwareVehicleWithInertia hostInertia coupled rc params servo battery model
       let (output, next) = advanceFirmwareVehicle hostInertia coupled rc params servo battery model dt bodyVel bodyRates groundClearance old
           values = components (totalForceN output) ++ components (totalMomentNm output) ++
             [totalMechanicalPowerW output, maxSeparation output, fvBatterySoc next,
+             fvBatteryBoost next,
              fvLeftHingeTorqueNm next, fvRightHingeTorqueNm next,
              servoAngleDeg (fvServoLeft next), servoAngleDeg (fvServoRight next),
              servoRateDegPerSec (fvServoLeft next), servoRateDegPerSec (fvServoRight next),
@@ -151,6 +154,10 @@ advanceFirmwareVehicle hostInertia coupled rc params servo battery model dt body
   | otherwise =
       let -- 1. Firmware mixer: RC → wing servo commands (flap deviation deg).
           (mix, nextFw) = computeServoMixer coupled rc params (fvFirmware state) dt
+          -- Real vertical mount angle: a direct wing incidence (nose-up +) about
+          -- the span axis, applied to every strip's geometric twist. Distinct from
+          -- the flap-stroke-centre (dihedral) trim that shifts the stroke centre.
+          mountIncidence = radians (fwVerticalMountIncidenceDeg params)
      
           -- Wing rotational inertia about the flap hinge, derived from the
           -- model's actual planform: structural mass + entrained-air added mass
@@ -163,8 +170,18 @@ advanceFirmwareVehicle hostInertia coupled rc params servo battery model dt body
           lockedInertia = hostInertia + 2 * (wingInertia - dryWingInertia)
           currentA = min 10 ((abs (fvLeftHingeTorqueNm state) + abs (fvRightHingeTorqueNm state))
                        / max 0.01 (servoStallTorqueNm servo / 5))
+          -- LiPo burst reservoir: the servo may exceed the continuous C-rating
+          -- only momentarily; each pause between strokes refills the burst a bit.
+          contA = batteryCRating battery * batteryCapacityAh battery
+          burstA = max contA (batteryBurstCRating battery * batteryCapacityAh battery)
+          overdrawA = max 0 (currentA - contA)
+          boostTauDown = 0.08   -- a hard punch empties the burst in ~80 ms
+          boostTauUp = 0.30     -- a few inter-stroke pauses refill it
+          boostNext = if overdrawA > 0
+            then max 0 (fvBatteryBoost state - (overdrawA / max 0.01 (burstA - contA)) * dt / boostTauDown)
+            else min 1 (fvBatteryBoost state + dt / boostTauUp)
           liveBattery = battery { batteryStateOfCharge = fvBatterySoc state }
-          voltage = batteryVoltageUnderLoad liveBattery currentA
+          voltage = batteryVoltageUnderLoadBoost liveBattery currentA (fvBatteryBoost state)
           oldL = fvServoLeft state
           oldR = fvServoRight state
           angleL = radians (servoAngleDeg oldL)
@@ -177,11 +194,11 @@ advanceFirmwareVehicle hostInertia coupled rc params servo battery model dt body
           evaluate rates =
             let p = x rates; l = y rates; r = z rates
                 wingInput = input { bodyRatesRadS = Vec3 p (y bodyRates) (z bodyRates) }
-                left = stepCoupledWing (mixIsFlapping mix) (-1) angleL l (y oldRates) wingInput model (fvLeftStrips state)
-                right = stepCoupledWing (mixIsFlapping mix) 1 angleR r (z oldRates) wingInput model (fvRightStrips state)
+                left = stepCoupledWing (mixIsFlapping mix) (-1) angleL l (y oldRates) wingInput model mountIncidence (fvLeftStrips state)
+                right = stepCoupledWing (mixIsFlapping mix) 1 angleR r (z oldRates) wingInput model mountIncidence (fvRightStrips state)
             in (left,right)
-          leftLoads = prepareWingLoads (mixIsFlapping mix) (-1) angleL (y oldRates) input model (fvLeftStrips state)
-          rightLoads = prepareWingLoads (mixIsFlapping mix) 1 angleR (z oldRates) input model (fvRightStrips state)
+          leftLoads = prepareWingLoads (mixIsFlapping mix) (-1) angleL (y oldRates) input model mountIncidence (fvLeftStrips state)
+          rightLoads = prepareWingLoads (mixIsFlapping mix) 1 angleR (z oldRates) input model mountIncidence (fvRightStrips state)
           aeroAt rates =
             let ls = leftLoads (x rates) (y rates)
                 rs = rightLoads (x rates) (z rates)
@@ -337,6 +354,7 @@ advanceFirmwareVehicle hostInertia coupled rc params servo battery model dt body
             , fvLeftHingeTorqueNm = leftHinge
             , fvRightHingeTorqueNm = rightHinge
             , fvBatterySoc = nextSoc
+            , fvBatteryBoost = boostNext
             , fvPhaseEnvelope = peNext
             , fvResonance = nextResonance
             }

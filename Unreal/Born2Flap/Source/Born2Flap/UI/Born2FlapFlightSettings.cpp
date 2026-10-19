@@ -79,17 +79,19 @@ void SendUpdate(UBorn2FlapUIRenderer* R, const TArray<int32>& Path, FProps Props
 }
 
 // Servos tested for flapping (dantiel.github.io/OrniFlight servo-efficiency
-// table). Speed = 60 / s-per-60°, torque = kg·cm × 0.0980665 → N·m. Backdrive
+// table). Speed = 60 / s-per-60°; torque = kg·cm × 0.0980665 → N·m, then × 1.8
+// servo-power fidelity — the solver under-models a servo's effective authority,
+// so stall torque carries the ×1.8 to match measured flap authority. Backdrive
 // is not published on the table, so presets keep the simulator default (20).
 struct FServoPreset { const TCHAR* Name; float SpeedDegS; float StallTorqueNm; float Backdrive; float Voltage; };
 static const FServoPreset ServoPresets[] = {
-    { TEXT("Blue Arrow AF D43S-6.0-MG"), 1500.f, 0.17f, 20.f, 6.0f },
-    { TEXT("VOTIK PTK 7465 / 7465W MG"),   667.f, 0.56f, 20.f, 8.4f },
-    { TEXT("VOTIK PTK 7465 Plus"),         750.f, 0.74f, 20.f, 7.4f },
-    { TEXT("Blue Arrow D0576HT-MG-HV"),   1000.f, 0.41f, 20.f, 7.4f },
-    { TEXT("Inservos D0474HT-MG-HV"),      750.f, 0.35f, 20.f, 7.4f },
-    { TEXT("KST MR320"),                   750.f, 0.54f, 20.f, 7.4f },
-    { TEXT("SAVOX SV-1270TG"),             545.f, 3.43f, 20.f, 7.4f },
+    { TEXT("Blue Arrow AF D43S-6.0-MG"), 1500.f, 0.31f, 20.f, 6.0f },
+    { TEXT("VOTIK PTK 7465 / 7465W MG"),   667.f, 1.01f, 20.f, 8.4f },
+    { TEXT("VOTIK PTK 7465 Plus"),         750.f, 1.33f, 20.f, 7.4f },
+    { TEXT("Blue Arrow D0576HT-MG-HV"),   1000.f, 0.74f, 20.f, 7.4f },
+    { TEXT("Inservos D0474HT-MG-HV"),      750.f, 0.63f, 20.f, 7.4f },
+    { TEXT("KST MR320"),                   750.f, 0.97f, 20.f, 7.4f },
+    { TEXT("SAVOX SV-1270TG"),             545.f, 6.17f, 20.f, 7.4f },
 };
 constexpr int32 ServoPresetCount = (int32)(sizeof(ServoPresets) / sizeof(ServoPresets[0]));
 

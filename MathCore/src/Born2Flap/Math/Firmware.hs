@@ -33,6 +33,7 @@ module Born2Flap.Math.Firmware
 import Born2Flap.Math.Waveform
   ( OscillatorState(..), defaultOscillator, advanceOscillator
   , limiarFromFerocities, shapeWave )
+import Born2Flap.Math.FerocityPrice (dwellFromFerocity, ferocityThrustPrice)
 
 -- ── CRSF channel set ───────────────────────────────────────────────
 --
@@ -127,7 +128,7 @@ rollAuthorityGain :: Double
 rollAuthorityGain = 2.0
 
 ampMaxDeg, freqMinHz, servoSpeedMsDefault :: Double
-ampMaxDeg = 24
+ampMaxDeg = 55
 freqMinHz = 0.5
 servoSpeedMsDefault = 62
 
@@ -193,7 +194,8 @@ data FirmwareParams = FirmwareParams
   { fwProfile       :: !FlightProfile
   , fwServoSpeedMs  :: !Double  -- ^ ms per 60° stroke (25..250); servo selection
   , fwFlapBaseFreqDh:: !Double  -- ^ deci-Hz (10..200), CH6 frequency ceiling
-  , fwMountIncidenceDeg :: !Double  -- ^ wing mount angle [deg]; trims the flap-stroke centre like the tail elevator (no direct alpha incidence)
+  , fwFlapCentreDeg :: !Double  -- ^ flap stroke centre trim (dihedral) [deg]; like the tail elevator (no direct alpha incidence)
+  , fwVerticalMountIncidenceDeg :: !Double  -- ^ real wing mount incidence (nose-up +) [deg]
   , fwRudderYawWeight :: !Double  -- 0..100
   , fwRudderRollWeight:: !Double  -- 0..100
   , fwAnchorGain      :: !Double  -- 0..100 beat-locking stiffness
@@ -205,7 +207,8 @@ defaultFirmwareParams = FirmwareParams
   { fwProfile = defaultFlightProfiles !! 1
   , fwServoSpeedMs = servoSpeedMsDefault
   , fwFlapBaseFreqDh = 50
-  , fwMountIncidenceDeg = 0
+  , fwFlapCentreDeg = 0
+  , fwVerticalMountIncidenceDeg = 0
   , fwRudderYawWeight = 65
   , fwRudderRollWeight = 100
   , fwAnchorGain = anchorGainDefault
@@ -379,19 +382,6 @@ flappingBranch coupled prof aileronNorm elevatorNorm rc params state dt =
       freqHz = freqMinHz + freq01 * (freqMax - freqMinHz)
       cadenceTarget = freqHz * 6.283185307
 
-      -- Amplitude is the geometric stroke, but it is SOFT-capped by the servo's
-      -- no-load speed so the commanded stroke is one the actuator can actually
-      -- track. A real linkage sets a fixed stroke; but if the cadence demands a
-      -- peak rate beyond the servo's no-load speed the servo simply cannot reach
-      -- the stroke — it collapses to a tiny oscillation (measured: 667°/s servo
-      -- at 5.57 Hz tracked only 7° of the commanded 55°). Capping the COMMAND at
-      -- ω₀/(2π·f) keeps the stroke achievable; the torque back-drive in
-      -- stepServo then still limits the ACHIEVED stroke under load, so torque
-      -- remains relevant — a stronger servo holds a bigger fraction of the cap.
-      servoSpeedDegS = 60000 / max 1 (fwServoSpeedMs params)
-      amplitudeSpeedCap = servoSpeedDegS / (2 * pi * max freqMinHz freqHz)
-      amplitude = throttlePct * min ampMaxDeg amplitudeSpeedCap
-
       -- Steering commands (deg).
       -- Roll comes from an asymmetric flap-CENTRE deviation (differential
       -- dihedral), identical to the glide branch: positive aileron raises the
@@ -409,7 +399,7 @@ flappingBranch coupled prof aileronNorm elevatorNorm rc params state dt =
       -- current coarse model: both shift the common-mode flap-stroke centre. They
       -- stay separate fields because a future fine-grained model will treat a
       -- physical wing-mount tilt differently from a tail-elevator trim.
-      flapCentreTrim = profTailElevatorAngleDeg prof + fwMountIncidenceDeg params
+      flapCentreTrim = profTailElevatorAngleDeg prof + fwFlapCentreDeg params
 
       -- Elevator → ferocity asymmetry.
       elevFerScale = profElevatorFerocityMix prof * 0.01 * (ferocityMax - ferocityMin)
@@ -445,6 +435,24 @@ flappingBranch coupled prof aileronNorm elevatorNorm rc params state dt =
                             (profThrottleSkewRateMix prof)
       strokeSkewEff = profStrokeSkew prof + thrustCentreShift thrust + throttleRateBoost
       returnSkewEff = profReturnSkew prof + thrustCentreShift thrust + throttleRateBoost
+
+      -- Amplitude is the full geometric stroke (throttle-independent: the stick
+      -- commands flap FREQUENCY, not arc), soft-capped by the servo's no-load
+      -- speed against the stroke's PEAK rate. The peak rate of a pointed
+      -- (high-ferocity) stroke is 1/(1-d) times a pure sine's, so a ferocious
+      -- stroke is capped tighter while a smooth (low-ferocity) stroke earns a
+      -- LARGER arc for the same servo speed — the ferocity cost the pilot pays
+      -- for snap. Throttle was previously folded in too (amplitude ∝ throttle),
+      -- which stacked with the coupled frequency (∝ throttle) into a throttle⁴
+      -- thrust curve: a 42% stick gave ~3% of full thrust. Keeping the arc and
+      -- letting only frequency follow throttle restores thrust ∝ throttle², so a
+      -- 42% stick now flies. Torque back-drive in stepServo still limits the
+      -- ACHIEVED stroke under load.
+      servoSpeedDegS = 60000 / max 1 (fwServoSpeedMs params)
+      dwell = max (dwellFromFerocity strokeFer) (dwellFromFerocity returnFer)
+      peakRate = ferocityThrustPrice dwell     -- 1/(1-d), normalized peak flap rate
+      amplitudeSpeedCap = servoSpeedDegS / (cadenceTarget * peakRate)
+      amplitude = min ampMaxDeg amplitudeSpeedCap
 
       -- Aileron + aileron-rate → opposite stroke/return timing skew. Rudder
       -- owns amplitude differential. Both mechanisms act on the same wings.

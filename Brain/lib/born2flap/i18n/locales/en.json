@@ -72,6 +72,8 @@
   "tuning.stroke_ferocity": "STROKE FEROCITY",
   "tuning.aileron_scale": "AILERON SCALE",
   "tuning.elevator_scale": "ELEVATOR SCALE",
+  "tuning.flap_centre": "FLAP CENTRE",
+  "tuning.vertical_mount_angle": "VERTICAL MOUNT ANGLE",
   "bird.ravencrow": "RAVENCROW  /  folded obsidian & comb pinions",
   "bird.prototype": "PROTOTYPE  /  elliptical feathers",
   "bird.peregrine": "PEREGRINE  /  falcon",

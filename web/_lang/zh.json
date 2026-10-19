@@ -3,7 +3,6 @@
   "dir": "ltr",
   "title": "BORN2FLAP — 扑翼机飞行模拟器",
   "meta_desc": "BORN2FLAP 是一款实时扑翼机飞行模拟器：分段机翼、动态失速与气动弹性弯曲。每一振翅，皆为关键。",
-
   "asset_prefix": "..",
   "lang_href_en": "../",
   "lang_href_de": "../de/",
@@ -21,7 +20,6 @@
   "lang_class_ja": "",
   "lang_class_ko": "",
   "lang_class_ru": "",
-
   "nav_home": "BORN2FLAP",
   "nav_essence": "本质",
   "nav_flight": "机翼",
@@ -30,7 +28,6 @@
   "nav_open": "开源",
   "nav_tutorials": "教程",
   "nav_documentation": "文档",
-
   "hero_kicker": "一款扑翼机飞行模拟器",
   "hero_title_a": "BORN",
   "hero_title_b": "2",
@@ -42,7 +39,6 @@
   "hero_cta_epic": "前往 Epic 获取",
   "hero_cta_source": "阅读源码",
   "hero_version": "Unreal Engine 5 · Haskell MathCore · MIT 许可证",
-
   "essence_num": "01",
   "essence_title": "本质",
   "essence_lead": "扑翼机不是四旋翼。它是一双拍打的翅膀。",
@@ -53,7 +49,6 @@
   "essence_p2_body": "CRSF 遥控、ONDAS 混控、PID 与舵机内核，皆从真实固件移植。用真正的遥控器来飞。",
   "essence_p3_title": "真实代价",
   "essence_p3_body": "后掠、洗出、弯度与刚度都会改变飞行。造出来，然后驾驭它。",
-
   "flight_num": "02",
   "flight_title": "机翼",
   "flight_lead": "气动弹性，诚实，鲜活。",
@@ -74,7 +69,6 @@
   "flight_spec_wave_val": "非对称驻留 / 尖波，节拍锁定",
   "flight_spec_step_label": "时间步",
   "flight_spec_step_val": "固定 240 Hz",
-
   "arch_num": "03",
   "arch_title": "架构",
   "arch_lead": "三种语言，一颗跳动的心。",
@@ -87,8 +81,7 @@
   "arch_ruby_title": "Ruby 大脑",
   "arch_ruby_desc": "应用状态、菜单、规则与编排——快数学背后的慢思维。",
   "arch_pipeline": "RC / 手柄  ──►  固件 (CRSF · 混控 · PID)\n                         │\n                         ▼\n              Haskell MathCore (固定 240 Hz)\n                         │\n                         ▼\n              C / C++ FFI  ──►  Unreal / Chaos",
-
-  "game_num": "04",
+  "game_num": "05",
   "game_title": "玩法",
   "game_lead": "上手容易，精通很难。",
   "game_free_title": "自由飞行",
@@ -103,13 +96,11 @@
   "game_landing_desc": "风中定点着陆——最古老的科目，也最难。",
   "game_bench_title": "测试台",
   "game_bench_desc": "风洞视角：力矢量、失速图谱、机翼形变实时可见。",
-
-  "open_num": "06",
+  "open_num": "07",
   "open_title": "开源",
   "open_lead": "商业化与自由并存。",
   "open_body": "BORN2FLAP 将登陆 Steam 与 Epic Games Store，而其自有源码以 <strong>MIT 许可证</strong>发布。物理内核、桥接、大脑——全部开放。飞这款游戏，拿走这双翅膀，造你自己的。Unreal Engine 与第三方资产保留各自许可。 相关开源项目：<a href=\"https://dantiel.github.io/OrniFlight/\">OrniFlight</a>（面向 STM32 飞控）与 <a href=\"https://dantiel.github.io/PteronautOS/\">PteronautOS</a>（在简单硬件上更通用）——各自配备独立的配置器与固件。",
   "open_license": "MIT 许可证",
-
   "footer_github": "GitHub",
   "footer_docs": "文档",
   "footer_tutorials": "教程",
@@ -117,43 +108,33 @@
   "footer_epic": "Epic Games",
   "footer_hermetic": "以凶猛之心，书于以太之中。",
   "footer_credit": "BORN2FLAP ·",
-
   "subnav_scroll": "回到顶部",
   "subnav_home": "返回 BORN2FLAP",
-
   "doc_title": "文档 — BORN2FLAP",
   "doc_h1": "文档",
   "doc_lead": "机翼、数学与机器——逐一解释。",
   "doc_h2_articles": "文章",
-
   "ph_title": "物理 — BORN2FLAP",
   "ph_h1": "物理",
   "ph_lead": "精简实时模型。",
-
   "wing_title": "机翼 — BORN2FLAP",
   "wing_h1": "机翼",
   "wing_lead": "平面形状、剖面、结构。",
-
   "wave_title": "波形 — BORN2FLAP",
   "wave_h1": "波形",
   "wave_lead": "节拍锁定的振荡。",
-
   "ctl_title": "操控 — BORN2FLAP",
   "ctl_h1": "操控",
   "ctl_lead": "CRSF、混控、固件。",
-
   "tut_title": "教程 — BORN2FLAP",
   "tut_h1": "教程",
   "tut_lead": "从第一次振翅到手动调校。",
-
   "ff_title": "首飞 — BORN2FLAP",
   "ff_h1": "首飞",
   "ff_lead": "起飞，留在空中。",
-
   "wd_title": "机翼设计 — BORN2FLAP",
   "wd_h1": "机翼设计",
   "wd_lead": "几何即命运。",
-
   "tune_title": "调校 — BORN2FLAP",
   "tune_h1": "调校",
   "tune_lead": "把机翼调到你的手感。"

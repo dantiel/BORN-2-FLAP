@@ -32,4 +32,5 @@ private:
     void PlantWoodland();
     void BuildCliffDetails();
     void BuildEastShore();
+    void BuildEasternStation();
 };

@@ -39,6 +39,7 @@
           %a{href: "#essence"}!= nav_essence
           %a{href: "#flight"}!= nav_flight
           %a{href: "#architecture"}!= nav_architecture
+          %a{href: "#worlds"}!= nav_worlds
           %a{href: "#gameplay"}!= nav_gameplay
           %a{href: "#roadmap"}!= nav_roadmap
           %a{href: "#open"}!= nav_open
@@ -136,6 +137,26 @@
             :preserve
               =~ arch_pipeline
 
+      %section#worlds
+        .section-head
+          %span.section-num!= worlds_num
+          %h2!= worlds_title
+        %p.lead!= worlds_lead
+        %p.body!= worlds_body
+        .cards.cards--wide
+          .card
+            %h3!= world_raven_title
+            %p!= world_raven_desc
+          .card
+            %h3!= world_shiomori_title
+            %p!= world_shiomori_desc
+          .card
+            %h3!= world_training_title
+            %p!= world_training_desc
+          .card
+            %h3!= world_neon_title
+            %p!= world_neon_desc
+
       %section#gameplay
         .section-head
           %span.section-num!= game_num
@@ -152,6 +173,7 @@
               referrerpolicy: "strict-origin-when-cross-origin"
             }
           %figcaption!= game_video_caption
+        %h3.group-label.group-label--first!= game_modes_label
         .cards.cards--wide
           .card
             %h3!= game_free_title
@@ -169,14 +191,29 @@
             %h3!= game_landing_title
             %p!= game_landing_desc
           .card
-            %h3!= game_bench_title
-            %p!= game_bench_desc
-          .card
-            %h3!= game_valley_title
-            %p!= game_valley_desc
+            %h3!= game_harvest_title
+            %p!= game_harvest_desc
+
+        %h3.group-label!= game_features_label
+        .cards.cards--wide
           .card
             %h3!= game_rc_title
             %p!= game_rc_desc
+          .card
+            %h3!= game_radio_title
+            %p!= game_radio_desc
+          .card
+            %h3!= game_camera_title
+            %p!= game_camera_desc
+          .card
+            %h3!= game_birds_title
+            %p!= game_birds_desc
+          .card
+            %h3!= game_mouse_title
+            %p!= game_mouse_desc
+          .card
+            %h3!= game_bench_title
+            %p!= game_bench_desc
 
       %section#roadmap
         .section-head

@@ -59,6 +59,11 @@ FSettings ForQuality(EQuality Q)
     return S;
 }
 
+bool SupportsNiagara()
+{
+    return LoadQuality() >= static_cast<int32>(EQuality::High);
+}
+
 void Apply(const FSettings& S)
 {
     SetCVar(TEXT("r.VolumetricFog"), S.bVolumetricFog ? 1 : 0);

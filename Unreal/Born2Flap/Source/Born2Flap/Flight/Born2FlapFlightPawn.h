@@ -25,8 +25,9 @@ class IInputProcessor;
 enum class ETuningField : uint8
 {
     ServoSpeed, StallTorque, Backdrive, BatteryVoltage, BatteryResistance, BatteryCapacity,
+    BatteryCRating, BatteryBurstCRating,
     FlapBaseFreq, TailElevatorAngle, GlideAngle, StrokeFerocity, AileronScale, ElevatorScale,
-    MountAngle, Count
+    FlapCentre, VerticalMountAngle, Count
 };
 // RC channels drive the native actuators. All forces and moments are aerodynamic.
 UCLASS()
@@ -117,6 +118,7 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
         switch (BirdModel)
         {
         case 2:  return 106.f;   // common kestrel (falcon): nose +28.5 -> tail -77.5
+        case 4:  return 106.f;   // kestrel light: same silhouette as the common kestrel
         case 1:  return 144.f;   // prototype: beak +59 -> tail plate -85
         case 3:  return 90.f;    // neon turtle: nose +43 -> hind-fin tip -46
         default: return 182.f;   // ravencrow: beak +70 -> tail tip -112
@@ -236,7 +238,7 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     bool bCoupledThrottle = true;
     FVector MouseGains = FVector(1, -1, 1);
     int32 BirdModel = 0;
-    float BodyMassKg = 0.45f;
+    float BodyMassKg = 0.050f;
     float CgOffsetMm = 0.f;
     B2F_TuningConfig Tuning{};
     void ApplyTuning();
