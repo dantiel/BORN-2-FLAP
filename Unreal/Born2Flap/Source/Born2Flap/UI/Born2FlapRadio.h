@@ -133,6 +133,9 @@ private:
     void BuildPanel();
     void Refresh();
 
+    UFUNCTION()
+    void HandleComponentAction(const FString& Action, float Value, const FString& Text);
+
     UPROPERTY() TObjectPtr<UBorn2FlapUIRenderer> Renderer;
     UPROPERTY() TObjectPtr<UBorn2FlapRadioStation> Station;
     ABorn2FlapFlightPawn* CachedBird = nullptr;
@@ -140,4 +143,5 @@ private:
     FString LastTrackLine;
     int32 LastVolumePct = -1;
     bool bLastHidden = true;
+    bool bLastMuted = false;
 };

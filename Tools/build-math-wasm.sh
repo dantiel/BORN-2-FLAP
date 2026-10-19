@@ -26,6 +26,12 @@ while [ $# -gt 0 ]; do
     shift
 done
 
+# Load the ghc-wasm cross-toolchain environment (wasm32-wasi-ghc, wasi-sdk,
+# wasm-ld, llvm-ar, wasmtime, binaryen, …) installed by ghc-wasm-meta/setup.sh.
+if [ -f "$HOME/.ghc-wasm/env" ]; then
+    # shellcheck disable=SC1091
+    . "$HOME/.ghc-wasm/env"
+fi
 export PATH="$HOME/.ghcup/bin:$PATH"
 
 WASM_GHC="$(command -v wasm32-wasi-ghc || true)"

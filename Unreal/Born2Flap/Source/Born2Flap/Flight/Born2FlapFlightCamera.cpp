@@ -88,6 +88,21 @@ void ABorn2FlapFlightPawn::ToggleFpvView()
     if(auto* PC=Cast<APlayerController>(GetController()); PC && PC->PlayerCameraManager) PC->PlayerCameraManager->SetGameCameraCutThisFrame();
     if(!bFlightTest && !bDesktopInputTest) SaveFlightPreferences();
 }
+void ABorn2FlapFlightPawn::CycleCamera()
+{
+    // CHASE → FPV → GROUND → CHASE. The three states are exclusive; this keeps
+    // the mobile perspective button a single affordance instead of two toggles.
+    if (!bGroundView && !bFpvAirView)      { bFpvAirView = true;  bGroundView = false; }
+    else if (bFpvAirView)                   { bFpvAirView = false; bGroundView = true;  }
+    else                                    { bFpvAirView = false; bGroundView = false; }
+    bGroundGazeReady = false;
+    if (auto* PC = Cast<APlayerController>(GetController()))
+    {
+        PC->SetViewTarget(this);
+        if (PC->PlayerCameraManager) PC->PlayerCameraManager->SetGameCameraCutThisFrame();
+    }
+    if (!bFlightTest && !bDesktopInputTest) SaveFlightPreferences();
+}
 FString ABorn2FlapFlightPawn::GetCameraLabel() const
 {
     return bGroundView ? TEXT("GROUND / LAST LANDING") : bFpvAirView ? TEXT("FPV / ONBOARD") : TEXT("CHASE / FOLLOW");

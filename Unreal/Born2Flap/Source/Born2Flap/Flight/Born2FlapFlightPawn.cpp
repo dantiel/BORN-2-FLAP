@@ -1172,6 +1172,39 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
                 PC->PlayerCameraManager->SetGameCameraCutThisFrame();
         }
     }
+#if PLATFORM_IOS || PLATFORM_ANDROID
+    // Mobile multi-touch: a single-finger drag (or a parallel two-finger pan)
+    // rotates the view — chase orbit in the air, free-look on the ground — while
+    // pinch + pivot walk the ground observer. Mirrors the desktop MMB orbit/walk.
+    if (!bMenuOpen && !IsFlightSettingsOpen() && !IsPoiOverlayOpen() && !bFlightTest && !bDesktopInputTest)
+    {
+        UpdateTouchGestures(DeltaSeconds, Cast<APlayerController>(GetController()));
+        if (!FMath::IsNearlyZero(GestureViewYaw) || !FMath::IsNearlyZero(GestureViewPitch))
+        {
+            if (bGroundView)
+            {
+                const float Inv = bFreeLookInvert ? -1.f : 1.f;
+                GroundLookYaw -= Inv * GestureViewYaw;
+                GroundLookPitch -= Inv * GestureViewPitch;
+                GroundLookPitch = FMath::Clamp(GroundLookPitch, -80.f, 80.f);
+            }
+            else if (!bFpvAirView)
+            {
+                ChaseOrbitYaw -= GestureViewYaw;
+                ChaseOrbitPitch -= GestureViewPitch;
+                ChaseOrbitPitch = FMath::Clamp(ChaseOrbitPitch, -80.f, 10.f);
+            }
+        }
+        if (bGroundView && (!FMath::IsNearlyZero(GestureWalkForward) || !FMath::IsNearlyZero(GestureWalkStrafe)))
+        {
+            const float FwdYaw = float(GroundGaze.Yaw + GroundLookYaw);
+            const FVector Dir = FRotator(0.f, FwdYaw, 0.f).Vector() * GestureWalkForward +
+                                FRotator(0.f, FwdYaw + 90.f, 0.f).Vector() * GestureWalkStrafe;
+            if (!Dir.IsNearlyZero())
+                MoveWalker(Dir);
+        }
+    }
+#endif
     if (bFlightTest)
     {
         MouseX = MouseY = Wheel = 0;
@@ -1367,6 +1400,115 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     if (bDesktopInputTest)
         CheckDesktopInputTest(DeltaSeconds);
 }
+
+#if PLATFORM_IOS || PLATFORM_ANDROID
+// Mobile multi-touch gesture recogniser (polled each tick via GetInputTouchState,
+// so it never fights the virtual joysticks for touch ownership). Positions are
+// normalized viewport coordinates (0..1). Recognises:
+//   • single-finger drag            → view rotation
+//   • two-finger parallel pan       → view rotation
+//   • two-finger symmetric pinch    → walk forward/back  (pinch-in = forward)
+//   • two-finger pivot (1 still)    → walk in the moving finger's direction
+void ABorn2FlapFlightPawn::UpdateTouchGestures(float Dt, APlayerController* PC)
+{
+    GestureViewYaw = GestureViewPitch = GestureWalkForward = GestureWalkStrafe = 0.f;
+    if (!PC)
+        return;
+
+    // Free-look zone: the middle band of the screen, clear of the twin virtual
+    // joysticks (bottom corners) and the HUD readout/action bar (top edge).
+    const float ZoneTop = 0.20f, ZoneBottom = 0.68f;
+
+    float X[2] = { 0.f, 0.f }, Y[2] = { 0.f, 0.f };
+    bool Down[2] = { false, false };
+    PC->GetInputTouchState(ETouchIndex::Touch1, X[0], Y[0], Down[0]);
+    PC->GetInputTouchState(ETouchIndex::Touch2, X[1], Y[1], Down[1]);
+
+    FVector2D Delta[2] = { FVector2D::ZeroVector, FVector2D::ZeroVector };
+    bool Moved[2] = { false, false };
+
+    for (int32 I = 0; I < 2; ++I)
+    {
+        const bool bInZone = Down[I] && Y[I] > ZoneTop && Y[I] < ZoneBottom;
+        const FVector2D Cur(X[I], Y[I]);
+        if (bInZone && !GestureTracked[I])
+        {
+            GestureTracked[I] = true;
+            GesturePrev[I] = Cur;   // entering the zone: no delta this frame
+        }
+        else if (!bInZone && GestureTracked[I])
+        {
+            GestureTracked[I] = false;   // lifted / left the zone
+        }
+        else if (bInZone && GestureTracked[I])
+        {
+            const FVector2D D = Cur - GesturePrev[I];
+            GesturePrev[I] = Cur;
+            if (D.SizeSquared() > 1e-8f)
+            {
+                Delta[I] = D;
+                Moved[I] = true;
+            }
+        }
+    }
+
+    const int32 ActiveCount = (GestureTracked[0] ? 1 : 0) + (GestureTracked[1] ? 1 : 0);
+    if (ActiveCount < 2)
+    {
+        // Single-finger drag → look. (Normalized → degrees: full screen ≈ 220°.)
+        const FVector2D D = Moved[0] ? Delta[0] : (Moved[1] ? Delta[1] : FVector2D::ZeroVector);
+        GestureViewYaw = D.X * 220.f;
+        GestureViewPitch = D.Y * 150.f;
+        return;
+    }
+
+    const FVector2D D0 = Moved[0] ? Delta[0] : FVector2D::ZeroVector;
+    const FVector2D D1 = Moved[1] ? Delta[1] : FVector2D::ZeroVector;
+    const bool bBothMoved = Moved[0] && Moved[1];
+    const bool bOneMoved = Moved[0] != Moved[1];
+
+    if (bOneMoved)
+    {
+        // Pivot: the moving finger's travel, decomposed against the line to the
+        // still finger — radial = forward/back, tangential = strafe.
+        const FVector2D D = Moved[0] ? D0 : D1;
+        const FVector2D Anchor = Moved[0] ? GesturePrev[1] : GesturePrev[0];
+        const FVector2D Moving = Moved[0] ? GesturePrev[0] : GesturePrev[1];
+        FVector2D Line = Anchor - Moving;
+        const float Len = Line.Size();
+        if (Len > 1e-4f)
+        {
+            Line /= Len;
+            const FVector2D Perp(-Line.Y, Line.X);
+            const float Radial = FVector2D::DotProduct(D, Line);   // toward still = forward
+            const float Tangent = FVector2D::DotProduct(D, Perp);
+            GestureWalkForward += Radial * 600.f;    // cm
+            GestureWalkStrafe  += Tangent * 600.f;   // cm
+        }
+    }
+    else if (bBothMoved)
+    {
+        const float Dot = FVector2D::DotProduct(D0.GetSafeNormal(), D1.GetSafeNormal());
+        if (Dot > 0.35f)
+        {
+            // Parallel pan → look.
+            const FVector2D Pan = (D0 + D1) * 0.5f;
+            GestureViewYaw = Pan.X * 220.f;
+            GestureViewPitch = Pan.Y * 150.f;
+        }
+        else
+        {
+            // Symmetric pinch → forward/back (speed ∝ the zoom amount).
+            const FVector2D CurA(X[0], Y[0]), CurB(X[1], Y[1]);
+            const FVector2D PrevA = CurA - D0, PrevB = CurB - D1;
+            const float NewDist = (CurA - CurB).Size();
+            const float OldDist = (PrevA - PrevB).Size();
+            const float Pinch = NewDist - OldDist;   // + = spread (pinch-out)
+            GestureWalkForward -= Pinch * 800.f;     // cm (pinch-in → forward)
+        }
+    }
+}
+#endif
 
 void ABorn2FlapFlightPawn::UpdateWindMotes(float DeltaSeconds)
 {

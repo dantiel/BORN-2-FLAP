@@ -190,9 +190,11 @@ void ABorn2FlapFlightHUD::BuildButtons()
     {
         Nd("HorizontalBox", P({ {"spacing", N(8)} }),
         {
-            Nd("Button", P({ {"label", S("THROW")}, {"action", S("flight.throw")}, {"tone", S("good")} })),
-            Nd("Button", P({ {"label", S("MENU")},  {"action", S("ui.menu")},      {"tone", S("ghost")} })),
-            Nd("Button", P({ {"label", S("HIDE")},   {"action", S("ui.hide")},     {"tone", S("ghost")} })),
+            Nd("IconButton", P({ {"icon", S("glyph:launch")}, {"label", S("THROW")}, {"action", S("flight.throw")}, {"tone", S("good")} })),
+            Nd("IconButton", P({ {"icon", S("glyph:pin")},    {"label", S("POI")},   {"action", S("ui.poi")},        {"tone", S("info")} })),
+            Nd("IconButton", P({ {"icon", S("glyph:camera")}, {"label", S("CAM")},   {"action", S("flight.perspective")}, {"tone", S("info")} })),
+            Nd("IconButton", P({ {"icon", S("glyph:menu")},   {"label", S("MENU")},  {"action", S("ui.menu")},       {"tone", S("ghost")} })),
+            Nd("IconButton", P({ {"icon", S("glyph:eye")},    {"action", S("ui.hide")}, {"tone", S("ghost")} })),
         }),
     });
 
@@ -224,6 +226,29 @@ void ABorn2FlapFlightHUD::HandleComponentAction(const FString& Action, float Val
     {
         if (ABorn2FlapGameMode* GM = GetWorld() ? Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode()) : nullptr)
             GM->ShowMainMenu(true);
+    }
+    else if (Action == TEXT("ui.poi"))
+    {
+        if (!CachedBird)
+        {
+            if (APlayerController* PC = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr)
+                CachedBird = Cast<ABorn2FlapFlightPawn>(PC->GetPawn());
+        }
+        if (CachedBird)
+        {
+            if (CachedBird->IsPoiOverlayOpen()) CachedBird->ClosePoiOverlay();
+            else CachedBird->OpenPoiOverlay();
+        }
+    }
+    else if (Action == TEXT("flight.perspective"))
+    {
+        if (!CachedBird)
+        {
+            if (APlayerController* PC = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr)
+                CachedBird = Cast<ABorn2FlapFlightPawn>(PC->GetPawn());
+        }
+        if (CachedBird)
+            CachedBird->CycleCamera();
     }
     else if (Action == TEXT("ui.hide"))
     {
