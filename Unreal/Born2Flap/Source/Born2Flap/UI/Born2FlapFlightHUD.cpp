@@ -122,7 +122,13 @@ void ABorn2FlapFlightHUD::BuildCockpit()
     if (!Renderer)
         return;
 
-    FNode Root = Nd("Overlay", P({ {"align", S("left")}, {"valign", S("top")} }),
+    // Keep the readout column clear of the notch / rounded corner (landscape
+    // puts the camera cutout on the left or right edge). The root Overlay's
+    // margin insets its top-left-anchored child, so the glass never slides
+    // under the cutout.
+    const FVector4 Insets = UBorn2FlapUIRenderer::SafeAreaInsets();
+    FNode Root = Nd("Overlay", P({ {"align", S("left")}, {"valign", S("top")},
+        {"margin", A({(double)Insets.X, (double)Insets.Y, 0.0, 0.0})} }),
     {
         Nd("SizeBox",P({{"width",N(350)}}),{
         Nd("VerticalBox", P({ {"spacing", N(8)} }),
@@ -178,15 +184,10 @@ void ABorn2FlapFlightHUD::BuildButtons()
     // "visible" also marks the full-bleed Overlay SelfHitTestInvisible so its
     // empty screen-spanning canvas slot never swallows touches meant for the
     // virtual joysticks below — only the buttons themselves stay hit-testable.
-    // The top inset clears the notch (safe-area title-safe top inset).
-    float TopInset = 16.f;
-    if (FSlateApplication::IsInitialized())
-    {
-        FDisplayMetrics Metrics;
-        FSlateApplication::Get().GetDisplayMetrics(Metrics);
-        TopInset = FMath::Max(16.f, Metrics.TitleSafePaddingSize.Y + 8.f);
-    }
-    FNode Root = Nd("Overlay", P({ {"align", S("right")}, {"valign", S("top")}, {"margin", A({0.0, (double)TopInset, 12.0, 0.0})}, {"visible", N(1)} }),
+    // The right/top insets clear the notch / rounded corner (landscape puts the
+    // camera cutout on the right edge for this corner).
+    const FVector4 Insets = UBorn2FlapUIRenderer::SafeAreaInsets();
+    FNode Root = Nd("Overlay", P({ {"align", S("right")}, {"valign", S("top")}, {"margin", A({0.0, (double)Insets.Y, (double)Insets.Z, 0.0})}, {"visible", N(1)} }),
     {
         Nd("HorizontalBox", P({ {"spacing", N(8)} }),
         {
