@@ -495,14 +495,19 @@ void ArtGhostButton(UButton* Button, bool Selected)
 
 // Compact square-ish action button for the mobile icon bar: rounded, bordered,
 // with the same gold accent as the cockpit panels.
-void ArtIconButton(UButton* Button)
+void ArtIconButton(UButton* Button, const FLinearColor& Fill)
 {
     if (!Button) return;
     const FLinearColor Gold(.52f, .40f, .22f, .7f);
+    // Tint the chip with the tone's hue so each action button reads in its own
+    // colour (good=green, info=blue, …) instead of the old uniform dark glass.
+    const FLinearColor Base(Fill.R, Fill.G, Fill.B, 0.90f);
+    const FLinearColor Hover(FMath::Min(1.f, Fill.R + 0.12f), FMath::Min(1.f, Fill.G + 0.12f), FMath::Min(1.f, Fill.B + 0.12f), 0.96f);
+    const FLinearColor Pressed(Fill.R * 0.82f, Fill.G * 0.82f, Fill.B * 0.82f, 1.f);
     FButtonStyle Style;
-    Style.Normal    = FSlateRoundedBoxBrush(FLinearColor(.025f, .045f, .055f, .65f), 6.f, Gold, 1.f);
-    Style.Hovered   = FSlateRoundedBoxBrush(FLinearColor(.13f, .17f, .18f, .94f), 6.f, FLinearColor(.85f, .67f, .37f, 1.f), 1.f);
-    Style.Pressed   = FSlateRoundedBoxBrush(FLinearColor(.3f, .065f, .04f, .96f), 6.f, Gold, 1.f);
+    Style.Normal    = FSlateRoundedBoxBrush(Base, 6.f, Gold, 1.f);
+    Style.Hovered   = FSlateRoundedBoxBrush(Hover, 6.f, FLinearColor(.85f, .67f, .37f, 1.f), 1.f);
+    Style.Pressed   = FSlateRoundedBoxBrush(Pressed, 6.f, Gold, 1.f);
     Style.Disabled  = Style.Normal;
     Style.Disabled.TintColor = FLinearColor(.5f, .5f, .5f, .65f);
     Style.NormalForeground = Style.HoveredForeground = Style.PressedForeground = theme::FG();
@@ -1077,7 +1082,6 @@ UBorn2FlapComposite* UBorn2FlapUIRenderer::BuildComponent(const FString& Type)
         UBorn2FlapComposite* C = NewComposite(this, TEXT("IconButton"));
         C->SetPadding(FMargin(0.f));
         UButton* Btn = NewObject<UButton>(this);
-        Btn->SetBackgroundColor(theme::ACCENT());
         C->SetContent(Btn);
         UHorizontalBox* Row = NewObject<UHorizontalBox>(this);
         Btn->SetContent(Row);
@@ -1089,7 +1093,7 @@ UBorn2FlapComposite* UBorn2FlapUIRenderer::BuildComponent(const FString& Type)
         Label->SetFont(theme::Font(TEXT("m"), 13, true));
         Label->SetColorAndOpacity(FSlateColor(theme::FG()));
         Row->AddChildToHorizontalBox(Label);
-        ArtIconButton(Btn);
+        ArtIconButton(Btn, theme::FG_DIM());
         C->Parts.Add(TEXT("button"), Btn);
         C->Parts.Add(TEXT("icon"), Icon);
         C->Parts.Add(TEXT("label"), Label);
@@ -1576,7 +1580,7 @@ void UBorn2FlapUIRenderer::ApplyCompositeProps(UBorn2FlapComposite* C, const FPr
 
         const bool bGhost = (Tone == TEXT("ghost") || Tone == TEXT("ghost-active"));
         if (bGhost) ArtGhostIconButton(Btn);
-        else { if (!Tone.IsEmpty() && Btn) Btn->SetBackgroundColor(ToneColor); ArtIconButton(Btn); }
+        else ArtIconButton(Btn, Tone.IsEmpty() ? theme::FG_DIM() : ToneColor);
         const FLinearColor Ink = bGhost ? theme::FG() : FLinearColor(0.06f, 0.06f, 0.08f, 1.0f);
         if (Icon) Icon->SetColorAndOpacity(Ink);
         if (Label) Label->SetColorAndOpacity(FSlateColor(Ink));
