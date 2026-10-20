@@ -20,6 +20,29 @@ namespace born2flap {
 struct FMenuSettings
 {
     B2F_TuningConfig Tuning{};
+    FMenuSettings()
+    {
+        // Defaults mirror ABorn2FlapFlightPawn's constructor (reference kestrel:
+        // VOTIK PTK 7465 Plus servo, 3S 1.3 Ah, 30C/60C pack). Loading from
+        // FlightPreferences.ini overrides these; they only matter when a key is
+        // absent (fresh install), so the menu never shows zeroed tuning.
+        Tuning.servo_no_load_speed_deg_s = 750;
+        Tuning.servo_stall_torque_nm = 1.332;
+        Tuning.servo_backdrive_deg_s_nm = 20;
+        Tuning.battery_voltage = 11.1;
+        Tuning.battery_resistance_ohm = 0.08;
+        Tuning.battery_capacity_ah = 1.3;
+        Tuning.battery_c_rating = 30;
+        Tuning.battery_burst_c_rating = 60;
+        Tuning.flap_base_freq_dhz = 32;
+        Tuning.tail_elevator_angle_deg = 0;
+        Tuning.glide_angle_deg = -4;
+        Tuning.stroke_ferocity = 50;
+        Tuning.aileron_scale = 10;
+        Tuning.elevator_scale = 55;
+        Tuning.flap_centre_deg = 0;
+        Tuning.vertical_mount_angle_deg = 0;
+    }
     // -1 = never explicitly chosen → the level's default bird applies.
     int32 BirdModel = -1;
     float BodyMassKg = 0.45f;

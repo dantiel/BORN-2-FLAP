@@ -1,9 +1,8 @@
 """Neon Abyss — luminous neon cosmos + Sanxingdui bronze + jellyfish materials.
 
-Builds the material set the void level and the Neon Turtle reference:
-
-  /Game/NeonAbyss/M_TurtleShell    vertex-colour carapace/head/hindfin livery
-  /Game/NeonAbyss/M_TurtleFlipper  vertex-colour front flipper (two-sided)
+Builds the material set for the void level (the Neon Turtle's textured materials
+are owned by Tools/import_turtle_textures.py, so re-running this script cannot
+clobber the turtle textures back to vertex-colour):
   /Game/NeonAbyss/M_JellyBell      translucent emissive jellyfish bell
   /Game/NeonAbyss/M_Bronze         verdigris bronze + emissive gold seams
 
@@ -316,9 +315,9 @@ def sprite_rainbow(path, inner, mid, outer, intensity=3.0, softness=2.2):
     unreal.log(path.rsplit('/', 1)[-1] + '_MATERIAL_READY')
 
 
-# --- Turtle + flipper (the vertex-colour neon livery) -------------------------
-vertex_colour_emissive(FOLDER + '/M_TurtleShell', roughness=0.55, metallic=0.1, glow=1.6)
-vertex_colour_emissive(FOLDER + '/M_TurtleFlipper', roughness=0.45, metallic=0.05, glow=1.8, two_sided=True)
+# NOTE: M_TurtleShell / M_TurtleFlipper are TEXTURED materials authored by
+# Tools/import_turtle_textures.py. Do NOT recreate them here as vertex-colour —
+# that clobbers the carapace / flipper / hindfin textures back to flat livery.
 
 # --- Jellyfish bell (vertex-colour translucent emissive, painted per-jelly) ----
 vertex_emissive_translucent(FOLDER + '/M_JellyBell', glow=2.4, two_sided=True)

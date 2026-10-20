@@ -5,6 +5,8 @@
 #include "Kismet/GameplayStatics.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Materials/MaterialInterface.h"
+#include "NiagaraComponent.h"
+#include "NiagaraSystem.h"
 
 ABorn2FlapSurf::ABorn2FlapSurf()
 {
@@ -15,11 +17,36 @@ ABorn2FlapSurf::ABorn2FlapSurf()
     Mesh->SetCastShadow(false);
     // Water precedes translucent bird membranes; it must not paint over them.
     Mesh->TranslucencySortPriority=-10;
+    SprayFX=CreateDefaultSubobject<UNiagaraComponent>(TEXT("SurfSprayFX"));
+    SprayFX->SetupAttachment(RootComponent);
+    SprayFX->SetAutoActivate(false);
+    SprayFX->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    SprayFX->SetCastShadow(false);
 }
 void ABorn2FlapSurf::BeginPlay()
 {
     Super::BeginPlay();
-    Mesh->SetMaterial(0,LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Weather/M_BreakingSurf")));
+    // Guard against a missing/broken surf material: a null slot would make the
+    // procedural foam mesh render with Unreal's default checkered material.
+    if (UMaterialInterface* SurfMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Weather/M_BreakingSurf")))
+    {
+        Mesh->SetMaterial(0, SurfMat);
+    }
+    else
+    {
+        Mesh->SetVisibility(false);
+    }
+    // Surf spray: NS_SurfSpray is an upward-arcing mist burst authored by the
+    // NiagaraBuilder commandlet. Missing asset → no spray, never a null renderer.
+    if (auto* System = LoadObject<UNiagaraSystem>(nullptr, TEXT("/Game/Weather/NS_SurfSpray")))
+    {
+        SprayFX->SetAsset(System);
+        SprayFX->Activate(true);
+    }
+    else
+    {
+        SprayFX->SetVisibility(false);
+    }
 }
 void ABorn2FlapSurf::Tick(float Dt)
 {
@@ -35,6 +62,13 @@ void ABorn2FlapSurf::Tick(float Dt)
     auto* GM=Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode());
     const auto* Director=AShiomoriWaterDirector::Get(GetWorld());
     const double Strength=Director ? Director->GetParameters().ShoreBreakIntensity : 1.;
+    // Keep the spray burst pinned to the breaking crest in front of the camera.
+    if (SprayFX && SprayFX->GetAsset() && SprayFX->IsActive())
+    {
+        const double SprayY=Born2FlapSurf::Shore(CX)+250.;
+        const double SprayZ=(Director ? Director->GetWaterHeightAt(CX,SprayY) : -50.)+20.;
+        SprayFX->SetWorldLocation(FVector(CX,SprayY,SprayZ));
+    }
     Vertices.Reset();Normals.Reset();UV.Reset();Colors.Reset();
     constexpr int NX=110, NY=24;
     for(int Wave=0;Wave<3;++Wave)
@@ -46,9 +80,14 @@ void ABorn2FlapSurf::Tick(float Dt)
         const double Shore=Born2FlapSurf::Shore(X);
         const double Growth=(1-FMath::SmoothStep(3400.,6100.,Front));
         const double Collapse=FMath::SmoothStep(-250.,950.,Front);
-        const double H=(100+25*FMath::Sin(X*.0011+Wave))*Growth*Collapse*Strength;
+        // Undulating crest: waves travel along the shore and rise/fall in time.
+        const double H=(100+25*FMath::Sin(X*.0011+Wave)+18*FMath::Sin(X*.0023+Time*.8+Wave*2.1))*Growth*Collapse*Strength;
         const double Curl=(1-FMath::SmoothStep(1600.,3000.,Front))*Collapse;
-        const double SideFade=FMath::SmoothStep(0.,6.,double(FMath::Min(I,NX-I)));
+        // Broad rounded fade at the strip ends — organic, not square-cut.
+        // Smootherstep over a wider run softens the wash into rounded lobes
+        // (the "thermal-air" sheets) rather than hard-edged squares.
+        const double EdgeSoft=FMath::SmoothStep(0.,30.,double(FMath::Min(I,NX-I)));
+        const double EdgeFade=EdgeSoft*EdgeSoft*(3.-2.*EdgeSoft);
         for(int J=0;J<=NY;++J)
         {
             const double V=double(J)/NY;
@@ -68,16 +107,19 @@ void ABorn2FlapSurf::Tick(float Dt)
                 }
                 Z=FMath::Max(-20.,Z)-50;
                 Foam=FMath::SmoothStep(.35,.72,V)*(1-FMath::SmoothStep(1800.,3600.,Front));
-                Alpha=SideFade*Growth*Collapse*FMath::Sin(PI*V)*.94;
+                // Opaque at the foam lip, fading into the water at the base.
+                Alpha=EdgeFade*Growth*Collapse*FMath::SmoothStep(0.,.15,V)*.94;
             }
             else
             {
-                // White water spreads behind the falling lip, then drains back.
+                // White water spreads behind the falling lip, then drains back
+                // as rounded, rippling lobes — not a flat rectangle.
                 Y=Front-160+V*1500;
                 const double Ground=GM ? GM->GroundHeight(X,Shore+Y) : -60.;
-                Z=FMath::Max(-43.,Ground+3)+4*FMath::Sin(V*12+Time*2+X*.003);
+                Z=FMath::Max(-43.,Ground+3)+6*FMath::Sin(V*9+Time*2.2+X*.004+Wave*1.3);
                 Foam=1;
-                Alpha=SideFade*(1-FMath::SmoothStep(1100.,3200.,Front))*FMath::SmoothStep(-550.,100.,Front)
+                const double Lobe=.55+.45*FMath::Sin(X*.0016+Time*1.1+Wave*2.3);
+                Alpha=EdgeFade*Lobe*(1-FMath::SmoothStep(1100.,3200.,Front))*FMath::SmoothStep(-550.,100.,Front)
                     *FMath::Pow(FMath::Sin(PI*V),.55)*.9;
             }
             // Follow the same displaced liquid surface as the ocean shader.

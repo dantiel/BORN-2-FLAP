@@ -1,4 +1,14 @@
-BORN 2 FLAP - Shiomori lava rock assets
+BORN 2 FLAP - Third-party asset credits
+
+"Crow" by Alexei Ostapenko (alexanders823), via Sketchfab
+https://sketchfab.com/3d-models/crow-d5a9b0df4da3493688b63ce42c8a83e2
+Licensed under Creative Commons Attribution 4.0 International:
+https://creativecommons.org/licenses/by/4.0/
+Changes: converted FBX and textures to Unreal assets; rebuilt the material;
+normalized flight animation root scale; adapted animation timing, orientation
+and state selection for Harvest Watch. Source downloaded by the user.
+
+Shiomori lava rock assets
 
 "Lava Rock Photoscan (PBR game asset)" by giantspaceoctopus (nschager)
 https://sketchfab.com/3d-models/lava-rock-photoscan-pbr-game-asset-c365f6c43be04fc7a75ac232a384a04b

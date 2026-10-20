@@ -356,6 +356,25 @@ int32 UBorn2FlapNiagaraBuilderCommandlet::Main(const FString& Params)
         BuildSystem(TEXT("/Game/Nature/Insects/NS_InsectSwarm"), S);
     }
 
+    {
+        // Surf spray: a tight mist burst thrown up off the breaking crest, arcing
+        // back down under gravity. Camera-local in Born2FlapSurf (repositioned to
+        // the wave front every tick), so it reads as wave impact, not rain.
+        FBuildSpec S;
+        S.AssetName = TEXT("NS_SurfSpray");
+        S.SpawnRate = 600.0f;
+        S.Velocity = FVector3f(0, 0, 420.0f);
+        S.bBox = false;
+        S.SphereRadius = 350.0f;
+        S.bGravity = true;
+        S.Gravity = FVector3f(0, 0, -1500.0f);
+        S.bDrag = true;
+        S.Drag = 0.6f;
+        S.bCurlNoise = true;
+        S.NoiseStrength = 300.0f;
+        BuildSystem(TEXT("/Game/Weather/NS_SurfSpray"), S);
+    }
+
     UE_LOG(LogTemp, Display, TEXT("[NiagaraBuilder] === DONE ==="));
     return 0;
 }

@@ -9,6 +9,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "World/Born2FlapWeather.h"
 #include "Born2FlapWindLeaves.generated.h"
 
 class UInstancedStaticMeshComponent;
@@ -23,6 +24,12 @@ public:
     virtual void BeginPlay() override;
     virtual void Tick(float DeltaSeconds) override;
 
+    // Fire a one-shot sand/dust burst (bird landing, wing touching ground).
+    // WorldPos is the contact point; Strength 0..1 scales mote count + eject
+    // speed. Motes are injected into the ambient Dust pool and live out their
+    // life regardless of the current gust/wind activity level.
+    void EmitSandBurst(const FVector& WorldPos, float Strength);
+
 private:
     struct FLeaf
     {
@@ -32,6 +39,8 @@ private:
         FRotator Spin;    // deg/s tumbling
         float Scale;
         double Life;
+        double LifeMax = 0.0;   // initial Life, for end-of-life fade-out
+        bool bBurst = false;   // one-shot sand/dust mote (landing, wing-touch)
     };
     struct FBlade
     {
@@ -46,18 +55,26 @@ private:
     void RespawnBlades(bool bForce);
     FLeaf SpawnLeaf(FRandomStream& R, const FVector& Cam);
     FBlade SpawnBlade(FRandomStream& R, const FVector& Cam);
+    FLeaf SpawnDust(FRandomStream& R, const FVector& Cam, const FVector& Bird, bool bNearBird);
 
     UPROPERTY() TObjectPtr<UInstancedStaticMeshComponent> Leaves;
     UPROPERTY() TObjectPtr<UInstancedStaticMeshComponent> Blades;
+    UPROPERTY() TObjectPtr<UInstancedStaticMeshComponent> Dust;
 
     TArray<FLeaf> LeafPool;
     TArray<FBlade> BladePool;
+    TArray<FLeaf> DustPool;
+    int32 LastBurstIdx = 0;   // round-robin cursor so bursts don't stomp each other
     // Cached tree locations (StaticMeshActors with tree meshes) so leaves shed
     // from actual canopies rather than drifting anywhere around the camera.
     TArray<FVector> TreePositions;
     TArray<float> TreeHeights;
     FVector LastCam = FVector::ZeroVector;
     bool bInitialized = false;
+    // Season shapes the airborne foliage: autumn fills the sky with shed leaves
+    // even in a light breeze, winter strips the canopies bare, spring is sparse
+    // and green. (Leaf colour is a hermetic cue documented in world-design.md.)
+    FBorn2FlapSeason Season;
 
     // Airborne leaf count tracks horizontal wind strength: calm air keeps a few
     // stragglers aloft, a gale strips the canopy. The pool stays MaxLeaves; the
@@ -65,4 +82,5 @@ private:
     static constexpr int32 MinLeaves = 50;
     static constexpr int32 MaxLeaves = 520;
     static constexpr int32 MaxBlades = 320;
+    static constexpr int32 MaxDust = 240;
 };

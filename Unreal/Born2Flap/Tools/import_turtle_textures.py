@@ -11,7 +11,8 @@ Imports (Tools/out/*.png -> /Game/NeonAbyss/):
   turtle-flipper.png  -> T_TurtleFlipper
   turtle-head.png     -> T_TurtleHead
 
-Rebuilds:
+Rebuilds (self-luminous / neon: Lit shading + texture*Glow -> Emissive, so the
+pattern reads in light AND glows in shadow):
   M_TurtleShell   carapace texture -> BaseColor + texture*Glow -> Emissive
   M_TurtleHead    head texture      -> BaseColor + texture*Glow -> Emissive
   M_TurtleFlipper flipper texture   -> BaseColor + texture*Glow -> Emissive (two-sided)
@@ -68,7 +69,12 @@ def node(m, kind, **props):
 
 
 def wire(a, b, pin, output="RGB"):
-    assert lib.connect_material_expressions(a, output, b, pin), \
+    if lib.connect_material_expressions(a, output, b, pin):
+        return
+    # Some material expressions expose their colour on the unnamed '' pin instead
+    # of 'RGB' (see UMaterialExpressionVertexColor). Fall back before failing.
+    alt = '' if output else 'RGB'
+    assert lib.connect_material_expressions(a, alt, b, pin), \
         "connect failed: %s.%s -> %s.%s" % (type(a).__name__, output, type(b).__name__, pin)
 
 
@@ -120,8 +126,8 @@ def eye_material(path):
 
 
 texs = {dest: import_texture(src, dest) for src, dest in TEXTS}
-textured_emissive(FOLDER + "/M_TurtleShell", texs["T_TurtleCarapace"], 0.55, 0.10, 1.6, False)
-textured_emissive(FOLDER + "/M_TurtleHead", texs["T_TurtleHead"], 0.50, 0.05, 1.6, False)
-textured_emissive(FOLDER + "/M_TurtleFlipper", texs["T_TurtleFlipper"], 0.45, 0.05, 1.8, True)
+textured_emissive(FOLDER + "/M_TurtleShell", texs["T_TurtleCarapace"], 0.55, 0.10, 2.0, False)
+textured_emissive(FOLDER + "/M_TurtleHead", texs["T_TurtleHead"], 0.50, 0.05, 2.0, False)
+textured_emissive(FOLDER + "/M_TurtleFlipper", texs["T_TurtleFlipper"], 0.45, 0.05, 2.0, True)
 eye_material(FOLDER + "/M_TurtleEye")
 u.log("TURTLE_TEXTURES_READY")

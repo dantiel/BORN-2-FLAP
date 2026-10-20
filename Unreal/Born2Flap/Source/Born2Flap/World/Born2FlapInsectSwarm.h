@@ -89,6 +89,7 @@ private:
     {
         UStaticMeshComponent* Mesh = nullptr;
         float Yaw = 0.f;
+        float PhaseOffset = 0.f;   // radians added to FlapPhase (dragonfly counter-phase)
         FVector Scale = FVector::OneVector;
     };
 
@@ -113,6 +114,10 @@ private:
     FVector PickPerch(const FVector& Home) const;
     FVector PickVegetationHome(FRandomStream& R) const;
     float WeatherActivity(EInsectType Type) const;
+    // Season abundance: which species flourish in which season (spring blooms
+    // of butterflies, summer dragonflies and mantids, autumn moths, a winter
+    // almost-bare sky). Multiplied by the season's overall InsectFactor.
+    float SeasonActivity(EInsectType Type) const;
 
     void BuildSwarm();
     void BuildHeroes();
@@ -146,6 +151,7 @@ private:
     // conditions (rain grounds the frail fliers, night wakes the moths, wind
     // herds everyone low into the shelter of the vegetation).
     FBorn2FlapWeather Weather;
+    FBorn2FlapSeason Season;
     bool bIsNight = false;
     float FlightCeiling = 1400.f;
     int32 SwarmCounts[(int32)EInsectType::Count] = {};

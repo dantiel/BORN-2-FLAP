@@ -67,10 +67,15 @@ void ABorn2FlapWeather::Apply()
 {
     const auto& W=Born2FlapWeather::Profile(Conditions.Weather);
     const auto& D=Born2FlapWeather::DayTime(Conditions.Time);
-    const FRotator SunRotation(-D.Elevation,D.Yaw,0);
+    // The season bends the whole sky, not just the sun disc: the daily arc
+    // shifts, the spectrum cools or warms, and the air thins or hazes. This is
+    // stage art — one hidden number set re-derives every visible facet.
+    const auto& Ssn=Born2FlapWeather::Season(Conditions.Season);
+    const FRotator SunRotation(-(D.Elevation+Ssn.SunElevation),D.Yaw+Ssn.SunAzimuth,0);
     const FVector SunDirection=-SunRotation.Vector();
-    const FLinearColor LightColor=D.Night ? FLinearColor(.52f,.67f,1.f) :
+    const FLinearColor BaseLight=D.Night ? FLinearColor(.52f,.67f,1.f) :
         ((D.Id==TEXT("dawn") || D.Id==TEXT("sunset")) ? FLinearColor(1.f,.64f,.36f) : FLinearColor(1.f,.94f,.84f));
+    const FLinearColor LightColor(BaseLight.R*Ssn.LightTint.R,BaseLight.G*Ssn.LightTint.G,BaseLight.B*Ssn.LightTint.B);
     bool bFogFound=false;
     for(TActorIterator<AActor> It(GetWorld());It;++It)
     {
@@ -80,7 +85,7 @@ void ABorn2FlapWeather::Apply()
             if(!Sun->bAtmosphereSunLight) continue;
             Sun->SetMobility(EComponentMobility::Movable);
             Sun->SetWorldRotation(SunRotation);
-            Sun->SetIntensity(D.Lux*W.Sunlight);
+            Sun->SetIntensity(D.Lux*W.Sunlight*Ssn.SunLux);
             Sun->SetLightColor(LightColor);
         }
         TInlineComponentArray<USkyLightComponent*> Skies(*It);
@@ -88,13 +93,13 @@ void ABorn2FlapWeather::Apply()
         {
             Sky->SetMobility(EComponentMobility::Movable);
             Sky->SetRealTimeCapture(true);
-            Sky->SetIntensity(D.Night ? .7f : 1.2f);
+            Sky->SetIntensity((D.Night ? .7f : 1.2f)*Ssn.SkyIntensity);
         }
         TInlineComponentArray<UExponentialHeightFogComponent*> Fogs(*It);
         for(auto* Fog:Fogs)
         {
             bFogFound=true;
-            Fog->SetFogDensity(W.Fog);
+            Fog->SetFogDensity(FMath::Max(0.f,W.Fog+Ssn.FogBias));
             Fog->SetFogHeightFalloff(W.Id==TEXT("mist") ? .12f : .25f);
             Fog->SetFogInscatteringColor(D.Night ? FLinearColor(.08f,.12f,.23f) : FLinearColor(.57f,.66f,.73f));
             Fog->SetVolumetricFog(true);
@@ -165,7 +170,8 @@ void ABorn2FlapWeather::Apply()
     }
     SurfaceCollection=LoadObject<UMaterialParameterCollection>(nullptr,TEXT("/Game/Weather/MPC_Weather"));
     Wetness=W.Rain ? .45f : 0;
-    SnowCoverage=W.Snow ? .30f : 0;
+    // Winter snow settles deeper and lingers; summer/spring snow is a light dust.
+    SnowCoverage=W.Snow ? (.30f+.25f*Ssn.SnowBias) : 0;
     Splashes->ClearInstances();SplashPositions.SetNum(96);SplashAges.Init(1.f,96);
     Splashes->SetStaticMesh(LoadObject<UStaticMesh>(nullptr,TEXT("/Engine/BasicShapes/Plane")));
     Splashes->SetMaterial(0,LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Weather/M_RainSplash")));

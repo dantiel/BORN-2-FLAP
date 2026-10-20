@@ -1,14 +1,20 @@
-# Level weather and time of day
+# Level weather, time of day and season
 
 Open **Fly** in the main menu (or press Escape during flight). Each level has
-its own weather and time selectors. Choose conditions before pressing that
-level's **Fly** button. Choices are saved separately per level.
+its own weather, time-of-day and **season** selectors. Choose conditions before
+pressing that level's **Fly** button. Choices are saved separately per level.
 
-| Level | Weather | Time of day |
-| --- | --- | --- |
-| Ravenstonefield | Sunny, cloudy, gentle rain, mist, light snow, parhelion | Dawn, morning, midday, sunset, moonlit night |
-| Shiomori | Sunny, cloudy, gentle rain, mist, parhelion | Dawn, morning, midday, sunset, moonlit night |
-| Training | Sunny, cloudy, gentle rain | Morning, midday, sunset |
+| Level | Weather | Time of day | Season |
+| --- | --- | --- | --- |
+| Ravenstonefield | Sunny, cloudy, gentle rain, mist, light snow | Dawn, morning, midday, sunset, moonlit night | Spring, Summer, Autumn, Winter |
+| Shiomori | Sunny, cloudy, gentle rain, mist, snow, parhelion | Dawn, morning, midday, sunset, moonlit night | Spring, Summer, Autumn, Winter |
+| Training | Sunny, cloudy, gentle rain | Morning, midday, sunset | Spring (fixed) |
+
+> **Weather vs. season.** Weather is a *simulation* choice — it drives wind,
+> flight and audio, so it stays an explicit selector. Season is *stage art* —
+> a single knob that hermetically derives the sun path and spectrum, fog,
+> insect community and foliage. See `seasons.md` for the full model.
+=======
 
 Parhelion requires daylight; selecting it replaces a night choice with morning.
 Shiomori defaults to the morning parhelion display, including the two sun dogs,

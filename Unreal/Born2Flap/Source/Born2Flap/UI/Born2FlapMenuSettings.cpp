@@ -29,6 +29,8 @@ float MenuSettingsTuningClamp(ETuningField Field, float Value)
     case ETuningField::BatteryVoltage:    return FMath::Clamp(Value, 3.7f, 22.2f);
     case ETuningField::BatteryResistance: return FMath::Clamp(Value, 0.01f, 0.5f);
     case ETuningField::BatteryCapacity:   return FMath::Clamp(Value, 0.1f, 5.f);
+    case ETuningField::BatteryCRating:    return FMath::Clamp(Value, 1.f, 200.f);
+    case ETuningField::BatteryBurstCRating: return FMath::Clamp(Value, 1.f, 400.f);
     case ETuningField::FlapBaseFreq:      return FMath::Clamp(Value, 10.f, 200.f);
     case ETuningField::TailElevatorAngle: return FMath::Clamp(Value, -15.f, 15.f);
     case ETuningField::GlideAngle:        return FMath::Clamp(Value, -15.f, 15.f);
@@ -51,6 +53,8 @@ float MenuSettingsGetTuning(const FMenuSettings& S, ETuningField Field)
     case ETuningField::BatteryVoltage:    return float(S.Tuning.battery_voltage);
     case ETuningField::BatteryResistance: return float(S.Tuning.battery_resistance_ohm);
     case ETuningField::BatteryCapacity:   return float(S.Tuning.battery_capacity_ah);
+    case ETuningField::BatteryCRating:    return float(S.Tuning.battery_c_rating);
+    case ETuningField::BatteryBurstCRating: return float(S.Tuning.battery_burst_c_rating);
     case ETuningField::FlapBaseFreq:      return float(S.Tuning.flap_base_freq_dhz);
     case ETuningField::TailElevatorAngle: return float(S.Tuning.tail_elevator_angle_deg);
     case ETuningField::GlideAngle:        return float(S.Tuning.glide_angle_deg);
@@ -74,6 +78,8 @@ void MenuSettingsSetTuning(FMenuSettings& S, ETuningField Field, float Value)
     case ETuningField::BatteryVoltage:    S.Tuning.battery_voltage = Value; break;
     case ETuningField::BatteryResistance: S.Tuning.battery_resistance_ohm = Value; break;
     case ETuningField::BatteryCapacity:   S.Tuning.battery_capacity_ah = Value; break;
+    case ETuningField::BatteryCRating:    S.Tuning.battery_c_rating = Value; break;
+    case ETuningField::BatteryBurstCRating: S.Tuning.battery_burst_c_rating = FMath::Max(Value, S.Tuning.battery_c_rating); break;
     case ETuningField::FlapBaseFreq:      S.Tuning.flap_base_freq_dhz = Value; break;
     case ETuningField::TailElevatorAngle: S.Tuning.tail_elevator_angle_deg = Value; break;
     case ETuningField::GlideAngle:        S.Tuning.glide_angle_deg = Value; break;

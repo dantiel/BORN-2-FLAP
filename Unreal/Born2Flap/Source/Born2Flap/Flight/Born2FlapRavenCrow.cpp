@@ -117,7 +117,9 @@ void BuildTurtleEllipsoid(AActor* Owner, USceneComponent* Parent, FName Name,
                           const FVector& Centre, const FVector& Radii,
                           const TCHAR* MaterialPath,
                           const TFunction<FLinearColor(double,double)>& Paint,
-                          double AftTaper = 0.0, double ForeTaper = 0.0)
+                          double AftTaper = 0.0, double ForeTaper = 0.0,
+                          double SnoutBlunt = 0.0, const FRotator& LocalRotation = FRotator::ZeroRotator,
+                          bool bFlipV = true, double UOffset = 0.0)
 {
     const int32 Longs = 44, Lats = 16;
     TArray<FVector> V, N;
@@ -139,13 +141,18 @@ void BuildTurtleEllipsoid(AActor* Owner, USceneComponent* Parent, FName Name,
             if (AftTaper > 0.0)
                 PlanTaper = FMath::Pow(FMath::Clamp((Dir.X + 1.0) * 0.5, 0.0, 1.0), AftTaper);
             if (ForeTaper > 0.0)
-                PlanTaper *= FMath::Pow(FMath::Clamp((1.0 - Dir.X) * 0.5, 0.0, 1.0), ForeTaper);
-            V.Add(Centre + FVector(Radii.X * Dir.X, Radii.Y * Dir.Y * PlanTaper, Radii.Z * Dir.Z));
+            {
+                // SnoutBlunt is the taper floor: 0 = old knife-edge point, >0 = the
+                // nose keeps a rounded blunt muzzle instead of collapsing to a sliver.
+                const double F = FMath::Clamp((1.0 - Dir.X) * 0.5, 0.0, 1.0);
+                PlanTaper *= FMath::Lerp(SnoutBlunt, 1.0, FMath::Pow(F, ForeTaper));
+            }
+            V.Add(FVector(Radii.X * Dir.X, Radii.Y * Dir.Y * PlanTaper, Radii.Z * Dir.Z));
             N.Add(FVector(Dir.X / (Radii.X * Radii.X), Dir.Y / (Radii.Y * Radii.Y), Dir.Z / (Radii.Z * Radii.Z)).GetSafeNormal());
-            const double U = double(I) / Longs;
+            const double U = FMath::Frac(double(I) / Longs + UOffset); // UOffset centres a face texture on the snout (+X)
             const double Vv = double(J) / Lats;          // geometric: 0 = apex (top), 1 = rim (bottom)
             C.Add(Paint(U, Vv));                          // vertex livery (now superseded by the texture)
-            UV.Add(FVector2D(U, 1.0 - Vv));               // flip texture V (Unreal samples image bottom at V=0)
+            UV.Add(FVector2D(U, bFlipV ? 1.0 - Vv : Vv)); // carapace flips V; face textures may not
         }
     for (int32 J = 0; J < Lats; ++J)
         for (int32 I = 0; I < Longs; ++I)
@@ -156,6 +163,8 @@ void BuildTurtleEllipsoid(AActor* Owner, USceneComponent* Parent, FName Name,
     auto* Mesh = NewObject<UProceduralMeshComponent>(Owner, Name);
     Owner->AddInstanceComponent(Mesh);
     Mesh->SetupAttachment(Parent);
+    Mesh->SetRelativeLocation(Centre);
+    Mesh->SetRelativeRotation(LocalRotation);
     Mesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
     Mesh->SetCastShadow(true);
     Mesh->RegisterComponent();
@@ -183,26 +192,33 @@ void BuildTurtleShell(AActor* Owner, USceneComponent* Parent)
 // Head (the eyes are painted onto the head texture, so no separate eye meshes).
 void BuildTurtleHead(AActor* Owner, USceneComponent* Parent)
 {
-    // A turtle's head, not a balloon: rounded cranium that tapers forward into a
-    // blunt beak/snout (ForeTaper) and slightly inward at the neck (AftTaper),
-    // with a lower, flatter profile to read aerodynamic against the flat carapace.
-    BuildTurtleEllipsoid(Owner, Parent, TEXT("TurtleHead_3"), FVector(44, 0, 5), FVector(14, 11, 9),
+    // A big baby-turtle head: a rounded, slightly flattened cranium (wider than
+    // tall) that narrows gently into a BLUNT snout. SnoutBlunt keeps the muzzle
+    // rounded instead of collapsing to a vertical knife-edge lens, and AftTaper=0
+    // leaves the neck full so it tucks into the shell rim instead of pinching.
+    BuildTurtleEllipsoid(Owner, Parent, TEXT("TurtleHead_3"), FVector(50, 0, 2), FVector(13, 11, 8),
                           TEXT("/Game/NeonAbyss/M_TurtleHead"), &TurtleHeadPaint,
-                          0.4,  // neck tapers slightly aft
-                          0.9); // snout tapers forward into the beak
+                          0.0,  // no aft taper: neck stays full against the shell
+                          0.6,  // gentle rounding toward the snout
+                          0.5,  // blunt muzzle — half the width survives at the nose
+                          FRotator::ZeroRotator, false, 35.0 / 360.0);  // front-view face: no V flip, ~35° U roll toward the snout (flip sign to reverse)
 }
 
-// The hind-fin pair (rudder/elevator), folded shards on the tail pivot.
+// The hind-fin pair (rudder/elevator) on the tail pivot — rounded paddles, not the
+// old pointed folded shards, angled downward-outward (anhedral) so they trail as
+// the turtle's rear fins in the aether.
 void BuildTurtleHindFins(AActor* Owner, USceneComponent* Parent)
 {
+    constexpr double Anhedral = 26.0;   // degrees the outward tip dips below horizontal
     for (int Side : {-1, 1})
     {
-        FShardMesh Fin;
-        Fin.MaterialPath = TEXT("/Game/NeonAbyss/M_TurtleShell");
-        // Trailing rear flippers: stretched aft and wider so they trail clear of the
-        // flattened body, reading as the turtle's hind paddles in the aether.
-        Fin.Fold({0, Side * 8.0, 0}, {0, Side * 27.0, 2}, {-30, Side * 22.0, -2}, {-30, Side * 6.0, -4}, 4, NeonBody);
-        Fin.Install(Owner, Parent, *FString::Printf(TEXT("TurtleHind%d_3"), Side));
+        // Roll about the fore-aft axis dips the outward tip: positive roll tips the
+        // +Y fin's outward tip down (anhedral), so +Side*Anhedral fits both sides.
+        const FRotator Roll(0.0, 0.0, Side * Anhedral);
+        BuildTurtleEllipsoid(Owner, Parent, *FString::Printf(TEXT("TurtleHind%d_3"), Side),
+                             FVector(-15, Side * 20.0, 0), FVector(8, 13, 2.5),
+                             TEXT("/Game/NeonAbyss/M_TurtleShell"), &TurtleShellPaint,
+                             0.0, 0.0, 0.0, Roll);
     }
 }
 
