@@ -34,6 +34,7 @@ private:
     void HandleComponentAction(const FString& Action, float Value, const FString& Text);
     void BuildCockpit();
     void BuildButtons();
+    void SyncButtons(bool bUIHidden);
     void Refresh();
 
     UPROPERTY() TObjectPtr<UBorn2FlapUIRenderer> Renderer;
@@ -56,8 +57,8 @@ private:
     FString LastWindDesc;
     FString LastStatus;
     FString LastCamera;
-    // "HIDE" overlay button collapses the readout column (logo + panels +
-    // banners) but keeps the THROW/MENU/HIDE button row so it can be re-opened.
-    bool bReadoutsHidden = false;
+    // True while the action bar (THROW/POI/CAM/MENU) is folded away by the HIDE
+    // toggle, leaving only the tiny eye glyph. Mirrors CachedBird->IsUIHidden().
+    bool bButtonsHidden = false;
     bool bLastHidden = true;
 };

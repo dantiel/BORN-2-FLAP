@@ -208,6 +208,25 @@ void ABorn2FlapFlightHUD::BuildButtons()
     ButtonRenderer->ApplyOps(MoveTemp(Ops));
 }
 
+// The HIDE (eye) toggle collapses the whole action bar to a single tiny
+// eye-off glyph, leaving nothing but the cinematic view. THROW / POI / CAM /
+// MENU collapse; only the eye stays so the player can bring the UI back.
+void ABorn2FlapFlightHUD::SyncButtons(bool bUIHidden)
+{
+    if (!ButtonRenderer)
+        return;
+    if (bUIHidden == bButtonsHidden)
+        return;
+    bButtonsHidden = bUIHidden;
+
+    TArray<FOp> Ops;
+    for (int32 i = 0; i < 4; ++i)
+        Ops.Add(UpdateProps(Pth({i}), P({ {"visible", N(bUIHidden ? 0.0 : 1.0)} })));
+    // Flip the eye glyph: open eye = UI visible, crossed eye = cinematic view.
+    Ops.Add(UpdateProps(Pth({4}), P({ {"icon", S(bUIHidden ? "glyph:eyeoff" : "glyph:eye")} })));
+    ButtonRenderer->ApplyOps(MoveTemp(Ops));
+}
+
 void ABorn2FlapFlightHUD::HandleComponentAction(const FString& Action, float Value, const FString& Text)
 {
     // Overlay touch buttons (THROW / MENU). These are the mobile affordances the
@@ -252,14 +271,21 @@ void ABorn2FlapFlightHUD::HandleComponentAction(const FString& Action, float Val
     }
     else if (Action == TEXT("ui.hide"))
     {
-        // Collapse the whole readout column. The action bar lives in a separate
-        // overlay, so HIDE always stays reachable to toggle it back open.
-        bReadoutsHidden = !bReadoutsHidden;
-        if (Renderer)
+        // Cinematic mode: hide ALL clutter — readout column, radio panel,
+        // channel map (POI overlay) and every action button except this tiny
+        // eye toggle. The pawn-level bHideUI is the single source of truth the
+        // cockpit + radio already watch, so toggling it folds those away on the
+        // next tick; SyncButtons folds the action bar in line.
+        if (!CachedBird)
         {
-            TArray<FOp> Ops;
-            Ops.Add(UpdateProps(FPath(), P({ {"visible", N(bReadoutsHidden ? 0.0 : 1.0)} })));
-            Renderer->ApplyOps(MoveTemp(Ops));
+            if (APlayerController* PC = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr)
+                CachedBird = Cast<ABorn2FlapFlightPawn>(PC->GetPawn());
+        }
+        if (CachedBird)
+        {
+            if (CachedBird->IsPoiOverlayOpen())
+                CachedBird->ClosePoiOverlay();
+            CachedBird->ToggleUIHidden();
         }
     }
 }
@@ -285,7 +311,7 @@ void ABorn2FlapFlightHUD::Refresh()
 
     // Blind flight is ear-only: collapse the whole cockpit (no banner — just
     // silence and sound). Settings panel owns the screen while open.
-    const bool bCockpitHidden = bReadoutsHidden || CachedBird->IsBlindFlight() || CachedBird->IsFlightSettingsOpen() || CachedBird->IsUIHidden();
+    const bool bCockpitHidden = CachedBird->IsBlindFlight() || CachedBird->IsFlightSettingsOpen() || CachedBird->IsUIHidden();
     if (bCockpitHidden != bLastHidden)
     {
         TArray<FOp> Ops;
@@ -293,6 +319,7 @@ void ABorn2FlapFlightHUD::Refresh()
         Renderer->ApplyOps(MoveTemp(Ops));
         bLastHidden = bCockpitHidden;
     }
+    SyncButtons(CachedBird->IsUIHidden());
     if (bCockpitHidden)
         return;
 
