@@ -231,8 +231,8 @@ armStructure inv = StructureProfile
       ( sparTorsionGJ inv (inboardMainDiameter inv)
       + siBraceScale inv * sum [ sparBraceGJ inv s | s <- braceSpars inv ]
       + siMembraneGJ inv )
-  , stTauBend = 0.03
-  , stTauTwist = 0.03
+  , stTauBend = 0.05
+  , stTauTwist = 0.05
   }
 
 -- | Bird handwing (outboard hand wing): tip-reaching main spar, no braces —
@@ -241,8 +241,8 @@ handStructure :: SparInventory -> StructureProfile
 handStructure inv = StructureProfile
   { stBendEI = siBendScale inv * sparBendEI inv (outboardMainDiameter inv)
   , stTwistGJ = siTwistScale inv * (sparTorsionGJ inv (outboardMainDiameter inv) + siMembraneGJ inv)
-  , stTauBend = 0.04
-  , stTauTwist = 0.04
+  , stTauBend = 0.07
+  , stTauTwist = 0.07
   }
 
 -- | Cantilever (clamped root) out-of-plane bending under a distributed load.

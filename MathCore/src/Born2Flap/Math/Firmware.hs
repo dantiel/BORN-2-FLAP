@@ -130,7 +130,7 @@ rollAuthorityGain = 2.0
 ampMaxDeg, freqMinHz, servoSpeedMsDefault :: Double
 ampMaxDeg = 55
 freqMinHz = 0.5
-servoSpeedMsDefault = 62
+servoSpeedMsDefault = 40
 
 ferocityMin, ferocityMax, differentialMax :: Double
 ferocityMin = 0
@@ -376,9 +376,31 @@ flappingBranch coupled prof aileronNorm elevatorNorm rc params state dt =
       speedMod01 = clamp 0 1 (crsfToNorm (rcFreq rc) * 0.5 + 0.5)
       throttlePct = clamp 0 1 ((throttleUsF - flapThresholdUs) / (crsfRawMax - flapThresholdUs))
       coupling = if coupled then 100 else 0
-      freq01 = orniThrottleFrequencyCommand speedMod01 throttlePct coupling
+      -- The throttle→frequency contribution saturates: a bird spools its flap
+      -- up to the natural cadence quickly, then the stick mostly grows the ARC.
+      -- This keeps thrust healthy at partial throttle (42% still flies) while
+      -- the frequency ceiling (freqServoCapHz below) guarantees the full stroke
+      -- stays deliverable — never a stroke that outgrows the servo. In normal
+      -- (independent) mode the blend ignores this and frequency stays on the
+      -- speed modifier, so only the arc grows with the stick.
+      freqThrottle = let u = 1 - throttlePct in 1 - u * u * u * u
+      freq01 = orniThrottleFrequencyCommand speedMod01 freqThrottle coupling
       speedFactor = 0.5 + speedMod01  -- 0.5x..1.5x base frequency
-      freqMax = fwFlapBaseFreqDh params * 0.1 * speedFactor
+      -- Servo no-load speed bounds the flapping FREQUENCY: the full geometric
+      -- stroke (ampMaxDeg) must stay deliverable at the frequency ceiling.
+      -- Coupling the arc cap to the (throttle-driven) cadence made the stroke
+      -- non-monotonic — it grew, then SHRANK as the servo saturated — which is
+      -- the "out of range / scaling off" failure. Capping the CEILING instead
+      -- keeps the stroke honest and monotonic: a faster servo earns a faster
+      -- flap, never a stroke the servo cannot deliver.
+      servoSpeedDegS = 60000 / max 1 (fwServoSpeedMs params)
+      -- The servo is never commanded to run at its no-load speed (where it has
+      -- zero torque to spare): a fraction of the no-load rate is reserved so the
+      -- full geometric stroke stays TRACKABLE under aerodynamic load instead of
+      -- back-driving the servo every downstroke.
+      servoSpeedMargin = 0.75
+      freqServoCapHz = servoSpeedMargin * servoSpeedDegS / (2 * pi * ampMaxDeg)
+      freqMax = min (fwFlapBaseFreqDh params * 0.1 * speedFactor) freqServoCapHz
       freqHz = freqMinHz + freq01 * (freqMax - freqMinHz)
       cadenceTarget = freqHz * 6.283185307
 
@@ -436,23 +458,23 @@ flappingBranch coupled prof aileronNorm elevatorNorm rc params state dt =
       strokeSkewEff = profStrokeSkew prof + thrustCentreShift thrust + throttleRateBoost
       returnSkewEff = profReturnSkew prof + thrustCentreShift thrust + throttleRateBoost
 
-      -- Amplitude is the full geometric stroke (throttle-independent: the stick
-      -- commands flap FREQUENCY, not arc), soft-capped by the servo's no-load
-      -- speed against the stroke's PEAK rate. The peak rate of a pointed
-      -- (high-ferocity) stroke is 1/(1-d) times a pure sine's, so a ferocious
-      -- stroke is capped tighter while a smooth (low-ferocity) stroke earns a
-      -- LARGER arc for the same servo speed — the ferocity cost the pilot pays
-      -- for snap. Throttle was previously folded in too (amplitude ∝ throttle),
-      -- which stacked with the coupled frequency (∝ throttle) into a throttle⁴
-      -- thrust curve: a 42% stick gave ~3% of full thrust. Keeping the arc and
-      -- letting only frequency follow throttle restores thrust ∝ throttle², so a
-      -- 42% stick now flies. Torque back-drive in stepServo still limits the
-      -- ACHIEVED stroke under load.
-      servoSpeedDegS = 60000 / max 1 (fwServoSpeedMs params)
+      -- Amplitude scales WITH throttle in BOTH modes: the stick is the arc
+      -- command (low throttle = small gentle sweep, full throttle = full
+      -- geometric stroke). The FREQUENCY (speed) modifier ALSO scales the arc in
+      -- BOTH modes (via speedFactor), so the two commands move together and the
+      -- stroke only reaches its full meaningful size at full throttle + full
+      -- frequency. The servo-speed limit lives in the frequency ceiling
+      -- (freqServoCapHz) above, so the arc never outgrows what the servo can
+      -- deliver and stays monotonic. Torque back-drive in stepServo still limits
+      -- the ACHIEVED stroke under load.
       dwell = max (dwellFromFerocity strokeFer) (dwellFromFerocity returnFer)
-      peakRate = ferocityThrustPrice dwell     -- 1/(1-d), normalized peak flap rate
-      amplitudeSpeedCap = servoSpeedDegS / (cadenceTarget * peakRate)
-      amplitude = min ampMaxDeg amplitudeSpeedCap
+      -- Ferocity cost on the ARC: a snapped stroke's peak rate is 1/(1-d) times
+      -- a pure sine's, so it earns a proportionally smaller arc for the same
+      -- servo speed — low ferocity = larger stroke. The 1/(1-d) pole explodes
+      -- as d→1, so bound it at 1.6 (a snapped stroke still costs arc, never
+      -- zeroes it).
+      peakRate = min 1.6 (ferocityThrustPrice dwell)
+      amplitude = clamp 0 ampMaxDeg (ampMaxDeg * throttlePct * speedFactor / peakRate)
 
       -- Aileron + aileron-rate → opposite stroke/return timing skew. Rudder
       -- owns amplitude differential. Both mechanisms act on the same wings.

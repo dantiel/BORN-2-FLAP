@@ -34,6 +34,7 @@ import Born2Flap.Math.Vehicle
   ( VehicleInput(..), VehicleOutput(..)
   , StripState(..), StripResult(..), initialStrips
   , stepCoupledWing, prepareWingLoads, wingRootHeight, airDensity
+  , springEaseFactor
   , addVec, crossVec, scaleVec, magnitude, zeroVec, radians )
 
 data FirmwareVehicleState = FirmwareVehicleState
@@ -144,8 +145,13 @@ components :: Vec3 -> [Double]
 components (Vec3 a b c) = [a,b,c]
 
 -- Both positive stroke coordinates raise the wing. The left hinge axis is -X.
+-- Aeroelastic spring easing: while the spar spring is still deflecting it
+-- absorbs part of the aero hinge load, so the servo sees less torque until the
+-- spring is fully loaded. The easing is twist-dependent (see 'springEaseFactor'):
+-- a forward (nose-down) twist loads the spar in the thrust direction, which the
+-- servo carries virtually for free.
 hingeTorque :: Double -> [StripResult] -> Double
-hingeTorque side = (* side) . sum . map (\r -> x (resultMoment r) + wingRootHeight * y (resultForce r))
+hingeTorque side = (* side) . sum . map (\r -> springEaseFactor (resultState r) * (x (resultMoment r) + wingRootHeight * y (resultForce r)))
 
 advanceFirmwareVehicle
   :: Double -> Bool -> RcChannels -> FirmwareParams -> ServoSpec -> BatterySpec -> WingModel

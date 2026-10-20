@@ -13,6 +13,7 @@ module Born2Flap.Math.Vehicle
   , StripResult(..)
   , stripCount
   , wingRootHeight
+  , springEaseFactor
   , airDensity
   , flapJetCoeff
   , flapDampingCd
@@ -72,7 +73,7 @@ airDensity = 1.05
 -- left/right and the tail can no longer balance or steer. Keep this high enough
 -- for roll damping + pitch authority; make the bird sink with DRAG, not lift.
 circulationLiftEfficiency :: Double
-circulationLiftEfficiency = 0.30
+circulationLiftEfficiency = 0.55
 
 -- | Momentum-jet thrust factor for the flapping downstroke (dimensionless).
 -- The downstroke sheds a backward jet whose reaction propels the bird. This is
@@ -82,9 +83,13 @@ circulationLiftEfficiency = 0.30
 -- vector tilts aft), so the momentum jet is what actually sustains cruise —
 -- it must overcome the lift-tilt drag at the bird's maximum airspeed (~7 m/s).
 -- C_T is therefore sized so net thrust stays positive to 7 m/s, not to a
--- textbook value. At the kestrel's 3.2 Hz / 20° stroke this is ~1.0.
+-- textbook value. Recalibrated against the servo-limited stroke: the 750°/s
+-- VOTIK servo caps the flap rate at ~13 rad/s, and a 50 g bird needs its
+-- downstroke to produce enough forward jet to accelerate from hover. Measured
+-- at the 3.4 Hz frequency cap / 35° useful stroke the bare 1.0 left the bird
+-- unable to build airspeed off the deck.
 flapJetCoeff :: Double
-flapJetCoeff = 1.0
+flapJetCoeff = 1.2
 
 -- | Lumped pressure-drag coefficient for the wing's OWN flap motion — the broad
 -- surface sweeping normal to itself through air. A thin airfoil moving edge-on
@@ -106,7 +111,7 @@ flapJetCoeff = 1.0
 -- flat-plate figure so the wing BITES the air via lift while its flap motion
 -- merely sees normal flat-plate resistance.
 flapDampingCd :: Double
-flapDampingCd = 1.5
+flapDampingCd = 1.2
 
 -- | Fraction of 'flapDampingCd' the wing keeps on the UPSTROKE during flapping.
 -- A real bird feathers the recovery stroke so the downstroke (power stroke) bites
@@ -116,7 +121,7 @@ flapDampingCd = 1.5
 -- there is no flapping, so BOTH wings keep the full Cd and roll authority stays
 -- symmetric. Only the flapping upstroke sheds damping.
 flapUpstrokeDampingFraction :: Double
-flapUpstrokeDampingFraction = 0.35
+flapUpstrokeDampingFraction = 0.15
 
 -- | Aeroelastic thrust boost (dimensionless). A cambered (membrane-cupped)
 -- section sheds a stronger backward jet than a flat plate: the deeper the cup
@@ -152,13 +157,89 @@ flapAdvanceThrustGain = 0.04
 -- lift normal — all emergent from geometry, none from a tip-jet constant.
 
 -- | Downstroke lift coefficient: the fraction of the flap-push momentum shed as
--- LIFT (reaction along the local normal on the power stroke) rather than thrust.
--- A flapping downstroke pushes air down, so this reaction is upward — the
--- "extra lift from flapping down" channel, kept separate from the forward jet so
--- it adds lift without borrowing cruise thrust. Sized so a 50 g bird's flapping
--- downstroke supports its weight at low speed (probe: hover z > 0.49 N).
+-- | LIFT (reaction along the local normal on the power stroke) rather than thrust.
+-- | A flapping downstroke pushes air down, so this reaction is upward — the
+-- | "extra lift from flapping down" channel, kept separate from the forward jet so
+-- | it adds lift without borrowing cruise thrust. This is the DOWNSTROKE's job:
+-- | it makes lift (and, through the dihedral/anhedral lever arms, roll authority)
+-- | while the upstroke's job is forward thrust (see 'upstrokeThrustFraction').
+-- | Recalibrated against the servo-limited stroke: the 750°/s VOTIK servo + the
+-- | ferocity peak-rate penalty shrink the DEFAULT (fer 50) stroke to ~35°, whose
+-- | cycle-mean lift at 42% throttle was 0.48 N — below the 0.49 N weight, so the
+-- | bird sank. 3.0 lifts that to ~0.8 N (hover + climb margin).
 strokeLiftCoeff :: Double
-strokeLiftCoeff = 1.5
+strokeLiftCoeff = 2.5
+
+-- | Upstroke thrust fraction: the portion of the downstroke momentum jet that
+-- the feathered recovery stroke still sheds as FORWARD thrust. A real bird
+-- feathers the upstroke to shed drag, but the upward-and-aft wing motion still
+-- pushes air backward, so the upstroke is a genuine thrust stroke — not a dead
+-- recovery. Raised near unity: at 0.5 the recovery stroke was a net DRAG stroke
+-- (its residual induced/profile drag and the feathered flap damping ate the
+-- halved jet), so the upstroke shed no thrust-line nose-down moment and the bird
+-- could flap absurdly high without pitching over. Because this thrust is shed at
+-- the raised wing (above the CG), it re-establishes the thrust-line pitch moment
+-- that a high-wing ornithopter really feels.
+upstrokeThrustFraction :: Double
+upstrokeThrustFraction = 0.85
+
+-- | Servo-load easing fraction (0..1). While the spar spring is still deflecting
+-- | (not yet fully loaded) it absorbs part of the aero hinge load — the wing
+-- | yields elastically instead of transferring everything to the servo — so the
+-- | servo sees less torque UNTIL the spring is saturated.
+springEaseGain :: Double
+springEaseGain = 0.5
+
+-- | Forward-twist free-loading gain [1/rad]. When the wing twists nose-down
+-- | (washout, tips pushed aft) the elastic load acts in the THRUST direction, so
+-- | the spar loads "virtually for free": the servo carries less hinge load.
+springTwistFreeGain :: Double
+springTwistFreeGain = 2.0
+
+-- | Spar spring loading relaxation time constant [s]. The spring loading tracks
+-- | the wing's deflection with this lag, so it stores energy on the power stroke
+-- | and releases it on the recovery stroke.
+springLoadTau :: Double
+springLoadTau = 0.05
+
+-- | Pressure damping of the spar's elastic return. The carbon spar stores energy
+-- on the power stroke and releases it on the recovery; that release is damped by
+-- the surrounding air pressure (the same pressure that loaded it). Under load the
+-- deflection relaxes slowly, so the wing holds its shape through the stroke and
+-- releases cleanly only as the pressure falls — no snappy undamped snap-back that
+-- shakes the bird at flap frequency.
+springPressureDampingGain :: Double
+springPressureDampingGain = 2.0
+
+-- | Emergent tip-jet thrust coefficient (dimensionless). A backward-swept wing
+-- channels the oncoming chordwise flow spanwise toward the tip (crossflow), and
+-- that accumulated flow leaves the wing as a forward jet — the emergent tip jet.
+-- Its magnitude grows with the ONCOMING stream dynamic pressure (∝ airspeed²),
+-- NOT with flap speed, so it stays non-zero at the stroke reversal where a pure
+-- ∝ flapSpeed² momentum jet collapses to nothing. The jet is shed at the RAISED
+-- wing (gated on stroke), so it supplies the thrust-line nose-down moment the
+-- recovery stroke was missing. The lever arm is GEOMETRY-DERIVED, not a constant:
+-- sweep sets the spanwise tip concentration, the raised dihedral sets the pitch
+-- lever, and airspeed sets how far outboard the flow travels before it leaves.
+tipJetCoeff :: Double
+tipJetCoeff = 1.0
+
+-- | Reference per-strip load normalising the pressure-damping term (0.49 N
+-- design weight across 16 strips).
+designStripLoadN :: Double
+designStripLoadN = 0.031
+
+-- | Servo-hinge-load easing factor (0..1) from the spar spring's current state.
+-- Returns 1 (no easing) once the spring is fully loaded; less than 1 while the
+-- spring is still deflecting. The easing is twist-dependent: a forward (nose-down)
+-- twist loads the spar in the thrust direction, which the servo carries virtually
+-- for free, so the hinge load drops further.
+springEaseFactor :: StripState -> Double
+springEaseFactor state =
+  let springLoad = stripSpringLoad state
+      twistForward = max 0 (negate (stripTwistAero state))
+      ease = springEaseGain * (1 - springLoad) * (1 + springTwistFreeGain * twistForward)
+  in clamp 0 1 (1 - ease)
 
 -- | Ground-effect constants (dimensionless). Ground effect is the image-vortex
 -- cushion a wing feels close to a surface. For a GLIDING wing it only boosts
@@ -221,6 +302,7 @@ data StripState = StripState
   , stripBendM :: !Double    -- ^ out-of-plane flap deflection [m] (tip up +)
   , stripBendSlope :: !Double  -- ^ flap deflection slope [rad]
   , stripTwistAero :: !Double  -- ^ aeroelastic twist [rad] (nose-up +)
+  , stripSpringLoad :: !Double  -- ^ spar spring loading 0..1 (elastic energy storage fraction)
   } deriving stock (Eq, Show)
 
 data VehicleState = VehicleState
@@ -241,13 +323,13 @@ stripCount :: Int
 stripCount = 16
 
 emptyStrip :: StripState
-emptyStrip = StripState 0 0 0 0 0 0 0 0
+emptyStrip = StripState 0 0 0 0 0 0 0 0 0
 
 -- | Strips initialised to the rest camber of the default wing (so the membrane
 -- model starts from the built-in camber line, not a flat plate).
 initialStrips :: [StripState]
 initialStrips =
-  [ StripState 0 0 0 0 (spRestCamber (shapeSection (wmWing kestrelModel) fraction)) 0 0 0
+  [ StripState 0 0 0 0 (spRestCamber (shapeSection (wmWing kestrelModel) fraction)) 0 0 0 0
   | i <- [0 .. stripCount - 1]
   , let fraction = (fromIntegral i + 0.5) / fromIntegral stripCount
   ]
@@ -387,7 +469,7 @@ stepStrip implicitLoads _phaseRate _flapping side stroke input incidenceRad wp i
       -- span runs root→tip.
       !radius = wsShoulderM wp + dr * (fromIntegral index + 0.5)
       !chord = shapeChord wp fraction
-      !twist = shapeTwistRad wp fraction + incidenceRad
+      !twist = shapeTwistRad wp fraction
       -- Horizontal servo mount: the flap hinge is yawed by mountRad in the
       -- horizontal plane. A stroke about that yawed hinge decomposes into a
       -- vertical (dihedral) component ∝ cos mountRad and a horizontal (sweep)
@@ -428,12 +510,24 @@ stepStrip implicitLoads _phaseRate _flapping side stroke input incidenceRad wp i
       -- the wing contributes no pitch moment and the tail downforce alone
       -- trims the bird nose-up regardless of CG slider position.
       !position = Vec3 (-0.25 * chord) (side * radius * cos dihedral) (wingRootHeight + radius * sin dihedral + bend)
-      !normal = Vec3 0 (-side * sin dihedralLocal) (cos dihedralLocal)
+      !normal0 = Vec3 0 (-side * sin dihedralLocal) (cos dihedralLocal)
       -- Resolve flow in the swept section plane. Ignoring sweep here removed
       -- its differential lift in sideslip, despite it being in the planform.
       !sweep = shapeSweepRad wp fraction + (mountRad - armRad) + sin mountRad * stroke
-      !chordAxis = Vec3 (cos sweep) (side * sin sweep * cos dihedralLocal) (sin sweep * sin dihedralLocal)
+      !chordAxis0 = Vec3 (cos sweep) (side * sin sweep * cos dihedralLocal) (sin sweep * sin dihedralLocal)
       !spanAxis = Vec3 (-sin sweep) (side * cos sweep * cos dihedralLocal) (cos sweep * sin dihedralLocal)
+      -- Real wing mount incidence: a RIGID rotation of the section about the
+      -- span axis (nose-up +). Rotating the force frame — rather than folding
+      -- the angle into 'twist' — makes the lift/thrust directions rotate with
+      -- the wing, the same single axis and sign the render's shoulder pitch
+      -- shows. The geometric washout stays a spanwise twist; the mount
+      -- incidence is a uniform frame rotation. The flap velocity below keeps
+      -- the UNROTATED dihedral normal: the shoulder hinge is a body-X dihedral
+      -- hinge, so its motion is not tilted by the mount incidence.
+      !ci = cos incidenceRad
+      !si = sin incidenceRad
+      !chordAxis = addVec (scaleVec ci chordAxis0) (scaleVec si normal0)
+      !normal    = addVec (scaleVec ci normal0) (scaleVec (-si) chordAxis0)
       -- Flap velocity is the wing surface's motion through the air about the
       -- shoulder hinge. It exists in BOTH flapping and glide: in glide a
       -- differential-dihedral (roll) command rotates the wing, so the surface
@@ -444,7 +538,7 @@ stepStrip implicitLoads _phaseRate _flapping side stroke input incidenceRad wp i
       !aspectRatio = shapeAspectRatio wp
   in \rollRate strokeRate ->
   let rates = Vec3 rollRate (vy (bodyRatesRadS input)) (vz (bodyRatesRadS input))
-      flapVelocity = scaleVec (radius * strokeRate) normal
+      flapVelocity = scaleVec (radius * strokeRate) normal0
       sectionVelocity = addVec velocity (addVec (crossVec rates position) flapVelocity)
       dot (Vec3 a b c) (Vec3 d e f) = a*d + b*e + c*f
       chordVelocity = dot sectionVelocity chordAxis
@@ -462,15 +556,25 @@ stepStrip implicitLoads _phaseRate _flapping side stroke input incidenceRad wp i
       -- No flap motion means no feathering; body sink still changes incidence.
       worldStrokeRate = strokeRate + side * rollRate
       sweepNormal = radius * worldStrokeRate
+      -- Passive feathering aligns the wing with the LOCAL FLOW direction. The
+      -- previous model used atan2(flapSpeed, max 1.5 |chordVelocity|): the
+      -- 1.5 m/s floor caps the correction, so at low airspeed (chordVelocity→0)
+      -- the downstroke's ~90° inflow only feathered ~68°, leaving alpha ≈ +84°
+      -- (fully separated) and killing the downstroke lift — the bird dips every
+      -- power stroke. Track the true flow angle instead (atan2 is continuous at
+      -- a zero denominator, so reversal loads stay continuous): the downstroke
+      -- holds (1-compliance)·flowAngle ≈ stall onset and the upstroke sheds to
+      -- twist.
       feather =
-        let inflow = atan2 sweepNormal (max 1.5 (abs chordVelocity))
+        let inflow = atan2 sweepNormal (abs chordVelocity)
             compliance = if sweepNormal > 0 then 1.0 else 0.85
         in compliance * inflow
       -- A 2-servo ornithopter has one actuator per wing: the flap hinge. Pitch
       -- and roll reach the wing through the flap angle (stroke-centre shift and
-      -- differential), never through a separate incidence twist. Angle of attack
-      -- is the passive sum of geometric washout, aeroelastic twist, flap-induced
-      -- feathering and the local flow direction.
+      -- differential), never through a separate live incidence control; the
+      -- fixed mount incidence is the rigid frame rotation computed above. Angle
+      -- of attack is the passive sum of geometric washout, aeroelastic twist,
+      -- flap-induced feathering and the local flow direction.
       alpha = twist + aeroTwist + feather + atan2 (-normalVelocity) chordVelocity
       alphaEff = alpha - zeroLiftAngle camberPrev
       alphaRate = (alpha - stripPreviousAlpha old) / dt
@@ -566,10 +670,30 @@ stepStrip implicitLoads _phaseRate _flapping side stroke input incidenceRad wp i
       flapSpeed = abs (radius * worldStrokeRate)
       staticJet = 0.5 * airDensity * area * flapSpeed * flapSpeed * flapJetCoeff * camberBoost
       advanceJet = 0.5 * airDensity * area * max 0 chordVelocity * flapSpeed * flapJetCoeff * camberBoost * flapAdvanceThrustGain
-      flapThrust = let jet = staticJet + advanceJet
+      -- Emergent tip jet: backsweep drives the oncoming stream spanwise toward
+      -- the tip (crossflow ∝ chordwise flow × sin sweep), where it separates and
+      -- sheds a forward jet. Magnitude ∝ stream dynamic pressure (airspeed²), so
+      -- it is non-zero at the stroke reversal where the ∝ flapSpeed² momentum jet
+      -- has collapsed. Gated on the RAISED wing (stroke > 0), it sheds at the top
+      -- reversal and into the early downstroke — the "downstroke from the UP
+      -- position" thrust with the longest pitch lever. Both the gate (stroke) and
+      -- the stream speed are constant across the implicit Newton solve, so the
+      -- residual stays continuous (no rate-switch discontinuity at the reversal).
+      streamChordSpeed = max 0 (dot velocity chordAxis0)
+      raisedEnv = smoothStep 0 (radians 12) stroke
+      -- The spanwise crossflow ACCUMULATES toward the tip (it is shed by every
+      -- inboard station and rides the swept LE outboard), so the emergent jet
+      -- concentrates at the tip where the pitch lever is longest. The @fraction@
+      -- factor is that accumulation: 0 at the root, 1 at the tip. Without it the
+      -- jet would be area-weighted (inboard, short lever) and the nose-down
+      -- thrust-line moment would under-deliver.
+      tipJet = 0.5 * airDensity * area * tipJetCoeff
+               * streamChordSpeed * streamChordSpeed
+               * max 0 (sin sweep) * fraction * raisedEnv
+      flapThrust = let jet = staticJet + advanceJet + tipJet
                             in if worldStrokeRate < 0
                                  then jet * (1 + groundEffectThrustGain * ge)
-                                 else jet * groundEffectUpstrokeRecover * ge
+                                 else jet * (upstrokeThrustFraction + groundEffectUpstrokeRecover * ge)
       -- Thrust follows the local (flexed) chord axis — the chord crossflow
       -- direction — not the body axis. This reorients the jet in anhedral/
       -- dihedral (a vertical/lateral component from sweep × dihedral) without
@@ -600,18 +724,44 @@ stepStrip implicitLoads _phaseRate _flapping side stroke input incidenceRad wp i
       -- than because a throttle-mode flag changes its drag coefficient.
       pressureNormal = addVec (scaleVec (cos feather) normal) (scaleVec (-sin feather) chordAxis)
       pressureVelocity = dot sectionVelocity pressureNormal
-      flapDampingMag = -0.5 * airDensity * area * flapDampingCd
+      -- Upstroke shedding: a real bird feathers the recovery stroke so the
+      -- downstroke bites full-pressure air while the upstroke sheds most of its
+      -- flat-plate pressure drag (flapUpstrokeDampingFraction). That asymmetry
+      -- turns the otherwise symmetric flap drag into net thrust + roll authority
+      -- instead of a pure servo load. Keyed to the SAME phase the passive
+      -- feathering uses ('sweepNormal > 0' = wing rising), so the shed grows
+      -- with the stroke: the higher-amplitude wing (the differential-yaw
+      -- driver) feathers harder and offers the least upstroke resistance/stall.
+      -- The shed is smoothed across the reversal (0.5 rad/s band) so the
+      -- implicit Newton residual stays continuous at worldStrokeRate = 0 —
+      -- a hard if would jump the flap damping 65% in one step and leave no
+      -- root. The band is a tiny fraction of a real flap rate, so the upstroke
+      -- still sheds almost immediately after the wing reverses.
+      upstrokeShed = flapUpstrokeDampingFraction
+                     + (1 - flapUpstrokeDampingFraction) * (1 - smoothStep 0 0.5 sweepNormal)
+      flapDampingMag = -0.5 * airDensity * area * flapDampingCd * upstrokeShed
                        * pressureVelocity * abs pressureVelocity
       flapDampingForce = scaleVec flapDampingMag pressureNormal
       -- Lift/drag/flap-damping act at the aerodynamic centre (quarter-chord).
       aeroForce = addVec (addVec chordForce (addVec normalForce spanDrag)) flapDampingForce
       -- Thrust is generated at the HIND (trailing) edge, where the membrane
       -- unloads aeroelastically and stall happens last (flow follows the wing
-      -- geometry); the jet is shed there. Its lever arm is pinned to the
-      -- trailing-edge point, AFT of the AC that carries lift. For a body-axial
-      -- thrust the chordwise offset is moment-neutral (r×F of an axial force
-      -- depends only on the spanwise/vertical offset), but the origin is kept
-      -- at the unloaded hind edge where the thrust is physically produced.
+      -- geometry); the jet is shed there. Its PITCH lever arm is the wing's
+      -- MOUNT height above the CG (wingRootHeight) — constant across the stroke.
+      -- Pinning the vertical offset to the strip's instantaneous dihedral made
+      -- the full downstroke thrust act BELOW the root (nose-up) and only the
+      -- half upstroke thrust act above it (nose-down); the two cancelled the
+      -- thrust-line pitch-down and oscillated the bird at flap frequency. A
+      -- high-wing ornithopter's thrust line is set by the mount, not by where
+      -- the wing tip happens to be mid-stroke, so the nose-down thrust moment
+      -- is a steady ∝ thrust. The spanwise (y) offset is kept — it carries the
+      -- roll coupling of an asymmetric (yaw) thrust, which the left/right wings
+      -- cancel when the stroke is balanced.
+      -- Thrust acts at the wing's INSTANTANEOUS height: on the upstroke the wing
+      -- is raised well above the CG, so the forward jet sheds its reaction on a
+      -- long vertical lever and produces the strong nose-down thrust-line moment
+      -- a high-wing ornithopter really feels. The downstroke (wing low) gives the
+      -- symmetric nose-up half-beat; the net trim is the tail's job.
       thrustPosition = Vec3 (-1.0 * chord) (side * radius * cos dihedral)
                             (wingRootHeight + radius * sin dihedral + bend)
       force = addVec aeroForce (addVec thrustForce strokeLiftForce)
@@ -638,7 +788,7 @@ stepStrip implicitLoads _phaseRate _flapping side stroke input incidenceRad wp i
                               (Vec3 0 (-sectionPitchMoment) 0))
       power = max 0 (negate (dot force flapVelocity))
       next = StripState relaxed alpha normalVelocity lev camberNext bend
-               (stripBendSlope old) aeroTwist
+               (stripBendSlope old) aeroTwist (stripSpringLoad old)
   in StripResult next force moment power sectionTwistMoment
 
 transportSeparation :: Double -> VehicleInput -> WingShape -> [StripResult] -> [StripResult]
@@ -691,14 +841,31 @@ applyStructure inv wp input results =
       maxTwist = radians 15
       update result structure bend slope twist =
         let old = resultState result
+            -- The spar's elastic return is damped by the air pressure that loaded
+            -- it: under load the deflection relaxes slowly (the membrane fights
+            -- the surrounding fluid), releasing cleanly only as pressure falls on
+            -- the upstroke. No pressure → snappy undamped snap-back that shakes
+            -- the bird; full pressure → the spar holds and releases smoothly.
+            pressure = abs (vz (resultForce result)) / max 1e-3 designStripLoadN
+            tauScale = 1 + springPressureDampingGain * pressure
+            tauBend = stTauBend structure * tauScale
+            tauTwist = stTauTwist structure * tauScale
             nextBend = softSaturate maxBend
-                          (relaxDeflection dt (stTauBend structure) (stripBendM old) bend)
-            nextSlope = relaxDeflection dt (stTauBend structure) (stripBendSlope old) slope
+                          (relaxDeflection dt tauBend (stripBendM old) bend)
+            nextSlope = relaxDeflection dt tauBend (stripBendSlope old) slope
             nextTwist = softSaturate maxTwist
-                          (relaxDeflection dt (stTauTwist structure) (stripTwistAero old) twist)
+                          (relaxDeflection dt tauTwist (stripTwistAero old) twist)
+            springTarget = clamp 0 1 (0.5 * abs bend / maxBend + 0.5 * abs twist / maxTwist)
+            -- The stored-energy fraction must NOT inherit the pressure-scaled
+            -- tau: that freezes it at ~2 s under load, so it never tracks the
+            -- actual spring energy (and the recoil jet and servo-load easing
+            -- would read a stale, near-zero value). It tracks the deflection on
+            -- its own fast lag instead.
+            nextSpringLoad = relaxDeflection dt springLoadTau (stripSpringLoad old) springTarget
         in result { resultState = old { stripBendM = nextBend
                                       , stripBendSlope = nextSlope
-                                      , stripTwistAero = nextTwist } }
+                                      , stripTwistAero = nextTwist
+                                      , stripSpringLoad = nextSpringLoad } }
   in zipWith5 update results structures targetBend targetSlope targetTwist
 
 zeroOutput :: Int -> VehicleOutput
