@@ -110,6 +110,13 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     void SetFpvCameraAngle(float Deg) { if (FMath::IsFinite(Deg)) FpvCameraAngleDeg = FMath::Clamp(Deg, -45.f, 45.f); }
     bool GetFreeLookInvert() const { return bFreeLookInvert; }
     void SetFreeLookInvert(bool bOn) { bFreeLookInvert = bOn; }
+    // Mobile twin-stick layout (see UpdateTouchGestures' virtual-stick block).
+    bool  GetMobileInvertPitch() const { return bMobileInvertPitch; }
+    void  SetMobileInvertPitch(bool bOn) { bMobileInvertPitch = bOn; }
+    int32 GetMobileThrottleStick() const { return MobileThrottleStick; }
+    void  SetMobileThrottleStick(int32 Side) { MobileThrottleStick = (Side == 1) ? 1 : 0; }
+    int32 GetMobileRollStick() const { return MobileRollStick; }
+    void  SetMobileRollStick(int32 Side) { MobileRollStick = (Side == 1) ? 1 : 0; }
     // Airframe mass (kg) and longitudinal centre-of-gravity offset (mm, + = aft).
     // These are physical body properties, not firmware knobs: weight drives
     // Chaos' body mass, CG shifts the centre of mass fore/aft. The usable CG
@@ -206,6 +213,12 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     // GENERAL SETTINGS). Only the detached ground-perspective free-look honours
     // it — chase orbit and flight controls keep their own conventions.
     bool bFreeLookInvert = false;
+    // Mobile twin-stick layout: which stick is throttle / roll (0 left · 1
+    // right), and whether touch pitch is inverted. Pitch lives on the non-
+    // throttle stick, yaw on the non-roll stick (see the virtual-stick block).
+    bool bMobileInvertPitch = false;
+    int32 MobileThrottleStick = 0;   // Mode-2 default: throttle + yaw on left
+    int32 MobileRollStick = 1;       // Mode-2 default: pitch + roll on right
     // Fixed FPV camera angle (degrees, pitch offset from the body). Adjustable
     // in flight (Q/E) and persisted; the FPV lens stays at this fixed tilt.
     float FpvCameraAngleDeg = 0.f;

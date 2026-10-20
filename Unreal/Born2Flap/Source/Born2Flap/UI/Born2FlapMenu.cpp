@@ -820,6 +820,7 @@ void ABorn2FlapMenu::BuildPreferences(std::vector<FNode>& Out)
     {
         // ---- GENERAL SETTINGS: camera, audio, input and replay, grouped ----
         {
+#if !PLATFORM_IOS && !PLATFORM_ANDROID
             static const TArray<int32> VBox{ 1, 1, 0, 0, 0, 0 };
             auto RowPath = [&](int32 Row) { TArray<int32> P = VBox; P.Add(Row); return P; };
             static const TCHAR* MouseNames[] =
@@ -828,6 +829,7 @@ void ABorn2FlapMenu::BuildPreferences(std::vector<FNode>& Out)
                 TEXT("PITCH  /  mouse Y"),
                 TEXT("YAW  /  mouse X"),
             };
+#endif
 
             MouseGainSliders.Reset();
             std::vector<FNode> Rows;
@@ -945,6 +947,41 @@ void ABorn2FlapMenu::BuildPreferences(std::vector<FNode>& Out)
 
             // INPUT / CONTROLS
             Rows.push_back(Nd("TextBlock", P({ {"text", S("INPUT  /  CONTROLS")}, {"tone", S("accent")}, {"size", S("l")} })));
+#if PLATFORM_IOS || PLATFORM_ANDROID
+            Rows.push_back(Nd("TextBlock", P({ {"text", S(FString(TEXT("The two on-screen sticks. Pitch is on the non-throttle stick; yaw is on the non-roll stick.")))}, {"tone", S("dim")}, {"size", S("xs")}, {"wrap", B(true)} })));
+            {
+                FProps Props;
+                Props["action"] = S("mobile.invert.pitch");
+                Props["label"] = S("INVERT PITCH");
+                Props["tooltip"] = S("Reverse vertical touch control: pushing up noses the bird down instead of up.");
+                Props["on"] = S("INVERTED");
+                Props["off"] = S("NORMAL");
+                Props["value"] = B(Settings.bMobileInvertPitch);
+                Rows.push_back(Nd("Toggle", std::move(Props)));
+            }
+            {
+                FValue O; O.kind = FValue::Kind::Array;
+                O.arr.push_back(S("LEFT")); O.arr.push_back(S("RIGHT"));
+                FProps Props;
+                Props["action"] = S("mobile.throttle.stick");
+                Props["label"] = S("THROTTLE STICK");
+                Props["tooltip"] = S("Which on-screen stick is the throttle (push up to flap / launch).");
+                Props["options"] = std::move(O);
+                Props["value"] = N(Settings.MobileThrottleStick);
+                Rows.push_back(Nd("Dropdown", std::move(Props)));
+            }
+            {
+                FValue O; O.kind = FValue::Kind::Array;
+                O.arr.push_back(S("LEFT")); O.arr.push_back(S("RIGHT"));
+                FProps Props;
+                Props["action"] = S("mobile.roll.stick");
+                Props["label"] = S("ROLL STICK");
+                Props["tooltip"] = S("Which on-screen stick banks the bird. Yaw moves to the opposite stick.");
+                Props["options"] = std::move(O);
+                Props["value"] = N(Settings.MobileRollStick);
+                Rows.push_back(Nd("Dropdown", std::move(Props)));
+            }
+#else
             Rows.push_back(Nd("TextBlock", P({ {"text", S("Negative reverses direction. Zero disables that mouse axis. Magnitude sets sensitivity.")}, {"tone", S("dim")}, {"size", S("xs")}, {"wrap", B(true)} })));
             for (int32 Axis = 0; Axis < 3; ++Axis)
             {
@@ -966,6 +1003,7 @@ void ABorn2FlapMenu::BuildPreferences(std::vector<FNode>& Out)
                 Props["label"] = S("Reset mouse response");
                 Rows.push_back(Nd("Button", std::move(Props)));
             }
+#endif
             {
                 FProps Props;
                 Props["action"] = S("control.expo");
@@ -978,6 +1016,7 @@ void ABorn2FlapMenu::BuildPreferences(std::vector<FNode>& Out)
                 Props["unit"] = S("%");
                 Rows.push_back(Nd("Slider", std::move(Props)));
             }
+#if !PLATFORM_IOS && !PLATFORM_ANDROID
             {
                 FProps Props;
                 Props["action"] = S("mouse.speed");
@@ -989,6 +1028,14 @@ void ABorn2FlapMenu::BuildPreferences(std::vector<FNode>& Out)
                 Props["step"] = N(0.05);
                 Props["unit"] = S(FString(TEXT("×")));
                 Rows.push_back(Nd("Slider", std::move(Props)));
+            }
+#endif
+            {
+                FProps Props;
+                Props["action"] = S("settings.reset.all");
+                Props["label"] = S("Reset all settings to default");
+                Props["tone"] = S("danger");
+                Rows.push_back(Nd("Button", std::move(Props)));
             }
 
             // REPLAY
@@ -1321,6 +1368,23 @@ void ABorn2FlapMenu::OnAction(const FString& Action, float Value, const FString&
     if (Action == TEXT("camera.fpv")) { Settings.bFpvAirView = !Settings.bFpvAirView; if (Bird.IsValid()) Bird->ToggleFpvView(); return; }
     if (Action == TEXT("camera.angle")) { Settings.FpvCameraAngleDeg = FMath::Clamp(Value, -45.f, 45.f); if (Bird.IsValid()) Bird->SetFpvCameraAngle(Settings.FpvCameraAngleDeg); return; }
     if (Action == TEXT("camera.freelook.invert")) { Settings.bFreeLookInvert = !Settings.bFreeLookInvert; if (Bird.IsValid()) Bird->SetFreeLookInvert(Settings.bFreeLookInvert); return; }
+    // ---- MOBILE TOUCH CONTROLS: twin-stick layout (iOS/Android) ----
+    if (Action == TEXT("mobile.invert.pitch")) { Settings.bMobileInvertPitch = !Settings.bMobileInvertPitch; if (Bird.IsValid()) Bird->SetMobileInvertPitch(Settings.bMobileInvertPitch); return; }
+    if (Action == TEXT("mobile.throttle.stick")) { Settings.MobileThrottleStick = FMath::Clamp(FMath::RoundToInt(Value), 0, 1); if (Bird.IsValid()) Bird->SetMobileThrottleStick(Settings.MobileThrottleStick); return; }
+    if (Action == TEXT("mobile.roll.stick")) { Settings.MobileRollStick = FMath::Clamp(FMath::RoundToInt(Value), 0, 1); if (Bird.IsValid()) Bird->SetMobileRollStick(Settings.MobileRollStick); return; }
+    // ---- RESET the whole settings store (keeps language + UI scale) ----
+    if (Action == TEXT("settings.reset.all"))
+    {
+        const FString Lang = Settings.Language;
+        const float Scale = Settings.UIScale;
+        Settings = born2flap::FMenuSettings{};
+        Settings.Language = Lang;
+        Settings.UIScale = Scale;
+        ApplySettingsToBird();
+        PersistSettings();
+        Build();
+        return;
+    }
     // ---- KEY BINDINGS: arm a row for rebinding, or reset the whole table ----
     if (Action.StartsWith(TEXT("keybind.")))
     {

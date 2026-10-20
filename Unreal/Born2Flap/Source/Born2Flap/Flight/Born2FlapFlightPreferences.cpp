@@ -36,6 +36,13 @@ void ABorn2FlapFlightPawn::LoadFlightPreferences()
     Config.GetBool(TEXT("Flight"),TEXT("FpvAirView"),bFpvAirView);
     Config.GetFloat(TEXT("Flight"),TEXT("FpvCameraAngle"),FpvCameraAngleDeg);
     Config.GetBool(TEXT("Flight"),TEXT("FreeLookInvert"),bFreeLookInvert);
+    Config.GetBool(TEXT("Mobile"),TEXT("InvertPitch"),bMobileInvertPitch);
+    int32 ThrottleStick = MobileThrottleStick;
+    Config.GetInt(TEXT("Mobile"),TEXT("ThrottleStick"),ThrottleStick);
+    MobileThrottleStick = (ThrottleStick == 0 || ThrottleStick == 1) ? ThrottleStick : 0;
+    int32 RollStick = MobileRollStick;
+    Config.GetInt(TEXT("Mobile"),TEXT("RollStick"),RollStick);
+    MobileRollStick = (RollStick == 0 || RollStick == 1) ? RollStick : 1;
     FpvCameraAngleDeg = FMath::IsFinite(FpvCameraAngleDeg) ? FMath::Clamp(FpvCameraAngleDeg,-45.f,45.f) : 0.f;
     Config.GetBool(TEXT("Flight"),TEXT("CoupledThrottle"),bCoupledThrottle);
     Config.GetFloat(TEXT("Flight"),TEXT("BodyMassKg"),BodyMassKg);
@@ -80,6 +87,9 @@ void ABorn2FlapFlightPawn::SaveFlightPreferences()
     Config.SetBool(TEXT("Flight"),TEXT("FpvAirView"),bFpvAirView);
     Config.SetFloat(TEXT("Flight"),TEXT("FpvCameraAngle"),FpvCameraAngleDeg);
     Config.SetBool(TEXT("Flight"),TEXT("FreeLookInvert"),bFreeLookInvert);
+    Config.SetBool(TEXT("Mobile"),TEXT("InvertPitch"),bMobileInvertPitch);
+    Config.SetInt64(TEXT("Mobile"),TEXT("ThrottleStick"),MobileThrottleStick);
+    Config.SetInt64(TEXT("Mobile"),TEXT("RollStick"),MobileRollStick);
     Config.SetBool(TEXT("Flight"),TEXT("CoupledThrottle"),bCoupledThrottle);
     Config.SetFloat(TEXT("Flight"),TEXT("BodyMassKg"),BodyMassKg);
     Config.SetFloat(TEXT("Flight"),TEXT("CgOffsetMm"),CgOffsetMm);

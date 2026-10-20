@@ -99,6 +99,13 @@ void MenuSettingsLoad(FMenuSettings& Out)
     Config.GetFloat(TEXT("Flight"), TEXT("FpvCameraAngle"), Cam);
     Out.FpvCameraAngleDeg = FMath::IsFinite(Cam) ? FMath::Clamp(Cam, -45.f, 45.f) : 0.f;
     Config.GetBool(TEXT("Flight"), TEXT("FreeLookInvert"), Out.bFreeLookInvert);
+    Config.GetBool(TEXT("Mobile"), TEXT("InvertPitch"), Out.bMobileInvertPitch);
+    int32 ThrottleStick = Out.MobileThrottleStick;
+    Config.GetInt(TEXT("Mobile"), TEXT("ThrottleStick"), ThrottleStick);
+    Out.MobileThrottleStick = (ThrottleStick == 0 || ThrottleStick == 1) ? ThrottleStick : 0;
+    int32 RollStick = Out.MobileRollStick;
+    Config.GetInt(TEXT("Mobile"), TEXT("RollStick"), RollStick);
+    Out.MobileRollStick = (RollStick == 0 || RollStick == 1) ? RollStick : 1;
     Config.GetBool(TEXT("Flight"), TEXT("CoupledThrottle"), Out.bCoupledThrottle);
 
     float Mass = Out.BodyMassKg;
@@ -165,6 +172,9 @@ void MenuSettingsSave(const FMenuSettings& In)
     Config.SetBool(TEXT("Flight"), TEXT("FpvAirView"), In.bFpvAirView);
     Config.SetFloat(TEXT("Flight"), TEXT("FpvCameraAngle"), In.FpvCameraAngleDeg);
     Config.SetBool(TEXT("Flight"), TEXT("FreeLookInvert"), In.bFreeLookInvert);
+    Config.SetBool(TEXT("Mobile"), TEXT("InvertPitch"), In.bMobileInvertPitch);
+    Config.SetInt64(TEXT("Mobile"), TEXT("ThrottleStick"), In.MobileThrottleStick);
+    Config.SetInt64(TEXT("Mobile"), TEXT("RollStick"), In.MobileRollStick);
     Config.SetBool(TEXT("Flight"), TEXT("CoupledThrottle"), In.bCoupledThrottle);
     Config.SetFloat(TEXT("Flight"), TEXT("BodyMassKg"), In.BodyMassKg);
     Config.SetFloat(TEXT("Flight"), TEXT("CgOffsetMm"), In.CgOffsetMm);
@@ -200,6 +210,9 @@ void MenuSettingsFromPawn(const ABorn2FlapFlightPawn* Pawn, FMenuSettings& Out)
     Out.bFpvAirView = Pawn->IsFpvAirView();
     Out.FpvCameraAngleDeg = Pawn->GetFpvCameraAngle();
     Out.bFreeLookInvert = Pawn->GetFreeLookInvert();
+    Out.bMobileInvertPitch = Pawn->GetMobileInvertPitch();
+    Out.MobileThrottleStick = Pawn->GetMobileThrottleStick();
+    Out.MobileRollStick = Pawn->GetMobileRollStick();
     Out.MouseGains = Pawn->GetMouseGains();
     Out.ControlExpo = Pawn->GetControlExpo();
     Out.SpeedModifier = Pawn->GetSpeedModifier();
@@ -225,6 +238,9 @@ void MenuSettingsToPawn(const FMenuSettings& In, ABorn2FlapFlightPawn* Pawn)
         Pawn->ToggleFpvView();
     Pawn->SetFpvCameraAngle(In.FpvCameraAngleDeg);
     Pawn->SetFreeLookInvert(In.bFreeLookInvert);
+    Pawn->SetMobileInvertPitch(In.bMobileInvertPitch);
+    Pawn->SetMobileThrottleStick(In.MobileThrottleStick);
+    Pawn->SetMobileRollStick(In.MobileRollStick);
     for (int32 Axis = 0; Axis < 3; ++Axis)
         Pawn->SetMouseGain(Axis, In.MouseGains[Axis]);
     Pawn->SetControlExpo(In.ControlExpo);

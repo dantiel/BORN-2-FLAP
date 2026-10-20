@@ -1159,18 +1159,36 @@ UBorn2FlapComposite* UBorn2FlapUIRenderer::BuildComponent(const FString& Type)
         UBorn2FlapComposite* C = NewComposite(this, TEXT("Toggle"));
         C->SetPadding(FMargin(0.f));
         UButton* Btn = NewObject<UButton>(this);
-        Btn->SetBackgroundColor(theme::BG_SOLID());
+        // No surrounding box: the toggle is just the label with a small switch
+        // sprite underneath (the sprite is a placeholder to be animated later).
+        // The button stays a transparent hit target so only the sprite reads.
+        FButtonStyle ToggleStyle;
+        ToggleStyle.Normal    = FSlateRoundedBoxBrush(FLinearColor::Transparent, 3.f);
+        ToggleStyle.Hovered   = FSlateRoundedBoxBrush(FLinearColor(.13f,.17f,.18f,.4f), 3.f);
+        ToggleStyle.Pressed   = FSlateRoundedBoxBrush(FLinearColor(.13f,.17f,.18f,.5f), 3.f);
+        ToggleStyle.Disabled  = ToggleStyle.Normal;
+        ToggleStyle.NormalForeground = ToggleStyle.HoveredForeground = ToggleStyle.PressedForeground = theme::FG();
+        ToggleStyle.NormalPadding = ToggleStyle.PressedPadding = FMargin(4.f, 4.f);
+        Btn->SetStyle(ToggleStyle);
+        Btn->SetBackgroundColor(FLinearColor::White);
         C->SetContent(Btn);
-        UHorizontalBox* Row = NewObject<UHorizontalBox>(this);
-        Btn->SetContent(Row);
-        UImage* Switch = NewObject<UImage>(this);
-        Switch->SetBrush(ArtBrush(TEXT("ToggleOff"),FVector2D(40,22)));
-        Row->AddChildToHorizontalBox(Switch)->SetPadding(FMargin(0,0,10,0));
-        C->Parts.Add(TEXT("switch"),Switch);
+
+        UVerticalBox* Body = NewObject<UVerticalBox>(this);
+        Btn->SetContent(Body);
+
         UTextBlock* Label = NewObject<UTextBlock>(this);
         Label->SetFont(theme::Font(TEXT("s"), 12));
         Label->SetColorAndOpacity(FSlateColor(theme::FG_DIM()));
-        Row->AddChildToHorizontalBox(Label)->SetPadding(FMargin(0,0,12,0));
+        Body->AddChildToVerticalBox(Label)->SetPadding(FMargin(0,0,0,5));
+
+        UHorizontalBox* Row = NewObject<UHorizontalBox>(this);
+        Body->AddChildToVerticalBox(Row);
+
+        UImage* Switch = NewObject<UImage>(this);
+        Switch->SetBrush(ArtBrush(TEXT("ToggleOff"),FVector2D(40,22)));
+        Row->AddChildToHorizontalBox(Switch)->SetPadding(FMargin(0,0,8,0));
+        C->Parts.Add(TEXT("switch"),Switch);
+
         UTextBlock* Value = NewObject<UTextBlock>(this);
         Value->SetFont(theme::Font(TEXT("s"), 12, true));
         Row->AddChildToHorizontalBox(Value);
@@ -1642,6 +1660,18 @@ void UBorn2FlapUIRenderer::ApplyCompositeProps(UBorn2FlapComposite* C, const FPr
         if (Props.count("disabled") && Slider) Slider->SetIsEnabled(!Props.at("disabled").AsBool(false));
         StyleText(ValueTxt, Props);
     }
+    else if (Type == TEXT("Toggle"))
+    {
+        UTextBlock* Label = Cast<UTextBlock>(C->Part(TEXT("label")));
+        if (Props.count("label") && Label) SetText(Label, Props.at("label"));
+        if (Props.count("on"))   C->State.Add(TEXT("on"),   Str(Props.at("on")));
+        if (Props.count("off"))  C->State.Add(TEXT("off"),  Str(Props.at("off")));
+        if (Props.count("value"))
+        {
+            C->State.Add(TEXT("value"), Props.at("value").AsBool(false) ? TEXT("1") : TEXT("0"));
+            ApplyToggleState(C);
+        }
+    }
     else if (Type == TEXT("Select"))
     {
         UTextBlock* Label = Cast<UTextBlock>(C->Part(TEXT("label")));
@@ -2049,8 +2079,8 @@ void UBorn2FlapUIRenderer::ApplyToggleState(UBorn2FlapComposite* C)
     if (!C)
         return;
     const bool bOn = C->State.FindRef(TEXT("value")).Equals(TEXT("1"));
-    UButton* B = Cast<UButton>(C->Part(TEXT("button")));
-    ArtButton(B,bOn,true);
+    // No box: the button stays a transparent hit target; only the switch sprite
+    // and its tiny on/off caption change.
     if(auto* Switch=Cast<UImage>(C->Part(TEXT("switch"))))
         Switch->SetBrush(ArtBrush(bOn ? TEXT("ToggleOn") : TEXT("ToggleOff"),FVector2D(40,22)));
     if (UTextBlock* V = Cast<UTextBlock>(C->Part(TEXT("value"))))
@@ -2058,7 +2088,7 @@ void UBorn2FlapUIRenderer::ApplyToggleState(UBorn2FlapComposite* C)
         const FString On  = C->State.FindRef(TEXT("on")).IsEmpty()  ? TEXT("ON")  : C->State.FindRef(TEXT("on"));
         const FString Off = C->State.FindRef(TEXT("off")).IsEmpty() ? TEXT("OFF") : C->State.FindRef(TEXT("off"));
         V->SetText(FText::FromString(bOn ? On : Off));
-        V->SetColorAndOpacity(FSlateColor::UseForeground());
+        V->SetColorAndOpacity(FSlateColor(bOn ? theme::ACCENT() : theme::FG_DIM()));
     }
 }
 
