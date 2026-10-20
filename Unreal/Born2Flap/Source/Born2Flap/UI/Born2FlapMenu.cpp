@@ -136,6 +136,13 @@ static const FLanguageDef Languages[] = {
 };
 constexpr int32 LanguageCount = (int32)(sizeof(Languages) / sizeof(Languages[0]));
 
+// UI scale presets (the mobile "UI scale" setting). Labels are shown to the
+// pilot; values are the theme::UIScale multipliers applied to every design
+// token (fonts, spacing, element size, corner radius).
+static const TCHAR* UIScaleLabels[] = { TEXT("75%"), TEXT("90%"), TEXT("100%"), TEXT("115%"), TEXT("130%"), TEXT("150%") };
+static const float   UIScaleValues[] = { 0.75f, 0.90f, 1.00f, 1.15f, 1.30f, 1.50f };
+constexpr int32 UIScaleCount = (int32)(sizeof(UIScaleValues) / sizeof(UIScaleValues[0]));
+
 // Captures the next key while a KEY BINDINGS row is armed for rebinding. The
 // menu runs in UIOnly mode, so keyboard never reaches PlayerInput — a Slate
 // pre-processor is the one place that still sees every key-down. Escape cancels
@@ -848,6 +855,25 @@ void ABorn2FlapMenu::BuildPreferences(std::vector<FNode>& Out)
             // DISPLAY / CAMERA
             Rows.push_back(Nd("TextBlock", P({ {"text", S("DISPLAY  /  CAMERA")}, {"tone", S("accent")}, {"size", S("l")} })));
             {
+                // UI SCALE — global font/element scale, relative to the screen.
+                FValue ScaleOptions; ScaleOptions.kind = FValue::Kind::Array;
+                int32 CurScale = 2;   // 100%
+                float Nearest = 1e9f;
+                for (int32 I = 0; I < UIScaleCount; ++I)
+                {
+                    ScaleOptions.arr.push_back(S(FString(UIScaleLabels[I])));
+                    const float D = FMath::Abs(Settings.UIScale - UIScaleValues[I]);
+                    if (D < Nearest) { Nearest = D; CurScale = I; }
+                }
+                FProps Props;
+                Props["action"] = S("ui.scale");
+                Props["label"] = S("UI SCALE");
+                Props["tooltip"] = S("Scales every UI element — fonts, buttons, readouts and spacing — relative to the screen. Small phones read better at 75–90%, tablets or far-seated play at 130–150%.");
+                Props["options"] = std::move(ScaleOptions);
+                Props["value"] = N(CurScale);
+                Rows.push_back(Nd("Dropdown", std::move(Props)));
+            }
+            {
                 FProps Props;
                 Props["action"] = S("camera.fpv");
                 Props["label"] = S("AIRBORNE CAMERA");
@@ -1320,6 +1346,15 @@ void ABorn2FlapMenu::OnAction(const FString& Action, float Value, const FString&
         Born2Flap::I18n::SetLocale(Settings.Language);
         PersistSettings();
         Build();   // re-render so the nav rail, pane title and localized labels switch
+        return;
+    }
+    if (Action == TEXT("ui.scale"))
+    {
+        const int32 Idx = FMath::Clamp(FMath::RoundToInt(Value), 0, UIScaleCount - 1);
+        Settings.UIScale = UIScaleValues[Idx];
+        born2flap::ui::theme::SetUIScale(Settings.UIScale);
+        PersistSettings();
+        Build();   // rebuild at the new scale so every token re-resolves
         return;
     }
     if (Action == TEXT("bird.weight")) { Settings.BodyMassKg = FMath::Clamp(Value / 1000.f, 0.01f, 2.0f); if (Bird.IsValid()) Bird->SetBodyMassKg(Settings.BodyMassKg); return; }

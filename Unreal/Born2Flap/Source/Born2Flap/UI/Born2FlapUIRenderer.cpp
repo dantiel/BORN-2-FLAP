@@ -73,17 +73,21 @@ FString FormatValue(const FValue& V, const FProps& Props)
 // size prop: a numeric px value wins, otherwise a size token (xs..xxl).
 float SizeOrNum(const FValue& V, float D)
 {
-    if (V.kind == FValue::Kind::Number) return (float)V.AsNumber(D);
+    // Numeric px values ride the same global UI scale as the size tokens so a
+    // "size: 18" prop scales proportionally with "size: m" on mobile.
+    if (V.kind == FValue::Kind::Number) return theme::Scale((float)V.AsNumber(D));
     return theme::SizePx(Str(V), D);
 }
 
 FMargin ParseMargin(const FValue& V)
 {
+    // Margins/padding are part of the "relative to screen size" contract too.
     if (V.kind == FValue::Kind::Array && V.arr.size() == 4)
-        return FMargin(Num(V.arr[0], 0), Num(V.arr[1], 0), Num(V.arr[2], 0), Num(V.arr[3], 0));
+        return FMargin(theme::Scale((float)Num(V.arr[0], 0)), theme::Scale((float)Num(V.arr[1], 0)),
+                       theme::Scale((float)Num(V.arr[2], 0)), theme::Scale((float)Num(V.arr[3], 0)));
     if (V.kind == FValue::Kind::Array && V.arr.size() == 2)
-        return FMargin(Num(V.arr[0], 0), Num(V.arr[1], 0));
-    return FMargin(Num(V, 10.0));
+        return FMargin(theme::Scale((float)Num(V.arr[0], 0)), theme::Scale((float)Num(V.arr[1], 0)));
+    return FMargin(theme::Scale((float)Num(V, 10.0)));
 }
 
 EHorizontalAlignment ParseHAlign(const FValue& V)
