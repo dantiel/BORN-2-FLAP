@@ -13,12 +13,14 @@ class UCapsuleComponent;
 class UBorn2FlapWingMesh;
 class UStaticMeshComponent;
 class UInstancedStaticMeshComponent;
+class UNiagaraComponent;
 class USceneComponent;
 class USpringArmComponent;
 class UCameraComponent;
 class UBorn2FlapAudioSynth;
 class ABorn2FlapFlightSettings;
 class ABorn2FlapPoiOverlay;
+class ABorn2FlapWindLeaves;
 class IInputProcessor;
 // Live-tuning surface the hangar edits: servo, battery and the exposed
 // controller knobs. Mirrors B2F_TuningConfig field order.
@@ -179,6 +181,17 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     TArray<float> MoteScales;
     TArray<float> MoteSpeed;
     FRandomStream MoteRandom{13011};
+    // Wingtip water-touch splash: expanding translucent rings on the surface
+    // (M_RainSplash on a world-space plane pool) + a brief Niagara mist burst
+    // (NS_SurfSpray). Detected in SweepWingColliders by crossing the animated
+    // water height from AShiomoriWaterDirector.
+    UPROPERTY() TObjectPtr<UInstancedStaticMeshComponent> WaterRipples;
+    TArray<FVector> WaterRipplePos;
+    TArray<float> WaterRippleAge;
+    int32 WaterRippleCursor = 0;
+    UPROPERTY() TObjectPtr<UNiagaraComponent> WaterSplashFX;
+    float WaterSplashTimeLeft = 0.f;
+    TMap<UBorn2FlapWingMesh*, float> WingWaterDepthPrev;
     UPROPERTY(VisibleAnywhere) TObjectPtr<UBorn2FlapAudioSynth> AudioSynth;
     UPROPERTY() TObjectPtr<UCameraComponent> GroundCamera;
     UPROPERTY() TObjectPtr<UCameraComponent> FpvCamera;
@@ -253,6 +266,13 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     bool bBrainSettingsOpen = false;
     void BuildRavenCrow();
     void SweepWingColliders(float Dt);
+    // Fire a one-shot sand/dust burst through the wind-leaves system (landing,
+    // wing-touch). Lazily caches the world actor on first use.
+    void EmitSandBurst(const FVector& WorldPos, float Strength);
+    // Wingtip water contact: expanding ripple rings + a short Niagara mist burst.
+    void EmitWaterSplash(const FVector& WorldPos, float Strength);
+    void UpdateWaterRipples(float DeltaSeconds);
+    TWeakObjectPtr<ABorn2FlapWindLeaves> WindLeavesActor;
     TMap<UBorn2FlapWingMesh*, FVector> WingSweepPrev;
     double LastWingTouchTime = -1e30;
     bool bWingTouching = false;

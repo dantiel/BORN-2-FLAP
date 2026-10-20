@@ -74,12 +74,22 @@ main = do
   if magnitude (addVec steady (scaleVec (-1) counter)) < 1e-8
      && magnitude (addVec before (scaleVec (-1) after)) < 1e-6
     then pure () else fail "world-stationary wing flow and continuous implicit reversal loads must hold"
-  let strip moment = StripResult emptyStrip (Vec3 0 0 1) moment 0 0
+  let loadedStrip = emptyStrip { stripSpringLoad = 1 }
+      strip moment = StripResult loadedStrip (Vec3 0 0 1) moment 0 0
       leftTorque = hingeTorque (-1) [strip (Vec3 (-2) 90 0)]
       rightTorque = hingeTorque 1 [strip (Vec3 2 90 0)]
       wingI = shapeFlapInertia referenceWingMassKg airDensity defaultBirdWing
   if leftTorque == 2 && rightTorque == 2 then pure ()
     else fail "mirrored flap hinges must project signed X torque, ignoring pitch torque"
+  -- An unloaded spar spring eases the servo hinge load (the wing yields
+  -- elastically), while a forward-twisted spring loads "for free" in the
+  -- thrust direction and eases further still.
+  let unloadedStrip = emptyStrip { stripSpringLoad = 0 }
+      easedTorque = hingeTorque (-1) [StripResult unloadedStrip (Vec3 0 0 1) (Vec3 (-2) 90 0) 0 0]
+      twistedStrip = emptyStrip { stripSpringLoad = 0, stripTwistAero = -0.2 }
+      twistedTorque = hingeTorque (-1) [StripResult twistedStrip (Vec3 0 0 1) (Vec3 (-2) 90 0) 0 0]
+  if easedTorque > 0 && easedTorque < 2 && twistedTorque < easedTorque then pure ()
+    else fail "unloaded and forward-twisted spar springs must ease the servo hinge load"
   let fwStep dt vel s = stepFirmwareVehicle True defaultRcChannels defaultFirmwareParams
                         defaultServoSpec defaultBatterySpec kestrelModel dt vel (Vec3 0 0 0) 1000 s
       badCases = [(0, Vec3 5 0 0), (0/0, Vec3 5 0 0), (0.01, Vec3 (1/0) 0 0)]

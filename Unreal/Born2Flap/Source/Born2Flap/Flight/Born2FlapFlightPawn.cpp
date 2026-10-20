@@ -6,6 +6,9 @@
 #include "Components/CapsuleComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/InstancedStaticMeshComponent.h"
+#include "NiagaraComponent.h"
+#include "NiagaraSystem.h"
+#include "Water/Born2FlapWaterDirector.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/OverlapResult.h"
 #include "DrawDebugHelpers.h"
@@ -33,6 +36,8 @@
 #include "Game/Born2FlapGameMode.h"
 #include "World/Born2FlapValley.h"
 #include "World/Born2FlapWind.h"
+#include "World/Born2FlapWindLeaves.h"
+#include "Kismet/GameplayStatics.h"
 #include "Audio/Born2FlapAudioSynth.h"
 #include "Audio/Born2FlapAeroAudio.h"
 namespace
@@ -139,6 +144,19 @@ ABorn2FlapFlightPawn::ABorn2FlapFlightPawn()
     WindMotes->SetMobility(EComponentMobility::Movable);
     WindMotes->SetCollisionEnabled(ECollisionEnabled::NoCollision);
     WindMotes->SetCastShadow(false);
+    // Wingtip water splash: a pool of expanding translucent rings on the water
+    // surface plus a short Niagara mist burst. World-space, camera-independent.
+    WaterRipples = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("WaterRipples"));
+    WaterRipples->SetupAttachment(Body);
+    WaterRipples->SetAbsolute(true, true, true);
+    WaterRipples->SetMobility(EComponentMobility::Movable);
+    WaterRipples->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    WaterRipples->SetCastShadow(false);
+    WaterSplashFX = CreateDefaultSubobject<UNiagaraComponent>(TEXT("WaterSplashFX"));
+    WaterSplashFX->SetupAttachment(Body);
+    WaterSplashFX->SetAutoActivate(false);
+    WaterSplashFX->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    WaterSplashFX->SetCastShadow(false);
     // Negative X scale flips the sphere's winding so the camera (which sits at
     // the sphere's centre, i.e. INSIDE it) sees FRONT faces even if the
     // additive material's two-sided flag is not honoured in the translucency
@@ -154,7 +172,7 @@ ABorn2FlapFlightPawn::ABorn2FlapFlightPawn()
     // Default hangar tuning = the reference kestrel hardware (VOTIK PTK 7465
     // Plus flap servo, 3S 1.3 Ah) plus the simulator's controller base.
     // LoadFlightPreferences may override these before the first ApplyTuning.
-    Tuning.servo_no_load_speed_deg_s = 750;
+    Tuning.servo_no_load_speed_deg_s = 1500;
     Tuning.servo_stall_torque_nm = 1.332f;
     Tuning.servo_backdrive_deg_s_nm = 20;
     Tuning.battery_voltage = 11.1;
@@ -474,6 +492,35 @@ void ABorn2FlapFlightPawn::BeginPlay()
             }
         }
     }
+    // Wingtip water splash pool: M_RainSplash ring on a world-space plane pool,
+    // recycled round-robin as ripples expand and fade.
+    if (WaterRipples)
+    {
+        if (UStaticMesh* RingPlane = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Plane.Plane")))
+        {
+            WaterRipples->SetStaticMesh(RingPlane);
+            if (UMaterialInterface* RingMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Weather/M_RainSplash")))
+            {
+                WaterRipples->SetMaterial(0, RingMat);
+                constexpr int32 RingCount = 32;
+                WaterRipplePos.SetNum(RingCount);
+                WaterRippleAge.Init(1.f, RingCount);
+                for (int32 I = 0; I < RingCount; ++I)
+                    WaterRipples->AddInstance(FTransform(FQuat::Identity, FVector::ZeroVector, FVector::ZeroVector));
+            }
+            else
+            {
+                WaterRipples->SetVisibility(false);
+            }
+        }
+    }
+    if (WaterSplashFX)
+    {
+        if (auto* System = LoadObject<UNiagaraSystem>(nullptr, TEXT("/Game/Weather/NS_SurfSpray")))
+            WaterSplashFX->SetAsset(System);
+        else
+            WaterSplashFX->SetVisibility(false);
+    }
     // Points of interest: the GameMode populated them during its own BeginPlay
     // (before the pawn spawned). Fall back to the origin if none arrived.
     if (auto* Mode = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode()))
@@ -593,6 +640,59 @@ void ABorn2FlapFlightPawn::OnBodyHit(UPrimitiveComponent *HitComponent, AActor *
                *GetNameSafe(OtherActor), *GetNameSafe(OtherComponent), *NormalImpulse.ToString(),
                *Hit.ImpactPoint.ToString());
 }
+void ABorn2FlapFlightPawn::EmitSandBurst(const FVector& WorldPos, float Strength)
+{
+    if (!WindLeavesActor.IsValid())
+        WindLeavesActor = Cast<ABorn2FlapWindLeaves>(
+            UGameplayStatics::GetActorOfClass(GetWorld(), ABorn2FlapWindLeaves::StaticClass()));
+    if (ABorn2FlapWindLeaves* WL = WindLeavesActor.Get())
+        WL->EmitSandBurst(WorldPos, Strength);
+}
+void ABorn2FlapFlightPawn::EmitWaterSplash(const FVector& WorldPos, float Strength)
+{
+    // Ripple ring: recycle the oldest slot so a rapid wing-tip skim leaves a
+    // train of expanding circles rather than a single frozen ring.
+    if (WaterRipples && WaterRipplePos.Num() > 0)
+    {
+        WaterRippleCursor = (WaterRippleCursor + 1) % WaterRipplePos.Num();
+        WaterRipplePos[WaterRippleCursor] = WorldPos;
+        WaterRippleAge[WaterRippleCursor] = 0.f;
+        WaterRipples->UpdateInstanceTransform(WaterRippleCursor,
+            FTransform(FQuat::Identity, WorldPos, FVector(0.05f, 0.05f, 1.f)), true, false, false);
+        WaterRipples->MarkRenderStateDirty();
+    }
+    // Mist burst: brief NS_SurfSpray activation at the contact point; the
+    // countdown in UpdateWaterRipples deactivates it once the burst is thrown.
+    if (WaterSplashFX && WaterSplashFX->GetAsset())
+    {
+        WaterSplashFX->SetWorldLocation(WorldPos);
+        WaterSplashFX->Activate(true);
+        WaterSplashTimeLeft = 0.4f;
+    }
+}
+void ABorn2FlapFlightPawn::UpdateWaterRipples(float DeltaSeconds)
+{
+    if (WaterSplashFX && WaterSplashFX->IsActive())
+    {
+        WaterSplashTimeLeft -= DeltaSeconds;
+        if (WaterSplashTimeLeft <= 0.f)
+            WaterSplashFX->Deactivate();
+    }
+    if (!WaterRipples || WaterRipplePos.Num() == 0)
+        return;
+    for (int32 I = 0; I < WaterRipplePos.Num(); ++I)
+    {
+        if (WaterRippleAge[I] >= 1.f)
+            continue; // parked ring: zero scale, invisible
+        WaterRippleAge[I] = FMath::Min(1.f, WaterRippleAge[I] + DeltaSeconds / 0.9f);
+        const float Age = WaterRippleAge[I];
+        // Grow from a point, then shrink back out — an expanding, fading circle.
+        const float Scale = (0.05f + 1.1f * Age) * (1.f - Age);
+        WaterRipples->UpdateInstanceTransform(I,
+            FTransform(FQuat::Identity, WaterRipplePos[I], FVector(Scale, Scale, 1.f)), true, false, false);
+    }
+    WaterRipples->MarkRenderStateDirty();
+}
 void ABorn2FlapFlightPawn::SweepWingColliders(float Dt)
 {
     // Compute a leading-edge contact capsule for every VISIBLE wing each frame,
@@ -634,6 +734,18 @@ void ABorn2FlapFlightPawn::SweepWingColliders(float Dt)
         const FVector Dir  = Tip - Root;
         const float   Len  = Dir.Size();
         if (Len < 1.f) continue;
+        // Wingtip water contact: the ocean surface is a translucent material (no
+        // collision channel), so detect the crossing by comparing the tip against
+        // the animated Gerstner height from the water director.
+        if (const AShiomoriWaterDirector* Water = AShiomoriWaterDirector::Get(World))
+        {
+            const float WaterZ = Water->GetWaterHeightAt(Tip.X, Tip.Y);
+            const float Depth  = WaterZ - Tip.Z; // > 0 => tip submerged
+            float& Prev = WingWaterDepthPrev.FindOrAdd(Wing);
+            if (Depth > 2.f && Prev <= 2.f)
+                EmitWaterSplash(FVector(Tip.X, Tip.Y, WaterZ + 2.f), 1.f);
+            Prev = Depth;
+        }
         const FVector Mid = (Root + Tip) * 0.5f;
         const FQuat   Rot = FRotationMatrix::MakeFromZ(Dir / Len).ToQuat();
         const FCollisionShape Shape = FCollisionShape::MakeCapsule(6.f, Len * 0.5f);
@@ -679,6 +791,7 @@ void ABorn2FlapFlightPawn::SweepWingColliders(float Dt)
         {
             if (GEngine)
                 GEngine->AddOnScreenDebugMessage(42, 0.6f, FColor(255, 92, 64), TEXT("WING HIT"));
+            EmitSandBurst(ContactPoint, 0.7f);
         }
         if (bTouched)
         {
@@ -1385,7 +1498,11 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         return;
     }
     if (GetAltitude() < .3f && GetSpeed() < 1.f)
+    {
+        if (bFlying)   // was airborne → touchdown sand puff
+            EmitSandBurst(P, 1.0f);
         bFlying = false;
+    }
     else if (GetAltitude() > .5f && GetSpeed() > 1.f)
         bFlying = true;
     UpdateLandingCamera(Dt);
@@ -1500,6 +1617,7 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     SweepWingColliders(Dt);
     UpdateAeroAudio(Dt);
     UpdateWindMotes(Dt);
+    UpdateWaterRipples(Dt);
     if (bVectors)
     {
         DrawDebugDirectionalArrow(GetWorld(), P, P + AeroForce * 25, 15, FColor::Cyan, false, 0, 0, 2);

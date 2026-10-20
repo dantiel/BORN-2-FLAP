@@ -335,15 +335,13 @@ applyTuning t ctx =
       -- battery/body mass must not shrink the same physical wings. Flapping
       -- frequency must be CAPPED by the servo's no-load speed: a servo sweeping
       -- at ω₀ can only flap a stroke of amplitude A at cadence f ≤ ω₀/(2π·A).
-      -- Demanding the full 55° geometric stroke at a light bird's natural
-      -- cadence collapsed the actuator — a 667°/s servo at 5.57 Hz tracked only
-      -- 6° of the commanded stroke and produced NEGATIVE cruise thrust
-      -- (measured). We cap the cadence so the servo always sweeps a USEFUL
-      -- stroke (35°); a faster servo then earns a faster flap, which is exactly
-      -- the "servo power matters" behaviour.
+      -- The mixer's flappingBranch caps the cadence to the FULL geometric stroke
+      -- (ampMaxDeg, 55°), so the commanded arc is always deliverable and
+      -- monotonic in throttle. This stored ceiling mirrors that same limit, so a
+      -- faster servo earns a faster flap, never a stroke it cannot deliver.
       freqScale = 1
       servoSpeedDegS = max 1 (servoNoLoadSpeedDegPerSec servo)
-      usefulStrokeDeg = 35
+      usefulStrokeDeg = 55
       freqCapHz = servoSpeedDegS / (2 * pi * usefulStrokeDeg)
       flapBaseFreqDh = clampRange 10 200 (min (tgFlapBaseFreqDh t * freqScale)
                                              (freqCapHz * 10))
