@@ -147,6 +147,10 @@ void MenuSettingsLoad(FMenuSettings& Out)
     Config.GetString(TEXT("General"), TEXT("Language"), Lang);
     if (!Lang.IsEmpty())
         Out.Language = Lang;
+
+    float Scale = Out.UIScale;
+    Config.GetFloat(TEXT("General"), TEXT("UIScale"), Scale);
+    Out.UIScale = FMath::IsFinite(Scale) ? FMath::Clamp(Scale, 0.5f, 2.0f) : 1.0f;
 }
 
 void MenuSettingsSave(const FMenuSettings& In)
@@ -178,6 +182,7 @@ void MenuSettingsSave(const FMenuSettings& In)
     if (In.BirdModel >= 0 && In.BirdModel <= 2)
         Config.SetInt64(TEXT("Flight"), TEXT("BirdModel"), In.BirdModel);
     Config.SetString(TEXT("General"), TEXT("Language"), *In.Language);
+    Config.SetFloat(TEXT("General"), TEXT("UIScale"), In.UIScale);
 
     Config.Write(Path);
 }

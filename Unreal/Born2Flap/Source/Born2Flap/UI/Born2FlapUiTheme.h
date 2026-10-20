@@ -53,27 +53,41 @@ FORCEINLINE FLinearColor ToneAt(const FString& ToneName, FLinearColor Default, f
     return C;
 }
 
+// ---- UI scale (the mobile "UI scale" setting) -------------------------------
+// A single global multiplier applied to every design token: font size, spacing,
+// element size and corner radius all move together. 1.0 = the design-token
+// defaults. The settings menu writes it (persisted to FlightPreferences.ini);
+// the GameMode re-applies it before any UI is built so the splash/menu/cockpit
+// all share one scale. The inline function's function-local static is a single
+// object per program (ODR), so every translation unit shares one scale.
+namespace detail {
+    FORCEINLINE float& UIScaleRef() { static float S = 1.0f; return S; }
+}
+FORCEINLINE float UIScale() { return detail::UIScaleRef(); }
+FORCEINLINE void SetUIScale(float Scale) { detail::UIScaleRef() = FMath::Clamp(Scale, 0.5f, 2.0f); }
+FORCEINLINE float Scale(float V) { return V * detail::UIScaleRef(); }
+
 // ---- typography scale ------------------------------------------------------
 FORCEINLINE float SizePx(const FString& Size, float Default)
 {
-    if (Size == TEXT("xs"))  return 12.f;
-    if (Size == TEXT("s"))   return 14.f;
-    if (Size == TEXT("m"))   return 17.f;
-    if (Size == TEXT("l"))   return 20.f;
-    if (Size == TEXT("xl"))  return 28.f;
-    if (Size == TEXT("xxl")) return 40.f;
-    return Default;
+    if (Size == TEXT("xs"))  return Scale(12.f);
+    if (Size == TEXT("s"))   return Scale(14.f);
+    if (Size == TEXT("m"))   return Scale(17.f);
+    if (Size == TEXT("l"))   return Scale(20.f);
+    if (Size == TEXT("xl"))  return Scale(28.f);
+    if (Size == TEXT("xxl")) return Scale(40.f);
+    return Scale(Default);
 }
 
 // ---- spacing scale (for gap/padding tokens) --------------------------------
 FORCEINLINE float SpacePx(const FString& Size, float Default)
 {
-    if (Size == TEXT("xs")) return 4.f;
-    if (Size == TEXT("s"))  return 6.f;
-    if (Size == TEXT("m"))  return 8.f;
-    if (Size == TEXT("l"))  return 12.f;
-    if (Size == TEXT("xl")) return 18.f;
-    return Default;
+    if (Size == TEXT("xs")) return Scale(4.f);
+    if (Size == TEXT("s"))  return Scale(6.f);
+    if (Size == TEXT("m"))  return Scale(8.f);
+    if (Size == TEXT("l"))  return Scale(12.f);
+    if (Size == TEXT("xl")) return Scale(18.f);
+    return Scale(Default);
 }
 
 // ---- fonts -----------------------------------------------------------------
@@ -115,6 +129,6 @@ FORCEINLINE FSlateFontInfo Font(const FString& Size, float DefaultPx, bool bBold
 }
 
 // corner radius for rounded-box brushes (uniform).
-FORCEINLINE FVector4 Radius(float R = 8.f) { return FVector4(R, R, R, R); }
+FORCEINLINE FVector4 Radius(float R = 8.f) { const float Rs = Scale(R); return FVector4(Rs, Rs, Rs, Rs); }
 
 }  // namespace born2flap::ui::theme

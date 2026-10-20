@@ -36,6 +36,9 @@ struct FMenuSettings
     float WingbeatVolume = 1.f;
     // UI language code ("en", "de", ...) — matches the locale JSON filenames.
     FString Language = TEXT("en");
+    // Global UI scale (mobile "UI scale" setting). 1.0 = design-token default;
+    // applied to fonts, spacing, element sizes and corner radius via theme::Scale.
+    float UIScale = 1.0f;
 };
 
 // Load/save the store from Config/FlightPreferences.ini (same keys as the pawn).

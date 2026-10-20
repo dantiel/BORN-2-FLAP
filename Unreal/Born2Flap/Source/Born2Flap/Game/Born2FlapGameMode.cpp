@@ -29,6 +29,7 @@
 #include "UI/Born2FlapI18n.h"
 #include "UI/Born2FlapSplash.h"
 #include "UI/Born2FlapMenu.h"
+#include "UI/Born2FlapUiTheme.h"
 #include "Racing/Born2FlapRacing.h"
 #include "Water/Born2FlapWaterDirector.h"
 #include "Water/Born2FlapSurf.h"
@@ -232,6 +233,16 @@ FVector ABorn2FlapGameMode::WindAt(const FVector& P,double Time) const
 void ABorn2FlapGameMode::BeginPlay()
 {
     Super::BeginPlay();
+
+    // Apply the persisted UI scale before any semantic UI is built (the menu
+    // map and every level map run through here), so fonts, spacing and element
+    // sizes scale from the very first frame instead of only after the menu opens.
+    {
+        born2flap::FMenuSettings BootSettings;
+        born2flap::MenuSettingsLoad(BootSettings);
+        born2flap::ui::theme::SetUIScale(BootSettings.UIScale);
+    }
+
     // F10-while-menu-open capture (see FMenuKeyInputProcessor). The pointer
     // is wired to bMenuOpen so the processor only consumes F10 when the menu is
     // actually on screen — otherwise Escape stays free for the F8 flight desk.
