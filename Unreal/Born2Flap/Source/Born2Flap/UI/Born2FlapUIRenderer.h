@@ -109,6 +109,11 @@ public:
     // 100 (above the cockpit), the settings panel 10, the cockpit/radio 0.
     UPROPERTY() int32 ViewportZOrder = 0;
 
+    // Safe-area insets (notch / camera cutout / home indicator) in viewport
+    // pixels, with a minimum breathing room so HUD content never sits under the
+    // rounded corners. Returns FVector4(Left, Top, Right, Bottom).
+    static FVector4 SafeAreaInsets();
+
     // Parse a Ruby `Wire.dump_ops` JSON string and apply it. The single entry
     // point the Brain bridge (pipe/file/socket/mruby) needs to call.
     void ApplyOpsJson(const FString& Json);

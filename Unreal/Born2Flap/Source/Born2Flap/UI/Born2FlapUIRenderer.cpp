@@ -42,6 +42,28 @@
 
 using namespace born2flap::ui;
 
+// Safe-area insets (notch / camera cutout / home indicator) in viewport
+// pixels, with a minimum breathing room so edge-anchored HUD content never sits
+// under the rounded corners. On iOS the TitleSafePaddingSize carries the true
+// insets (already scaled to physical pixels by the platform); elsewhere it
+// stays at the minimum so the layout still breathes on square screens.
+FVector4 UBorn2FlapUIRenderer::SafeAreaInsets()
+{
+    constexpr float Min = 16.f;
+    FVector4 Insets(Min, Min, Min, Min);
+    if (FSlateApplication::IsInitialized())
+    {
+        FDisplayMetrics Metrics;
+        FSlateApplication::Get().GetDisplayMetrics(Metrics);
+        Insets = Metrics.TitleSafePaddingSize;
+    }
+    Insets.X = FMath::Max(Insets.X, Min);
+    Insets.Y = FMath::Max(Insets.Y, Min);
+    Insets.Z = FMath::Max(Insets.Z, Min);
+    Insets.W = FMath::Max(Insets.W, Min);
+    return Insets;
+}
+
 // ---- file-local prop helpers ----------------------------------------------
 namespace {
 

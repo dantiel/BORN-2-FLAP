@@ -31,6 +31,7 @@ FString RadioPrefsPath()
 
 FValue S(const char* v) { FValue x; x.kind = FValue::Kind::String; x.str = v; return x; }
 FValue N(double v) { FValue x; x.kind = FValue::Kind::Number; x.num = v; return x; }
+FValue A(std::initializer_list<double> Vals) { FValue x; x.kind = FValue::Kind::Array; for (double v : Vals) { FValue e; e.kind = FValue::Kind::Number; e.num = v; x.arr.push_back(e); } return x; }
 FValue L(const char* Key) { return S(TCHAR_TO_UTF8(*Born2Flap::I18n::T(Key))); }
 
 FProps P(std::initializer_list<std::pair<const char*, FValue>> Items)
@@ -374,7 +375,11 @@ void ABorn2FlapRadioHUD::BuildPanel()
     if (!Renderer || !Station)
         return;
 
-    FNode Root = Nd("Overlay", P({ {"align", S("right")}, {"valign", S("bottom")} }),
+    // Bottom-right anchor: keep the radio face clear of the home-indicator safe
+    // area and the rounded corner. The root Overlay's margin insets its child.
+    const FVector4 Insets = UBorn2FlapUIRenderer::SafeAreaInsets();
+    FNode Root = Nd("Overlay", P({ {"align", S("right")}, {"valign", S("bottom")},
+        {"margin", A({0.0, 0.0, (double)Insets.Z, (double)Insets.W})} }),
     {
         Nd("Panel", P({ {"title", S(TCHAR_TO_UTF8(*Station->GetStationName()))}, {"tone", S("accent")}, {"spacing", N(4)} }),
         {
