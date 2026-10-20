@@ -28,6 +28,12 @@ struct FMenuSettings
     bool bFpvAirView = false;
     float FpvCameraAngleDeg = 0.f;
     bool bFreeLookInvert = false;
+    // Mobile twin-stick layout (iOS/Android). ThrottleStick / RollStick select
+    // which on-screen stick carries each channel (0 = left, 1 = right). Pitch is
+    // always on the non-throttle stick; yaw is always on the non-roll stick.
+    bool bMobileInvertPitch = false;
+    int32 MobileThrottleStick = 0;   // 0 left · 1 right (Mode-2 default)
+    int32 MobileRollStick = 1;       // 0 left · 1 right (Mode-2 default)
     FVector MouseGains = FVector(1.f, -1.f, 1.f);
     float ControlExpo = 0.65f;
     float SpeedModifier = 0.5f;

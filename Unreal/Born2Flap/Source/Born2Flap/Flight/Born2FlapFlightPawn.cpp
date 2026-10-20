@@ -1025,14 +1025,28 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
             const float LeftY  = FMath::Abs(LY) < Dead ? 0.f : LY;
             const float RightX = FMath::Abs(RX) < Dead ? 0.f : RX;
             const float RightY = FMath::Abs(RY) < Dead ? 0.f : RY;
-            const float TouchThrottle = FMath::Clamp(LeftY, 0.f, 1.f);
+            // SceneViewport negates Gamepad_RightY before it reaches PlayerInput,
+            // so a positive RightY means thumb down (LeftY stays thumb-up). Rebuild
+            // both sticks as "up-positive" Y so the chosen throttle/pitch sticks
+            // behave identically regardless of which physical stick they live on.
+            const float LeftUpY  = LeftY;
+            const float RightUpY = -RightY;
+
+            // Configurable twin-stick layout (throttle stick, roll stick). Pitch
+            // always lives on the non-throttle stick; yaw on the non-roll stick.
+            const bool bThrottleRight = (MobileThrottleStick == 1);
+            const bool bRollRight     = (MobileRollStick == 1);
+            const float ThrottleY = bThrottleRight ? RightUpY : LeftUpY;
+            const float PitchY    = bThrottleRight ? LeftUpY   : RightUpY;
+            const float RollX     = bRollRight     ? RightX    : LeftX;
+            const float YawX      = bRollRight     ? LeftX     : RightX;
+
+            const float TouchThrottle = FMath::Clamp(ThrottleY, 0.f, 1.f);
             Effort = TouchThrottle;
             WDown  = TouchThrottle > 0.05f;
-            Steer  = LeftX;
-            Roll   = RightX;
-            // SceneViewport negates Gamepad_RightY before it reaches PlayerInput,
-            // so a positive value here means thumb down. Invert for push-up = nose up.
-            Pitch  = -RightY;
+            Steer  = YawX;
+            Roll   = RollX;
+            Pitch  = PitchY * (bMobileInvertPitch ? -1.f : 1.f);
             // Hand-launch on throttle-up while grounded (there is no Space bar).
             if (TouchThrottle < 0.25f)
                 bTouchLaunchPrimed = true;
