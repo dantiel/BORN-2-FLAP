@@ -90,7 +90,18 @@ constexpr double AeroTwistVisualGain = 9.0;
 // Neon turtle flipper planform (Design 3), shared by the rest-mesh builder and
 // ApplyShape so the chord bounds never drift apart.
 constexpr double TurtleFlipperSpan      = 72.0;
-constexpr double TurtleFlipperRootChord = 24.0;
+constexpr double TurtleFlipperRootChord = 17.0;
+
+// Crescent sweep: the leading edge bulges slightly forward just outboard of the
+// root, then the fin sweeps back and the tip curls aft — a sickle-like turtle
+// fin that stays rounded. Returns the spanwise X offset added to every section
+// (LE and TE shift together so the chord stays normal to the span).
+double TurtleFlipperSweep(double S)
+{
+    const double Forward = 11.0 * S * (1.0 - S) * (1.0 - S);   // +X bulge near root
+    const double Aft     = 15.0 * S * S;                        // -X curl toward tip
+    return Forward - Aft;
+}
 }
 
 void UBorn2FlapWingMesh::InitializeWing(int32 Side, int32 Design)
@@ -172,7 +183,8 @@ void UBorn2FlapWingMesh::InitializeWing(int32 Side, int32 Design)
                     const double X = double(I) / NC;   // chord fraction (0 LE .. 1 TE)
                     const double S = double(J) / NS;   // span fraction (0 root .. 1 tip)
                     const double HC = HalfChord(S);
-                    RestVertices.Add(FVector((1.0 - 2.0*X)*HC, Side*(S*TurtleFlipperSpan), SurfZ(X, S, Sign)));
+                    const double Sweep = TurtleFlipperSweep(S);
+                    RestVertices.Add(FVector(Sweep + (1.0 - 2.0*X)*HC, Side*(S*TurtleFlipperSpan), SurfZ(X, S, Sign)));
                     UV.Add(FVector2D(X, S));           // U = chord, V = span
                     Colours.Add(Turquoise);
                     if (J < NS && I < NC)
@@ -240,8 +252,9 @@ void UBorn2FlapWingMesh::ApplyShape(const B2F_WingSection* Shape)
             Bend=SampleStationField(Shape,B2F_WING_STATIONS,Station,&B2F_WingSection::bend_m)*100*RootRamp*AeroBendVisualGain;
         }
         const double FlipperHalfChord=TurtleFlipperRootChord*FMath::Sqrt(FMath::Max(0.0,1.0-0.82*V*V));
-        const double Leading=WingDesign==3?FlipperHalfChord:(WingDesign==2?SampleMembrane(MembraneLE,13,V*100):17-14*V);
-        const double Trailing=WingDesign==3?-FlipperHalfChord:(WingDesign==2?SampleMembrane(MembraneTE,13,V*100):Leading-47.);
+        const double Sweep=TurtleFlipperSweep(V);
+        const double Leading=WingDesign==3?Sweep+FlipperHalfChord:(WingDesign==2?SampleMembrane(MembraneLE,13,V*100):17-14*V);
+        const double Trailing=WingDesign==3?Sweep-FlipperHalfChord:(WingDesign==2?SampleMembrane(MembraneTE,13,V*100):Leading-47.);
         const double Chord=Trailing-Leading;                                   // signed (LE forward +, TE aft -)
         const double ChordLen=-Chord;                                          // positive chord length
         const double U=FMath::Clamp(ChordLen>1.e-6?(Leading-R.X)/ChordLen:.5,0.,1.);

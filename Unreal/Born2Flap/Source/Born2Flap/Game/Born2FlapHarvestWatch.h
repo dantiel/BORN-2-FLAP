@@ -5,6 +5,8 @@
 #include "Born2FlapHarvestWatch.generated.h"
 class UInstancedStaticMeshComponent;
 class ACameraActor;
+class USkeletalMeshComponent;
+class UAnimSequence;
 
 UCLASS()
 class BORN2FLAP_API ABorn2FlapHarvestWatch : public AActor
@@ -21,12 +23,11 @@ private:
     void PoseBirds();
     void Validate();
     UInstancedStaticMeshComponent* Group(const TCHAR* Mesh,const TCHAR* Material,bool Collision=false);
-    UPROPERTY() TObjectPtr<UInstancedStaticMeshComponent> Bodies;
-    UPROPERTY() TObjectPtr<UInstancedStaticMeshComponent> Heads;
-    UPROPERTY() TObjectPtr<UInstancedStaticMeshComponent> Beaks;
-    UPROPERTY() TObjectPtr<UInstancedStaticMeshComponent> Wings;
-    UPROPERTY() TObjectPtr<UInstancedStaticMeshComponent> Tails;
-    UPROPERTY() TObjectPtr<UInstancedStaticMeshComponent> Legs;
+    UPROPERTY() TArray<TObjectPtr<USkeletalMeshComponent>> CrowMeshes;
+    UPROPERTY() TObjectPtr<UAnimSequence> CrowEat;
+    UPROPERTY() TObjectPtr<UAnimSequence> CrowLook;
+    UPROPERTY() TObjectPtr<UAnimSequence> CrowFly;
+    UPROPERTY() TObjectPtr<UAnimSequence> CrowGlide;
     UPROPERTY() TObjectPtr<ACameraActor> CaptureCamera;
     HarvestWatch::FRound Round;
     float AnimationTime=0,Accumulator=0,CaptureTime=0;

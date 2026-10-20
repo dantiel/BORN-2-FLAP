@@ -274,6 +274,20 @@ def build_materials(wing_tex, body_tex):
     output(sopacity, 'OPACITY')
     save(speck)
 
+    # ---- M_SandGrain — opaque LIT sand grain (kicked-up sand: landing,
+    # wing-touch, gust-blown beach sand). Lit so grains catch light and read as
+    # solid 3D specks, not flat translucent circles. ----
+    sand = newmat('M_SandGrain')
+    sand.set_editor_property('blend_mode', u.BlendMode.BLEND_OPAQUE)
+    sand.set_editor_property('two_sided', False)
+    sand.set_editor_property('shading_model', u.MaterialShadingModel.MSM_DEFAULT_LIT)
+    sandcolor = node(sand, 'VectorParameter', parameter_name='Color',
+                     default_value=u.LinearColor(0.76, 0.64, 0.46, 1.0))
+    sandrough = node(sand, 'ScalarParameter', parameter_name='Roughness', default_value=0.9)
+    output(sandcolor, 'BASE_COLOR')
+    output(sandrough, 'ROUGHNESS')
+    save(sand)
+
     # ---- M_InsectWing — veined membrane + fresnel/time iridescence. ----
     wing = newmat('M_InsectWing')
     wing.set_editor_property('blend_mode', u.BlendMode.BLEND_TRANSLUCENT)

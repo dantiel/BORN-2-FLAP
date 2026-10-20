@@ -11,6 +11,7 @@
         %VBox{ visible: #{page == 1}, spacing: 14 }
           %Select{ label: "#{t('menu.weather')}", value: #{weather_index}, options: #{weathers}, action: "weather.#{world_id}" }
           %Select{ label: "#{t('menu.time_of_day')}", value: #{time_index}, options: #{times}, action: "daytime.#{world_id}" }
+          %Select{ label: "#{t('menu.season')}", value: #{season_index}, options: #{seasons}, action: "season.#{world_id}" }
           %Section{ title: "#{t('menu.wind')}", open: true }
             %Field{ label: "#{t('menu.direction')}" }
               %Slider{ value: #{wind_dir}, min: -180, max: 180, step: 5, unit: "°", action: "wind.dir", hint: #{wind_dir_hint.inspect} }

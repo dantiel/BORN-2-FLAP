@@ -3,6 +3,7 @@
 #include "GameFramework/Actor.h"
 #include "Born2FlapSurf.generated.h"
 class UProceduralMeshComponent;
+class UNiagaraComponent;
 
 namespace Born2FlapSurf
 {
@@ -36,6 +37,8 @@ public:
     bool ValidateGeometry() const;
 private:
     UPROPERTY() TObjectPtr<UProceduralMeshComponent> Mesh;
+    // Surf spray: a camera-local Niagara burst riding the breaking crest.
+    UPROPERTY() TObjectPtr<UNiagaraComponent> SprayFX;
     TArray<FVector> Vertices,Normals;
     TArray<int32> Triangles;
     TArray<FVector2D> UV;

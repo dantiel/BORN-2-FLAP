@@ -171,12 +171,15 @@ void ABorn2FlapGameMode::InitGame(const FString &MapName, const FString &Options
     Conditions=FApp::IsUnattended() ? Born2FlapWeather::Defaults(GetLevelId()) : Born2FlapWeather::Load(GetLevelId());
     FString Weather=UGameplayStatics::ParseOption(Options,TEXT("Weather"));
     FString DayTime=UGameplayStatics::ParseOption(Options,TEXT("DayTime"));
+    FString Season=UGameplayStatics::ParseOption(Options,TEXT("Season"));
     InitialPoiKey=bHarvestWatch?TEXT("Harvest Watch - field launch"):UGameplayStatics::ParseOption(Options,TEXT("PoiKey"));
     InitialPoiNumber=FCString::Atoi(*UGameplayStatics::ParseOption(Options,TEXT("PoiNum")));
     if(Weather.IsEmpty()) FParse::Value(FCommandLine::Get(),TEXT("B2FWeather="),Weather);
     if(DayTime.IsEmpty()) FParse::Value(FCommandLine::Get(),TEXT("B2FDayTime="),DayTime);
+    if(Season.IsEmpty()) FParse::Value(FCommandLine::Get(),TEXT("B2FSeason="),Season);
     if(!Weather.IsEmpty()) Conditions.Weather=Weather.ToLower();
     if(!DayTime.IsEmpty()) Conditions.Time=DayTime.ToLower();
+    if(!Season.IsEmpty()) Conditions.Season=Season.ToLower();
     // Wind overrides (set by the menu's wind sliders). Empty = "auto" (the
     // weather/time profile defaults); Load() above already seeded the persisted
     // values, so these URL options only layer explicit overrides on top.
@@ -1181,6 +1184,25 @@ void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, c
         return;
     }
 
+    // Menu season select (per world). One visible knob; the whole hidden stage
+    // art (sun path, light spectrum, fog, insects, foliage, radio) follows.
+    if (Action.StartsWith(TEXT("season.")))
+    {
+        const FString Level = Action.Mid(7);
+        if (FBorn2FlapConditions* C = MenuLevelConditions.Find(Level))
+        {
+            const auto Options = Born2FlapWeather::SeasonOptions(Level);
+            const int32 Index = FMath::RoundToInt(Value);
+            if (Options.IsValidIndex(Index))
+            {
+                C->Season = Options[Index];
+                *C = Born2FlapWeather::Validate(Level, *C);
+                Born2FlapWeather::Save(Level, *C);
+            }
+        }
+        return;
+    }
+
     // Wind overrides (per selected world). The sliders write an explicit value
     // on top of the weather/time profile; a reset returns every field to -1
     // ("auto", follow the profile default). Saved + carried into level travel.
@@ -1737,13 +1759,17 @@ FString ABorn2FlapGameMode::BuildBrainTelemetry() const
         WObj->SetStringField(TEXT("story"), W.Story);
         WObj->SetStringField(TEXT("weather"), C.Weather);
         WObj->SetStringField(TEXT("time"), C.Time);
-        TArray<TSharedPtr<FJsonValue>> WeatherOpts, TimeOpts;
+        WObj->SetStringField(TEXT("season"), C.Season);
+        TArray<TSharedPtr<FJsonValue>> WeatherOpts, TimeOpts, SeasonOpts;
         for (const FString& S : Born2FlapWeather::WeatherOptions(W.Id))
             WeatherOpts.Add(MakeShareable(new FJsonValueString(S)));
         for (const FString& S : Born2FlapWeather::TimeOptions(W.Id, C.Weather))
             TimeOpts.Add(MakeShareable(new FJsonValueString(S)));
+        for (const FString& S : Born2FlapWeather::SeasonOptions(W.Id))
+            SeasonOpts.Add(MakeShareable(new FJsonValueString(S)));
         WObj->SetArrayField(TEXT("weathers"), WeatherOpts);
         WObj->SetArrayField(TEXT("times"), TimeOpts);
+        WObj->SetArrayField(TEXT("seasons"), SeasonOpts);
 
         // Wind config: effective values for the menu sliders (an explicit
         // override when >= 0, otherwise the weather/time profile "auto" default)

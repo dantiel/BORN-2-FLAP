@@ -18,6 +18,7 @@ module Born2Flap
           world = worlds[index] || worlds.first || {}
           weathers = world[:weathers] || ["clear"]
           times = world[:times] || ["day"]
+          seasons = world[:seasons] || ["spring"]
           world_id = (world[:id] || "world").to_s
           wind_dir = (world[:wind_dir] || 0).to_f
           wind_speed = (world[:wind_speed] || 1).to_f
@@ -41,6 +42,8 @@ module Born2Flap
             weathers: weathers,
             time_index: times.index(world[:time]) || 0,
             times: times,
+            season_index: seasons.index(world[:season]) || 0,
+            seasons: seasons,
             # Wind config (per-world). The C++ host publishes the *effective*
             # value (explicit override when >= 0, else the weather/time profile
             # default) plus a flag that reveals the reset button only once tuned.

@@ -15,9 +15,39 @@ struct FBorn2FlapDayTime
     float Elevation, Yaw, Lux, Exposure;
     bool Night=false;
 };
+// A season is a single "stage-art" cue, not a simulation parameter. Choosing one
+// hermetically re-derives the whole living world — sun path, light spectrum,
+// fog, insect community, foliage and (in future) the radio playlist — from a
+// handful of hidden numbers below. Players never see these fields; they only
+// pick Spring/Summer/Autumn/Winter and the scene composes itself.
+struct FBorn2FlapSeason
+{
+    FString Id, Label;
+    // Sky & light — how the season bends the sun path and its spectrum.
+    float SunAzimuth = 0.f;      // +deg yaw bias (shifts the sun's daily arc)
+    float SunElevation = 0.f;    // +deg elevation bias (low winter, high summer sun)
+    float SunLux = 1.f;          // lux multiplier (weaker winter light)
+    FLinearColor LightTint{1.f,1.f,1.f}; // spectral tint layered over the sun colour
+    float SkyIntensity = 1.f;    // skylight multiplier
+    float FogBias = 0.f;         // added fog density (autumn haze, crisp winter air)
+    float ExposureBias = 0.f;    // added exposure stops
+    // Living world abundance.
+    float InsectFactor = 1.f;    // overall insect population scale
+    float LeafFactor = 1.f;      // airborne foliage density
+    float LeafShed = 1.f;        // how readily canopies shed (autumn leaf-storm)
+    FLinearColor LeafTint{1.f,1.f,1.f}; // foliage colour cue (hermetic, documented)
+    // Weather affinity — the season's most natural weather, plus snowfall bias.
+    FString NativeWeather;       // the weather this season drifts toward
+    float SnowBias = 0.f;        // deepens winter snow, warms summer rain
+    // (future) radio cue — seasonal soundtrack playlist hint.
+    FString RadioCue;
+};
 struct FBorn2FlapConditions
 {
     FString Weather, Time;
+    // Season — "" until validated, then a concrete season id. A single visible
+    // knob that cascades into the whole hidden stage art (see FBorn2FlapSeason).
+    FString Season;
     // Wind overrides (per-level, persisted). Negative = "auto": follow the
     // weather/time profile defaults. Explicit non-negative values are the
     // player's further tuning on top of those defaults.
@@ -36,12 +66,16 @@ namespace Born2FlapWeather
 {
     const TArray<FBorn2FlapWeather>& Profiles();
     const TArray<FBorn2FlapDayTime>& DayTimes();
+    const TArray<FBorn2FlapSeason>& Seasons();
     TArray<FString> WeatherOptions(const FString& Level);
     TArray<FString> TimeOptions(const FString& Level, const FString& Weather=FString());
+    TArray<FString> SeasonOptions(const FString& Level);
+    FString DefaultSeason(const FString& Level);
     FBorn2FlapConditions Defaults(const FString& Level);
     FBorn2FlapConditions Validate(const FString& Level, const FBorn2FlapConditions& Conditions);
     const FBorn2FlapWeather& Profile(const FString& Id);
     const FBorn2FlapDayTime& DayTime(const FString& Id);
+    const FBorn2FlapSeason& Season(const FString& Id);
     FBorn2FlapConditions Load(const FString& Level);
     void Save(const FString& Level, const FBorn2FlapConditions& Conditions);
     FString TravelOptions(const FString& Level, const FBorn2FlapConditions& Conditions);

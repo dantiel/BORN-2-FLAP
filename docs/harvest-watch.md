@@ -28,12 +28,35 @@ per plot, and warns when a decoy is teasing the pilot. ENTER after a result rest
 resets do not erase crop damage. Menus/settings/POI overlays pause the activity.
 F7 hides the activity HUD with other flight UI.
 
-The first-pass raven visuals use instanced body/head/beak/tail/leg shapes and
-articulated feather fans: folded wings while feeding/perching, wingbeats while
-escaping/returning, banked turns, pecking, head-cocking and watching the falcon. These are lightweight procedural
-stand-ins, not scanned or skeletal bird assets. The new materials are under
-`/Game/Shiomori/HarvestWatch`, built by `Tools/create_harvest_watch_assets.py`.
+The birds use **Crow by Alexei Ostapenko (alexanders823)** from
+[Sketchfab](https://sketchfab.com/3d-models/crow-d5a9b0df4da3493688b63ce42c8a83e2),
+licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+The original FBX includes eating, looking around, takeoff and short flight
+clips. The game uses skeletal birds with the supplied colour, normal and
+roughness textures. Flight clips have their erroneous 0.01 root scale removed;
+feeding and alert poses retain folded wings. The flock simulation still drives
+hopping, escape, patrol memory and decoy passes. Animation time follows the
+activity pause rules, and individual phases keep birds out of sync.
+
+Assets live under `/Game/Shiomori/HarvestWatch/Crow`. To reproduce the import,
+extract the original user-downloaded `crow.zip` into `.setup/crow` (containing
+`source/Crow.fbx` and `textures/`), close the editor, then run
+`Tools/import_harvest_crow.py` with Unreal's Python commandlet. Original files
+remain in the local import directory; generated Unreal assets are included in
+the project. Attribution and modifications are recorded in
+`Unreal/Born2Flap/ThirdPartyNotices.txt`, already staged with packaged builds.
+
 The field crops themselves are the existing generated satsumaimo plants.
+
+Crow integration validation (2026-10-19): Development Editor build and
+`HarvestWatchTest` passed, including skeletal wing movement at natural scale,
+feeding head motion, all flock behaviour checks and field collision. Ground
+and flight screenshots were inspected. The capture completed, but its broad
+render-error gate reported an unrelated SM6 compile error in
+`/Game/Weather/M_BreakingSurf` (alpha swizzle out of bounds); no crow material
+errors were reported. Evidence is in `.setup/crow-build.log`,
+`.setup/crow-behaviour-validation.log`, `.setup/crow-render-validation.log`,
+`.setup/crow-ground.png` and `.setup/crow-flight.png`.
 
 Implementation: `Game/HarvestWatchSimulation.h` and
 `Game/Born2FlapHarvestWatch.cpp`. Both native and Ruby menu paths offer the

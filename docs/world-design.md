@@ -36,6 +36,23 @@ the lesson *and* the mood of an existing world, it is a reskin, not a world.
 
 ---
 
+## The stage-art principle
+
+A world's *physics* and its *atmosphere* are governed differently:
+
+- **Simulation** — wind, weather profile, model tuning — is flight input. The
+  pilot may tune it, in detail, because it is what the bird *feels*.
+- **Stage art** — sun position and spectrum, fog, insect abundance and species
+  mix, leaf density, seasonal radio — is the theatre around the physics. It is
+  **never** exposed as individual knobs. It lives behind a single **season**
+  cue that hermetically derives every hidden number.
+
+The rule: *if it belongs to the physics, expose it; if it belongs to the
+scenery, hide it behind the season.* Abundance comes from the derivation, not
+from the configuration surface. See `seasons.md` for the full model.
+
+---
+
 ## Existing worlds
 
 ### 1. Ravenstonefield — "the first breath"
@@ -71,7 +88,9 @@ launch. See `ravenstonefield.md`.
   course.
 - **The distant panel-housing district.** Four apartment slabs exist behind the
   forest; they are a backdrop, not a place. Populate them or connect them.
-- **Seasonal/time-of-day arc.** Dawn→dusk or summer→autumn as an optional mood.
+- **Seasonal/time-of-day arc.** *Done.* Each world now carries a four-season
+  cycle (autumn by default here); see `seasons.md`. Remaining mood work is the
+  seasonal radio soundtrack and soundscape.
 
 ### 2. Shiomori Bay — "civilization meets the sacred"
 

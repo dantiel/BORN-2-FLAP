@@ -4,6 +4,10 @@
 #include "Components/InstancedStaticMeshComponent.h"
 #include "Components/TextRenderComponent.h"
 #include "Engine/StaticMesh.h"
+#include "Engine/SkeletalMesh.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Animation/AnimSequence.h"
+#include "Animation/AnimSingleNodeInstance.h"
 #include "Materials/MaterialInterface.h"
 #include "Kismet/GameplayStatics.h"
 #include "GameFramework/PlayerController.h"
@@ -31,17 +35,22 @@ UInstancedStaticMeshComponent* ABorn2FlapHarvestWatch::Group(const TCHAR* Mesh,c
 void ABorn2FlapHarvestWatch::BeginPlay()
 {
     Super::BeginPlay();Round.Reset();BuildScarecrows();
-    Bodies=Group(TEXT("/Engine/BasicShapes/Sphere"),TEXT("/Game/Shiomori/HarvestWatch/M_Raven"));
-    Heads=Group(TEXT("/Engine/BasicShapes/Sphere"),TEXT("/Game/Shiomori/HarvestWatch/M_Raven"));
-    Wings=Group(TEXT("/Engine/BasicShapes/Sphere"),TEXT("/Game/Shiomori/HarvestWatch/M_Feather"));
-    Tails=Group(TEXT("/Engine/BasicShapes/Sphere"),TEXT("/Game/Shiomori/HarvestWatch/M_Feather"));
-    Beaks=Group(TEXT("/Engine/BasicShapes/Cone"),TEXT("/Game/Shiomori/HarvestWatch/M_Beak"));
-    Legs=Group(TEXT("/Engine/BasicShapes/Cylinder"),TEXT("/Game/Shiomori/HarvestWatch/M_Beak"));
-    for(int I=0;I<18;++I)
+    auto* Mesh=LoadObject<USkeletalMesh>(nullptr,TEXT("/Game/Shiomori/HarvestWatch/Crow/SK_Crow"));
+    CrowEat=LoadObject<UAnimSequence>(nullptr,TEXT("/Game/Shiomori/HarvestWatch/Crow/A_Crow_root_Eat"));
+    CrowLook=LoadObject<UAnimSequence>(nullptr,TEXT("/Game/Shiomori/HarvestWatch/Crow/A_Crow_root_LookAround"));
+    CrowFly=LoadObject<UAnimSequence>(nullptr,TEXT("/Game/Shiomori/HarvestWatch/Crow/A_Fly"));
+    CrowGlide=LoadObject<UAnimSequence>(nullptr,TEXT("/Game/Shiomori/HarvestWatch/Crow/A_Glide"));
+    for(int I=0;I<Round.Birds.Num();++I)
     {
-        for(auto* C:{Bodies.Get(),Heads.Get(),Beaks.Get(),Tails.Get()})C->AddInstance(FTransform::Identity);
-        for(int J=0;J<12;++J)Wings->AddInstance(FTransform::Identity);
-        for(int J=0;J<4;++J)Legs->AddInstance(FTransform::Identity);
+        auto* C=NewObject<USkeletalMeshComponent>(this);
+        C->SetupAttachment(RootComponent);C->SetSkeletalMeshAsset(Mesh);
+        C->SetMaterial(0,LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Shiomori/HarvestWatch/Crow/M_Crow")));
+        C->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+        C->SetMobility(EComponentMobility::Movable);C->RegisterComponent();
+        C->VisibilityBasedAnimTickOption=EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
+        // Actor-owned time keeps every bone frozen with the activity's pause rules.
+        C->SetComponentTickEnabled(false);
+        CrowMeshes.Add(C);
     }
     PoseBirds();
     UE_LOG(LogTemp,Display,TEXT("HarvestWatch READY ravens=18 plots=3 scarecrows=3"));
@@ -78,45 +87,32 @@ void ABorn2FlapHarvestWatch::BuildScarecrows()
 }
 void ABorn2FlapHarvestWatch::PoseBirds()
 {
-    auto Put=[](UInstancedStaticMeshComponent* C,int I,const FVector& P,const FQuat& Q,const FVector& Size)
-    {C->UpdateInstanceTransform(I,FTransform(Q,P,Size/100),true,false,true);};
-    for(int I=0;I<Round.Birds.Num();++I)
+    for(int I=0;I<Round.Birds.Num() && I<CrowMeshes.Num();++I)
     {
         const auto& B=Round.Birds[I];const bool Air=Airborne(B.State);
-        const float Phase=AnimationTime*(Air?24:3.8)+B.Phase;
-        const float Peck=B.State==EState::Feeding?FMath::Max(0.f,FMath::Sin(Phase))*23:0;
-        const FQuat Q=FRotator(Air?FMath::Clamp(B.Velocity.Z*.012,-15.,15.):-14, B.Yaw,B.Bank).Quaternion();
-        const float Bob=Air?FMath::Sin(Phase)*2:FMath::Sin(Phase*.7)*2.5;
-        auto P=[&](FVector V){return B.Position+FVector(0,0,Bob)+Q.RotateVector(V);};
-        Put(Bodies,I,P({0,0,7}),Q,{47,24,29});
-        const FQuat Head=Q*FRotator(Peck*.3,B.HeadYaw,Air?0:FMath::Sin(Phase*.5)*12).Quaternion();
-        const FVector HeadPosition=P({22,0,20-Peck});
-        Put(Heads,I,HeadPosition,Head,{23,20,23});
-        Put(Beaks,I,HeadPosition+Head.RotateVector(FVector(15,0,-2)),Head*FRotator(-90+Peck,0,0).Quaternion(),{9,9,22});
-        Put(Tails,I,P({-29,0,6}),Q*FRotator(-12,0,0).Quaternion(),{32,24,4});
-        for(int Side:{-1,1})
-        {
-            const int Offset=Side<0?0:6;
-            const float Flap=Air?FMath::Sin(Phase)*42:78;
-            const FQuat W=Q*FRotator(0,Air?Side*12:Side*65,Side*Flap).Quaternion();
-            for(int F=0;F<6;++F)
-            {
-                if(!Air)
-                {
-                    Put(Wings,I*12+Offset+F,P({-7.-F*2,Side*(10.+F*.8),9.-F*.7}),Q*FRotator(-10,Side*8,0).Quaternion(),{40.-F*2,8,4});
-                    continue;
-                }
-                const FVector Local(-F*4.,Side*(24.+F*4),0);
-                const FVector WingRoot=P({2,Side*10.,10});
-                Put(Wings,I*12+Offset+F,WingRoot+W.RotateVector(Local),W,{17.,49.-F*3,3.5});
-            }
-            const int L=I*4+(Side<0?0:2);
-            Put(Legs,L,P({0,Side*7.,Air?-1.:-12.}),Q,{2.2,2.2,Air?8.:18.});
-            Put(Legs,L+1,P({5,Side*7.,Air?-5.:-21.}),Q*FRotator(90,0,0).Quaternion(),{2.4,2.4,14});
-        }
+        auto* C=CrowMeshes[I].Get();
+        const bool Glide=B.State==EState::Circling && FMath::Sin(AnimationTime*.8+B.Phase)>.5;
+        UAnimSequence* Clip=Air?(Glide?CrowGlide.Get():CrowFly.Get()):
+            (B.State==EState::Feeding?CrowEat.Get():CrowLook.Get());
+        if(!Clip)continue;
+        if(!C->GetSingleNodeInstance() || C->GetSingleNodeInstance()->GetCurrentAsset()!=Clip)
+        {C->PlayAnimation(Clip,true);C->GetSingleNodeInstance()->SetPlaying(false);}
+        // Only the first 0.8 s of LookAround is an upright alert pose. Later
+        // frames in the source take bend down to feed, unsuitable for a perch.
+        const float Length=(!Air && B.State!=EState::Feeding)?.8f:Clip->GetPlayLength();
+        const float Rate=Air?1.65f+B.Boldness*.3f:.8f+B.Boldness*.25f;
+        float Time=FMath::Fmod(AnimationTime*Rate+B.Phase,Length);
+        if(!Air && B.State!=EState::Feeding)
+            Time=(.5f+.5f*FMath::Sin(AnimationTime*.9f+B.Phase))*Length;
+        C->SetPosition(Time,false);
+        // Source bird faces +Y; simulation forward is +X. Position is a feet
+        // anchor on the ground; airborne poses tuck their feet naturally.
+        const FQuat Flight=FRotator(Air?FMath::Clamp(B.Velocity.Z*.012,-15.,15.):0,B.Yaw,B.Bank).Quaternion();
+        C->SetWorldTransform(FTransform(Flight*FRotator(0,-90,0).Quaternion(),B.Position,FVector(1.0)));
+        C->RefreshBoneTransforms();
     }
-    for(auto* C:{Bodies.Get(),Heads.Get(),Beaks.Get(),Tails.Get(),Wings.Get(),Legs.Get()})C->MarkRenderStateDirty();
 }
+
 FString ABorn2FlapHarvestWatch::Status() const
 {
     if(Round.Finished)return FString::Printf(TEXT("HARVEST WATCH | %s | %.0f / 1000 points | ENTER: retry"),Round.Score>0?TEXT("HARVEST SAVED"):TEXT("CROP LOST"),Round.Score);
@@ -174,13 +170,18 @@ void ABorn2FlapHarvestWatch::Tick(float Dt)
 }
 void ABorn2FlapHarvestWatch::Validate()
 {
-    bool Pass=Bodies->GetStaticMesh()!=nullptr && Bodies->GetMaterial(0)!=nullptr;
+    bool Pass=CrowMeshes.Num()==18 && CrowEat && CrowLook && CrowFly && CrowGlide;
+    for(const auto& C:CrowMeshes)Pass &= C && C->GetSkeletalMeshAsset() && C->GetMaterial(0);
     const auto* GM=Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode());
     const auto* Player=Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this,0));
     Pass &= GM && GM->IsHarvestWatch() && Player && Player->GetBirdModel()==2;
     Pass &= Player && FVector::Dist2D(Player->GetActorLocation(),FVector(0,-19400,480))<500;
     auto Check=[&](bool OK,const TCHAR* Name)
     {Pass &= OK;UE_LOG(LogTemp,Display,TEXT("HarvestBehaviour %s: %s"),OK?TEXT("PASS"):TEXT("FAIL"),Name);};
+    Check(CrowMeshes.Num()==18 && CrowEat && CrowLook && CrowFly && CrowGlide,TEXT("crow assets loaded"));
+    for(const auto& C:CrowMeshes)Check(C && C->GetSkeletalMeshAsset() && C->GetMaterial(0),TEXT("crow mesh and material"));
+    Check(GM && GM->IsHarvestWatch() && Player && Player->GetBirdModel()==2,TEXT("activity and falcon selected"));
+    Check(Player && FVector::Dist2D(Player->GetActorLocation(),FVector(0,-19400,480))<500,TEXT("field launch location"));
     const FVector Far(100000,100000,100000);
     FRound Test;Test.Reset();const auto Initial=Test.Birds;
     for(int I=0;I<200;++I)Test.Step(.05f,Far,false);
@@ -222,12 +223,29 @@ void ABorn2FlapHarvestWatch::Validate()
     // Verify the component transform itself follows the simulated bird. This
     // catches renderer/instance-update regressions that logic-only tests miss.
     const auto SavedRound=Round;Round=Test;PoseBirds();FTransform Before,After;
-    Bodies->GetInstanceTransform(1,Before,true);
+    Before=CrowMeshes[1]->GetComponentTransform();
     for(int I=0;I<120;++I)Round.Step(.05f,Far,false);
-    PoseBirds();Bodies->GetInstanceTransform(1,After,true);
-    Check(FVector::Dist(Before.GetLocation(),After.GetLocation())>50,TEXT("rendered bird instance moves"));
+    PoseBirds();After=CrowMeshes[1]->GetComponentTransform();
+    Check(FVector::Dist(Before.GetLocation(),After.GetLocation())>50,TEXT("rendered skeletal crow moves"));
+    // Test actual deformed bones, including the source's former 100x flight
+    // scale error. Moving the component alone would not detect frozen wings.
+    const float SavedTime=AnimationTime;
+    Round.Birds[1].State=EState::Fleeing;Round.Birds[1].Velocity=FVector(900,0,0);
+    AnimationTime=0;PoseBirds();
+    const FVector WingBefore=CrowMeshes[1]->GetBoneLocation(TEXT("crow_-l-hand"));
+    AnimationTime=.2f;PoseBirds();
+    const FVector WingAfter=CrowMeshes[1]->GetBoneLocation(TEXT("crow_-l-hand"));
+    const double Span=FVector::Dist(WingAfter,CrowMeshes[1]->GetBoneLocation(TEXT("crow_-r-hand")));
+    Check(FVector::Dist(WingBefore,WingAfter)>3 && Span>15 && Span<100,
+        TEXT("flight bones flap at natural scale"));
+    Round.Birds[1].State=EState::Feeding;AnimationTime=0;PoseBirds();
+    const FVector HeadBefore=CrowMeshes[1]->GetBoneLocation(TEXT("crow_-head"));
+    AnimationTime=2;PoseBirds();
+    Check(FVector::Dist(HeadBefore,CrowMeshes[1]->GetBoneLocation(TEXT("crow_-head")))>1,
+        TEXT("feeding animation moves the head"));
+    AnimationTime=SavedTime;
     Round=SavedRound;PoseBirds();
-    FHitResult Ground;Pass &= GetWorld()->LineTraceSingleByChannel(Ground,FVector(200,-16000,1000),FVector(200,-16000,0),ECC_Visibility);
+    FHitResult Ground;Check(GetWorld()->LineTraceSingleByChannel(Ground,FVector(200,-16000,1000),FVector(200,-16000,0),ECC_Visibility),TEXT("field ground collision"));
     UE_LOG(LogTemp,Display,TEXT("HarvestWatchTest %s: ambient movement, hops, lookout alarms, guarded plots, decoys, flight, scoring and rendered instances"),Pass?TEXT("PASS"):TEXT("FAIL"));
     FPlatformMisc::RequestExitWithStatus(false,Pass?0:1);
 }

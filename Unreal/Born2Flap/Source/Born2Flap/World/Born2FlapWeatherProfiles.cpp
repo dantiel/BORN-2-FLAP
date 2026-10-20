@@ -1,4 +1,4 @@
-#include "World/Born2FlapWeather.h"
+﻿#include "World/Born2FlapWeather.h"
 #include "World/Born2FlapWind.h"
 #include "World/Born2FlapBayTerrain.h"
 #include "World/Born2FlapValley.h"
@@ -29,6 +29,24 @@ const TArray<FBorn2FlapDayTime>& DayTimes()
     };
     return Values;
 }
+const TArray<FBorn2FlapSeason>& Seasons()
+{
+    // One row per season. These are the hidden "stage-art" numbers: the player
+    // only ever picks the season id; everything below is hermetically derived.
+    //   SunAzimuth/Elevation bend the sun path, SunLux + LightTint bend its
+    //   spectrum (cool winter, warm summer), FogBias/ExposureBias shift the air.
+    //   InsectFactor/LeafFactor/LeafShed reshape the living world. NativeWeather
+    //   names the weather the season drifts toward; SnowBias deepens winter snow.
+    //   RadioCue is the (future) seasonal soundtrack playlist hint.
+    static const TArray<FBorn2FlapSeason> Values={
+        // Id, Label,  SunAz, SunElev, SunLux, LightTint,             SkyInt, FogBias, ExpBias, InsectF, LeafF, LeafShed, LeafTint,                NativeWeather, SnowBias, RadioCue
+        { TEXT("spring"), TEXT("Spring"), -12.f,  4.f, 1.05f, FLinearColor(1.00f,.97f,.88f), 1.10f, -.002f,  .15f, 1.35f,  .85f,  .55f, FLinearColor(.55f,.85f,.32f), TEXT("mist"),   0.00f, TEXT("spring") },
+        { TEXT("summer"), TEXT("Summer"),   8.f, 12.f, 1.20f, FLinearColor(1.00f,.91f,.76f), 1.20f,  .000f,  .30f, 1.65f, 1.00f,  .40f, FLinearColor(.18f,.62f,.22f), TEXT("sunny"),  0.00f, TEXT("summer") },
+        { TEXT("autumn"), TEXT("Autumn"),  15.f, -8.f,  .85f, FLinearColor(1.00f,.76f,.52f),  .95f,  .006f, -.10f,  .80f, 1.85f, 1.60f, FLinearColor(.78f,.45f,.15f), TEXT("mist"),   0.00f, TEXT("autumn") },
+        { TEXT("winter"), TEXT("Winter"), -20.f,-16.f,  .60f, FLinearColor(.72f,.83f,1.00f),  .80f,  .004f, -.25f,  .22f,  .18f,  .10f, FLinearColor(.62f,.60f,.58f), TEXT("snow"),   1.00f, TEXT("winter") },
+    };
+    return Values;
+}
 TArray<FString> WeatherOptions(const FString& Level)
 {
     if(Level==TEXT("Training")) return {TEXT("sunny"),TEXT("cloudy"),TEXT("rain")};
@@ -43,10 +61,27 @@ TArray<FString> TimeOptions(const FString& Level,const FString& Weather)
     if(Weather==TEXT("parhelion")) return {TEXT("dawn"),TEXT("morning"),TEXT("noon"),TEXT("sunset")};
     return {TEXT("dawn"),TEXT("morning"),TEXT("noon"),TEXT("sunset"),TEXT("night")};
 }
+// Seasons are "stage art": the neutral Training gymnasium is hermetically fixed
+// to a single season (it has no weather to speak of), while the two open worlds
+// offer the full four-season cycle.
+TArray<FString> SeasonOptions(const FString& Level)
+{
+    if(Level==TEXT("Training")) return {TEXT("spring")};
+    return {TEXT("spring"),TEXT("summer"),TEXT("autumn"),TEXT("winter")};
+}
+FString DefaultSeason(const FString& Level)
+{
+    if(Level==TEXT("Shiomori")) return TEXT("summer");
+    if(Level==TEXT("Training")) return TEXT("spring");
+    return TEXT("autumn"); // Ravenstonefield â€” its register is "quiet autumn nature"
+}
 FBorn2FlapConditions Defaults(const FString& Level)
 {
-    return {Level==TEXT("Shiomori") ? TEXT("parhelion") : TEXT("sunny"),
-            Level==TEXT("Training") ? TEXT("noon") : TEXT("morning")};
+    FBorn2FlapConditions C;
+    C.Weather = Level==TEXT("Shiomori") ? TEXT("parhelion") : TEXT("sunny");
+    C.Time = Level==TEXT("Training") ? TEXT("noon") : TEXT("morning");
+    C.Season = DefaultSeason(Level);
+    return C;
 }
 FBorn2FlapConditions Validate(const FString& Level,const FBorn2FlapConditions& C)
 {
@@ -55,6 +90,7 @@ FBorn2FlapConditions Validate(const FString& Level,const FBorn2FlapConditions& C
     FBorn2FlapConditions R=C;   // preserve the wind overrides
     R.Weather=Weather;
     R.Time=TimeOptions(Level,Weather).Contains(C.Time) ? C.Time : D.Time;
+    R.Season=SeasonOptions(Level).Contains(C.Season) ? C.Season : D.Season;
     // Clamp explicit wind overrides to sane ranges; keep negative as "auto".
     if(R.WindDir>=0.f)     R.WindDir=FMath::Fmod(R.WindDir+360.f,360.f);
     if(R.WindSpeed>=0.f)   R.WindSpeed=FMath::Clamp(R.WindSpeed,0.f,5.f);
@@ -73,12 +109,18 @@ const FBorn2FlapDayTime& DayTime(const FString& Id)
     for(const auto& P:DayTimes()) if(P.Id==Id) return P;
     return DayTimes()[1];
 }
+const FBorn2FlapSeason& Season(const FString& Id)
+{
+    for(const auto& P:Seasons()) if(P.Id==Id) return P;
+    return Seasons()[0];
+}
 FBorn2FlapConditions Load(const FString& Level)
 {
     auto C=Defaults(Level);
     const FString Section=TEXT("Born2Flap.Weather.")+Level;
     GConfig->GetString(*Section,TEXT("Weather"),C.Weather,GGameUserSettingsIni);
     GConfig->GetString(*Section,TEXT("Time"),C.Time,GGameUserSettingsIni);
+    GConfig->GetString(*Section,TEXT("Season"),C.Season,GGameUserSettingsIni);
     GConfig->GetFloat(*Section,TEXT("WindDir"),C.WindDir,GGameUserSettingsIni);
     GConfig->GetFloat(*Section,TEXT("WindSpeed"),C.WindSpeed,GGameUserSettingsIni);
     GConfig->GetFloat(*Section,TEXT("WindGust"),C.WindGust,GGameUserSettingsIni);
@@ -92,6 +134,7 @@ void Save(const FString& Level,const FBorn2FlapConditions& C)
     const FString Section=TEXT("Born2Flap.Weather.")+Level;
     GConfig->SetString(*Section,TEXT("Weather"),*Valid.Weather,GGameUserSettingsIni);
     GConfig->SetString(*Section,TEXT("Time"),*Valid.Time,GGameUserSettingsIni);
+    GConfig->SetString(*Section,TEXT("Season"),*Valid.Season,GGameUserSettingsIni);
     GConfig->SetFloat(*Section,TEXT("WindDir"),Valid.WindDir,GGameUserSettingsIni);
     GConfig->SetFloat(*Section,TEXT("WindSpeed"),Valid.WindSpeed,GGameUserSettingsIni);
     GConfig->SetFloat(*Section,TEXT("WindGust"),Valid.WindGust,GGameUserSettingsIni);
@@ -103,7 +146,7 @@ FString TravelOptions(const FString& Level,const FBorn2FlapConditions& C)
 {
     const auto Valid=Validate(Level,C);
     // Unreal options are delimited by '?', not web-style '&'.
-    FString Options=FString::Printf(TEXT("Level=%s?SkipMenu=1?Weather=%s?DayTime=%s"),*Level,*Valid.Weather,*Valid.Time);
+    FString Options=FString::Printf(TEXT("Level=%s?SkipMenu=1?Weather=%s?DayTime=%s?Season=%s"),*Level,*Valid.Weather,*Valid.Time,*Valid.Season);
     auto Add=[&](const TCHAR* Key,float Value){ if(Value>=0.f) Options+=FString::Printf(TEXT("?%s=%s"),Key,*FString::SanitizeFloat(Value)); };
     Add(TEXT("WindDir"),Valid.WindDir);
     Add(TEXT("WindSpeed"),Valid.WindSpeed);
@@ -114,7 +157,9 @@ FString TravelOptions(const FString& Level,const FBorn2FlapConditions& C)
 }
 float Exposure(const FBorn2FlapConditions& C)
 {
-    return DayTime(C.Time).Exposure + FMath::Log2(FMath::Max(.25f,Profile(C.Weather).Sunlight))*.5f;
+    // Season exposure bias rides the same EV curve as time-of-day and sunlight,
+    // so a low winter sun darkens the whole scene rather than just the disc.
+    return DayTime(C.Time).Exposure + FMath::Log2(FMath::Max(.25f,Profile(C.Weather).Sunlight))*.5f + Season(C.Season).ExposureBias;
 }
 float DefaultWindDirection(const FString& Level)
 {

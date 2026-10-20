@@ -28,9 +28,9 @@ auto ABorn2FlapInsectSwarm::Species(EInsectType Type) -> const FSpecies*
 {
     static const FSpecies Table[] = {
         // Name,        Color,                         BodyScale,              WingScale,              SwarmMin, SwarmMax, HeroScale, Speed, Agility, FlapRate, FlapAmp, Wings, Swarm, Heroes, Opaque, Buzzer, RainTol, NightAct, SunAct, WindTol
-        { TEXT("Butterfly"), FLinearColor(1.00f, 0.55f, 0.15f), FVector(1.0f, 1.0f, 1.4f), FVector(1.2f, 0.9f, 0.05f), 0.40f, 0.75f, 1.00f, 90.f,  2.0f, 6.f,  55.f, 4, 180, 8, false, false, 0.05f, 0.15f, 1.30f, 0.25f },
-        { TEXT("Dragonfly"), FLinearColor(0.15f, 0.85f, 0.80f), FVector(0.6f, 0.6f, 1.6f), FVector(1.0f, 0.35f, 0.04f), 0.50f, 0.85f, 1.40f, 220.f, 3.0f, 28.f, 30.f, 4, 150, 6, false, false, 0.10f, 0.25f, 1.20f, 1.00f },
-        { TEXT("LunarMoth"), FLinearColor(0.92f, 0.94f, 0.85f), FVector(1.3f, 1.3f, 1.0f), FVector(1.4f, 1.1f, 0.05f), 0.65f, 1.00f, 1.30f, 70.f,  1.2f, 4.f,  50.f, 2, 130, 5, false, false, 0.15f, 1.50f, 0.35f, 0.35f },
+        { TEXT("Butterfly"), FLinearColor(1.00f, 0.55f, 0.15f), FVector(1.0f, 1.0f, 1.4f), FVector(1.2f, 0.9f, 0.05f), 0.40f, 0.75f, 1.00f, 90.f,  2.0f, 6.f,  55.f, 4, 200, 14, false, false, 0.05f, 0.15f, 1.30f, 0.25f },
+        { TEXT("Dragonfly"), FLinearColor(0.15f, 0.85f, 0.80f), FVector(1.8f, 0.5f, 0.5f), FVector(1.0f, 0.35f, 0.04f), 0.50f, 0.85f, 1.40f, 220.f, 3.0f, 28.f, 30.f, 4, 180, 16, false, false, 0.10f, 0.25f, 1.20f, 1.00f },
+        { TEXT("LunarMoth"), FLinearColor(0.92f, 0.94f, 0.85f), FVector(1.3f, 1.3f, 1.0f), FVector(1.4f, 1.1f, 0.05f), 0.65f, 1.00f, 1.30f, 70.f,  1.2f, 4.f,  50.f, 2, 150, 12, false, false, 0.15f, 1.50f, 0.35f, 0.35f },
         { TEXT("Mantis"),    FLinearColor(0.35f, 0.70f, 0.25f), FVector(0.5f, 0.7f, 1.6f), FVector(1.3f, 0.4f, 0.04f), 0.55f, 0.95f, 1.60f, 60.f,  1.5f, 9.f,  35.f, 4, 120, 5, false, false, 0.25f, 0.40f, 1.00f, 0.50f },
         { TEXT("BummerBug"), FLinearColor(0.25f, 0.18f, 0.12f), FVector(1.6f, 1.6f, 1.2f), FVector(0.9f, 0.8f, 0.15f), 0.95f, 1.50f, 2.40f, 140.f, 1.0f, 40.f, 18.f, 2,  90, 4, true,  true,  0.70f, 0.80f, 0.90f, 1.10f },
     };
@@ -111,7 +111,28 @@ float ABorn2FlapInsectSwarm::WeatherActivity(EInsectType Type) const
     A *= FMath::Lerp(S->NightAct, S->SunAct, Bright);
     const float Windiness = FMath::Clamp((Weather.WindSpeed + Weather.Gust) / 5.0f, 0.0f, 1.0f);
     A *= FMath::Lerp(1.0f, S->WindTol, Windiness);
+    // Season shapes the community itself, then scales its overall abundance.
+    A *= SeasonActivity(Type) * Season.InsectFactor;
     return FMath::Clamp(A, 0.0f, 1.6f);
+}
+
+float ABorn2FlapInsectSwarm::SeasonActivity(EInsectType Type) const
+{
+    // Which season each species favours. Spring: butterflies explode and mantids
+    // stir. Summer: dragonflies and bummer bugs rule. Autumn: moths surge, the
+    // rest thin. Winter: a near-bare sky — only a few hardy moths persist.
+    const FString& Id = Season.Id;
+    const bool Spring = Id == TEXT("spring"), Summer = Id == TEXT("summer");
+    const bool Autumn = Id == TEXT("autumn"), Winter = Id == TEXT("winter");
+    switch (Type)
+    {
+    case EInsectType::Butterfly:  return Spring ? 1.6f : (Summer ? 1.4f : (Autumn ? .60f : .05f));
+    case EInsectType::Dragonfly:  return Summer ? 1.6f : (Spring ? .60f : (Autumn ? .90f : .00f));
+    case EInsectType::LunarMoth:  return Autumn ? 1.4f : (Summer ? 1.2f : (Spring ? .50f : .20f));
+    case EInsectType::Mantis:     return Summer ? 1.2f : (Autumn ? 1.0f : (Spring ? .40f : .00f));
+    case EInsectType::BummerBug:  return Summer ? 1.5f : (Autumn ? .90f : (Spring ? .60f : .05f));
+    default:                      return 1.0f;
+    }
 }
 
 UMaterialInstanceDynamic* ABorn2FlapInsectSwarm::Tint(UMaterialInterface* Base, const FLinearColor& Color, float Alpha)
@@ -199,10 +220,14 @@ void ABorn2FlapInsectSwarm::SpawnHero(FRandomStream& R, const FSpecies& S, EInse
         : TArray<float>{ 50.f, 130.f, 230.f, 310.f };
 
     UMaterialInterface* WingMat = S.bOpaqueWings ? BodyMaterial : WingMaterial;
-    for (float Yaw : Yaws)
+    for (int32 Wi = 0; Wi < Yaws.Num(); ++Wi)
     {
         FHeroWing W;
-        W.Yaw = Yaw;
+        W.Yaw = Yaws[Wi];
+        // Dragonflies beat forewings and hindwings out of phase (their typical
+        // flight): the hind pair (backward Yaw, indices 1 and 2) lags half a
+        // cycle behind the fore pair.
+        W.PhaseOffset = (Type == EInsectType::Dragonfly && (Wi == 1 || Wi == 2)) ? PI : 0.f;
         W.Scale = S.WingScale * H.Scale;
         W.Mesh = NewObject<UStaticMeshComponent>(this);
         W.Mesh->SetupAttachment(H.Root);
@@ -251,6 +276,7 @@ void ABorn2FlapInsectSwarm::BeginPlay()
     {
         const FBorn2FlapConditions& C = GM->GetConditions();
         Weather = Born2FlapWeather::Profile(C.Weather);
+        Season  = Born2FlapWeather::Season(C.Season);
         bIsNight = Born2FlapWeather::DayTime(C.Time).Night;
     }
     const float Windiness = FMath::Clamp((Weather.WindSpeed + Weather.Gust) / 5.0f, 0.0f, 1.0f);
@@ -378,9 +404,9 @@ void ABorn2FlapInsectSwarm::TickHeroes(float DeltaSeconds)
         const FSpecies* S = Species(H.Type);
 
         H.FlapPhase += DeltaSeconds * S->FlapRate * 2.0 * PI;
-        const float FlapAngle = FMath::Sin(H.FlapPhase) * S->FlapAmp;
         for (FHeroWing& W : H.Wings)
         {
+            const float FlapAngle = FMath::Sin(H.FlapPhase + W.PhaseOffset) * S->FlapAmp;
             const FQuat FlapQ(FVector(1, 0, 0), FMath::DegreesToRadians(FlapAngle));
             const FQuat YawQ(FVector(0, 0, 1), FMath::DegreesToRadians(W.Yaw));
             W.Mesh->SetRelativeTransform(FTransform(FlapQ * YawQ, FVector::ZeroVector, W.Scale));
