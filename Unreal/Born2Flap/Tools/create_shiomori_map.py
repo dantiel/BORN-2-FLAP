@@ -60,12 +60,12 @@ def custom(m, code, inputs, size=3):
 
 
 def load_texture(subdir, stem, name, normal=False, srgb=True):
-    src = ROOT / subdir / (stem + '.jpg')
-    if not src.exists():
-        raise RuntimeError('Missing source texture: ' + str(src))
     path = '/Game/Shiomori/Textures/' + name
     if ela.does_asset_exist(path):
         return u.load_asset(path)
+    src = ROOT / subdir / (stem + '.jpg')
+    if not src.exists():
+        raise RuntimeError('Missing imported asset %s and source texture %s; run git lfs pull.' % (path, src))
     ela.make_directory('/Game/Shiomori/Textures')
     task = u.AssetImportTask()
     task.filename = str(src)
@@ -94,11 +94,10 @@ def radio():
     for source_name, asset_name in [('Shiomori Bay I', 'SHIOMORI_BAY_I'),
                                     ('Shiomori Bay II', 'SHIOMORI_BAY_II')]:
         source = Path.home() / ('Downloads/' + source_name + '.mp3')
-        if not source.exists():
-            u.log_warning('Shiomori radio source missing: ' + str(source))
-            continue
         path = '/Game/Shiomori/Audio/' + asset_name
         if not ela.does_asset_exist(path):
+            if globals().get('B2F_GENERATION_BATCH') or not source.exists():
+                raise RuntimeError('Missing radio asset: %s; run git lfs pull.' % path)
             task = u.AssetImportTask()
             task.filename = str(source)
             task.destination_path = '/Game/Shiomori/Audio'
@@ -117,7 +116,8 @@ def radio():
         u.log('SHIOMORI_RADIO track=' + asset_name + ' duration=' + str(wave.duration))
         # Recover the song's embedded cover art (ID3 APIC) and import it next to
         # the track under the "<Track>_Cover" name the radio auto-detect finds.
-        mp3_cover.extract_mp3_cover(source, '/Game/Shiomori/Audio', asset_name + '_Cover')
+        if source.exists() and not globals().get('B2F_GENERATION_BATCH'):
+            mp3_cover.extract_mp3_cover(source, '/Game/Shiomori/Audio', asset_name + '_Cover')
 
 
 def sample_tex(m, tex, tiling=None, normal=False):
@@ -881,6 +881,8 @@ basalt_r = load_texture('aerial_rocks_02', 'Rough', 'T_Basalt_Rough', srgb=False
 
 def opt_texture(subdir, stem, name, normal=False, srgb=True):
     """Load an optional, user-supplied texture; returns None when absent."""
+    if ela.does_asset_exist('/Game/Shiomori/Textures/' + name):
+        return u.load_asset('/Game/Shiomori/Textures/' + name)
     if not (ROOT / subdir / (stem + '.jpg')).exists():
         return None
     return load_texture(subdir, stem, name, normal=normal, srgb=srgb)
@@ -1977,5 +1979,5 @@ radio()
 u.EditorAssetLibrary.make_directory('/Game/Shiomori/Maps')
 assert u.EditorLoadingAndSavingUtils.save_map(world, '/Game/Shiomori/Maps/SHIOMORI')
 u.log('SHIOMORI_MAP_READY actors=' + str(count))
-if '-ExecutePythonScript=' in u.SystemLibrary.get_command_line():
+if '-ExecutePythonScript=' in u.SystemLibrary.get_command_line() and not globals().get('B2F_GENERATION_BATCH'):
     u.SystemLibrary.execute_console_command(None,'quit')

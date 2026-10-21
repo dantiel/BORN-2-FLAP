@@ -62,6 +62,17 @@ Tools/effects_render
 Unreal/Born2Flap/Tools/out/
 Unreal/Born2Flap/Tools/_inspect_parhelion.py
 
+# Generated maps and procedural meshes (regenerate via Tools/generate_maps.py)
+/Unreal/Born2Flap/Content/Ravenstonefield/Maps/
+/Unreal/Born2Flap/Content/NeonAbyss/Maps/
+/Unreal/Born2Flap/Content/Shiomori/Maps/
+/Unreal/Born2Flap/Content/Shiomori/Meshes/SM_Campus_*.uasset
+/Unreal/Born2Flap/Content/Shiomori/Meshes/SM_ContinuousBeach.uasset
+/Unreal/Born2Flap/Content/Shiomori/Meshes/SM_Seabed.uasset
+/Unreal/Born2Flap/Content/Shiomori/Meshes/SM_OceanGrid.uasset
+/Unreal/Born2Flap/Content/Shiomori/Meshes/SM_Mountains*.uasset
+/Unreal/Born2Flap/Content/Shiomori/Meshes/SM_SweetPotato*.uasset
+
 # Scratch analysis scripts
 _analyze*.py
 _analyze_shot.py

@@ -343,5 +343,5 @@ u.EditorLevelLibrary.set_level_viewport_camera_info(
 u.EditorAssetLibrary.make_directory('/Game/NeonAbyss/Maps')
 assert u.EditorLoadingAndSavingUtils.save_map(world, '/Game/NeonAbyss/Maps/NEONABYSS')
 u.log('NEON_ABYSS_MAP_READY actors=' + str(count))
-if '-ExecutePythonScript=' in u.SystemLibrary.get_command_line():
+if '-ExecutePythonScript=' in u.SystemLibrary.get_command_line() and not globals().get('B2F_GENERATION_BATCH'):
     u.SystemLibrary.execute_console_command(None, 'quit')
