@@ -22,6 +22,11 @@ ABorn2FlapSurf::ABorn2FlapSurf()
     SprayFX->SetAutoActivate(false);
     SprayFX->SetCollisionEnabled(ECollisionEnabled::NoCollision);
     SprayFX->SetCastShadow(false);
+    MistFX=CreateDefaultSubobject<UNiagaraComponent>(TEXT("SurfMistFX"));
+    MistFX->SetupAttachment(RootComponent);
+    MistFX->SetAutoActivate(false);
+    MistFX->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    MistFX->SetCastShadow(false);
 }
 void ABorn2FlapSurf::BeginPlay()
 {
@@ -47,6 +52,16 @@ void ABorn2FlapSurf::BeginPlay()
     {
         SprayFX->SetVisibility(false);
     }
+    // Surf mist: NS_SurfMist is a slow, soft white haze that sits over the wash.
+    if (auto* Mist = LoadObject<UNiagaraSystem>(nullptr, TEXT("/Game/Weather/NS_SurfMist")))
+    {
+        MistFX->SetAsset(Mist);
+        MistFX->Activate(true);
+    }
+    else
+    {
+        MistFX->SetVisibility(false);
+    }
 }
 void ABorn2FlapSurf::Tick(float Dt)
 {
@@ -68,6 +83,12 @@ void ABorn2FlapSurf::Tick(float Dt)
         const double SprayY=Born2FlapSurf::Shore(CX)+250.;
         const double SprayZ=(Director ? Director->GetWaterHeightAt(CX,SprayY) : -50.)+20.;
         SprayFX->SetWorldLocation(FVector(CX,SprayY,SprayZ));
+    }
+    if (MistFX && MistFX->GetAsset() && MistFX->IsActive())
+    {
+        const double MistY=Born2FlapSurf::Shore(CX)+150.;
+        const double MistZ=(Director ? Director->GetWaterHeightAt(CX,MistY) : -50.)+40.;
+        MistFX->SetWorldLocation(FVector(CX,MistY,MistZ));
     }
     Vertices.Reset();Normals.Reset();UV.Reset();Colors.Reset();
     constexpr int NX=110, NY=24;

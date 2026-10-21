@@ -35,7 +35,7 @@ rollEnergy locked wing rotor v = 0.5 * dot v (massTimes locked wing rotor v)
 stepRoll :: Double -> Double -> Double -> Double -> Vec3 -> (Double,Double)
          -> (Vec3 -> Vec3) -> Maybe Vec3
 stepRoll dt locked wing rotor old (angleL,angleR) loads
-  | dt <= 0 || locked <= 2*wing || wing <= 0 || rotor <= 0 = Nothing
+  | dt <= 0 || locked <= 2*wing*wing/(wing+rotor) || wing <= 0 || rotor <= 0 = Nothing
   | otherwise = newton (0::Int) old (residual old) Nothing
   where
     joint = wing+rotor

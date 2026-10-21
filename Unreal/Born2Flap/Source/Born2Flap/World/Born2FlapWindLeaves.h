@@ -41,6 +41,7 @@ private:
         double Life;
         double LifeMax = 0.0;   // initial Life, for end-of-life fade-out
         bool bBurst = false;   // one-shot sand/dust mote (landing, wing-touch)
+        bool bCloud = false;   // soft dust puff (larger, lighter, lingers) vs fine grain
     };
     struct FBlade
     {
@@ -82,5 +83,5 @@ private:
     static constexpr int32 MinLeaves = 50;
     static constexpr int32 MaxLeaves = 520;
     static constexpr int32 MaxBlades = 320;
-    static constexpr int32 MaxDust = 240;
+    static constexpr int32 MaxDust = 400;
 };

@@ -375,6 +375,25 @@ int32 UBorn2FlapNiagaraBuilderCommandlet::Main(const FString& Params)
         BuildSystem(TEXT("/Game/Weather/NS_SurfSpray"), S);
     }
 
+    {
+        // Surf mist: a slow, soft white haze that settles over the white-water
+        // wash, so the foam reads as aerated spray rather than hard geometry.
+        // High drag + weak gravity keeps it hanging in the air like sea mist.
+        FBuildSpec S;
+        S.AssetName = TEXT("NS_SurfMist");
+        S.SpawnRate = 700.0f;
+        S.Velocity = FVector3f(0, 0, 90.0f);
+        S.bBox = false;
+        S.SphereRadius = 550.0f;
+        S.bGravity = true;
+        S.Gravity = FVector3f(0, 0, -120.0f);
+        S.bDrag = true;
+        S.Drag = 1.4f;
+        S.bCurlNoise = true;
+        S.NoiseStrength = 220.0f;
+        BuildSystem(TEXT("/Game/Weather/NS_SurfMist"), S);
+    }
+
     UE_LOG(LogTemp, Display, TEXT("[NiagaraBuilder] === DONE ==="));
     return 0;
 }

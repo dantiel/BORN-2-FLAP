@@ -121,7 +121,7 @@ flapDampingCd = 1.2
 -- there is no flapping, so BOTH wings keep the full Cd and roll authority stays
 -- symmetric. Only the flapping upstroke sheds damping.
 flapUpstrokeDampingFraction :: Double
-flapUpstrokeDampingFraction = 0.15
+flapUpstrokeDampingFraction = 0.35
 
 -- | Aeroelastic thrust boost (dimensionless). A cambered (membrane-cupped)
 -- section sheds a stronger backward jet than a flat plate: the deeper the cup
@@ -211,18 +211,13 @@ springLoadTau = 0.05
 springPressureDampingGain :: Double
 springPressureDampingGain = 2.0
 
--- | Emergent tip-jet thrust coefficient (dimensionless). A backward-swept wing
--- channels the oncoming chordwise flow spanwise toward the tip (crossflow), and
--- that accumulated flow leaves the wing as a forward jet — the emergent tip jet.
--- Its magnitude grows with the ONCOMING stream dynamic pressure (∝ airspeed²),
--- NOT with flap speed, so it stays non-zero at the stroke reversal where a pure
--- ∝ flapSpeed² momentum jet collapses to nothing. The jet is shed at the RAISED
--- wing (gated on stroke), so it supplies the thrust-line nose-down moment the
--- recovery stroke was missing. The lever arm is GEOMETRY-DERIVED, not a constant:
--- sweep sets the spanwise tip concentration, the raised dihedral sets the pitch
--- lever, and airspeed sets how far outboard the flow travels before it leaves.
-tipJetCoeff :: Double
-tipJetCoeff = 1.0
+-- There is deliberately NO hardcoded tip-jet coefficient. Spanwise outflow is
+-- EMERGENT (see 'spanDrag' reacting to 'spanVelocity'): a forward-swept wing
+-- sheds outward flow with no special case, and the tip vortex is the induced
+-- drag already charged on the bound circulation — not a separate jet. A
+-- ∝ airspeed² hardcoded tip jet was tried and REMOVED: it ran away at speed
+-- (overshoot, locked separation) and asserted a tip vortex that a forward-swept
+-- wing does not have.
 
 -- | Reference per-strip load normalising the pressure-damping term (0.49 N
 -- design weight across 16 strips).
@@ -565,10 +560,24 @@ stepStrip implicitLoads _phaseRate _flapping side stroke input incidenceRad wp i
       -- a zero denominator, so reversal loads stay continuous): the downstroke
       -- holds (1-compliance)·flowAngle ≈ stall onset and the upstroke sheds to
       -- twist.
+      -- Upstroke feathering cancels the geometric washout too: aligning only with
+      -- the local flow leaves the wing at its +washout incidence (positive lift on
+      -- the recovery stroke — "lift instead of thrust", which balances the nose-up
+      -- and lets the bird flap to 90° without pitching over). A real recovery
+      -- rotates the wing PAST zero to shed that incidence and present a slightly
+      -- NEGATIVE alpha, so the upstroke pushes a touch of air UP (downforce
+      -- reaction) and produces thrust, not lift. The downstroke keeps its
+      -- stall-onset compliance (0.85·flowAngle). The over-feather ramps in
+      -- smoothly across the reversal (smoothStep 0..0.5 sweepNormal) so the
+      -- implicit Newton residual stays continuous at worldStrokeRate = 0 — a hard
+      -- if would jump the feather angle ~+washout in one step and leave no root.
       feather =
         let inflow = atan2 sweepNormal (abs chordVelocity)
-            compliance = if sweepNormal > 0 then 1.0 else 0.85
-        in compliance * inflow
+            washout = twist + aeroTwist
+            overfeather = radians 3
+            upEnv = smoothStep 0 0.5 sweepNormal
+            compliance = lerp 0.85 1.0 upEnv
+        in compliance * inflow - upEnv * (washout + overfeather)
       -- A 2-servo ornithopter has one actuator per wing: the flap hinge. Pitch
       -- and roll reach the wing through the flap angle (stroke-centre shift and
       -- differential), never through a separate live incidence control; the
@@ -661,6 +670,13 @@ stepStrip implicitLoads _phaseRate _flapping side stroke input incidenceRad wp i
       -- pushes off the surface) and — uniquely — the normally-feathered
       -- upstroke recovers a fraction of that jet too, so the bird accelerates
       -- in the cushion where a gliding wing only gains lift.
+      -- Momentum jets (flap thrust and flap-push lift) are shed by an ATTACHED
+      -- wing: a stalled section (separation → 1) detaches its flow and collapses
+      -- the coherent jet. Scaling both by (1 − separation) makes the overshoot
+      -- self-limiting — a fully-separated wing cannot pump ∝ flapSpeed² thrust or
+      -- lift, so the runaway that pinned separation at 1 (the "locked" state)
+      -- cannot persist.
+      jetAttachment = clamp 0 1 (1 - forceSeparation)
       camberBoost = 1.0 + aeroCamberThrustGain * max 0 camberPrev
       -- Two momentum-jet components: the static jet (∝ flap speed²) that
       -- exists at hover, and the advance jet (∝ forward flow × flap speed)
@@ -670,30 +686,10 @@ stepStrip implicitLoads _phaseRate _flapping side stroke input incidenceRad wp i
       flapSpeed = abs (radius * worldStrokeRate)
       staticJet = 0.5 * airDensity * area * flapSpeed * flapSpeed * flapJetCoeff * camberBoost
       advanceJet = 0.5 * airDensity * area * max 0 chordVelocity * flapSpeed * flapJetCoeff * camberBoost * flapAdvanceThrustGain
-      -- Emergent tip jet: backsweep drives the oncoming stream spanwise toward
-      -- the tip (crossflow ∝ chordwise flow × sin sweep), where it separates and
-      -- sheds a forward jet. Magnitude ∝ stream dynamic pressure (airspeed²), so
-      -- it is non-zero at the stroke reversal where the ∝ flapSpeed² momentum jet
-      -- has collapsed. Gated on the RAISED wing (stroke > 0), it sheds at the top
-      -- reversal and into the early downstroke — the "downstroke from the UP
-      -- position" thrust with the longest pitch lever. Both the gate (stroke) and
-      -- the stream speed are constant across the implicit Newton solve, so the
-      -- residual stays continuous (no rate-switch discontinuity at the reversal).
-      streamChordSpeed = max 0 (dot velocity chordAxis0)
-      raisedEnv = smoothStep 0 (radians 12) stroke
-      -- The spanwise crossflow ACCUMULATES toward the tip (it is shed by every
-      -- inboard station and rides the swept LE outboard), so the emergent jet
-      -- concentrates at the tip where the pitch lever is longest. The @fraction@
-      -- factor is that accumulation: 0 at the root, 1 at the tip. Without it the
-      -- jet would be area-weighted (inboard, short lever) and the nose-down
-      -- thrust-line moment would under-deliver.
-      tipJet = 0.5 * airDensity * area * tipJetCoeff
-               * streamChordSpeed * streamChordSpeed
-               * max 0 (sin sweep) * fraction * raisedEnv
-      flapThrust = let jet = staticJet + advanceJet + tipJet
-                            in if worldStrokeRate < 0
-                                 then jet * (1 + groundEffectThrustGain * ge)
-                                 else jet * (upstrokeThrustFraction + groundEffectUpstrokeRecover * ge)
+      flapThrust = let momentumJet = staticJet + advanceJet
+                   in jetAttachment * (if worldStrokeRate < 0
+                        then momentumJet * (1 + groundEffectThrustGain * ge)
+                        else momentumJet * (upstrokeThrustFraction + groundEffectUpstrokeRecover * ge))
       -- Thrust follows the local (flexed) chord axis — the chord crossflow
       -- direction — not the body axis. This reorients the jet in anhedral/
       -- dihedral (a vertical/lateral component from sweep × dihedral) without
@@ -701,16 +697,17 @@ stepStrip implicitLoads _phaseRate _flapping side stroke input incidenceRad wp i
       thrustForce = scaleVec flapThrust chordAxis
       -- Downstroke lift: the flap-push reaction. On the power stroke the wing
       -- pushes air DOWN, so the reaction is UP along the (flexed) normal — the
-      -- "extra portion of lift from flapping down" the owner flagged. Kept as a
-      -- separate channel from the forward jet so it adds lift without borrowing
-      -- cruise thrust.
-      strokeLift = 0.5 * airDensity * area * flapSpeed * flapSpeed * strokeLiftCoeff
-      strokeLiftDir = scaleVec (negate (signum worldStrokeRate)) normal
+      -- "extra portion of lift from flapping down" the owner flagged. It is the
+      -- DOWNSTROKE's job only: the upstroke is a feathered recovery and sheds no
+      -- flap-push lift (its forward thrust is the separate momentum jet above),
+      -- so the channel is hard-gated to worldStrokeRate < 0 with no signum flip
+      -- and no upstroke negative-lift term.
+      strokeLift = 0.5 * airDensity * area * flapSpeed * flapSpeed * strokeLiftCoeff * jetAttachment
       strokeLiftForce = scaleVec
         (strokeLift * (if worldStrokeRate < 0
                           then 1.0 + groundEffectThrustGain * ge
-                          else groundEffectUpstrokeRecover * ge))
-        strokeLiftDir
+                          else 0))
+        normal
       -- Flat-plate pressure drag on the wing surface moving normal to itself.
       -- This is the "air resistance" a broad wing feels when it sweeps up/down
       -- (flap stroke or differential-dihedral roll): independent of the
@@ -749,21 +746,16 @@ stepStrip implicitLoads _phaseRate _flapping side stroke input incidenceRad wp i
       -- geometry); the jet is shed there. Its PITCH lever arm is the wing's
       -- MOUNT height above the CG (wingRootHeight) — constant across the stroke.
       -- Pinning the vertical offset to the strip's instantaneous dihedral made
-      -- the full downstroke thrust act BELOW the root (nose-up) and only the
-      -- half upstroke thrust act above it (nose-down); the two cancelled the
-      -- thrust-line pitch-down and oscillated the bird at flap frequency. A
-      -- high-wing ornithopter's thrust line is set by the mount, not by where
-      -- the wing tip happens to be mid-stroke, so the nose-down thrust moment
-      -- is a steady ∝ thrust. The spanwise (y) offset is kept — it carries the
-      -- roll coupling of an asymmetric (yaw) thrust, which the left/right wings
-      -- cancel when the stroke is balanced.
-      -- Thrust acts at the wing's INSTANTANEOUS height: on the upstroke the wing
-      -- is raised well above the CG, so the forward jet sheds its reaction on a
-      -- long vertical lever and produces the strong nose-down thrust-line moment
-      -- a high-wing ornithopter really feels. The downstroke (wing low) gives the
-      -- symmetric nose-up half-beat; the net trim is the tail's job.
-      thrustPosition = Vec3 (-1.0 * chord) (side * radius * cos dihedral)
-                            (wingRootHeight + radius * sin dihedral + bend)
+      -- the downstroke thrust act BELOW the root (nose-up) while the raised
+      -- upstroke shed its jet on a long vertical lever (an overshooting nose-down
+      -- dive): the two both cancelled the steady thrust-line pitch-down AND blew
+      -- the upstroke nose-down out of proportion. A high-wing ornithopter's
+      -- thrust line is set by the mount, not by where the wing tip happens to be
+      -- mid-stroke, so the nose-down thrust moment is a steady ∝ thrust — the
+      -- DOWNSTROKE (power stroke) supplies it and the tail trims it. The
+      -- spanwise (y) offset is kept — it carries the yaw coupling of an
+      -- asymmetric thrust, which the left/right wings cancel when balanced.
+      thrustPosition = Vec3 (-1.0 * chord) (side * radius * cos dihedral) wingRootHeight
       force = addVec aeroForce (addVec thrustForce strokeLiftForce)
       -- Explicit differencing of BODY acceleration as an added-mass force
       -- creates a delayed feedback loop at contacts. Omit this term until an
