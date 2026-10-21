@@ -406,7 +406,7 @@ def install(scope):
         a.static_mesh_component.set_collision_profile_name('BlockAll')
         a.static_mesh_component.set_editor_property('disallow_nanite',True)
         return a
-    shrine_asset('CoastalTorii',(tx,ty,ground(tx,ty)-3),720,yaw)
+    shrine_asset('CoastalTorii',(tx,ty,ground(tx,ty)-3),1000,yaw)
     # Compact attributed hokora retains its weathered stone pedestal and timber details.
     qx,qy=-58000.,6200.;qz=ground(qx,qy)
     shrine_asset('CoastalShrine',(qx,qy,qz-3),360,180)

@@ -12,7 +12,11 @@ def prepare():
     assert meshes,'Periwinkle meshes were not imported'
     textures=[u.load_asset(p) for p in paths if isinstance(u.load_asset(p),u.Texture2D)]
     diffuse=next(t for t in textures if 'diff' in t.get_name().lower())
-    alpha=import_file(next((ROOT/'periwinkle_plant').glob('opacity.*')),'/Game/Nature','T_CampusPeriwinkleAlpha')[0]
+    alpha=u.load_asset('/Game/Nature/T_CampusPeriwinkleAlpha')
+    if not alpha:
+        source=next((ROOT/'periwinkle_plant').glob('opacity.*'),None)
+        if source is None:raise RuntimeError('Missing periwinkle opacity asset. Run git lfs pull.')
+        alpha=import_file(source,'/Game/Nature','T_CampusPeriwinkleAlpha')[0]
     alpha.set_editor_property('srgb',False);LIB.save_loaded_asset(alpha)
     mat=newmat('M_CampusPeriwinkle')
     mat.set_editor_property('two_sided',True);mat.set_editor_property('blend_mode',u.BlendMode.BLEND_MASKED)

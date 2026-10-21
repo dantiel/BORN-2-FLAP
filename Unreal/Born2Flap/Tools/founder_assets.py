@@ -6,9 +6,14 @@ def prepare(scope,bronze):
     bronze.set_editor_property('two_sided',True)
     EDIT.recompile_material(bronze);LIB.save_loaded_asset(bronze)
     folder='/Game/Shiomori/Imported/Founder'
-    # Always (re)import: the baked GLB changes whenever the pose is re-authored,
-    # and import_file uses replace_existing so a fresh pose lands over the old one.
-    import_file(ROOT/'Founder/Founder_posed.glb',folder)
+    # Normal map builds use the versioned import, never a developer's Saved
+    # directory. Pose authoring can explicitly request a reimport.
+    existing=LIB.list_assets(folder) if LIB.does_directory_exist(folder) else []
+    reimport='-B2FReimportFounder' in u.SystemLibrary.get_command_line()
+    if reimport or not any(isinstance(u.load_asset(p),u.StaticMesh) for p in existing):
+        source=ROOT/'Founder/Founder_posed.glb'
+        if not source.exists():raise RuntimeError('Missing founder import. Run git lfs pull, or supply '+str(source))
+        import_file(source,folder)
     assets=[u.load_asset(p) for p in LIB.list_assets(folder)]
     meshes=[a for a in assets if isinstance(a,u.StaticMesh)]
     assert len(meshes)==1,meshes

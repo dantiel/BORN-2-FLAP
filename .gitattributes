@@ -42,4 +42,6 @@
 *.lib filter=lfs diff=lfs merge=lfs -text
 *.exe filter=lfs diff=lfs merge=lfs -text
 *.zip filter=lfs diff=lfs merge=lfs -text
-Unreal/Born2Flap/Content/Ravenstonefield/Maps/RAVENSTONEFIELD.umap filter=lfs diff=lfs merge=lfs -text
+
+# Portable map-generation tooling
+*.py text eol=lf

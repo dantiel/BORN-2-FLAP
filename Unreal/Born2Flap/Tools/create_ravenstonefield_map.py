@@ -4,6 +4,8 @@ The generated actor components are saved so the editor shows the actual world.
 Use the actor's Build World button to regenerate it after changing its generator.
 """
 import unreal as u
+from project_guard import require_project
+require_project()
 
 MAP = '/Game/Ravenstonefield/Maps/RAVENSTONEFIELD'
 world = u.EditorLoadingAndSavingUtils.new_blank_map(False)
@@ -14,6 +16,7 @@ if not actor:
 actor.set_actor_label('RAVENSTONEFIELD / autumn river basin')
 actor.build_world()
 u.EditorLevelLibrary.set_level_viewport_camera_info(u.Vector(-8500, -17000, 5900), u.Rotator(-4, 29, 0))
+u.EditorAssetLibrary.make_directory('/Game/Ravenstonefield/Maps')
 if not u.EditorLoadingAndSavingUtils.save_map(world, MAP):
     raise RuntimeError('Cannot save ' + MAP)
 u.log('RAVENSTONEFIELD_MAP_READY ' + MAP)
