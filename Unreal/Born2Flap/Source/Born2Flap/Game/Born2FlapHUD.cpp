@@ -48,13 +48,12 @@ void ABorn2FlapHUD::DrawHUD()
                 Canvas->SizeX*.5f-225,Canvas->SizeY*.22f,GEngine->GetMediumFont(),1.f);
     }
     if(const auto* Mode=Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode());Mode && Mode->IsHarvestWatch() && !Mode->IsMenuOpen() && !Bird->IsUIHidden() && !Bird->IsFlightSettingsOpen())
-        for(TActorIterator<ABorn2FlapHarvestWatch> It(GetWorld());It;++It)
+        if(TActorIterator<ABorn2FlapHarvestWatch> It(GetWorld()); It)
         {
             const float X=Canvas->SizeX*.5f-390,Y=Canvas->SizeY-150;
             DrawRect(FLinearColor(.015,.025,.018,.88),X-12,Y-8,805,62);
             DrawText(It->Status(),FLinearColor(.93,.85,.60),X,Y,GEngine->GetSmallFont(),1.f);
             DrawText(It->PlotStatus(),FLinearColor(.77,.84,.72),X,Y+28,GEngine->GetSmallFont(),.86f);
-            break;
         }
     // F9 stream overlay: a faint line from screen centre showing the mouse
     // control-input direction (not the cursor position). Drawn before the Brain
