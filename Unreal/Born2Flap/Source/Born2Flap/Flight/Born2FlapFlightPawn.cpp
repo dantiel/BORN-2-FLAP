@@ -1419,10 +1419,10 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
 // Mobile multi-touch gesture recogniser (polled each tick via GetInputTouchState,
 // so it never fights the virtual joysticks for touch ownership). Positions are
 // normalized viewport coordinates (0..1). Recognises:
-//   • single-finger drag            → view rotation
-//   • two-finger parallel pan       → view rotation
-//   • two-finger symmetric pinch    → walk forward/back  (pinch-in = forward)
-//   • two-finger pivot (1 still)    → walk in the moving finger's direction
+//   • single-finger drag                → view rotation
+//   • two-finger same-direction drag    → walk sideways (strafe)
+//   • two-finger symmetric pinch        → walk forward/back  (spread = zoom-in = closer)
+//   • two-finger pivot (1 still)        → walk in the moving finger's direction
 void ABorn2FlapFlightPawn::UpdateTouchGestures(float Dt, APlayerController* PC)
 {
     GestureViewYaw = GestureViewPitch = GestureWalkForward = GestureWalkStrafe = 0.f;
@@ -1517,20 +1517,21 @@ void ABorn2FlapFlightPawn::UpdateTouchGestures(float Dt, APlayerController* PC)
         const float Dot = FVector2D::DotProduct(D0.GetSafeNormal(), D1.GetSafeNormal());
         if (Dot > 0.35f)
         {
-            // Parallel pan → look.
+            // Two fingers dragging the SAME direction → walk sideways (strafe).
+            // The horizontal component of the shared motion picks left vs right.
             const FVector2D Pan = (D0 + D1) * 0.5f;
-            GestureViewYaw = Pan.X * 220.f;
-            GestureViewPitch = Pan.Y * 150.f;
+            GestureWalkStrafe += Pan.X * 900.f;   // cm
         }
         else
         {
-            // Symmetric pinch → forward/back (speed ∝ the zoom amount).
+            // Symmetric pinch → walk forward/back (speed ∝ the zoom amount).
+            // Spread (zoom-in) walks closer; pinch-together (zoom-out) walks back.
             const FVector2D CurA(X[0], Y[0]), CurB(X[1], Y[1]);
             const FVector2D PrevA = CurA - D0, PrevB = CurB - D1;
             const float NewDist = (CurA - CurB).Size();
             const float OldDist = (PrevA - PrevB).Size();
-            const float Pinch = NewDist - OldDist;   // + = spread (pinch-out)
-            GestureWalkForward -= Pinch * 800.f;     // cm (pinch-in → forward)
+            const float Pinch = NewDist - OldDist;   // + = spread (zoom-in)
+            GestureWalkForward += Pinch * 800.f;     // cm (zoom-in → closer)
         }
     }
 }

@@ -348,6 +348,11 @@ void ABorn2FlapRadioHUD::BeginPlay()
 {
     Super::BeginPlay();
     Renderer = NewObject<UBorn2FlapUIRenderer>(this);
+    // UMG AddToViewport adds +10 to this before forwarding to the viewport
+    // overlay, so the engine's virtual joysticks (real Z-order 0) would sit
+    // BELOW the default-0 radio and get covered. Pin it to -20 (real -10) so
+    // the bottom-right stick always renders and receives touches above the radio.
+    Renderer->ViewportZOrder = -20;
     Renderer->OnComponentAction.AddDynamic(this, &ABorn2FlapRadioHUD::HandleComponentAction);
 }
 

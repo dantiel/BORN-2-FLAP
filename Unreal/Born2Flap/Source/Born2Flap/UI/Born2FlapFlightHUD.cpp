@@ -92,9 +92,9 @@ void ABorn2FlapFlightHUD::BeginPlay()
     Renderer = NewObject<UBorn2FlapUIRenderer>(this);
     Renderer->OnComponentAction.AddDynamic(this, &ABorn2FlapFlightHUD::HandleComponentAction);
     // The engine's DefaultVirtualJoysticks are added to the viewport at Z-order
-    // 0. Keep the cockpit *below* that (negative) so the on-screen sticks always
-    // render on top of the glass cockpit and stay touchable over the HUD.
-    Renderer->ViewportZOrder = -10;
+    // 0. UMG's AddToViewport adds +10 before forwarding, so -20 lands at real
+    // -10 — strictly below the sticks, keeping them on top of the glass cockpit.
+    Renderer->ViewportZOrder = -20;
     BuildCockpit();
 
     // The action buttons float above the sticks (z-order 10 > 0) at the top-right
