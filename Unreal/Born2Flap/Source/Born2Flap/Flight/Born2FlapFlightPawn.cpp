@@ -6,6 +6,9 @@
 #include "Components/CapsuleComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/InstancedStaticMeshComponent.h"
+#include "NiagaraComponent.h"
+#include "NiagaraSystem.h"
+#include "Water/Born2FlapWaterDirector.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/OverlapResult.h"
 #include "DrawDebugHelpers.h"
@@ -22,13 +25,19 @@
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
 #include "UI/Born2FlapI18n.h"
+#include "UI/Born2FlapLoading.h"
 #include "PhysicalMaterials/PhysicalMaterial.h"
+#include "PhysicsEngine/PhysicsSettings.h"
+#include "PhysicsEngine/BodyInstance.h"
+#include "Physics/PhysicsInterfaceCore.h"
 #include "UObject/ConstructorHelpers.h"
 #include "Input/Born2FlapRcController.h"
 #include "Input/Born2FlapKeybinds.h"
 #include "Game/Born2FlapGameMode.h"
 #include "World/Born2FlapValley.h"
 #include "World/Born2FlapWind.h"
+#include "World/Born2FlapWindLeaves.h"
+#include "Kismet/GameplayStatics.h"
 #include "Audio/Born2FlapAudioSynth.h"
 #include "Audio/Born2FlapAeroAudio.h"
 namespace
@@ -67,7 +76,7 @@ ABorn2FlapFlightPawn::ABorn2FlapFlightPawn()
     PrimaryActorTick.TickGroup = TG_PrePhysics;
     Body = CreateDefaultSubobject<UBoxComponent>(TEXT("FlightBody"));
     SetRootComponent(Body);
-    Body->SetBoxExtent(FVector(42, 12, 12));
+    Body->SetBoxExtent(FVector(21, 1.5, 1.5)); // narrow load-bearing fuselage, cm
     // SetCollisionProfileName("PhysicsActor") and SetSimulatePhysics both resolve
     // the simple physical material via GEngine, which is null during native CDO
     // construction (the cook commandlet builds CDOs before GEngine exists).
@@ -83,9 +92,14 @@ ABorn2FlapFlightPawn::ABorn2FlapFlightPawn()
     Body->BodyInstance.bUseCCD = true;
     // Chaos scales the mass geometry, not the three diagonal tensor entries.
     // (8,1.5,2) accidentally modelled a several-metre fuselage and ~1.7 kg m2
-    // pitch inertia. This approximation distributes mass across the wings:
-    // the resulting body tensor is about (.039,.046,.046) kg m2 at .45 kg.
-    Body->BodyInstance.InertiaTensorScale = FVector(1, 3, 3);
+    // pitch inertia.
+    //
+    // Dry locked-wing host inertia. MathCore receives the actual Chaos X
+    // tensor each step and adds fluid inertia in its coupled roll/joint matrix.
+    // This remains an approximate mass distribution; the collision box is not
+    // a measured component-inertia model. Do not put added air into this scale
+    // too, or it will be counted twice.
+    Body->BodyInstance.InertiaTensorScale = FVector::OneVector;
     BuildGeometry();
     CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
     CameraBoom->SetupAttachment(Body);
@@ -130,6 +144,19 @@ ABorn2FlapFlightPawn::ABorn2FlapFlightPawn()
     WindMotes->SetMobility(EComponentMobility::Movable);
     WindMotes->SetCollisionEnabled(ECollisionEnabled::NoCollision);
     WindMotes->SetCastShadow(false);
+    // Wingtip water splash: a pool of expanding translucent rings on the water
+    // surface plus a short Niagara mist burst. World-space, camera-independent.
+    WaterRipples = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("WaterRipples"));
+    WaterRipples->SetupAttachment(Body);
+    WaterRipples->SetAbsolute(true, true, true);
+    WaterRipples->SetMobility(EComponentMobility::Movable);
+    WaterRipples->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    WaterRipples->SetCastShadow(false);
+    WaterSplashFX = CreateDefaultSubobject<UNiagaraComponent>(TEXT("WaterSplashFX"));
+    WaterSplashFX->SetupAttachment(Body);
+    WaterSplashFX->SetAutoActivate(false);
+    WaterSplashFX->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    WaterSplashFX->SetCastShadow(false);
     // Negative X scale flips the sphere's winding so the camera (which sits at
     // the sphere's centre, i.e. INSIDE it) sees FRONT faces even if the
     // additive material's two-sided flag is not honoured in the translucency
@@ -142,22 +169,25 @@ ABorn2FlapFlightPawn::ABorn2FlapFlightPawn()
         SkyDome->SetStaticMesh(SphereMesh.Object);
     }
     AutoPossessPlayer = EAutoReceiveInput::Player0;
-    // Default hangar tuning = the prototype flight hardware (3S 1.3 Ah, 8 Nm
-    // servo) plus the simulator's controller base. LoadFlightPreferences may
-    // override these before the first ApplyTuning.
-    Tuning.servo_no_load_speed_deg_s = 1200;
-    Tuning.servo_stall_torque_nm = 8;
+    // Default hangar tuning = the reference kestrel hardware (VOTIK PTK 7465
+    // Plus flap servo, 3S 1.3 Ah) plus the simulator's controller base.
+    // LoadFlightPreferences may override these before the first ApplyTuning.
+    Tuning.servo_no_load_speed_deg_s = 1500;
+    Tuning.servo_stall_torque_nm = 1.332f;
     Tuning.servo_backdrive_deg_s_nm = 20;
     Tuning.battery_voltage = 11.1;
     Tuning.battery_resistance_ohm = 0.08;
     Tuning.battery_capacity_ah = 1.3;
+    Tuning.battery_c_rating = 30;
+    Tuning.battery_burst_c_rating = 60;
     Tuning.flap_base_freq_dhz = 32;
     Tuning.tail_elevator_angle_deg = 0;
     Tuning.glide_angle_deg = -4;
     Tuning.stroke_ferocity = 50;
     Tuning.aileron_scale = 10;
     Tuning.elevator_scale = 55;
-    Tuning.mount_angle_deg = 0;
+    Tuning.flap_centre_deg = 0;
+    Tuning.vertical_mount_angle_deg = 0;
 }
 ABorn2FlapFlightPawn::~ABorn2FlapFlightPawn() = default;
 namespace
@@ -172,13 +202,16 @@ float TuningClamp(ETuningField Field, float Value)
     case ETuningField::BatteryVoltage:    return FMath::Clamp(Value, 3.7f, 22.2f);
     case ETuningField::BatteryResistance: return FMath::Clamp(Value, 0.01f, 0.5f);
     case ETuningField::BatteryCapacity:   return FMath::Clamp(Value, 0.1f, 5.f);
+    case ETuningField::BatteryCRating:    return FMath::Clamp(Value, 1.f, 200.f);
+    case ETuningField::BatteryBurstCRating: return FMath::Clamp(Value, 1.f, 400.f);
     case ETuningField::FlapBaseFreq:      return FMath::Clamp(Value, 10.f, 200.f);
     case ETuningField::TailElevatorAngle:    return FMath::Clamp(Value, -15.f, 15.f);
     case ETuningField::GlideAngle:        return FMath::Clamp(Value, -15.f, 15.f);
     case ETuningField::StrokeFerocity:    return FMath::Clamp(Value, 0.f, 100.f);
     case ETuningField::AileronScale:      return FMath::Clamp(Value, 0.f, 100.f);
     case ETuningField::ElevatorScale:     return FMath::Clamp(Value, 0.f, 100.f);
-    case ETuningField::MountAngle:        return FMath::Clamp(Value, -15.f, 15.f);
+    case ETuningField::FlapCentre:        return FMath::Clamp(Value, -15.f, 15.f);
+    case ETuningField::VerticalMountAngle: return FMath::Clamp(Value, -15.f, 15.f);
     default: return 0.f;
     }
 }
@@ -193,13 +226,16 @@ float ABorn2FlapFlightPawn::GetTuning(ETuningField Field) const
     case ETuningField::BatteryVoltage:    return float(Tuning.battery_voltage);
     case ETuningField::BatteryResistance: return float(Tuning.battery_resistance_ohm);
     case ETuningField::BatteryCapacity:   return float(Tuning.battery_capacity_ah);
+    case ETuningField::BatteryCRating:    return float(Tuning.battery_c_rating);
+    case ETuningField::BatteryBurstCRating: return float(Tuning.battery_burst_c_rating);
     case ETuningField::FlapBaseFreq:      return float(Tuning.flap_base_freq_dhz);
     case ETuningField::TailElevatorAngle:    return float(Tuning.tail_elevator_angle_deg);
     case ETuningField::GlideAngle:        return float(Tuning.glide_angle_deg);
     case ETuningField::StrokeFerocity:    return float(Tuning.stroke_ferocity);
     case ETuningField::AileronScale:      return float(Tuning.aileron_scale);
     case ETuningField::ElevatorScale:     return float(Tuning.elevator_scale);
-    case ETuningField::MountAngle:        return float(Tuning.mount_angle_deg);
+    case ETuningField::FlapCentre:        return float(Tuning.flap_centre_deg);
+    case ETuningField::VerticalMountAngle: return float(Tuning.vertical_mount_angle_deg);
     default: return 0.f;
     }
 }
@@ -214,13 +250,16 @@ void ABorn2FlapFlightPawn::SetTuning(ETuningField Field, float Value)
     case ETuningField::BatteryVoltage:    Tuning.battery_voltage = Value; break;
     case ETuningField::BatteryResistance: Tuning.battery_resistance_ohm = Value; break;
     case ETuningField::BatteryCapacity:   Tuning.battery_capacity_ah = Value; break;
+    case ETuningField::BatteryCRating:    Tuning.battery_c_rating = Value; break;
+    case ETuningField::BatteryBurstCRating: Tuning.battery_burst_c_rating = FMath::Max(Value, Tuning.battery_c_rating); break;
     case ETuningField::FlapBaseFreq:      Tuning.flap_base_freq_dhz = Value; break;
     case ETuningField::TailElevatorAngle:    Tuning.tail_elevator_angle_deg = Value; break;
     case ETuningField::GlideAngle:        Tuning.glide_angle_deg = Value; break;
     case ETuningField::StrokeFerocity:    Tuning.stroke_ferocity = Value; break;
     case ETuningField::AileronScale:      Tuning.aileron_scale = Value; break;
     case ETuningField::ElevatorScale:     Tuning.elevator_scale = Value; break;
-    case ETuningField::MountAngle:        Tuning.mount_angle_deg = Value; break;
+    case ETuningField::FlapCentre:        Tuning.flap_centre_deg = Value; break;
+    case ETuningField::VerticalMountAngle: Tuning.vertical_mount_angle_deg = Value; break;
     default: return;
     }
     ApplyTuning();
@@ -231,7 +270,20 @@ void ABorn2FlapFlightPawn::ApplyTuning()
     // so a micro servo's torque is enough to flap it).
     Tuning.body_mass_kg = BodyMassKg;
     if (MathBridge && MathBridge->IsReady())
+    {
         MathBridge->Reconfigure(Tuning);
+        B2F_MassProperties Props{};
+        if (MathBridge->ReadMassProperties(-double(CgOffsetMm)/1000.0, Props))
+        {
+            const FVector Tensor(Props.dry_inertia_kg_m2[0], Props.dry_inertia_kg_m2[1], Props.dry_inertia_kg_m2[2]);
+            FPhysicsCommand::ExecuteWrite(Body->GetBodyInstance()->ActorHandle, [&](const FPhysicsActorHandle& Actor)
+            {
+                FPhysicsInterface::SetMassSpaceInertiaTensor_AssumesLocked(Actor, Tensor * 10000.0);
+            });
+            UE_LOG(LogTemp, Display, TEXT("FlightComponentMass total=%.4f fuselage=%.4f eachWing=%.4f tail=%.4f dryInertia=%s"),
+                Props.total_mass_kg, Props.fuselage_mass_kg, Props.wing_mass_kg, Props.tail_mass_kg, *Tensor.ToString());
+        }
+    }
 }
 void ABorn2FlapFlightPawn::ApplyBodyMass()
 {
@@ -301,6 +353,8 @@ int32 ABorn2FlapFlightPawn::DefaultBirdModel() const
     // the RavenCrow rules the nature valley, and the Prototype trains in the
     // indoor arena. Loading a map therefore swaps the bird automatically.
     const auto* GameMode = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode());
+    if (GameMode && GameMode->IsVoidLevel())
+        return 3;                       // Neon Abyss -> the neon turtle
     if (GameMode && GameMode->IsCoastLevel())
         return 2;                       // Shiomori Bay -> common kestrel (falcon)
     if (GameMode && !GameMode->IsNatureLevel())
@@ -316,6 +370,18 @@ void ABorn2FlapFlightPawn::BeginPlay()
     if (FSlateApplication::IsInitialized())
         FSlateApplication::Get().RegisterInputPreProcessor(PanelKeyProcessor);
     ApplyBodyMass();
+    // Neon Abyss is a weightless aether: no gravity, dense-medium drag. Neutral
+    // buoyancy keeps the turtle suspended; drag makes flap-pulses coast instead
+    // of gliding. Set here so ResetFlight teleports never re-enable gravity.
+    if (const auto* GM = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode()))
+    {
+        if (GM->IsVoidLevel())
+        {
+            Body->SetEnableGravity(false);
+            Body->SetLinearDamping(1.6f);
+            Body->SetAngularDamping(4.0f);
+        }
+    }
     UE_LOG(LogTemp, Display, TEXT("FlightBody massKg=%.4f inertiaKgM2=%s"), Body->GetMass(),
            *(Body->GetInertiaTensor() / 10000.0).ToString());
     // Weather owns sky optics and exposure for all cameras in the world.
@@ -388,6 +454,8 @@ void ABorn2FlapFlightPawn::BeginPlay()
                 Wing->SetPaintTexture(Membrane);
     }
     LoadFlightPreferences();
+    if(const auto* Mode=Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode());Mode && Mode->IsHarvestWatch())
+        BirdModel=2;
     if (BirdModel < 0)
         BirdModel = DefaultBirdModel();   // no explicit menu choice yet → level default
     SelectBirdModel(BirdModel);   // applies the loaded mass + CG for this model
@@ -423,6 +491,35 @@ void ABorn2FlapFlightPawn::BeginPlay()
                 UE_LOG(LogTemp, Warning, TEXT("WindMotes: /Game/Weather/M_Snow not found — wind motes disabled"));
             }
         }
+    }
+    // Wingtip water splash pool: M_RainSplash ring on a world-space plane pool,
+    // recycled round-robin as ripples expand and fade.
+    if (WaterRipples)
+    {
+        if (UStaticMesh* RingPlane = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Plane.Plane")))
+        {
+            WaterRipples->SetStaticMesh(RingPlane);
+            if (UMaterialInterface* RingMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Weather/M_RainSplash")))
+            {
+                WaterRipples->SetMaterial(0, RingMat);
+                constexpr int32 RingCount = 32;
+                WaterRipplePos.SetNum(RingCount);
+                WaterRippleAge.Init(1.f, RingCount);
+                for (int32 I = 0; I < RingCount; ++I)
+                    WaterRipples->AddInstance(FTransform(FQuat::Identity, FVector::ZeroVector, FVector::ZeroVector));
+            }
+            else
+            {
+                WaterRipples->SetVisibility(false);
+            }
+        }
+    }
+    if (WaterSplashFX)
+    {
+        if (auto* System = LoadObject<UNiagaraSystem>(nullptr, TEXT("/Game/Weather/NS_SurfSpray")))
+            WaterSplashFX->SetAsset(System);
+        else
+            WaterSplashFX->SetVisibility(false);
     }
     // Points of interest: the GameMode populated them during its own BeginPlay
     // (before the pawn spawned). Fall back to the origin if none arrived.
@@ -469,9 +566,22 @@ void ABorn2FlapFlightPawn::ResetFlight(bool bSafety)
     if (bSafety)
         ++SafetyResets;
     // Recreate all firmware/servo/aeroelastic/battery/history state. RTS stays pinned.
+    // Surface the backend load on the loading screen (during a level load the
+    // loader is active) so the flight-core phase reads there instead of as a
+    // stuck "core stopped" status in the HUD once the loader has dropped.
+    if (Born2Flap::Loading::State().IsActive())
+        Born2Flap::Loading::Report(0.70f, TEXT("LOADING FLIGHT CORE"));
     bHealthy = MathBridge && MathBridge->Load();
+    if (Born2Flap::Loading::State().IsActive())
+        Born2Flap::Loading::Report(0.80f, TEXT("FLIGHT CORE READY"));
     if (bHealthy)
+    {
+        // A fresh context starts on the kestrel reference; select the bird's
+        // own wing planform + carbon-rod inventory before the mass properties
+        // and first wing loads are read.
+        MathBridge->SetWingModel((uint32_t)BirdModel);
         ApplyTuning();
+    }
     bFlying = bReturning = false;
     Desktop = {};
     Throttle = RollInput = YawInput = PitchInput = LeftFlap = RightFlap = 0;
@@ -493,7 +603,13 @@ void ABorn2FlapFlightPawn::ResetFlight(bool bSafety)
     Body->SetPhysicsAngularVelocityInRadians(FVector::ZeroVector);
     Body->WakeAllRigidBodies();
     bCameraGrounded = false;
+    bThrown = false;
     GroundSettleTime = 0;
+    // Neon Abyss has no ground to launch from: the turtle starts swimming the
+    // moment it spawns — throttle pulses it forward, buoyancy holds it up.
+    if (const auto* GM = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode()))
+        if (GM->IsVoidLevel())
+            bFlying = true;
     ChaseOrbitYaw = 0.f; ChaseOrbitPitch = -12.f;
     GroundLookYaw = 0.f; GroundLookPitch = 0.f;
     GroundZoom = 1.f; ChaseArmLength = 480.f;
@@ -504,6 +620,7 @@ float ABorn2FlapFlightPawn::GetAltitude() const
 {
     const FVector P = Body->GetComponentLocation();
     const auto *Mode = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode());
+
     const double Ground = Mode ? Mode->GroundHeight(P.X, P.Y) : 0;
     return FMath::Max(0.f, float((P.Z - Ground) / 100.0 - .12));
 }
@@ -522,6 +639,59 @@ void ABorn2FlapFlightPawn::OnBodyHit(UPrimitiveComponent *HitComponent, AActor *
         UE_LOG(LogTemp, Display, TEXT("FlightImpact other=%s component=%s impulse=%s point=%s"),
                *GetNameSafe(OtherActor), *GetNameSafe(OtherComponent), *NormalImpulse.ToString(),
                *Hit.ImpactPoint.ToString());
+}
+void ABorn2FlapFlightPawn::EmitSandBurst(const FVector& WorldPos, float Strength)
+{
+    if (!WindLeavesActor.IsValid())
+        WindLeavesActor = Cast<ABorn2FlapWindLeaves>(
+            UGameplayStatics::GetActorOfClass(GetWorld(), ABorn2FlapWindLeaves::StaticClass()));
+    if (ABorn2FlapWindLeaves* WL = WindLeavesActor.Get())
+        WL->EmitSandBurst(WorldPos, Strength);
+}
+void ABorn2FlapFlightPawn::EmitWaterSplash(const FVector& WorldPos, float Strength)
+{
+    // Ripple ring: recycle the oldest slot so a rapid wing-tip skim leaves a
+    // train of expanding circles rather than a single frozen ring.
+    if (WaterRipples && WaterRipplePos.Num() > 0)
+    {
+        WaterRippleCursor = (WaterRippleCursor + 1) % WaterRipplePos.Num();
+        WaterRipplePos[WaterRippleCursor] = WorldPos;
+        WaterRippleAge[WaterRippleCursor] = 0.f;
+        WaterRipples->UpdateInstanceTransform(WaterRippleCursor,
+            FTransform(FQuat::Identity, WorldPos, FVector(0.05f, 0.05f, 1.f)), true, false, false);
+        WaterRipples->MarkRenderStateDirty();
+    }
+    // Mist burst: brief NS_SurfSpray activation at the contact point; the
+    // countdown in UpdateWaterRipples deactivates it once the burst is thrown.
+    if (WaterSplashFX && WaterSplashFX->GetAsset())
+    {
+        WaterSplashFX->SetWorldLocation(WorldPos);
+        WaterSplashFX->Activate(true);
+        WaterSplashTimeLeft = 0.4f;
+    }
+}
+void ABorn2FlapFlightPawn::UpdateWaterRipples(float DeltaSeconds)
+{
+    if (WaterSplashFX && WaterSplashFX->IsActive())
+    {
+        WaterSplashTimeLeft -= DeltaSeconds;
+        if (WaterSplashTimeLeft <= 0.f)
+            WaterSplashFX->Deactivate();
+    }
+    if (!WaterRipples || WaterRipplePos.Num() == 0)
+        return;
+    for (int32 I = 0; I < WaterRipplePos.Num(); ++I)
+    {
+        if (WaterRippleAge[I] >= 1.f)
+            continue; // parked ring: zero scale, invisible
+        WaterRippleAge[I] = FMath::Min(1.f, WaterRippleAge[I] + DeltaSeconds / 0.9f);
+        const float Age = WaterRippleAge[I];
+        // Grow from a point, then shrink back out — an expanding, fading circle.
+        const float Scale = (0.05f + 1.1f * Age) * (1.f - Age);
+        WaterRipples->UpdateInstanceTransform(I,
+            FTransform(FQuat::Identity, WaterRipplePos[I], FVector(Scale, Scale, 1.f)), true, false, false);
+    }
+    WaterRipples->MarkRenderStateDirty();
 }
 void ABorn2FlapFlightPawn::SweepWingColliders(float Dt)
 {
@@ -543,7 +713,8 @@ void ABorn2FlapFlightPawn::SweepWingColliders(float Dt)
     TArray<UBorn2FlapWingMesh*> Wings;
     for (USceneComponent* Shoulder : { LeftShoulder.Get(), RightShoulder.Get(),
             RavenLeftShoulder.Get(), RavenRightShoulder.Get(),
-            MembraneLeftShoulder.Get(), MembraneRightShoulder.Get() })
+            MembraneLeftShoulder.Get(), MembraneRightShoulder.Get(),
+            TurtleLeftShoulder.Get(), TurtleRightShoulder.Get() })
     {
         if (!Shoulder) continue;
         for (USceneComponent* Child : Shoulder->GetAttachChildren())
@@ -563,6 +734,18 @@ void ABorn2FlapFlightPawn::SweepWingColliders(float Dt)
         const FVector Dir  = Tip - Root;
         const float   Len  = Dir.Size();
         if (Len < 1.f) continue;
+        // Wingtip water contact: the ocean surface is a translucent material (no
+        // collision channel), so detect the crossing by comparing the tip against
+        // the animated Gerstner height from the water director.
+        if (const AShiomoriWaterDirector* Water = AShiomoriWaterDirector::Get(World))
+        {
+            const float WaterZ = Water->GetWaterHeightAt(Tip.X, Tip.Y);
+            const float Depth  = WaterZ - Tip.Z; // > 0 => tip submerged
+            float& Prev = WingWaterDepthPrev.FindOrAdd(Wing);
+            if (Depth > 2.f && Prev <= 2.f)
+                EmitWaterSplash(FVector(Tip.X, Tip.Y, WaterZ + 2.f), 1.f);
+            Prev = Depth;
+        }
         const FVector Mid = (Root + Tip) * 0.5f;
         const FQuat   Rot = FRotationMatrix::MakeFromZ(Dir / Len).ToQuat();
         const FCollisionShape Shape = FCollisionShape::MakeCapsule(6.f, Len * 0.5f);
@@ -593,47 +776,54 @@ void ABorn2FlapFlightPawn::SweepWingColliders(float Dt)
         WingSweepPrev.FindOrAdd(Wing) = Mid;
     }
 
-        // Wingtip ground contact is a planted PIVOT, not a bouncy spring. Two parts:
-        // (1) Resolve the contact point's inward velocity (restitution ~0.15) so the
-        //     tip settles onto the surface instead of rebounding; applied AT the tip,
-        //     the impulse makes the body lever around it.
-        // (2) While the wing is being driven DOWNWARD into the ground (a deliberate
-        //     downstroke — even a slow, elevator-driven one), add a ground-reaction
-        //     impulse at the contact point proportional to the downstroke rate.
-        //     Because the tip is aft of the centre of mass, that reaction lifts the
-        //     bird AND pitches the nose up, letting it stand on its wingtips like a
-        //     real bird. No spar-bend model is needed: the rigid lever arm between
-        //     the contact point and the CoM already produces the pitch.
+        // Wingtip ground contact is a soft, energy-dissipating plant. The aeroelastic
+        // wing flexes and drags — it does not spring back or lever the bird upward.
+        // Both responses are applied AT the contact point, so the impulse levers the
+        // body around it (the "correct lever arm" that turns forward momentum into
+        // pitch and drag instead of a bounce):
+        // (1) Normal: fully cancel inward velocity (restitution 0) so the tip settles
+        //     onto the surface instead of rebounding.
+        // (2) Tangential: ground friction bleeds off forward/sideways energy while the
+        //     wing scrapes, SLOWING the bird — the lever-arm brake that replaces the
+        //     old downstroke "catapult". No spar-bend model is needed: the rigid lever
+        //     between contact point and CoM already produces the pitch/drag.
         if (bTouched && !bWingTouching)
         {
             if (GEngine)
                 GEngine->AddOnScreenDebugMessage(42, 0.6f, FColor(255, 92, 64), TEXT("WING HIT"));
+            EmitSandBurst(ContactPoint, 0.7f);
         }
         if (bTouched)
         {
-            // (1) Plant: softly cancel inward velocity (no overshoot, hard-capped).
+            // (1) Plant: SOFT aeroelastic damping of the inward (normal) velocity.
+            // The old hard-kill (restitution 0, full cancel up to 40 cm/s) was applied
+            // AT the tip, and a grounded bird's tip inward velocity is dominated by
+            // body ROLL (ω×r at the ~half-span lever arm) — fully cancelling it every
+            // frame reversed the roll and violently threw the opposite wing down.
+            // A pure exponential dashpot removes only a fraction (< 1) per frame, so
+            // it bleeds approach (and roll) energy out gently, with no bounce and no
+            // overshoot, exactly like the flexible aeroelastic wing actually behaves.
             const FVector ContactVel = Body->GetPhysicsLinearVelocityAtPoint(ContactPoint);
             const float   Approach   = FVector::DotProduct(ContactVel, ContactNormal); // - = into surface
             if (Approach < 0.f)
             {
-                const float Kill = FMath::Min(-Approach * 0.85f, 60.f);
+                const float k    = 6.0f;   // soft plant rate (1/s)
+                const float Kill = FMath::Min(-Approach * (1.f - FMath::Exp(-k * Dt)), 15.f);
                 Body->AddImpulseAtLocation(ContactNormal * (Body->GetMass() * Kill), ContactPoint);
             }
     
-            // (2) Downstroke lever: reaction force scales with the flap-down rate.
-            const float FlapDelta = LeftFlap - PrevLeftFlap;                 // deg this frame
-            const float DownRate  = Dt > 0.f ? FMath::Max(0.f, -FlapDelta) / Dt : 0.f; // °/s downstroke
-            const FVector V  = Body->GetPhysicsLinearVelocity();
-            const float   Vn = FVector::DotProduct(V, ContactNormal);        // + = leaving surface
-            if (DownRate > 8.f && Vn < 25.f &&
-                World->GetTimeSeconds() - LastWingPushTime > 0.12)
+            // (2) Friction: while the wing drags on the ground, drain tangential
+            // energy — the lever-arm brake that SLOWS the bird instead of catapulting
+            // it. Framerate-independent exponential bleed (k ≈ 2/s), capped per frame
+            // so a fast scrape reads as drag, not a snap.
+            const FVector Tangential = ContactVel - ContactNormal * Approach;
+            const float   TangSpeed  = Tangential.Size();
+            if (TangSpeed > 1.f)
             {
-                // Slow deliberate stroke (~40°/s) → ~2.4 cm/s lever; a hard flap
-                // (~600°/s) → ~36 cm/s shove. Applied AT the contact point, the
-                // impulse rotates the body (nose up) rather than just translating.
-                const float Push = FMath::Clamp(DownRate * 0.06f, 0.f, 36.f);
-                Body->AddImpulseAtLocation(ContactNormal * (Body->GetMass() * Push), ContactPoint);
-                LastWingPushTime = World->GetTimeSeconds();
+                const float k     = 2.0f;
+                const float Brake = FMath::Min(TangSpeed * (1.f - FMath::Exp(-k * Dt)), 30.f);
+                const FVector BrakeDir = Tangential / TangSpeed;
+                Body->AddImpulseAtLocation(-BrakeDir * (Body->GetMass() * Brake), ContactPoint);
             }
         }
         bWingTouching = bTouched;
@@ -653,12 +843,16 @@ void ABorn2FlapFlightPawn::LaunchFlight()
     // otherwise the bird launches from its resting spot and facing.
     const bool bFromPilot = bPilotWalked;
     float LaunchYaw = Body->GetComponentRotation().Yaw;
+    float LaunchPitch = 0.f;
     FVector LaunchPos = Body->GetComponentLocation() + FVector(0, 0, 140);
     if (bFromPilot)
     {
         LaunchYaw = bGroundView
                         ? float(GroundGaze.Yaw + GroundLookYaw)
                         : float(Body->GetComponentRotation().Yaw + ChaseOrbitYaw);
+        // The pilot's vertical gaze has a small influence on the throw's loft:
+        // looking up throws a little higher, looking down flattens it.
+        LaunchPitch = bGroundView ? float(GroundLookPitch) : float(ChaseOrbitPitch);
         LaunchPos = GroundAnchor;   // the pilot is already at eye height
     }
     FRotator Heading(0, LaunchYaw, 0);
@@ -667,13 +861,19 @@ void ABorn2FlapFlightPawn::LaunchFlight()
     GroundZoom = 1.f; ChaseArmLength = 480.f;
     Body->SetWorldLocationAndRotation(LaunchPos, Heading, false, nullptr,
                                       ETeleportType::TeleportPhysics);
-    Body->SetPhysicsLinearVelocity(Heading.Vector() * 850 + FVector(0, 0, 220));
+    // Vertical loft: base 2.2 m/s upward plus a small vertical-gaze contribution.
+    const float LaunchVertical = 220.f + FMath::Clamp(LaunchPitch, -45.f, 45.f) * 6.f;
+    Body->SetPhysicsLinearVelocity(Heading.Vector() * 850 + FVector(0, 0, LaunchVertical));
     Body->SetPhysicsAngularVelocityInRadians(FVector::ZeroVector);
     bCameraGrounded = false;
+    bThrown = true;   // awaiting a genuine landing for the observer teleport
     GroundSettleTime = 0;
     bFlying = true;
+    // Hard-reset the virtual mouse stick at the moment of the throw so a residual
+    // look offset never yanks the bird off its launch heading (hard, immediate).
+    Desktop.mouseRoll = Desktop.mousePitch = Desktop.mouseYaw = 0;
     RememberLanding(Body->GetComponentLocation());
-    UE_LOG(LogTemp, Display, TEXT("FlightHandLaunch fromPilot=%d speed=8.5m/s vertical=2.2m/s"), bFromPilot);
+    UE_LOG(LogTemp, Display, TEXT("FlightHandLaunch fromPilot=%d speed=8.5m/s vertical=%.1fm/s pitch=%.0f"), bFromPilot, LaunchVertical / 100.f, LaunchPitch);
 }
 FString ABorn2FlapFlightPawn::GetFlightStatus() const
 {
@@ -700,6 +900,7 @@ void ABorn2FlapFlightPawn::SetBlindFlight(bool bOn)
 }
 bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
 {
+    const double ProfileStart = FPlatformTime::Seconds();
     if (!bHealthy)
         return false;
     FQuat Rotation = Body->GetComponentQuat();
@@ -725,10 +926,33 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
     Pilot.throttle_mode = bCoupledThrottle ? 1.0 : 0.0;
     B2F_BodyState State{};
     State.delta_time_s = MathDt;
-    Accumulator = FMath::Min(Accumulator + DeltaSeconds, .1);
+    State.roll_inertia_kg_m2 = Inertia.X;
+    // Ground effect: body-origin height above the surface below (terrain +
+    // rocks/buildings via GroundHeight), in metres. The math core normalises
+    // this by wingspan and applies per-strip lift/drag/thrust corrections.
+    State.ground_clearance_m = FMath::Max(0.0,
+        WindMode ? (BodyPos.Z - WindMode->GroundHeight(BodyPos.X, BodyPos.Y)) / 100.0 : 1000.0);
+    // Share Chaos's simulated time. At 12 fps the old solver advanced wings
+    // ~83 ms while the rigid body advanced only 33 ms: the reaction impulse
+    // was lost and the bird appeared to move its wings around a pinned body.
+    const UPhysicsSettings* PhysicsSettings = UPhysicsSettings::Get();
+    const double MaxPhysicsDt = PhysicsSettings->bSubstepping
+        ? PhysicsSettings->MaxSubstepDeltaTime * PhysicsSettings->MaxSubsteps
+        : PhysicsSettings->MaxPhysicsDeltaTime;
+    const double PhysicsDt = MaxPhysicsDt > UE_SMALL_NUMBER
+        ? FMath::Min(double(DeltaSeconds), MaxPhysicsDt) : double(DeltaSeconds);
+    // Consume exactly this frame's physical time, including fractional steps.
+    // Reusing the last force when no fixed step ran applied an impulse without
+    // advancing the hinges; averaging a different duration did the converse.
+    const int32 StepCount = FMath::Max(1, FMath::CeilToInt(PhysicsDt / MathDt - 1.e-6));
+    const double StepDt = PhysicsDt / StepCount;
+    if (StepDt <= 0) return false;
+    State.delta_time_s = StepDt;
     FVector ForceSum = FVector::ZeroVector, MomentSum = FVector::ZeroVector;
     int32 Steps = 0;
-    while (Accumulator >= MathDt)
+    const bool bVoid = WindMode && WindMode->IsVoidLevel();
+    const FVector Gravity = bVoid ? FVector::ZeroVector : FVector(0, 0, -9.81);
+    while (Steps < StepCount)
     {
         const FVector V = Rotation.UnrotateVector(Velocity - Wind);
         const FVector W = Rotation.UnrotateVector(Omega);
@@ -739,6 +963,7 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
         }
         B2F_FirmwareOutput O{};
         bool Valid = MathBridge->Step(Pilot, State, O);
+        const bool BackendValid = Valid;
         const FVector F(O.force_n[0], O.force_n[1], O.force_n[2]);
         const FVector M(O.moment_n_m[0], O.moment_n_m[1], O.moment_n_m[2]);
         // CG authority: the firmware resolves the aerodynamic moment about the
@@ -756,7 +981,8 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
             bHealthy = bFlying = false;
             Accumulator = 0;
             AeroForce = AeroMoment = FVector::ZeroVector;
-            UE_LOG(LogTemp, Error, TEXT("FlightMathRejected: disarmed, R recreates firmware context"));
+            UE_LOG(LogTemp, Error, TEXT("FlightMathRejected: backend=%d force=%s moment=%s wings=(%.3f,%.3f) velocity=%s rates=%s; disarmed, R recreates firmware context"),
+                   BackendValid, *F.ToString(), *M.ToString(), O.left_flap_deg, O.right_flap_deg, *V.ToString(), *W.ToString());
             return false;
         }
         const FVector WorldForce = Rotation.RotateVector(F);
@@ -773,18 +999,27 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
         // Holding angular velocity for a whole 30 Hz frame made aerodynamic
         // roll damping overshoot. Chaos receives the mean loads once and stays
         // authoritative for the actual rigid body and contacts.
-        Velocity += (WorldForce / Body->GetMass() + FVector(0, 0, -9.81)) * MathDt;
-        Omega += Rotation.RotateVector(M / Inertia) * MathDt;
+        Velocity += (WorldForce / Body->GetMass() + Gravity) * StepDt;
+        Omega += Rotation.RotateVector(Mcg / Inertia) * StepDt;
         const double Rate = Omega.Size();
         if (Rate > UE_SMALL_NUMBER)
-            Rotation = (FQuat(Omega / Rate, Rate * MathDt) * Rotation).GetNormalized();
+            Rotation = (FQuat(Omega / Rate, Rate * StepDt) * Rotation).GetNormalized();
         ++Steps;
-        Accumulator -= MathDt;
     }
     if (Steps)
     {
         AeroForce = ForceSum / Steps;
         AeroMoment = MomentSum / Steps;
+    }
+    MathProfileSeconds += FPlatformTime::Seconds() - ProfileStart;
+    MathProfileSteps += Steps;
+    if (++MathProfileFrames >= 120)
+    {
+        UE_LOG(LogTemp, Display, TEXT("FlightPhysicsTiming frameMs=%.3f stepMs=%.3f steps=%d frameDt=%.6f physicsDt=%.6f massKg=%.4f rollInertia=%.8f"),
+            MathProfileSeconds * 1000 / MathProfileFrames,
+            MathProfileSeconds * 1000 / FMath::Max(1, MathProfileSteps), Steps,
+            DeltaSeconds, PhysicsDt, Body->GetMass(), Inertia.X);
+        MathProfileSeconds = 0; MathProfileSteps = 0; MathProfileFrames = 0;
     }
     return true;
 }
@@ -992,7 +1227,8 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         MuteMouseYaw = PC->IsInputKeyDown(EKeys::LeftMouseButton);
         MuteMouseRoll = PC->IsInputKeyDown(EKeys::RightMouseButton);
         ResetMouse = PC->WasInputKeyJustPressed(EKeys::LeftMouseButton) ||
-                     PC->WasInputKeyJustPressed(EKeys::RightMouseButton);
+                      PC->WasInputKeyJustPressed(EKeys::RightMouseButton) ||
+                      PC->WasInputKeyJustPressed(EKeys::SpaceBar);
         if (RcController && RcController->IsPanelOpen())
         {
             MouseX = MouseY = Wheel = 0;
@@ -1068,6 +1304,10 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
             Launch = (Launch || RcController->LaunchPressed()) && !RcController->IsPanelOpen();
             Reset |= RcController->ResetPressed();
         }
+        // Always hard-reset the virtual mouse stick on a throw (rebound-safe), so
+        // no residual look offset spoils the launch.
+        if (Launch)
+            ResetMouse = true;
         if (PC->WasInputKeyJustPressed(Get(TEXT("ToggleVectors"))))
             bVectors = !bVectors;
         if (PC->WasInputKeyJustPressed(Get(TEXT("ToggleBlind"))))
@@ -1142,10 +1382,19 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
                 }
                 else if (bFpvAirView)
                 {
-                    if (Scroll > 0.f)
+                    // FPV sits at the innermost end of the chase arm. Keep the wheel
+                    // consistent with the chase dolly: wheel-down zooms back out and
+                    // leaves FPV only once the arm has passed the switch point —
+                    // continuous, not a reversed binary jump. Wheel-up stays fully
+                    // zoomed in.
+                    if (Scroll < 0.f)
                     {
-                        bFpvAirView = false;
-                        if (PC->PlayerCameraManager) PC->PlayerCameraManager->SetGameCameraCutThisFrame();
+                        ChaseArmLength = FMath::Clamp(ChaseArmLength - Scroll * 60.f, 60.f, 2000.f);
+                        if (ChaseArmLength > 90.f)
+                        {
+                            bFpvAirView = false;
+                            if (PC->PlayerCameraManager) PC->PlayerCameraManager->SetGameCameraCutThisFrame();
+                        }
                     }
                 }
                 else
@@ -1260,6 +1509,43 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         }
         if (Previous < 18 && TestTime >= 18 && FParse::Param(FCommandLine::Get(), TEXT("B2FCapture")))
             FScreenshotRequest::RequestScreenshot(TEXT("AerodynamicFlight.png"), true, false);
+        if (FParse::Param(FCommandLine::Get(), TEXT("B2FRollResponseTest")))
+        {
+            // Compare actual Chaos body and visible wing transforms. The DLL
+            // wind-tunnel fixture cannot detect host timing or attachment bugs.
+            const auto* Settings = UPhysicsSettings::Get();
+            const double Limit = Settings->bSubstepping
+                ? Settings->MaxSubsteps * Settings->MaxSubstepDeltaTime : Settings->MaxPhysicsDeltaTime;
+            TestTime = Previous + (Limit > 0 ? FMath::Min(double(DeltaSeconds), Limit) : DeltaSeconds);
+            Effort = Steer = Pitch = 0; Launch = Reset = false;
+            Roll = TestTime >= 1 ? .1f : 0;
+            if (Previous < 1 && TestTime >= 1)
+            {
+                Body->SetWorldLocationAndRotation(FVector(0,0,3000), FRotator::ZeroRotator, false, nullptr, ETeleportType::TeleportPhysics);
+                Body->SetPhysicsLinearVelocity(FVector(800,0,0));
+                Body->SetPhysicsAngularVelocityInRadians(FVector::ZeroVector);
+                bFlying = true; bCameraGrounded = false;
+                RollTestBaseline = FVector(Body->GetComponentRotation().Roll,
+                    MembraneLeftShoulder->GetComponentRotation().Roll,
+                    MembraneRightShoulder->GetComponentRotation().Roll);
+            }
+            if (TestTime >= 1.3 && !bTestFinished)
+            {
+                bTestFinished = true;
+                const double BodyRoll = FMath::FindDeltaAngleDegrees(RollTestBaseline.X, Body->GetComponentRotation().Roll);
+                const double LeftWorld = FMath::FindDeltaAngleDegrees(RollTestBaseline.Y, MembraneLeftShoulder->GetComponentRotation().Roll);
+                const double RightWorld = FMath::FindDeltaAngleDegrees(RollTestBaseline.Z, MembraneRightShoulder->GetComponentRotation().Roll);
+                const double TailRoll = MembraneTailPivot->GetComponentRotation().Roll;
+                const bool Pass = bHealthy && MathFailures == 0 && FMath::Abs(BodyRoll) > 1 &&
+                    FMath::Max(FMath::Abs(LeftWorld), FMath::Abs(RightWorld)) < FMath::Abs(BodyRoll) &&
+                    FMath::Abs(FMath::FindDeltaAngleDegrees(Body->GetComponentRotation().Roll, TailRoll)) < 1;
+                UE_LOG(LogTemp, Display, TEXT("RollResponseTest %s body=%.3f leftWorld=%.3f rightWorld=%.3f tail=%.3f mass=%.4f"),
+                    Pass ? TEXT("PASS") : TEXT("FAIL"), BodyRoll, LeftWorld, RightWorld, TailRoll, Body->GetMass());
+                FPlatformMisc::RequestExitWithStatus(false, Pass ? 0 : 1);
+            }
+            if (Previous < 1.25 && TestTime >= 1.25 && FParse::Param(FCommandLine::Get(), TEXT("B2FCapture")))
+                FScreenshotRequest::RequestScreenshot(TEXT("RollResponse.png"), true, false);
+        }
     }
     if (Reset)
         ResetFlight();
@@ -1268,6 +1554,14 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     const FVector P = Body->GetComponentLocation(), V = Body->GetPhysicsLinearVelocity() / 100.0;
     const FVector Omega = Body->GetPhysicsAngularVelocityInRadians();
     const auto *Mode = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode());
+    if(Mode && Mode->IsCoastLevel() && P.Y>-3000 && P.X>90000)
+    {
+        if(P.X>96000)
+        {
+            UE_LOG(LogTemp,Display,TEXT("EasternNoFlyBoundary: returning to launch"));
+            ResetFlight();return;
+        }
+    }
     // Flight-safety reset: the velocity/angular-rate caps are configurable
     // (0 = off, 1 = very low / acro-friendly, 2 = normal). NaN/Inf and the hard
     // world bounds always stay — those are genuine glitch guards, not acro trips.
@@ -1275,8 +1569,12 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     double SafetySpeed = 120.0, SafetyOmega = 40.0;  // normal
     if (Safety == 1) { SafetySpeed = 180.0; SafetyOmega = 55.0; }  // very low (more acro)
     const bool bSpeedReset = Safety > 0 && (V.Size() > SafetySpeed || Omega.Size() > SafetyOmega);
+    const bool bVoid = Mode && Mode->IsVoidLevel();
+    const double FloorZ = bVoid ? -4500.0 : (Mode ? Mode->GroundHeight(P.X, P.Y) : 0.0) - 300.0;
+    const double CeilZ = bVoid ? 15000.0 : 300000.0;
+    const double BoundR = bVoid ? 40000.0 : 480000.0;
     if (!Finite(P) || !Finite(V) || !Finite(Omega) || bSpeedReset ||
-        P.Z < (Mode ? Mode->GroundHeight(P.X, P.Y) : 0) - 300 || P.Z > 300000 || P.Size2D() > 480000)
+        P.Z < FloorZ || P.Z > CeilZ || P.Size2D() > BoundR)
     {
         UE_LOG(LogTemp, Warning, TEXT("FlightSafetyReset pos=%s vel=%s omega=%s"), *P.ToString(), *V.ToString(),
                *Omega.ToString());
@@ -1291,11 +1589,15 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         return;
     }
     if (GetAltitude() < .3f && GetSpeed() < 1.f)
+    {
+        if (bFlying)   // was airborne → touchdown sand puff
+            EmitSandBurst(P, 1.0f);
         bFlying = false;
+    }
     else if (GetAltitude() > .5f && GetSpeed() > 1.f)
         bFlying = true;
     UpdateLandingCamera(Dt);
-    const double FieldRadius = Mode && Mode->IsNatureLevel() ? 190000. : 30000.;
+    const double FieldRadius = Mode && Mode->IsVoidLevel() ? 20000. : (Mode && Mode->IsNatureLevel() ? 190000. : 30000.);
     if (bFlying && !bReturning && P.Size2D() > FieldRadius)
     {
         bReturning = true;
@@ -1334,6 +1636,14 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         // compensation of these forces. Gravity is applied by Chaos.
         Body->AddForce(AeroForce * 100.0);
         Body->AddTorqueInRadians(AeroMoment * 10000.0);
+        // Aether buoyancy: a gentle spring toward the ring plane holds the turtle
+        // in the volume (neutrally buoyant, not anchored). No preferred "up" is
+        // imposed — the pilot still swims and rolls freely in 3D.
+        if (Mode && Mode->IsVoidLevel())
+        {
+            const float DepthM = float(P.Z - 600.0) / 100.f;   // 600 cm = sacred-tree mid-ring
+            Body->AddForce(FVector(0.f, 0.f, -DepthM * 0.4f * Body->GetMass()));
+        }
     }
     // Ground repositioning: a deliberate downstroke shoves the grounded bird
     // forward along its heading so the wings can creep it into place for the
@@ -1350,14 +1660,20 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         }
     }
     VisualRoot->SetRelativeRotation(FRotator::ZeroRotator);
-    // A 2-servo ornithopter has one actuator per wing: the flap hinge. The wing
-    // rotates around that single axis; pitch and roll are already encoded in
-    // LeftFlap/RightFlap (stroke-centre shift / differential), so there is no
-    // separate shoulder-pitch (incidence) term.
+    // Two independent mount trims:
+    //   * flap_centre_deg  → FLAP-STROKE-CENTRE (dihedral) trim. It shifts the
+    //     servo stroke centre and is ALREADY visible in LeftFlap/RightFlap (the
+    //     Roll slot below). No extra pitch here.
+    //   * vertical_mount_angle_deg → REAL wing incidence (nose-up +). Applied as
+    //     a shoulder PITCH (rotation about the span axis) so the wing visibly
+    //     tilts leading-edge-up when positive. This is the knob the solver feeds
+    //     into the strip's geometric twist, so visual and physics now share one
+    //     axis and sign.
     // Grounded anti-sink: hold the wings near the +16° neutral dihedral so a
     // residual flap cannot dip the tips below the body plane and into the sand.
     // The clamp only bites once the bird is settled (not while flying), so it
     // never fights the aeroelastic stroke during a landing approach.
+    const float MountPitch = float(Tuning.vertical_mount_angle_deg);
     float FlapL = LeftFlap, FlapR = RightFlap;
     if (!bFlying && Throttle < 0.05f)
     {
@@ -1367,28 +1683,32 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         FlapL = FMath::Clamp(LeftFlap, -12.f, 12.f);
         FlapR = FMath::Clamp(RightFlap, -12.f, 12.f);
     }
-    if (RavenLeftShoulder) RavenLeftShoulder->SetRelativeRotation(FRotator(0, 0, FlapL + 16));
-    if (RavenRightShoulder) RavenRightShoulder->SetRelativeRotation(FRotator(0, 0, -FlapR - 16));
-    LeftShoulder->SetRelativeRotation(FRotator(0, 0, FlapL + 16));
-    RightShoulder->SetRelativeRotation(FRotator(0, 0, -FlapR - 16));
+    if (RavenLeftShoulder) RavenLeftShoulder->SetRelativeRotation(FRotator(MountPitch, 0, FlapL + 16));
+    if (RavenRightShoulder) RavenRightShoulder->SetRelativeRotation(FRotator(MountPitch, 0, -FlapR - 16));
+    LeftShoulder->SetRelativeRotation(FRotator(MountPitch, 0, FlapL + 16));
+    RightShoulder->SetRelativeRotation(FRotator(MountPitch, 0, -FlapR - 16));
     if(MembraneLeftShoulder) MembraneLeftShoulder->SetRelativeRotation(LeftShoulder->GetRelativeRotation());
     if(MembraneRightShoulder) MembraneRightShoulder->SetRelativeRotation(RightShoulder->GetRelativeRotation());
+    if(TurtleLeftShoulder) TurtleLeftShoulder->SetRelativeRotation(LeftShoulder->GetRelativeRotation());
+    if(TurtleRightShoulder) TurtleRightShoulder->SetRelativeRotation(RightShoulder->GetRelativeRotation());
     // Tail-elevator trim, visible in the rendered bird: pitch the tail fan.
     const float TailPitch = Tuning.tail_elevator_angle_deg;
     if (RavenTailPivot) RavenTailPivot->SetRelativeRotation(FRotator(TailPitch, 0, 0));
     if (MembraneTailPivot) MembraneTailPivot->SetRelativeRotation(FRotator(TailPitch, 0, 0));
+    if (TurtleTailPivot) TurtleTailPivot->SetRelativeRotation(FRotator(TailPitch, 0, 0));
     B2F_WingSection LeftShape[B2F_WING_STATIONS], RightShape[B2F_WING_STATIONS];
     if(MathBridge && MathBridge->ReadWingShape(LeftShape,RightShape))
     {
-        for(USceneComponent* Shoulder : {LeftShoulder.Get(),RightShoulder.Get(),RavenLeftShoulder.Get(),RavenRightShoulder.Get(),MembraneLeftShoulder.Get(),MembraneRightShoulder.Get()})
+        for(USceneComponent* Shoulder : {LeftShoulder.Get(),RightShoulder.Get(),RavenLeftShoulder.Get(),RavenRightShoulder.Get(),MembraneLeftShoulder.Get(),MembraneRightShoulder.Get(),TurtleLeftShoulder.Get(),TurtleRightShoulder.Get()})
             if(Shoulder)
                 for(USceneComponent* Child : Shoulder->GetAttachChildren())
                     if(auto* Wing=Cast<UBorn2FlapWingMesh>(Child))
-                        Wing->ApplyShape((Shoulder==LeftShoulder || Shoulder==RavenLeftShoulder || Shoulder==MembraneLeftShoulder) ? LeftShape : RightShape);
+                        Wing->ApplyShape((Shoulder==LeftShoulder || Shoulder==RavenLeftShoulder || Shoulder==MembraneLeftShoulder || Shoulder==TurtleLeftShoulder) ? LeftShape : RightShape);
     }
     SweepWingColliders(Dt);
     UpdateAeroAudio(Dt);
     UpdateWindMotes(Dt);
+    UpdateWaterRipples(Dt);
     if (bVectors)
     {
         DrawDebugDirectionalArrow(GetWorld(), P, P + AeroForce * 25, 15, FColor::Cyan, false, 0, 0, 2);

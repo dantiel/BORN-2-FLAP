@@ -13,20 +13,23 @@ class UCapsuleComponent;
 class UBorn2FlapWingMesh;
 class UStaticMeshComponent;
 class UInstancedStaticMeshComponent;
+class UNiagaraComponent;
 class USceneComponent;
 class USpringArmComponent;
 class UCameraComponent;
 class UBorn2FlapAudioSynth;
 class ABorn2FlapFlightSettings;
 class ABorn2FlapPoiOverlay;
+class ABorn2FlapWindLeaves;
 class IInputProcessor;
 // Live-tuning surface the hangar edits: servo, battery and the exposed
 // controller knobs. Mirrors B2F_TuningConfig field order.
 enum class ETuningField : uint8
 {
     ServoSpeed, StallTorque, Backdrive, BatteryVoltage, BatteryResistance, BatteryCapacity,
+    BatteryCRating, BatteryBurstCRating,
     FlapBaseFreq, TailElevatorAngle, GlideAngle, StrokeFerocity, AileronScale, ElevatorScale,
-    MountAngle, Count
+    FlapCentre, VerticalMountAngle, Count
 };
 // RC channels drive the native actuators. All forces and moments are aerodynamic.
 UCLASS()
@@ -129,7 +132,9 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
         switch (BirdModel)
         {
         case 2:  return 106.f;   // common kestrel (falcon): nose +28.5 -> tail -77.5
+        case 4:  return 106.f;   // kestrel light: same silhouette as the common kestrel
         case 1:  return 144.f;   // prototype: beak +59 -> tail plate -85
+        case 3:  return 90.f;    // neon turtle: nose +43 -> hind-fin tip -46
         default: return 182.f;   // ravencrow: beak +70 -> tail tip -112
         }
     }
@@ -174,6 +179,10 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     // Tail fans pivot here so the tail-elevator trim is visible in the bird.
     UPROPERTY() TObjectPtr<USceneComponent> RavenTailPivot;
     UPROPERTY() TObjectPtr<USceneComponent> MembraneTailPivot;
+    UPROPERTY() TObjectPtr<USceneComponent> TurtleRoot;
+    UPROPERTY() TObjectPtr<USceneComponent> TurtleLeftShoulder;
+    UPROPERTY() TObjectPtr<USceneComponent> TurtleRightShoulder;
+    UPROPERTY() TObjectPtr<USceneComponent> TurtleTailPivot;
     UPROPERTY(VisibleAnywhere) TObjectPtr<USpringArmComponent> CameraBoom;
     UPROPERTY(VisibleAnywhere) TObjectPtr<UCameraComponent> Camera;
     UPROPERTY() TObjectPtr<UStaticMeshComponent> SkyDome;
@@ -184,6 +193,17 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     TArray<float> MoteScales;
     TArray<float> MoteSpeed;
     FRandomStream MoteRandom{13011};
+    // Wingtip water-touch splash: expanding translucent rings on the surface
+    // (M_RainSplash on a world-space plane pool) + a brief Niagara mist burst
+    // (NS_SurfSpray). Detected in SweepWingColliders by crossing the animated
+    // water height from AShiomoriWaterDirector.
+    UPROPERTY() TObjectPtr<UInstancedStaticMeshComponent> WaterRipples;
+    TArray<FVector> WaterRipplePos;
+    TArray<float> WaterRippleAge;
+    int32 WaterRippleCursor = 0;
+    UPROPERTY() TObjectPtr<UNiagaraComponent> WaterSplashFX;
+    float WaterSplashTimeLeft = 0.f;
+    TMap<UBorn2FlapWingMesh*, float> WingWaterDepthPrev;
     UPROPERTY(VisibleAnywhere) TObjectPtr<UBorn2FlapAudioSynth> AudioSynth;
     UPROPERTY() TObjectPtr<UCameraComponent> GroundCamera;
     UPROPERTY() TObjectPtr<UCameraComponent> FpvCamera;
@@ -195,6 +215,11 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     // a later throw then launches from the pilot's position and gaze instead of
     // the bird's resting spot. Cleared when the bird lands (RememberLanding).
     bool bPilotWalked = false;
+    // True while the bird is in a thrown flight awaiting its landing: only then
+    // does the observer teleport to the landing spot (UpdateLandingCamera). A
+    // bird that merely settles on the ground (placed at spawn or nudged by wind)
+    // must not trigger that teleport.
+    bool bThrown = false;
     // Ground interaction (pilot walk + look), active while the middle mouse
     // button is held and the bird is grounded. Chase-orbit offsets rotate the
     // spring arm around the bird; ground free-look offsets detach the ground
@@ -244,7 +269,7 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     bool bCoupledThrottle = true;
     FVector MouseGains = FVector(1, -1, 1);
     int32 BirdModel = 0;
-    float BodyMassKg = 0.45f;
+    float BodyMassKg = 0.050f;
     float CgOffsetMm = 0.f;
     B2F_TuningConfig Tuning{};
     void ApplyTuning();
@@ -259,9 +284,15 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     bool bBrainSettingsOpen = false;
     void BuildRavenCrow();
     void SweepWingColliders(float Dt);
+    // Fire a one-shot sand/dust burst through the wind-leaves system (landing,
+    // wing-touch). Lazily caches the world actor on first use.
+    void EmitSandBurst(const FVector& WorldPos, float Strength);
+    // Wingtip water contact: expanding ripple rings + a short Niagara mist burst.
+    void EmitWaterSplash(const FVector& WorldPos, float Strength);
+    void UpdateWaterRipples(float DeltaSeconds);
+    TWeakObjectPtr<ABorn2FlapWindLeaves> WindLeavesActor;
     TMap<UBorn2FlapWingMesh*, FVector> WingSweepPrev;
     double LastWingTouchTime = -1e30;
-    double LastWingPushTime = -1e30;
     bool bWingTouching = false;
     void LoadFlightPreferences();
     float Throttle = 0, RollInput = 0, YawInput = 0, PitchInput = 0, LeftFlap = 0, RightFlap = 0, BatterySoc = 1;
@@ -292,6 +323,9 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     // The integration test uses the actual pawn/controller/Chaos path.
     bool bFlightTest = false, bSoakTest = false, bRavenFlightTest = false, bTestResetSent = false, bTestFinished = false;
     double TestTime = 0, TestPeakSpeed = 0, TestPeakAltitude = 0;
+    double MathProfileSeconds = 0;
+    int32 MathProfileSteps = 0, MathProfileFrames = 0;
+    FVector RollTestBaseline = FVector::ZeroVector;
     double TestPoweredAltitude = 0, TestGlideAltitude = 0, TestBoostAltitude = 0;
     double TestBeforePullSpeed = 0, TestPullSpeed = 0, TestBeforePullHeight = 0, TestPullHeight = 0;
     double TestFlapMin = 80, TestFlapMax = -80;

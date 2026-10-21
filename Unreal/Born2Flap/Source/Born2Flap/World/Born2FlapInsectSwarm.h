@@ -20,12 +20,14 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "World/Born2FlapWeather.h"
 #include "Born2FlapInsectSwarm.generated.h"
 
 class UInstancedStaticMeshComponent;
 class UStaticMeshComponent;
 class USceneComponent;
 class UMaterialInstanceDynamic;
+class UNiagaraComponent;
 
 UCLASS()
 class BORN2FLAP_API ABorn2FlapInsectSwarm : public AActor
@@ -66,6 +68,10 @@ private:
         int32 HeroCount;             // how many close-up heroes
         bool bOpaqueWings;           // bummer bug elytra are solid, not membrane
         bool bBuzzer;                // erratic brumming motion
+        float RainTol;               // 0..1: fraction that keeps flying in rain
+        float NightAct;              // relative activity at night (moths surge)
+        float SunAct;                // relative activity in daylight
+        float WindTol;               // 0..1: tolerance to wind (dragonflies ride it)
     };
 
     struct FBoid
@@ -83,6 +89,7 @@ private:
     {
         UStaticMeshComponent* Mesh = nullptr;
         float Yaw = 0.f;
+        float PhaseOffset = 0.f;   // radians added to FlapPhase (dragonfly counter-phase)
         FVector Scale = FVector::OneVector;
     };
 
@@ -106,6 +113,11 @@ private:
     FVector WindAt(const FVector& P, double Time) const;
     FVector PickPerch(const FVector& Home) const;
     FVector PickVegetationHome(FRandomStream& R) const;
+    float WeatherActivity(EInsectType Type) const;
+    // Season abundance: which species flourish in which season (spring blooms
+    // of butterflies, summer dragonflies and mantids, autumn moths, a winter
+    // almost-bare sky). Multiplied by the season's overall InsectFactor.
+    float SeasonActivity(EInsectType Type) const;
 
     void BuildSwarm();
     void BuildHeroes();
@@ -119,6 +131,11 @@ private:
 
     UPROPERTY() TArray<TObjectPtr<UInstancedStaticMeshComponent>> Swarm;
     UPROPERTY() TArray<TObjectPtr<UMaterialInstanceDynamic>> SwarmMaterials;
+    // GPU-Niagara replacement for the SWARM speck layer (HIGH/EPIC only). The
+    // heroes stay real meshes regardless — they are the detailed, catchable
+    // individuals, not background particles. ISM swarm = software fallback.
+    UPROPERTY() TObjectPtr<UNiagaraComponent> SwarmFX;
+    bool bNiagaraSwarm=false;
 
     TArray<FBoid> Boids;
     TArray<FHero> Heroes;
@@ -126,8 +143,19 @@ private:
     UStaticMesh* SpeckMesh = nullptr;
     UStaticMesh* WingMesh = nullptr;
     UStaticMesh* BodyMesh = nullptr;
+    UMaterialInterface* SpeckMaterial = nullptr;
     UMaterialInterface* WingMaterial = nullptr;
     UMaterialInterface* BodyMaterial = nullptr;
+
+    // Weather state — population and behaviour follow the level's chosen
+    // conditions (rain grounds the frail fliers, night wakes the moths, wind
+    // herds everyone low into the shelter of the vegetation).
+    FBorn2FlapWeather Weather;
+    FBorn2FlapSeason Season;
+    bool bIsNight = false;
+    float FlightCeiling = 1400.f;
+    int32 SwarmCounts[(int32)EInsectType::Count] = {};
+    int32 HeroCounts[(int32)EInsectType::Count] = {};
 
     bool bReady = false;
     static constexpr float HomeRadius = 1500.f;      // each insect's little territory around its plant

@@ -3,7 +3,6 @@
   "dir": "ltr",
   "title": "BORN2FLAP — симулятор полёта орнитоптера",
   "meta_desc": "BORN2FLAP — симулятор полёта орнитоптера в реальном времени: сегментированные крылья, динамический срыв и аэроупругий изгиб. Каждый взмах важен.",
-
   "asset_prefix": "..",
   "lang_href_en": "../",
   "lang_href_de": "../de/",
@@ -21,7 +20,6 @@
   "lang_class_ja": "",
   "lang_class_ko": "",
   "lang_class_ru": "active",
-
   "nav_home": "BORN2FLAP",
   "nav_essence": "Суть",
   "nav_flight": "Крыло",
@@ -30,7 +28,6 @@
   "nav_open": "Открытый код",
   "nav_tutorials": "Обучение",
   "nav_documentation": "Документация",
-
   "hero_kicker": "СИМУЛЯТОР ПОЛЁТА ОРНИТОПТЕРА",
   "hero_title_a": "BORN",
   "hero_title_b": "2",
@@ -42,7 +39,6 @@
   "hero_cta_epic": "Получить в Epic",
   "hero_cta_source": "Читать код",
   "hero_version": "Unreal Engine 5 · Haskell MathCore · Лицензия MIT",
-
   "essence_num": "01",
   "essence_title": "Суть",
   "essence_lead": "Орнитоптер — не квадрокоптер. Это бьющееся крыло.",
@@ -53,7 +49,6 @@
   "essence_p2_body": "Радио CRSF, микшеры ONDAS, PID и сервокернелы перенесены из реальной прошивки. Летай с настоящим передатчиком.",
   "essence_p3_title": "Настоящие последствия",
   "essence_p3_body": "Стреловидность, крутка, кривизна и жёсткость меняют полёт. Построй его — и переживи его.",
-
   "flight_num": "02",
   "flight_title": "Крыло",
   "flight_lead": "Аэроупругое, честное, живое.",
@@ -74,7 +69,6 @@
   "flight_spec_wave_val": "асимметричный dwell / остроконечная, синхронизированная",
   "flight_spec_step_label": "Шаг времени",
   "flight_spec_step_val": "фиксированный 240 Гц",
-
   "arch_num": "03",
   "arch_title": "Архитектура",
   "arch_lead": "Три языка, одно бьющееся сердце.",
@@ -87,8 +81,7 @@
   "arch_ruby_title": "Мозг Ruby",
   "arch_ruby_desc": "Состояние приложения, меню, правила и оркестрация — медленный ум за быстрой математикой.",
   "arch_pipeline": "RC / Gamepad  ──►  Прошивка (CRSF · микшер · PID)\n                         │\n                         ▼\n              Haskell MathCore (фикс. 240 Гц)\n                         │\n                         ▼\n              C / C++ FFI  ──►  Unreal / Chaos",
-
-  "game_num": "04",
+  "game_num": "05",
   "game_title": "Геймплей",
   "game_lead": "Легко начать, трудно освоить.",
   "game_free_title": "Свободный полёт",
@@ -103,13 +96,11 @@
   "game_landing_desc": "Точечные посадки на ветру — древнейшая дисциплина, самая трудная.",
   "game_bench_title": "Испытательный стенд",
   "game_bench_desc": "Вид аэродинамической трубы: векторы сил, карты срыва, деформация крыла вживую.",
-
-  "open_num": "06",
+  "open_num": "07",
   "open_title": "Открытый код",
   "open_lead": "Коммерческий и свободный одновременно.",
   "open_body": "BORN2FLAP выходит в Steam и Epic Games Store, а собственный код публикуется под <strong>лицензией MIT</strong>. Физическое ядро, мост, мозг — открыты. Летай в игре, забирай крыло и построй своё. Unreal Engine и сторонние ассеты сохраняют свои лицензии. Связанные open-source проекты: <a href=\"https://dantiel.github.io/OrniFlight/\">OrniFlight</a> (ориентирован на полётные контроллеры STM32) и <a href=\"https://dantiel.github.io/PteronautOS/\">PteronautOS</a> (более универсален на простом оборудовании) — у каждого свой конфигуратор и прошивка.",
   "open_license": "Лицензия MIT",
-
   "footer_github": "GitHub",
   "footer_docs": "Документация",
   "footer_tutorials": "Обучение",
@@ -117,43 +108,33 @@
   "footer_epic": "Epic Games",
   "footer_hermetic": "Написано в эфире яростными сердцами.",
   "footer_credit": "BORN2FLAP ·",
-
   "subnav_scroll": "Наверх",
   "subnav_home": "Вернуться к BORN2FLAP",
-
   "doc_title": "Документация — BORN2FLAP",
   "doc_h1": "Документация",
   "doc_lead": "Крыло, математика и машина — с объяснениями.",
   "doc_h2_articles": "Статьи",
-
   "ph_title": "Физика — BORN2FLAP",
   "ph_h1": "Физика",
   "ph_lead": "Редуцированная модель реального времени.",
-
   "wing_title": "Крыло — BORN2FLAP",
   "wing_h1": "Крыло",
   "wing_lead": "План, профиль, структура.",
-
   "wave_title": "Форма волны — BORN2FLAP",
   "wave_h1": "Форма волны",
   "wave_lead": "Синхронизированные колебания.",
-
   "ctl_title": "Управление — BORN2FLAP",
   "ctl_h1": "Управление",
   "ctl_lead": "CRSF, микшер, прошивка.",
-
   "tut_title": "Обучение — BORN2FLAP",
   "tut_h1": "Обучение",
   "tut_lead": "От первого взмаха до ручной настройки.",
-
   "ff_title": "Первый полёт — BORN2FLAP",
   "ff_h1": "Первый полёт",
   "ff_lead": "Взлетай и оставайся в воздухе.",
-
   "wd_title": "Проект крыла — BORN2FLAP",
   "wd_h1": "Проект крыла",
   "wd_lead": "Геометрия — это судьба.",
-
   "tune_title": "Настройка — BORN2FLAP",
   "tune_h1": "Настройка",
   "tune_lead": "Подгони крыло под свои руки."

@@ -35,7 +35,7 @@ double Height(double X,double Y)
             +.28*FMath::Sin(X*.00023+4.7);
         const double OuterRidge=FMath::Sin(Y*.000065+X*.000021)
             +.4*FMath::Sin(Y*.00013-X*.00005+1.9);
-        return 150+Back*(3900+1400*Ridge)+Outer*(4400+1500*OuterRidge);
+        return 300+Back*(3900+1400*Ridge)+Outer*(4400+1500*OuterRidge);
     }
     const double Shore=10000+520*FMath::Sin(X*.00030+1.7)+300*FMath::Sin(X*.00105+4.2)
         +160*FMath::Sin(X*.0024+.6)+85*FMath::Sin(X*.0056+2.3)+45*FMath::Sin(X*.013+5.1);
@@ -43,7 +43,7 @@ double Height(double X,double Y)
         +15*FMath::Sin(X*.0023+.7)+8*FMath::Sin(X*.0047+2.9));
     const double D=Y-Shore;
     double Base=D<=-2500 ? Dune : D<0 ? Dune*(-D/2500)-50*FMath::Square((D+2500)/2500) : FMath::Max(-1750.,-50-.04*D);
-    if(Y<-1200) Base=FMath::Clamp(FMath::CeilToDouble((-Y-1200)/100)*25.,0.,150.);
+    if(Y<-1200) Base=FMath::Clamp(FMath::CeilToDouble((-Y-1200)/100)*50.,0.,300.);
     // Low enclosing headlands: broad rounded land tongues that rise a few
     // metres above the sea at each beach end and curve seaward, rounding the
     // open shore back into a bay. They stay low (east a touch higher than the
@@ -55,7 +55,7 @@ double Height(double X,double Y)
     const double HillAmp=X<0?700.:900.;
     const double HeadlandTop=-50.+HillAmp+220*FMath::Sin(X*.000065+Y*.00011);
     const double Hill=FMath::Lerp(Base,HeadlandTop,Rise*Tip);
-    return FMath::Max(Base-6,FMath::Lerp(Base-6,Hill,Inland));
+    return EastShoreHeight(X,Y,CliffHeight(X,Y,FMath::Max(Base-6,FMath::Lerp(Base-6,Hill,Inland))));
 }
 double WindExposure(const FVector& P,const FVector& Direction)
 {
@@ -73,17 +73,23 @@ double WindExposure(const FVector& P,const FVector& Direction)
     const double Interior=(1-FMath::SmoothStep(16000.,42000.,P.Y))*
         (1-FMath::SmoothStep(1200.,5500.,P.Z))*
         (1-FMath::SmoothStep(39000.,65000.,FMath::Abs(P.X)));
-    return FMath::Clamp(1.-.46*Obstruction-.18*Interior,.38,1.);
+    const double ForestLee=CliffMask(P.X)*FMath::SmoothStep(27000.,34000.,P.Y)
+        *(1-FMath::SmoothStep(41500.,45000.,P.Y))
+        *(1-FMath::SmoothStep(Height(P.X,P.Y)+900,Height(P.X,P.Y)+2300,P.Z))
+        *FMath::Clamp(-Direction.GetSafeNormal2D().Y,0.,1.);
+    return FMath::Clamp(1.-.46*Obstruction-.18*Interior-.25*ForestLee,.32,1.);
 }
 double TopHeight(double X,double Y)
 {
     double H=Height(X,Y);
-    // The promenade sea wall (Y≈-1400): an ~8 m face rising from the beach to
-    // the promenade across the central shore. Wind piles against its landward
-    // face; the former hard-coded Gaussian upwash is now derived from this step.
-    const double Wall=800.*FMath::SmoothStep(-1400.,-1000.,Y)
-        *(1.-FMath::SmoothStep(43000.,46000.,FMath::Abs(X)));
-    return H+Wall;
+    // The raised promenade and hinterland now live inside Height() (a 3 m step
+    // at the tidewalk stairs). Add the built-up band behind the beach: the
+    // warehouse row (y≈-10800..-6200, ~11 m roofs) piles the wind a second time
+    // for birds crossing the hinterland. Analytic — no per-building query.
+    const double BuiltBand=FMath::Exp(-FMath::Square((Y+8500.)/2300.));
+    const double Building=1100.*BuiltBand
+        *(1.-FMath::SmoothStep(43000.,48000.,FMath::Abs(X)));
+    return H+Building;
 }
 }
 
@@ -97,7 +103,7 @@ void ABorn2FlapBayTerrain::BeginPlay()
     for(TActorIterator<AActor> It(GetWorld());It;++It)
         if(It->ActorHasTag(TEXT("Distant mountains behind")) || It->ActorHasTag(TEXT("Distant mountains east")) || It->ActorHasTag(TEXT("Distant mountains west")))
         { It->SetActorHiddenInGame(true);It->SetActorEnableCollision(false); }
-    BuildLand();PlantWoodland();
+    BuildLand();PlantWoodland();BuildCliffDetails();BuildEastShore();BuildEasternStation();
 }
 void ABorn2FlapBayTerrain::BuildLand()
 {
@@ -106,6 +112,8 @@ void ABorn2FlapBayTerrain::BuildLand()
     // the old valley material as a fallback if the Shiomori map hasn't cooked it.
     auto* Material=LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Shiomori/Materials/M_Headland"));
     if(!Material) Material=LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Nature/M_ValleyGround"));
+    auto* CliffMaterial=LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Shiomori/Materials/M_BayCliffs"));
+    auto* EastMaterial=LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Shiomori/Materials/M_EastShore"));
     int32 Sections=0;
     for(int X=-180000;X<180000;X+=20000)
     for(int Y=-180000;Y<80000;Y+=20000)
@@ -114,10 +122,13 @@ void ABorn2FlapBayTerrain::BuildLand()
         // central quads, so the back connects to the existing flat hinterland.
         if(X>=-40000 && X<40000 && Y>=-20000) continue;
         TArray<FVector> V,N;TArray<int32> T;TArray<FVector2D> UV;TArray<FLinearColor> C;
-        constexpr int Grid=20;
+        const bool CliffTile=X>=-100000 && X<-40000 && Y>=20000;
+        const bool EastTile=X>=40000 && X<120000 && Y>=0;
+        const int Grid=CliffTile?(Y==40000?400:100):EastTile?100:20;
+        const double Step=20000./Grid;
         for(int I=0;I<=Grid;++I) for(int J=0;J<=Grid;++J)
         {
-            const double PX=X+I*1000.,PY=Y+J*1000.;
+            const double PX=X+I*Step,PY=Y+J*Step;
             const double H=Born2FlapBay::Height(PX,PY);
             const FVector Normal=FVector(-(Born2FlapBay::Height(PX+50,PY)-Born2FlapBay::Height(PX-50,PY))/100,
                 -(Born2FlapBay::Height(PX,PY+50)-Born2FlapBay::Height(PX,PY-50))/100,1).GetSafeNormal();
@@ -127,7 +138,7 @@ void ABorn2FlapBayTerrain::BuildLand()
         }
         for(int I=0;I<Grid;++I) for(int J=0;J<Grid;++J)
         {
-            if(!Born2FlapBay::Contains(X+(I+.5)*1000,Y+(J+.5)*1000)) continue;
+            if(!Born2FlapBay::Contains(X+(I+.5)*Step,Y+(J+.5)*Step)) continue;
             const int A=I*(Grid+1)+J,B=A+Grid+1;
             T.Append({A,A+1,B,A+1,B+1,B});
         }
@@ -135,7 +146,7 @@ void ABorn2FlapBayTerrain::BuildLand()
         auto* Mesh=NewObject<UProceduralMeshComponent>(this);
         Mesh->SetupAttachment(RootComponent);Mesh->SetCollisionProfileName(TEXT("BlockAll"));
         Mesh->bUseComplexAsSimpleCollision=true;Mesh->bUseAsyncCooking=false;
-        Mesh->RegisterComponent();Mesh->SetMaterial(0,Material);
+        Mesh->RegisterComponent();Mesh->SetMaterial(0,(CliffTile && CliffMaterial)?CliffMaterial:(EastTile && EastMaterial)?EastMaterial:Material);
         Mesh->CreateMeshSection_LinearColor(0,V,T,N,UV,C,{},true);
         ++Sections;
     }

@@ -11,6 +11,11 @@ import random
 from pathlib import Path
 import unreal as u
 
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from project_guard import require_project
+require_project()
+
 rng = random.Random(290928)
 assets = u.AssetToolsHelpers.get_asset_tools()
 lib = u.MaterialEditingLibrary
@@ -55,12 +60,12 @@ def custom(m, code, inputs, size=3):
 
 
 def load_texture(subdir, stem, name, normal=False, srgb=True):
-    src = ROOT / subdir / (stem + '.jpg')
-    if not src.exists():
-        raise RuntimeError('Missing source texture: ' + str(src))
     path = '/Game/Shiomori/Textures/' + name
     if ela.does_asset_exist(path):
         return u.load_asset(path)
+    src = ROOT / subdir / (stem + '.jpg')
+    if not src.exists():
+        raise RuntimeError('Missing imported asset %s and source texture %s; run git lfs pull.' % (path, src))
     ela.make_directory('/Game/Shiomori/Textures')
     task = u.AssetImportTask()
     task.filename = str(src)
@@ -89,11 +94,10 @@ def radio():
     for source_name, asset_name in [('Shiomori Bay I', 'SHIOMORI_BAY_I'),
                                     ('Shiomori Bay II', 'SHIOMORI_BAY_II')]:
         source = Path.home() / ('Downloads/' + source_name + '.mp3')
-        if not source.exists():
-            u.log_warning('Shiomori radio source missing: ' + str(source))
-            continue
         path = '/Game/Shiomori/Audio/' + asset_name
         if not ela.does_asset_exist(path):
+            if globals().get('B2F_GENERATION_BATCH') or not source.exists():
+                raise RuntimeError('Missing radio asset: %s; run git lfs pull.' % path)
             task = u.AssetImportTask()
             task.filename = str(source)
             task.destination_path = '/Game/Shiomori/Audio'
@@ -112,7 +116,8 @@ def radio():
         u.log('SHIOMORI_RADIO track=' + asset_name + ' duration=' + str(wave.duration))
         # Recover the song's embedded cover art (ID3 APIC) and import it next to
         # the track under the "<Track>_Cover" name the radio auto-detect finds.
-        mp3_cover.extract_mp3_cover(source, '/Game/Shiomori/Audio', asset_name + '_Cover')
+        if source.exists() and not globals().get('B2F_GENERATION_BATCH'):
+            mp3_cover.extract_mp3_cover(source, '/Game/Shiomori/Audio', asset_name + '_Cover')
 
 
 def sample_tex(m, tex, tiling=None, normal=False):
@@ -305,46 +310,12 @@ def coastal_terrain_material(name, sand, grass, rock, scale_cm=240.0, normal_str
                 'return normalize(N+detail*%f);' % normal_strength)
         return custom(m, code, dict(args, T=t), 3)
 
-    # Beach-matched sand: world-XY planar at the same 300 cm tiling as M_Sand.
-    # TextureObject + Texture2DSample avoids TextureSample output-pin ambiguity.
-    def sand_color(tex):
-        t = node(m, 'TextureObject', texture=tex)
-        return custom(m, 'return Texture2DSample(T,TSampler,P.xy/300.0).rgb;',
-                      {'P': pos, 'T': t}, 3)
-
-    def sand_scalar(tex):
-        t = node(m, 'TextureObject', texture=tex)
-        return custom(m, 'return Texture2DSample(T,TSampler,P.xy/300.0).r;',
-                      {'P': pos, 'T': t}, 1)
-
-    def sand_grain(tex):
-        t = node(m, 'TextureObject', texture=tex)
-        code = ('float3 tn=Texture2DSample(T,TSampler,P.xy/300.0).rgb;'
-                'return normalize(float3(tn.x*2.0-1.0, tn.y*2.0-1.0, saturate(tn.z*2.0-1.0)+0.25));')
-        return custom(m, code, {'P': pos, 'T': t}, 3)
-
-    s_c = sand_color(sd)
-    s_r = sand_scalar(sr)
-
-    # Identical irregular relief + wind streaks to M_Sand (grain normal perturbed
-    # by two decorrelated value noises and a shore-elongated wind noise).
-    relief_scale = 0.02
-    relief_strength = 0.6
-    ns_strength = 0.65
-    gx = node(m, 'Multiply'); wire(pos, gx, 'A'); gx.set_editor_property('const_b', relief_scale)
-    nz_gx = node(m, 'Noise', levels=2, output_min=-1.0, output_max=1.0); wire(gx, nz_gx, '')
-    gy = node(m, 'Multiply'); wire(pos, gy, 'A'); gy.set_editor_property('const_b', relief_scale * 1.7)
-    nz_gy = node(m, 'Noise', levels=2, output_min=-1.0, output_max=1.0); wire(gy, nz_gy, '')
-    wv = node(m, 'Constant3Vector', constant=u.LinearColor(0.0009, 0.006, 0.006))
-    ws = node(m, 'Multiply'); wire(pos, ws, 'A'); wire(wv, ws, 'B')
-    nz_w = node(m, 'Noise', levels=2, output_min=-1.0, output_max=1.0); wire(ws, nz_w, '')
-    relief = custom(m, '''float rx=NX*%.6g + W*0.2;
-  float ry=NY*%.6g + W*0.55;
-  float3 r=normalize(float3(TN.x+rx, TN.y+ry, 1.0));
-  return normalize(float3(lerp(0.0, r.x, %.6g), lerp(0.0, r.y, %.6g), 1.0));
-''' % (relief_strength, relief_strength, ns_strength, ns_strength),
-                    {'NX': nz_gx, 'NY': nz_gy, 'W': nz_w, 'TN': sand_grain(sn)}, 3)
-    s_n = relief
+    # Shared close-up sand shading keeps the beach/headland boundary seamless.
+    from sand_surface import surface
+    s_c, s_n, s_r = surface(m, sd, sn, sr, node, custom)
+    if name == 'Headland':
+        from east_strand_material import blend
+        s_c, s_n, s_r = blend(m, pos, s_c, s_n, s_r, node, custom)
 
     # Grass and rock stay triplanar (they cover the sloped inland/seaward faces).
     g_c = tri_color(gd); g_n = tri_normal(gn); g_r = tri_scalar(gr)
@@ -359,7 +330,8 @@ def coastal_terrain_material(name, sand, grass, rock, scale_cm=240.0, normal_str
     # Shared blend weights (s=sand, g=grass, r=rock). The sand band now reaches
     # the dune line before grass takes over, with a wide, soft ramp so the beach
     # strand flows onto the headland with no hard patch edge.
-    wgts = custom(m, '''float veg=smoothstep(140.0+V*18.0, 360.0+V*30.0, P.z);
+    wgts = custom(m, '''float east=smoothstep(40000,46000,P.x);
+  float veg=smoothstep(lerp(140,80,east)+V*lerp(18,45,east), lerp(360,520,east)+V*lerp(30,65,east), P.z);
   float steep=1.0-N.z;
   float rock=smoothstep(0.30, 0.60, steep);
   float s=1.0-veg;
@@ -369,9 +341,12 @@ def coastal_terrain_material(name, sand, grass, rock, scale_cm=240.0, normal_str
 
     bc = custom(m, 'return SD.rgb*W.x+GD.rgb*W.y+RD.rgb*W.z;',
                 {'SD': s_c, 'GD': g_c, 'RD': r_c, 'W': wgts}, 3)
-    output(bc, 'BASE_COLOR')
     nb = custom(m, 'return normalize(SD*W.x+GD*W.y+RD*W.z);',
                 {'SD': s_n, 'GD': g_n, 'RD': r_n, 'W': wgts}, 3)
+    if name == 'Headland':
+        from campus_ground_materials import localize
+        bc, nb = localize(m, pos, bc, nb, node, custom)
+    output(bc, 'BASE_COLOR')
     output(nb, 'NORMAL')
     rb = custom(m, 'return SR*W.x+GR*W.y+RR*W.z;',
                 {'SR': s_r, 'GR': g_r, 'RR': r_r, 'W': wgts}, 1)
@@ -451,8 +426,10 @@ float2 r=P.xy*.025;
 n+=float2(sin(r.x*1.7+r.y*1.1+T*3.4),cos(r.y*2.1-r.x*.8-T*3.0))*.014;
 return normalize(float3(n,1.0));''',{'P':p,'T':t})
     output(n,'NORMAL')
-    # Deterministic Gerstner spectrum (8 components: 1 swell + 3 wind + 4 detail)
-    # driven entirely by the global ocean MPC, so the rendered surface stays in
+    # Deterministic Gerstner spectrum (16 components: 2 swell + 14 wind/detail).
+    # De-harmonised lengths and a broad directional spread (+-~65 deg) so the open
+    # sea reads as uneven cross-chop instead of repeating parallel diagonals.
+    # Driven entirely by the global ocean MPC, so the rendered surface stays in
     # lock-step with AShiomoriWaterDirector / Born2FlapWater.cpp SampleWaveHeight.
     def _mpc(name):
         return node(m, 'CollectionParameter', collection=mpc, parameter_name=name)
@@ -461,11 +438,11 @@ return normalize(float3(n,1.0));''',{'P':p,'T':t})
  float ampScale=lerp(0.35,1.6,Sea/6.0);
  float d2r=0.01745329251;
  float H=0.0;
- float lenF[8]={1.0,0.32,0.19,0.13,0.088,0.059,0.043,0.030};
- float ampF[8]={1.00,0.45,0.28,0.16,0.090,0.055,0.035,0.022};
- float dirOff[8]={0.0,-8.0,7.0,-12.0,18.0,-22.0,28.0,-35.0};
- float phase[8]={0.0,1.3,2.7,4.1,5.2,0.9,3.3,4.7};
- for(int i=0;i<8;i++)
+ float lenF[16]={1.0,0.5,0.33,0.22,0.151,0.107,0.079,0.059,0.045,0.034,0.0265,0.0205,0.016,0.0125,0.0098,0.0076};
+ float ampF[16]={1.00,0.42,0.30,0.21,0.15,0.105,0.075,0.054,0.038,0.027,0.019,0.0135,0.0095,0.0067,0.0047,0.0033};
+ float dirOff[16]={0.0,-8.0,12.0,-20.0,28.0,-35.0,45.0,-55.0,65.0,-50.0,40.0,-30.0,50.0,-60.0,22.0,-15.0};
+ float phase[16]={0.0,1.7,3.1,4.4,5.7,1.1,2.4,3.7,5.0,0.6,1.9,3.2,4.5,5.8,0.9,2.2};
+ for(int i=0;i<16;i++)
  {
   float L=Wl*lenF[i];
   float A=Amp*ampF[i]*ampScale;
@@ -489,74 +466,63 @@ return normalize(float3(n,1.0));''',{'P':p,'T':t})
 
 def sand_material(name, diffuse, normal, rough=0.8, rough_tex=None, tiling_cm=300.0,
                   relief_scale=0.02, relief_strength=0.6, normal_strength=0.6,
-                  tint=None, caustic=False):
-    """Beach sand: tiled grain normal plus a large-scale wind/sea/footprint
-    relief so the surface reads as naturally uneven, not a flat smooth plane."""
+                  pebble=None):
+    """Beach sand: macro albedo + authored normal, an aperiodic height field
+    (parallax + fake AO + gradient normal), and a fine grain — shared verbatim
+    with the headlands so the strand reads as one continuous surface. Wetness
+    (darkening, gloss, caustics) now lives inside sand_surface.surface(), driven
+    by world height, so the dry/wet hand-off across the beach, seabed and
+    headland has no hard material seam.
+
+    `relief_scale` is retained for map-generator callers but superseded: the
+    grain/undulation scales now live together in sand_surface.surface().
+    """
     path = '/Game/Shiomori/Materials/M_' + name
     m = u.load_asset(path) if ela.does_asset_exist(path) else assets.create_asset(
         'M_' + name, '/Game/Shiomori/Materials', u.Material, u.MaterialFactoryNew())
     lib.delete_all_material_expressions(m)
-    bc = sample_tex(m, diffuse, ('world', tiling_cm))
-    if tint is not None:
-        t = node(m, 'Constant3Vector', constant=u.LinearColor(*tint))
-        mul = node(m, 'Multiply')
-        wire(bc, mul, 'A')
-        wire(t, mul, 'B')
-        bc = mul
-    if caustic:
-        # Underwater light caustics: a soft, slow shimmer that brightens the
-        # seabed around 1x instead of a hard-edged cell mask. The old
-        # smoothstep(0.12,1,..) threshold clipped most cells to black and read
-        # as a coarse near-black checkerboard through the water.
-        cp = node(m, 'WorldPosition')
-        ct = node(m, 'Time')
-        caus = custom(m, '''float2 q=P.xy*0.02;
-  float t=T*0.6;
-  float c=sin(q.x*3.7+t)*sin(q.y*2.9-t*1.2)
-        +sin(q.x*5.3-t*0.7)*sin(q.y*4.1+t*0.5)
-        +sin((q.x+q.y)*2.6+t*0.4)*sin((q.x-q.y)*3.1-t*0.6);
-  return 0.5+0.5*c/3.0;''', {'P': cp, 'T': ct}, 1)
-        sc = node(m, 'Multiply'); sc.set_editor_property('const_b', 0.28); wire(caus, sc, 'A')
-        one = node(m, 'Constant', r=0.9)
-        add = node(m, 'Add'); wire(one, add, 'A'); wire(sc, add, 'B')
-        mul2 = node(m, 'Multiply'); wire(bc, mul2, 'A'); wire(add, mul2, 'B')
-        bc = mul2
+    m.set_editor_property('tangent_space_normal', False)
+    from sand_surface import surface
+    bc, sand_normal, sand_rough = surface(
+        m, diffuse, normal, rough_tex, node, custom,
+        macro_cm=tiling_cm, relief_strength=relief_strength,
+        normal_strength=normal_strength)
+    # Stone/pebble strand: a value-noise-wobbled ramp on |x| grades the fine sand
+    # into coarser, darker stone pebbles toward the beach ends, so the sand hands
+    # off to the headland rock with no hard straight seam.
+    pebble_blend = None
+    pebble_n = None
+    if pebble is not None:
+        pd, pn, _, peb_tint, peb_start, peb_end = pebble
+        pc = sample_tex(m, pd, ('world', 95.0))
+        if peb_tint is not None:
+            pt = node(m, 'Constant3Vector', constant=u.LinearColor(*peb_tint))
+            pm = node(m, 'Multiply'); wire(pc, pm, 'A'); wire(pt, pm, 'B'); pc = pm
+        pebble_n = sample_tex(m, pn, ('world', 95.0), normal=True)
+        ppos = node(m, 'WorldPosition')
+        pnx = node(m, 'Multiply'); wire(ppos, pnx, 'A'); pnx.set_editor_property('const_b', 0.00009)
+        pnz = node(m, 'Noise', levels=2, output_min=-1.0, output_max=1.0); wire(pnx, pnz, '')
+        pebble_blend = custom(m, 'return (1-smoothstep(30000,34000,P.x))*smoothstep(%g + N*%g, %g, abs(P.x));'
+                              % (peb_start, (peb_end - peb_start) * 0.16, peb_end),
+                              {'P': ppos, 'N': pnz}, 1)
+        bc = custom(m, 'return lerp(A.rgb, B.rgb, W);',
+                    {'A': bc, 'B': pc, 'W': pebble_blend}, 3)
     output(bc, 'BASE_COLOR')
-    if rough_tex is not None:
-        output(sample_tex(m, rough_tex, ('world', tiling_cm)), 'ROUGHNESS', 'R')
-    else:
-        output(node(m, 'Constant', r=rough), 'ROUGHNESS')
-    ns = sample_tex(m, normal, ('world', tiling_cm), normal=True)
+    output(sand_rough, 'ROUGHNESS')
     p = node(m, 'WorldPosition')
-    # Irregular (non-sinusoidal) relief via UE value-noise nodes: fine grain
-    # (two decorrelated samples for x/y) plus coarse wind streaks elongated
-    # along the shore (X) so the sand reads wind-and-sea-trodden, not sine.
-    gx = node(m, 'Multiply'); wire(p, gx, 'A'); gx.set_editor_property('const_b', relief_scale)
-    nz_gx = node(m, 'Noise', levels=2, output_min=-1.0, output_max=1.0); wire(gx, nz_gx, '')
-    gy = node(m, 'Multiply'); wire(p, gy, 'A'); gy.set_editor_property('const_b', relief_scale * 1.7)
-    nz_gy = node(m, 'Noise', levels=2, output_min=-1.0, output_max=1.0); wire(gy, nz_gy, '')
-    wv = node(m, 'Constant3Vector', constant=u.LinearColor(0.0009, 0.006, 0.006))
-    ws = node(m, 'Multiply'); wire(p, ws, 'A'); wire(wv, ws, 'B')
-    nz_w = node(m, 'Noise', levels=2, output_min=-1.0, output_max=1.0); wire(ws, nz_w, '')
-    code = '''float rx=NX*%.6g + W*0.2;
-float ry=NY*%.6g + W*0.55;
-float3 tn=normalize(float3(TN.x*2.0-1.0, TN.y*2.0-1.0, saturate(TN.z*2.0-1.0)+0.25));
-float3 r=normalize(float3(tn.x+rx, tn.y+ry, 1.0));
-return normalize(float3(lerp(0.0, r.x, %.6g), lerp(0.0, r.y, %.6g), 1.0));
-''' % (relief_strength, relief_strength, normal_strength, normal_strength)
-    n = node(m, 'Custom', code=code,
-             output_type=u.CustomMaterialOutputType.CMOT_FLOAT3)
-    pins = []
-    for k in ('NX', 'NY', 'W', 'TN'):
-        pin = u.CustomInput()
-        pin.set_editor_property('input_name', k)
-        pins.append(pin)
-    n.set_editor_property('inputs', pins)
-    wire(nz_gx, n, 'NX')
-    wire(nz_gy, n, 'NY')
-    wire(nz_w, n, 'W')
-    wire(ns, n, 'TN', 'RGB')
+    n = sand_normal
+    if pebble is not None:
+        n = custom(m, 'return normalize(lerp(A, B, W));',
+                   {'A': n, 'B': pebble_n, 'W': pebble_blend}, 3)
     output(n, 'NORMAL')
+    if name == 'Sand':
+        from east_strand_material import blend
+        rb = lib.get_material_property_input_node(m, u.MaterialProperty.MP_ROUGHNESS)
+        # Existing roughness samples use the R output; make it explicit before
+        # passing the expression into a custom float input.
+        rb = custom(m, 'return R.r;', {'R': rb}, 1)
+        bc, n, rb = blend(m, p, bc, n, rb, node, custom)
+        output(bc, 'BASE_COLOR'); output(n, 'NORMAL'); output(rb, 'ROUGHNESS')
     material_usage_flags(m)
     lib.recompile_material(m)
     assert ela.save_asset(path), 'Failed to save ' + path
@@ -915,6 +881,8 @@ basalt_r = load_texture('aerial_rocks_02', 'Rough', 'T_Basalt_Rough', srgb=False
 
 def opt_texture(subdir, stem, name, normal=False, srgb=True):
     """Load an optional, user-supplied texture; returns None when absent."""
+    if ela.does_asset_exist('/Game/Shiomori/Textures/' + name):
+        return u.load_asset('/Game/Shiomori/Textures/' + name)
     if not (ROOT / subdir / (stem + '.jpg')).exists():
         return None
     return load_texture(subdir, stem, name, normal=normal, srgb=srgb)
@@ -937,9 +905,10 @@ if sand_d2:
 # --------------------------------------------------------------------------- #
 mats = {}
 mats['Sand'] = sand_material('Sand', sand_d, sand_n, rough_tex=sand_r, tiling_cm=300.0,
-                             normal_strength=0.65)
-mats['WetSand'] = sand_material('WetSand', sand_d, sand_n, rough=0.35, tiling_cm=300.0,
-                                normal_strength=0.5, tint=(0.74, 0.68, 0.56), caustic=True)
+                             normal_strength=0.65,
+                             pebble=(basalt_d, basalt_n, basalt_r, (0.55, 0.55, 0.56), 36000.0, 44800.0))
+mats['WetSand'] = sand_material('WetSand', sand_d, sand_n, rough_tex=sand_r, tiling_cm=300.0,
+                                normal_strength=0.65)
 mats['Concrete'] = concrete_material('Concrete', worn_d, worn_n, worn_r,
                                      scale_cm=300.0, normal_strength=0.5)
 mats['Basalt'] = pbr_material('Basalt', diffuse=basalt_d, normal=basalt_n, rough=0.92,
@@ -1340,7 +1309,7 @@ def sand_ripple(x, y):
 
 def beach_visual_height(x, y):
     # Cosmetic only: ramp the dry sand's inland edge down to the first tidewalk
-    # tread top (Z=25) and butt it against that tread's seaward face (y=-1200) so
+    # tread top (Z=50) and butt it against that tread's seaward face (y=-1200) so
     # the sand connects to the stairs with no gap and no floating cut-off edge.
     # beach_height() remains the collision and ground source of truth.
     z = beach_height(x, y)
@@ -1348,8 +1317,42 @@ def beach_visual_height(x, y):
     d_inland = y + 1200.0
     if d_inland < blend:
         t = max(0.0, d_inland) / blend
-        z = 25.0 + (z - 25.0) * t
+        z = 50.0 + (z - 50.0) * t
     return z + sand_ripple(x, y)
+
+
+def _smoothstep(a, b, x):
+    t = max(0.0, min(1.0, (x - a) / (b - a)))
+    return t * t * (3.0 - 2.0 * t)
+
+
+def headland_height(x, y):
+    # Runtime enclosing headlands (Born2FlapBayTerrain.cpp Height). The baked
+    # beach mesh stops at |x|=45000; beyond it the C++ actor raises these low
+    # land tongues. Keep in sync so build-time foliage roots on the runtime
+    # ground. (Only the Y>=-3000 coastal branch is needed here.)
+    shore = 10000 + 520 * math.sin(x * 0.00030 + 1.7) + 300 * math.sin(x * 0.00105 + 4.2) \
+        + 160 * math.sin(x * 0.0024 + 0.6) + 85 * math.sin(x * 0.0056 + 2.3) \
+        + 45 * math.sin(x * 0.013 + 5.1)
+    dune = max(20.0, 40.0 + 50 * math.sin(x * 0.00029 + 1.2) + 30 * math.sin(x * 0.00091 + 4.1)
+               + 15 * math.sin(x * 0.0023 + 0.7) + 8 * math.sin(x * 0.0047 + 2.9))
+    d = y - shore
+    if d <= -2500:
+        base = dune
+    elif d < 0:
+        base = dune * (-d / 2500.0) - 50.0 * ((d + 2500.0) / 2500.0) ** 2
+    else:
+        base = max(-1750.0, -50.0 - 0.04 * d)
+    if y < -1200:
+        base = max(0.0, min(300.0, math.ceil((-y - 1200.0) / 100.0) * 50.0))
+    inner = (54000.0 if x < 0 else 50750.0) - 3500.0 * math.exp(-((y - 26000.0) / 14000.0) ** 2)
+    rise = _smoothstep(inner - 5000.0, inner + 14000.0, abs(x))
+    tip = 1.0 - _smoothstep(40000.0, 68000.0, y)
+    inland = _smoothstep(-3000.0, 5000.0, y)
+    hill_amp = 700.0 if x < 0 else 900.0
+    headland_top = -50.0 + hill_amp + 220.0 * math.sin(x * 0.000065 + y * 0.00011)
+    hill = base + (headland_top - base) * (rise * tip)
+    return max(base - 6.0, (base - 6.0) + (hill - (base - 6.0)) * inland)
 
 
 def make_beach():
@@ -1667,13 +1670,13 @@ place_mesh('Open bay', (0, 0, 0), ocean_mesh, mats['Water'])
 place_mesh('Distant mountains behind', (0, 0, 0), mountains_behind, mats['Mountain'], collision=False)
 place_mesh('Distant mountains east', (0, 0, 0), mountains_east, mats['Mountain'], collision=False)
 place_mesh('Distant mountains west', (0, 0, 0), mountains_west, mats['Mountain'], collision=False)
-part('Raised promenade', (0, -2400, 50), (90000, 1200, 200), 'Sterile')
-part('Industrial hinterland', (0, -27000, -100), (150000, 48000, 500), 'Industry')
+part('Raised promenade', (0, -2400, 150), (90000, 1200, 300), 'Sterile')
+part('Industrial hinterland', (0, -27000, 150), (150000, 48000, 300), 'Industry')
 # Six continuous, shallow stair treads run the entire beach edge.
 for i in range(6):
-    h = (i + 1) * 25
+    h = (i + 1) * 50
     part('Tidewalk stair %02d' % i, (0, -1250 - i * 100, h / 2), (90000, 100, h), 'Concrete')
-part('Promenade edge', (0, -1880, 153), (90000, 24, 6), 'Concrete', collision=False)
+part('Promenade edge', (0, -1880, 303), (90000, 24, 6), 'Concrete', collision=False)
 # A gently curving service road: the promenade and buildings stay straight, but
 # the road weaves like a real coastal drive (a chain of rotated asphalt slabs).
 def road_y(x):
@@ -1687,14 +1690,14 @@ for i in range(len(road_xs) - 1):
     dx, dy = x1 - x0, y1 - y0
     seg = math.hypot(dx, dy)
     yaw = math.degrees(math.atan2(dy, dx))
-    part('Service road', ((x0 + x1) / 2.0, (y0 + y1) / 2.0, 149), (seg + 60, 1400, 18), 'Road', rot=(0, yaw, 0))
+    part('Service road', ((x0 + x1) / 2.0, (y0 + y1) / 2.0, 299), (seg + 60, 1400, 18), 'Road', rot=(0, yaw, 0))
     if i % 3 == 0:
-        part('Road dash', ((x0 + x1) / 2.0, (y0 + y1) / 2.0, 160), (520, 16, 2), 'Ivory', rot=(0, yaw, 0), collision=False)
+        part('Road dash', ((x0 + x1) / 2.0, (y0 + y1) / 2.0, 310), (520, 16, 2), 'Ivory', rot=(0, yaw, 0), collision=False)
 # Open, cloud-like art shelters: slim white piers beneath a cluster of soft,
 # translucent white puffs. One puff keeps the counted "Shelter floating roof" tag.
 for j, x in enumerate(range(-40000, 41000, 10000)):
     for dx in (-360, 360):
-        part('Shelter swept pier', (x + dx, -2920, 335), (24, 40, 370), 'Sterile', rot=(0, 0, -8 if dx < 0 else 8))
+        part('Shelter swept pier', (x + dx, -2920, 485), (24, 40, 370), 'Sterile', rot=(0, 0, -8 if dx < 0 else 8))
     puffs = [(0, 0, 62), (-290, -130, 44), (290, -130, 44), (-170, 130, 36),
              (170, 130, 36), (0, -210, 30), (0, 210, 28)]
     for i, (dx, dy, r) in enumerate(puffs):
@@ -1705,10 +1708,10 @@ for j, x in enumerate(range(-40000, 41000, 10000)):
         # so the cube (proven to collide) sits invisibly inside the puff. The
         # central puff keeps the counted "Shelter floating roof" tag.
         part('Shelter floating roof' if i == 0 else 'Shelter glass panel',
-             (x + dx, -2750 + dy, 540), (r * 6, r * 4.4, r * 1.2), 'Glass', 'Sphere',
+             (x + dx, -2750 + dy, 690), (r * 6, r * 4.4, r * 1.2), 'Glass', 'Sphere',
              collision=False)
         pad = u.EditorLevelLibrary.spawn_actor_from_class(
-            u.StaticMeshActor, u.Vector(x + dx, -2750 + dy, 540), u.Rotator())
+            u.StaticMeshActor, u.Vector(x + dx, -2750 + dy, 690), u.Rotator())
         pad.set_actor_label('Shelter landing pad')
         pad.set_actor_hidden_in_game(True)
         pc = pad.static_mesh_component
@@ -1718,15 +1721,15 @@ for j, x in enumerate(range(-40000, 41000, 10000)):
         pad.set_actor_scale3d(u.Vector((r * 6) / (2 * pb.x), (r * 4.4) / (2 * pb.y),
                                        (r * 1.2) / (2 * pb.z)))
         count += 1
-    part('Picnic table', (x, -2740, 235), (320, 100, 12), 'Wood')
+    part('Picnic table', (x, -2740, 385), (320, 100, 12), 'Wood')
     for dx in (-115, 115):
-        part('Table trestle', (x + dx, -2740, 196), (18, 85, 80), 'Sterile')
+        part('Table trestle', (x + dx, -2740, 346), (18, 85, 80), 'Sterile')
     for dy in (-115, 115):
-        part('Picnic bench', (x, -2740 + dy, 202), (360, 36, 12), 'Wood')
+        part('Picnic bench', (x, -2740 + dy, 352), (360, 36, 12), 'Wood')
         for dx in (-135, 135):
-            part('Bench leg', (x + dx, -2740 + dy, 176), (14, 28, 45), 'Sterile')
-    part('Wayfinding kiosk', (x + 480, -2900, 270), (55, 45, 240), 'Sterile')
-    part('Kiosk face', (x + 480, -2875, 294), (44, 4, 135), 'Cloud', collision=False)
+            part('Bench leg', (x + dx, -2740 + dy, 326), (14, 28, 45), 'Sterile')
+    part('Wayfinding kiosk', (x + 480, -2900, 420), (55, 45, 240), 'Sterile')
+    part('Kiosk face', (x + 480, -2875, 444), (44, 4, 135), 'Cloud', collision=False)
 # Sterile white buildings behind the promenade; the yard and industrial accents
 # (vents, tanks) keep a muted, grey-yellowed concrete tone.
 for j, x in enumerate(range(-43000, 44000, 6500)):
@@ -1737,14 +1740,14 @@ for j, x in enumerate(range(-43000, 44000, 6500)):
     w = rng.uniform(4200, 5600)
     h = rng.uniform(850, 1700)
     y = -8500 - rng.uniform(0, 2500)
-    part('Quiet warehouse %02d' % j, (x, y, 145 + h / 2), (w, 4600, h + 10), 'Sterile')
-    part('Warehouse pale roof', (x, y, 160 + h), (w + 120, 4780, 60), 'Sterile')
+    part('Quiet warehouse %02d' % j, (x, y, 295 + h / 2), (w, 4600, h + 10), 'Sterile')
+    part('Warehouse pale roof', (x, y, 310 + h), (w + 120, 4780, 60), 'Sterile')
     for dx in (-w * .32, 0, w * .32):
-        part('Warehouse loading door', (x + dx, y + 2310, 430), (760, 20, 550), 'Window')
-    part('Rooftop ventilation', (x + 600, y, 270 + h), (650, 500, 240), 'Industry')
+        part('Warehouse loading door', (x + dx, y + 2310, 580), (760, 20, 550), 'Window')
+    part('Rooftop ventilation', (x + 600, y, 420 + h), (650, 500, 240), 'Industry')
     if j % 3 == 0:
         for dx in (0, 600):
-            part('Utility tank', (x + dx, y - 3100, 745), (460, 460, 1210), 'Industry', 'Cylinder')
+            part('Utility tank', (x + dx, y - 3100, 895), (460, 460, 1210), 'Industry', 'Cylinder')
 # Natural woodland hinterland between the fields and the distant mountains: a
 # soft meadow-to-forest gradient that fills the flat ground instead of the old
 # green hill "blobs". Broadleaf and fir stand in loose groves with grass between.
@@ -1755,7 +1758,7 @@ for i in range(700):
     kind = wrng.choice(('Grass', 'Grass', 'Grass', 'Fir', 'Fir', 'Tree'))
     mesh = _pick_mesh(foliage_meshes[kind], wrng)
     h = wrng.uniform(80, 220) if kind == 'Grass' else wrng.uniform(120, 340) if kind == 'Fir' else wrng.uniform(500, 1100)
-    foliage('Hinterland woodland', (x, y, 150), mesh, h, rot=(0, wrng.uniform(0, 360), 0), ground_z=150)
+    foliage('Hinterland woodland', (x, y, 300), mesh, h, rot=(0, wrng.uniform(0, 360), 0), ground_z=300)
 # Backshore scrub: real coastal vegetation instead of green spheres.
 for i in range(180):
     x = rng.uniform(-44500, 44500)
@@ -1763,7 +1766,7 @@ for i in range(180):
     kind = rng.choice(('Grass', 'Grass', 'Grass', 'Fir', 'Rock'))
     mesh = _pick_mesh(foliage_meshes[kind], rng)
     h = rng.uniform(60, 260) if kind == 'Grass' else rng.uniform(120, 320) if kind == 'Fir' else rng.uniform(50, 160)
-    foliage('Backshore scrub', (x, y, 150), mesh, h, rot=(0, rng.uniform(0, 360), 0), ground_z=150)
+    foliage('Backshore scrub', (x, y, 300), mesh, h, rot=(0, rng.uniform(0, 360), 0), ground_z=300)
 # Lush satsumaimo (sweet potato) fields behind the warehouses: tilled-earth
 # ridges running east-west, each crested with sprawling heart-leafed vines so the
 # plots read as a real cultivated field from above. The old smooth white furrows
@@ -1776,26 +1779,26 @@ FIELD_Y0 = -13300.0
 FIELD_SPACING = 620.0
 for row in range(FIELD_ROWS):
     y = FIELD_Y0 - row * FIELD_SPACING
-    place_mesh('Sweet potato ridge %02d' % row, (0, y, 150), sp_ridge, mats['Earth'], collision=False)
+    place_mesh('Sweet potato ridge %02d' % row, (0, y, 300), sp_ridge, mats['Earth'], collision=False)
 for i in range(3000):
     row = srng.randint(0, FIELD_ROWS - 1)
     y = FIELD_Y0 - row * FIELD_SPACING + srng.uniform(-110, 110)
     x = srng.uniform(-44000, 44000)
-    foliage('Sweet potato plant', (x, y, 192),
+    foliage('Sweet potato plant', (x, y, 342),
             sweet_potato_plant, srng.uniform(14, 24),
-            rot=(0, srng.uniform(0, 360), 0), ground_z=192)
+            rot=(0, srng.uniform(0, 360), 0), ground_z=342)
 for i in range(160):
     fx = srng.uniform(-44500, 44500)
     fy = srng.choice((-12750, -19450)) + srng.uniform(-400, 400)
-    foliage('Field fern', (fx, fy, 150),
+    foliage('Field fern', (fx, fy, 300),
             _pick_mesh(foliage_meshes['Fern'], srng), srng.uniform(120, 300),
-            rot=(0, srng.uniform(0, 360), 0), ground_z=150)
+            rot=(0, srng.uniform(0, 360), 0), ground_z=300)
 for i in range(130):
     tx = srng.uniform(-44000, 44000)
     ty = srng.choice((-12900, -19150)) + srng.uniform(-500, 500)
-    foliage('Field hedgerow', (tx, ty, 150),
+    foliage('Field hedgerow', (tx, ty, 300),
             _pick_mesh(foliage_meshes['Tree'], srng), srng.uniform(700, 1300),
-            rot=(0, srng.uniform(0, 360), 0), ground_z=150)
+            rot=(0, srng.uniform(0, 360), 0), ground_z=300)
 # Layered coastal thickets: a soft gradient from marram grass through low bushes
 # and saplings into a full treeline, so each far end of the beach closes into a
 # lush wood instead of a sparse scatter. Mossy boulders break up the understory.
@@ -1835,6 +1838,35 @@ for side in (-1, 1):
         foliage('Coastal forest west' if side<0 else 'Coastal forest east',
                 (x,y,0), _pick_mesh(foliage_meshes['Fir'], vrng), vrng.uniform(500,820),
                 rot=(0,vrng.uniform(0,360),0), ground_z=beach_height(x,y))
+# Seaward headland woodland: the low land tongue east of the beach (between the
+# coastal treeline and the volcanic shoal) is generated at runtime but was left
+# bare. Plant loose, wind-shaped groves of fir and broadleaf on it so the outer
+# beach closes into a wooded headland instead of a bald sand/rock shelf. Roots
+# follow headland_height() (kept in sync with Born2FlapBayTerrain.cpp).
+hrng = random.Random(771503)
+for i in range(320):
+    x = hrng.uniform(45600, 54800)
+    y = hrng.uniform(3800, 16600)
+    z = headland_height(x, y)
+    if z < 22.0 or z > 600.0:
+        continue
+    r = hrng.random()
+    if r < 0.14:
+        # Occasional wind-bent grass pocket on the lower shelf.
+        mesh = _pick_mesh(foliage_meshes['Grass'], hrng)
+        foliage('Headland grass east', (x, y, 0), mesh, hrng.uniform(40, 90),
+                rot=(0, hrng.uniform(0, 360), 0), ground_z=z - 3)
+    elif r < 0.24:
+        # Small mossy stones scattered across the stony upper shelf.
+        mesh = _pick_mesh(foliage_meshes['Rock'], hrng)
+        foliage('Headland rock east', (x, y, 0), mesh, hrng.uniform(30, 80),
+                rot=(0, hrng.uniform(0, 360), 0), ground_z=z - 3)
+    else:
+        kind = 'Tree' if hrng.random() < 0.4 else 'Fir'
+        mesh = _pick_mesh(foliage_meshes[kind], hrng)
+        h = hrng.uniform(340, 900) if kind == 'Fir' else hrng.uniform(520, 1250)
+        foliage('Headland woodland east', (x, y, 0), mesh, h,
+                rot=(0, hrng.uniform(0, 360), 0), ground_z=z - 6)
 # Beach dune grasses: marram-like clumps that cluster on the slight elevations
 # (dune crests) the onshore wind has built. They keep off the wet foreshore and
 # the tidewalk, growing sparse on the flats and denser toward the higher berms
@@ -1947,3 +1979,5 @@ radio()
 u.EditorAssetLibrary.make_directory('/Game/Shiomori/Maps')
 assert u.EditorLoadingAndSavingUtils.save_map(world, '/Game/Shiomori/Maps/SHIOMORI')
 u.log('SHIOMORI_MAP_READY actors=' + str(count))
+if '-ExecutePythonScript=' in u.SystemLibrary.get_command_line() and not globals().get('B2F_GENERATION_BATCH'):
+    u.SystemLibrary.execute_console_command(None,'quit')

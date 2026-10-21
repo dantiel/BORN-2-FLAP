@@ -3,6 +3,8 @@
 #include "GameFramework/GameModeBase.h"
 #include "Born2FlapPoi.h"
 #include "World/Born2FlapWeather.h"
+#include "UI/Born2FlapMenuSettings.h"
+#include "Input/Born2FlapRcController.h"
 #include "Born2FlapGameMode.generated.h"
 
 class UBorn2FlapRadioStation;
@@ -14,6 +16,7 @@ class AStaticMeshActor;
 class UMaterialInstanceDynamic;
 class UTexture2D;
 class IInputProcessor;
+class FJsonObject;
 
 UCLASS()
 class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
@@ -35,11 +38,13 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     double GetBestLapTime() const { return BestLapTime; }
     bool IsRaceComplete() const { return Gates.Num() > 0 && GatesPassed >= Gates.Num(); }
     bool IsCoastLevel() const { return bCoastLevel; }
+    bool IsHarvestWatch() const { return bHarvestWatch; }
+    bool IsVoidLevel() const { return bVoidLevel; }
     bool IsMenuOpen() const { return bMenuOpen; }
     bool IsWater(double X,double Y) const;
     double WaterHeight() const;
     FVector WindAt(const FVector& P,double Time) const;
-    FString GetLevelId() const { return bCoastLevel ? TEXT("Shiomori") : (bNatureLevel ? TEXT("Ravenstonefield") : TEXT("Training")); }
+    FString GetLevelId() const { return bVoidLevel ? TEXT("NeonAbyss") : (bCoastLevel ? TEXT("Shiomori") : (bNatureLevel ? TEXT("Ravenstonefield") : TEXT("Training"))); }
     const FBorn2FlapConditions& GetConditions() const { return Conditions; }
     double GroundHeight(double X, double Y) const;
     bool HasRadioTrack() const;
@@ -64,6 +69,10 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     // renderer into game logic. Mirrors ABorn2FlapMenu::OnAction + the POI
     // overlay handler so the Ruby path and the native path share one behaviour.
     void HandleBrainAction(const FString& Action, float Value, const FString& Text);
+    // Route an imperative command (the Ruby Brain's outbound channel) into game
+    // logic. Non-time-critical flow control only; the per-tick simulation stays
+    // in C++. Extend this dispatch table to expose new hooks for Ruby modding.
+    void HandleBrainCommand(const FString& Name, const TSharedPtr<FJsonObject>& Payload);
     // Full JSON telemetry for the Brain: panel visibility + menu catalog + POI
     // list + radio + RC + splash + flight readouts (single source of truth).
     FString BuildBrainTelemetry() const;
@@ -72,6 +81,8 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     const TMap<FString, FBorn2FlapConditions>& GetMenuLevelConditions() const { return MenuLevelConditions; }
 
   private:
+    born2flap::FMenuSettings BrainPreferences;
+    TUniquePtr<FBorn2FlapRcController> BrainRc;
     void PopulatePOIs();
     void AddPoi(const FString& Key, double X, double Y, float Clearance = 80.f);
     void AddPoi(const FString& Key, const FVector& Position, float Yaw = 0.f);
@@ -80,10 +91,17 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     void UpdateGateColors();
 
     TArray<FVector> Gates;
+    UPROPERTY(Transient)
     TArray<TObjectPtr<AStaticMeshActor>> GateActors;
+    UPROPERTY(Transient)
     TArray<TObjectPtr<UMaterialInstanceDynamic>> GateMaterials;
+    // Keep inactive artwork alive across garbage collection and flight resets.
+    // TObjectPtr alone is not a GC root without a reflected property.
+    UPROPERTY(Transient)
     TArray<TObjectPtr<UTexture2D>> GateRedTextures;    // active-gate artwork (4 variants)
+    UPROPERTY(Transient)
     TArray<TObjectPtr<UTexture2D>> GateGreenTextures;  // passed-gate artwork (3 variants)
+    UPROPERTY(Transient)
     TArray<TObjectPtr<UTexture2D>> GateQuasiTextures;  // ahead/ghost artwork (4 distance tiers)
     TArray<int32> GateRedVariant;     // per-gate random red pick
     TArray<int32> GateGreenVariant;   // per-gate random green pick
@@ -93,6 +111,8 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     int32 InitialPoiNumber = 0; // ?PoiNum= (gates), 0 = none
     bool bNatureLevel = true;
     bool bCoastLevel = false;
+    bool bHarvestWatch = false;
+    bool bVoidLevel = false;
     FBorn2FlapConditions Conditions;
     UPROPERTY() TObjectPtr<ABorn2FlapWeather> WeatherActor;
     float CoastTestTime=0;
@@ -111,6 +131,8 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     int32 MenuWorldIndex = 0;
     int32 MenuPage = 0;
     int32 SettingsPage = 0;
+    int32 PrefsPage = 0;
+    int32 RcPage = 0;
     // Native-menu view persistence: F10 re-opens on the page (and FLIGHT DESK
     // sub-tab) the player last had open. The menu actor is destroyed on close,
     // so its NavPage / SettingsPage survive here across open/close.
@@ -126,6 +148,7 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     TObjectPtr<ABorn2FlapSplash> SplashWidget;
     float SplashElapsed = -1.f;
 
+
     // Main menu / level selector, opened once the splash fades on a plain boot
     // (no ?Level=, no ?SkipMenu=1). Selecting a level re-opens with SkipMenu.
     // F10 re-opens it from inside a level (bSkipMenu true, menu closed).
@@ -133,6 +156,9 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     TObjectPtr<ABorn2FlapMenu> MenuWidget;
     bool bSkipMenu = false;
     bool bMenuOpen = false;
+    // APP SETTINGS subview (Brain path): opened from the menu without closing
+    // it; the Ruby dashboard renders Preferences while this flag is set.
+    bool bBrainPrefsOpen = false;
 
     // True when a plain interactive boot lands on the minimal Entry map (the
     // home screen). No world geometry or bird is built — a real level only

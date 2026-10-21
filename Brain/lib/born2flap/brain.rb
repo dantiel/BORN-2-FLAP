@@ -11,19 +11,52 @@ module Born2Flap
       @router = Router.new(routes: ROUTES, initial: :boot)
       @plugins = PluginRegistry.new
       @view_model = { screen: :boot, backend: :unknown, message: "Starting" }
+      @booted = false
       bind_core_events
     end
 
-    def tick
+    def tick(telemetry = {})
       @bus.drain
+      react(telemetry) if telemetry && !telemetry.empty?
       @view_model = @view_model.merge(screen: @router.current).freeze
     end
 
+    # Imperative command to the game core (Unreal). Publishes :command, which
+    # Transport serializes into the NDJSON frame the C++ host applies. This is
+    # the orchestrator's outbound channel — everything Ruby decides the core
+    # should DO travels through here (non-time-critical only).
     def command(name, payload = {})
-      @bus.publish(name, payload)
+      @bus.publish(:command, name: name.to_s, payload: payload)
+    end
+
+    # Internal event publication (Brain-local wiring + plugin communication),
+    # distinct from the outbound command channel above.
+    def publish(event_name, payload = {})
+      @bus.publish(event_name, payload)
     end
 
     private
+
+    # Called each tick with the latest telemetry (the native core's sensory
+    # feed). The first real telemetry means the core is up: emit a one-time
+    # boot command so the game core logs the orchestrator's presence. Later
+    # phases map telemetry → state-machine transitions and issue flow commands.
+    def react(telemetry)
+      unless @booted
+        @booted = true
+        command("boot", ruby: RUBY_VERSION, phase: @router.current.to_s)
+      end
+      # While the C++ level-loading screen is up, hold at :boot so nothing renders
+      # over the movie player (belt-and-braces on top of Dashboard's loading guard).
+      if telemetry[:loading]
+        @router.navigate(:boot, remember: false) unless @router.current == :boot
+        return
+      end
+      # Native lifecycle is authoritative across travel and direct-level boots.
+      # Repeated telemetry must not grow navigation history every frame.
+      target = telemetry[:frontend] || (telemetry[:menu] && !telemetry[:menu_inlevel]) ? :main_menu : :free_flight
+      @router.navigate(target, remember: false) unless @router.current == target
+    end
 
     def bind_core_events
       @bus.subscribe(:native_ready) do |payload|

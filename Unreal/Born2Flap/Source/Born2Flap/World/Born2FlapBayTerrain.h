@@ -11,6 +11,13 @@ double Height(double X,double Y);
 // Terrain plus the hand-placed sea wall: the top of what the wind piles against.
 double TopHeight(double X,double Y);
 double WindExposure(const FVector& Position,const FVector& Direction);
+double CliffEdge(double X);
+double CliffMask(double X);
+double CliffHeight(double X,double Y,double Original);
+double CliffLift(const FVector& Position,const FVector& HorizontalWind);
+double EastShoreMask(double X,double Y);
+double EastShoreEdge(double X);
+double EastShoreHeight(double X,double Y,double Original);
 }
 
 UCLASS()
@@ -23,4 +30,7 @@ public:
 private:
     void BuildLand();
     void PlantWoodland();
+    void BuildCliffDetails();
+    void BuildEastShore();
+    void BuildEasternStation();
 };

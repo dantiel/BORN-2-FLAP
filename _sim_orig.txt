@@ -1,0 +1,86 @@
+=== NODES ===
+0 Sketchfab_model
+1 7421b21d077d47f7a171337b811ade4c.fbx
+2 RootNode
+3 Armature
+4 Object_4
+5 _rootJoint
+6 mixamorig:Hips_01
+7 mixamorig:Spine_02
+8 mixamorig:Spine1_03
+9 mixamorig:Spine2_04
+10 mixamorig:Neck_05
+11 mixamorig:Head_06
+12 mixamorig:HeadTop_End_07
+13 mixamorig:LeftShoulder_08
+14 mixamorig:LeftArm_09
+15 mixamorig:LeftForeArm_010
+16 mixamorig:LeftHand_011
+17 mixamorig:LeftHandThumb1_012
+18 mixamorig:LeftHandThumb2_013
+19 mixamorig:LeftHandThumb3_014
+20 mixamorig:LeftHandThumb4_015
+21 mixamorig:LeftHandIndex1_016
+22 mixamorig:LeftHandIndex2_017
+23 mixamorig:LeftHandIndex3_018
+24 mixamorig:LeftHandIndex4_019
+25 mixamorig:LeftHandMiddle1_020
+26 mixamorig:LeftHandMiddle2_021
+27 mixamorig:LeftHandMiddle3_022
+28 mixamorig:LeftHandMiddle4_023
+29 mixamorig:LeftHandRing1_024
+30 mixamorig:LeftHandRing2_025
+31 mixamorig:LeftHandRing3_026
+32 mixamorig:LeftHandRing4_027
+33 mixamorig:LeftHandPinky1_028
+34 mixamorig:LeftHandPinky2_029
+35 mixamorig:LeftHandPinky3_030
+36 mixamorig:LeftHandPinky4_031
+37 mixamorig:RightShoulder_032
+38 mixamorig:RightArm_033
+39 mixamorig:RightForeArm_034
+40 mixamorig:RightHand_035
+41 mixamorig:RightHandThumb1_036
+42 mixamorig:RightHandThumb2_037
+43 mixamorig:RightHandThumb3_038
+44 mixamorig:RightHandThumb4_039
+45 mixamorig:RightHandIndex1_040
+46 mixamorig:RightHandIndex2_041
+47 mixamorig:RightHandIndex3_042
+48 mixamorig:RightHandIndex4_043
+49 mixamorig:RightHandMiddle1_044
+50 mixamorig:RightHandMiddle2_045
+51 mixamorig:RightHandMiddle3_046
+52 mixamorig:RightHandMiddle4_047
+53 mixamorig:RightHandRing1_048
+54 mixamorig:RightHandRing2_049
+55 mixamorig:RightHandRing3_050
+56 mixamorig:RightHandRing4_051
+57 mixamorig:RightHandPinky1_052
+58 mixamorig:RightHandPinky2_053
+59 mixamorig:RightHandPinky3_054
+60 mixamorig:RightHandPinky4_055
+61 mixamorig:LeftUpLeg_056
+62 mixamorig:LeftLeg_057
+63 mixamorig:LeftFoot_00
+64 mixamorig:LeftToeBase_058
+65 mixamorig:LeftToe_End_059
+66 mixamorig:RightUpLeg_060
+67 mixamorig:RightLeg_061
+68 mixamorig:RightFoot_062
+69 mixamorig:RightToeBase_063
+70 mixamorig:RightToe_End_064
+71 Object_71
+72 Object_72
+73 Object_73
+74 Object_74
+75 Object_75
+left_hand        UE=[   53.3,    18.1,   174.8]
+right_hand       UE=[  -63.4,    11.2,   261.9]
+neck             UE=[    8.9,   -20.0,   226.8]
+left_elbow       UE=[   60.3,   -14.0,   187.2]
+right_elbow      UE=[  -51.2,    -0.7,   231.5]
+left_shoulder    UE=[   39.5,   -20.1,   218.2]
+right_shoulder   UE=[  -21.6,   -20.4,   218.2]
+hips             UE=[    8.9,   -16.0,   151.1]
+head             UE=[    8.9,   -16.0,   239.4]

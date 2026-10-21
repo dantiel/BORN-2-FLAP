@@ -52,6 +52,20 @@ void ABorn2FlapValley::BuildFieldDetails()
         }
         Gold.Add({Centre+FVector(-2,-2,1),Centre+FVector(2,-2,1),Centre+FVector(2,2,1),Centre+FVector(-2,2,1)});
         ++Count;
+        // Dense colonies alternate with grass-dominated stretches.
+        for(int Extra=0;Extra<(Patch>.55?6:1);++Extra)
+        {
+            const FVector C=Centre+FVector(R.FRandRange(-65,65),R.FRandRange(-65,65),R.FRandRange(-15,12));
+            const FVector B(C.X,C.Y,GroundHeight(C.X,C.Y));
+            Stems.Add({B-FVector(.8,0,0),B+FVector(.8,0,0),C+FVector(.8,0,0),C-FVector(.8,0,0)});
+            for(int Petal=0;Petal<6;++Petal)
+            {
+                const double Angle=A+Petal*PI/3;const FVector D(FMath::Cos(Angle),FMath::Sin(Angle),0),Side(-D.Y,D.X,0);
+                Petals.Add({C,C+D*Radius*.7-Side*Radius*.32,C+D*Radius+FVector(0,0,1.5),C+D*Radius*.7+Side*Radius*.32});
+            }
+            Gold.Add({C+FVector(-2,-2,1),C+FVector(2,-2,1),C+FVector(2,2,1),C+FVector(-2,2,1)});
+            ++Count;
+        }
     }
     RavenSurface(this,White,TEXT("FlowerWhite"),false);RavenSurface(this,Gold,TEXT("FlowerGold"),false);
     RavenSurface(this,Purple,TEXT("FlowerPurple"),false);RavenSurface(this,Stems,TEXT("FlowerStem"),false);

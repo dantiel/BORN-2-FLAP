@@ -57,6 +57,10 @@ mkdir -p Unreal/Born2Flap/Binaries/ThirdParty
 cp -f "$DYLIB" Unreal/Born2Flap/Binaries/ThirdParty/libborn2flap_math.dylib
 echo "staged $DYLIB"
 
+# Rebuild the native editor, then generate missing/stale maps before cooking.
+# Python scripting and editor paths are selected natively on macOS.
+UE_ROOT="$UE_ROOT" $ARCH_PREFIX python3 "$REPO_ROOT/Tools/generate_maps.py"
+
 # --- Cook + package (Shipping) --------------------------------------------------
 # Force the SAME arch as the Haskell lib (arm64) so the packaged .app can
 # dlopen the dylib. On Apple Silicon the shell runs under Rosetta (x86_64),

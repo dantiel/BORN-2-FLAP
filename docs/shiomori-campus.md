@@ -3,7 +3,7 @@
 > **Design intent & narrative:** see [world-design.md](world-design.md) — what
 > this world *is*, why it exists, and what could be developed next.
 
-The campus is an adapted 1988 seaside hotel on the west (negative-X) side of the bay. From the sea, it appears on the right. Its drafting center is **(-59500, -13700) cm**, rotated -18 degrees, translated to world space by `SITE_OFFSET` (currently (-6000, 21000), i.e. hotel at world **(-65500, 7300) cm**): on the raised west-headland peninsula (the "big wasteland" west of the bay), clearly apart from the beach, promenade and coastal road. The coastal garden, torii and shrine face the volcanic island from the west across the sheltered water; the island and lagoon are untouched.
+The campus is an adapted 1988 seaside hotel on the west (negative-X) side of the bay. From the sea, it appears on the right. Its drafting center is **(-59500, -13700) cm**, rotated -18 degrees, translated by `SITE_OFFSET=(-12000,24000)` to world **(-71500,10300) cm**. This places it 60 m farther west and 30 m farther toward the peninsula than the previous park layout, apart from the beach and town. The inland hangar remains on low ground at **(-73500,-3900) cm**, connected by a graded service route. The coastal garden, torii and shrine face the volcanic island from the west across the sheltered water; the island and lagoon are untouched.
 
 ## Construction
 
@@ -22,11 +22,36 @@ The previous hotel's curtain-wall block, saucer tower, rooftop pool, solid hanga
 
 The module saves `SM_Campus_*` meshes and `M_Campus*` materials under the existing Shiomori asset folders. Repeated architecture is baked into material/zone mesh batches to avoid thousands of per-detail actors. Meshes have complex collision where appropriate; netting and suspended display models do not obstruct flight. All generated actors carry `ShiomoriCampusV2`. Rerunning the targeted script replaces those actors without duplication and asserts that all volcanic actors survive unchanged.
 
-Reused assets: existing Nature fir meshes, level lighting, water, volcanic island and established material-generation/mesh-building helpers. New assets: campus architecture, materials, furnishings, torii/shrine and sculptural/display geometry. No assets purchased or downloaded.
+Reused assets: existing textured Nature trees, firs, ferns, grass and rocks, level lighting, water, volcanic island and mesh-building helpers. New assets include campus architecture and furnishings, plus the CC0 [Periwinkle Plant from Poly Haven](https://polyhaven.com/a/periwinkle_plant), imported as 2K textured meshes with opacity masks, normal maps and four LODs. Powered by Poly Haven. `fetch_campus_plants.py` downloads the source and verifies supplied hashes; `campus_plant_assets.py` imports it. Run the fetch script before rebuilding on a fresh checkout without `Saved/NatureSource`.
+
+`shiomori_park.py` replaces the former colored cube flowers, spherical ornamental trees and floating ground boxes with irregular ground-following beds, low flowering plants, ferns, partly buried rocks and asymmetric tree groups. Tall planting is excluded within 13 m of the torii and from its island-view corridor. Footpaths and shrine access have separate planting clearances. Existing fir assets serve as coastal evergreens; this is not a claim of botanical Japanese pine accuracy.
 
 The available static bird asset was a 100 cm-long kestrel fuselage; a complete large experimental aircraft was unavailable. The hangar therefore uses **labelled 6 m-span experimental study models** with structural spars and membrane silhouettes. These are dimension proxies/display models, not new flyable aircraft. The existing flight planform also documents a 1.44 m-span default bird, substantially smaller than the hangar clearance.
 
 ## Rebuild
+
+For the imported shrine, install the source files once with
+`python Unreal/Born2Flap/Tools/fetch_shrine_assets.py`, then run
+`python Unreal/Born2Flap/Tools/flatten_shrine_glb.py`. The flattening step bakes
+node transforms into a single mesh while retaining material slots, UVs and
+textures; it does not replace the artist's surfaces with generic colors.
+`fetch_campus_plants.py` supplies the flowering plants and photographed grass,
+pine-needle litter and mossy rock textures. Imported `.uasset` files are portable
+and do not require these download steps to play the level.
+
+The torii is **Japanese Torii gate Game Asset by Bazylonator** and the small
+hokora is **Small Japanese Shrine by SamRi**, both CC BY 4.0, obtained from
+Ai2's public Objaverse mirror. Source links, license links and adaptation notes
+are in `Content/ThirdParty/Shiomori-assets.txt`; that directory is configured
+for loose-file staging in packaged builds. The larger GreenG shrine was
+reviewed but rejected because its long raised corridor does not fit this site.
+
+The former primitive gate and shrine are removed during the tagged rebuild.
+The island-facing approach is now a ribbon of irregular, bevelled mossy slabs
+set in pine-needle litter, with photographic litter patches beneath evergreen
+groups. The final approach aligns with the gate opening. Ground sampling
+matches the native terrain's 10 m triangle interpolation so small flowers and
+slabs sit on the rendered surface rather than its underlying analytical curve.
 
 Close the running game/editor first to prevent map locks. Back up the current map, then run from the repository root:
 
@@ -46,7 +71,7 @@ The campus camera/collision test is integrated with the existing weather experie
 ./Unreal/Born2Flap/Tools/test-weather.ps1 -Campus -Weather sunny -DayTime noon
 ```
 
-It captures seven views (bay, front, aerial, rear hangar, torii/island, forecourt and balcony close-up) as `Saved/Screenshots/WindowsEditor/CAMPUS_Shiomori_sunny_0.png` through `_6.png`. It traces the central hangar opening, roof, forecourt, launch field and garden path, alongside existing surf/audio checks. Run the shoreline regression separately with `test-shiomori.ps1 -NoRender`.
+It captures seven views (bay, hotel front, aerial, hangar, torii/island, garden and shrine) as `Saved/Screenshots/WindowsEditor/CAMPUS_Shiomori_sunny_0.png` through `_6.png`. Generated target-point anchors keep cameras and collision probes attached to the current campus layout. The test traces the central hangar opening, roof, forecourt, launch field, garden path, shrine and terrace, alongside existing surf/audio checks. Run the shoreline regression separately with `test-shiomori.ps1 -NoRender`.
 
 Inspect screenshots as well as logs: collision traces cannot establish architectural quality, correct framing or attractive proportions. Interiors are limited to important visible rooms. Most former guest rooms are closed room blocks, not fully furnished or walkable rooms.
 
@@ -62,3 +87,48 @@ Inspect screenshots as well as logs: collision traces cannot establish architect
 Remaining deliberate placeholders: the founder's likeness, the experimental aircraft study models, and closed/unfurnished guest-room interiors. Imported firs are reused as the coastal evergreens; no new botanical pine asset was acquired.
 
 The final seven captures, passing logs and rebuild manifest are preserved locally in `.setup/campus-20261010/verified/` so future tests do not overwrite this evidence. Review the [hotel front](../.setup/campus-20261010/verified/CAMPUS_Shiomori_sunny_1.png), [aerial layout](../.setup/campus-20261010/verified/CAMPUS_Shiomori_sunny_2.png), [daylit hangar](../.setup/campus-20261010/verified/CAMPUS_Shiomori_sunny_3.png) and [torii framing the island](../.setup/campus-20261010/verified/CAMPUS_Shiomori_sunny_4.png).
+
+### Park and imported shrine verification, 11 October 2026
+
+- The saved campus now has 1,667 tagged actors, including 1,522 planted assets;
+  all 143 volcanic actors remain unchanged. Hotel center: (-71500,10300) cm.
+- One imported torii, 480 cm high and 524.45 cm wide, and one imported hokora,
+  360 cm high and 205.94 cm wide. Original primitive shrine batches are absent.
+  The shrine faces its approach; the torii retains the clear island view.
+- Seven rendered views inspected. `CampusTest PASS`, `WeatherExperienceTest PASS`,
+  soundscape waveform check PASS and `ShiomoriTest PASS`. The 6 m handling
+  envelope, hotel terrace, path, launch field and shrine collision probes pass.
+- Repeatable D3D12 `NodeAndClusterCull` startup page faults were avoided by
+  `r.Nanite.AsyncRasterization=0` in DefaultEngine.ini. Nanite remains enabled;
+  this changes scheduling, not geometric quality. It is a tested workaround on
+  this machine, not a proven driver/engine root-cause fix or a cross-GPU benchmark.
+- The render check also exposed a disconnected Sine input in the existing
+  insect-wing material. Its connection and generator were repaired; the final
+  run has no material compilation errors. Existing insect Nanite usage warnings
+  remain outside the campus asset work.
+- Evidence: `.setup/shiomori-park-20261010/verified/`, including seven PNGs,
+  both passing logs, the rebuild report and numeric asset audit. The model
+  flattening utility uses NumPy. `-B2FCampusPlacementOnly` may be supplied to
+  the rebuild command when only geometry/placement changed and all campus
+  materials already exist; omit it after editing material definitions.
+
+
+### Organic terrace revision, 18 October 2026
+
+The campus generator now replaces the 171 x 108 m rectangular platform and
+straight embankment with an asymmetric rounded terrace. A grass shoulder and
+smoothly graded headland apron meet the native terrain, with loose fern, grass
+and partly buried rock groups on the park-facing slope. The separate inland
+launch field and hangar retain their handling surfaces.
+
+A 4.6?5.6 m wide curving stone stair descends from the hotel forecourt toward
+the park, independently of the hotel axes. Three flights are separated by two
+long landings, with low stone cheeks and restrained metal handrails. Shared
+step edges prevent cracks on the bends; the embankment is recessed beneath
+the stairs. Planting clearance includes the complete stair route. The imported
+torii is enlarged from 4.8 m to 7.2 m high, keeping its island-facing orientation.
+
+`campus_landscape.py` supplies the terrain and stairs to both rebuild entry
+points. The original map is backed up in `.setup/campus-organic-20261018/`.
+Generation checks cover upward terrain faces, shared stair edges and risers
+at most 15 cm. The targeted rebuild saved SHIOMORI on 19 October 2026: 1,877 campus actors, 47 mesh batches and 61,474 triangles. All 180 existing volcanic actors were preserved. The rebuild exited successfully and logged CAMPUS_MAP_SAVED without Python errors or file-lock failures. Visual verification is left to the user, as requested. Evidence: `.setup/campus-organic-20261018/rebuild.log`.

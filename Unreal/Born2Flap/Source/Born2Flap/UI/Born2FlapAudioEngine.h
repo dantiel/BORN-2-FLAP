@@ -236,19 +236,22 @@ private:
             const double sepHp = sepN - LowPass(v.flutterLp, sepN, 900.0 * pitch);
             const double sepBand = LowPass(v.sepLp, sepHp, (3000.0 + 2400.0 * flutter) * pitch);
             const double sepNoise = sepBand * flutter * flutter;
-            // WHISTLE — a continuous narrowband aero tone (air through feather
-            // slots). Dominant in a fast glide: a uniform whistle, not a knock.
-            const double whistleHz=(380.0+46.0*speed)*pitch;
-            Advance(v.whistleVib, 5.5);
-            const double vib=1.0+0.02*std::sin(v.whistleVib);
+            // WIND-BREATH — the airstream's soft body: a LOW, mostly broadband
+            // airflow tone, not a high narrowband "feather-slot" whistle. The
+            // old 380+46·speed Hz tone with 2×/3× partials read as a whining
+            // window-gap (air forced through a small hole), so the fundamental
+            // is dropped well below the membrane and the balance leans into the
+            // breath — a soft whoosh, never a ring.
+            const double whistleHz=(170.0+16.0*speed)*pitch;
+            Advance(v.whistleVib, 3.0);
+            const double vib=1.0+0.03*std::sin(v.whistleVib);
             Advance(v.whistlePhase, whistleHz*vib);
             const double whistleTone=std::sin(v.whistlePhase)
-                                    +.35*std::sin(v.whistlePhase*2.01)
-                                    +.16*std::sin(v.whistlePhase*2.98);
+                                    +.12*std::sin(v.whistlePhase*1.51);
             const double wNoise=Noise(v);
-            const double wHp=wNoise-LowPass(v.whistleHp,wNoise,whistleHz*0.5);
-            const double whistleBreath=LowPass(v.whistleLp,wHp,whistleHz*2.2);
-            const double whistleVoice=(.72*whistleTone+.28*whistleBreath)*whistle*0.32;
+            const double wHp=wNoise-LowPass(v.whistleHp,wNoise,whistleHz*0.6);
+            const double whistleBreath=LowPass(v.whistleLp,wHp,whistleHz*2.8);
+            const double whistleVoice=(.35*whistleTone+.65*whistleBreath)*whistle*0.18;
             return glideWhoosh + (smooth + paperWhoosh) * gain * 1.9 + sepNoise * 0.55 + whistleVoice;
         }
         if (kind == "servo") {

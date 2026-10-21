@@ -53,6 +53,20 @@ module Born2Flap
           new.render(name, locals)
         end
 
+        # mtime-invalidated caches. `render` instantiates a fresh controller per
+        # call, so these live on the class and persist across Brain ticks.
+        # Templates and themes are static between file edits; re-reading and
+        # re-parsing them from disk every frame was the dominant per-tick cost
+        # in the Brain loop (the reconciler already redraws only what changed,
+        # but the tree was being *rebuilt from disk* every 16 ms).
+        def template_cache
+          @template_cache ||= {}
+        end
+
+        def theme_cache
+          @theme_cache ||= {}
+        end
+
         def default_view_dir
           to_s.split("::").last.gsub(/([a-z0-9])([A-Z])/, '\1_\2').downcase
         end
@@ -75,7 +89,8 @@ module Born2Flap
         tree = HamlParser.parse(source).children.first
 
         theme = load_theme(name)
-        theme ? theme.apply(tree) : tree
+        tree = theme.apply(tree) if theme
+        Layout.expand(tree)
       end
 
       # Absolute path of this controller's directory on disk.
@@ -94,7 +109,14 @@ module Born2Flap
         path = File.join(dir, spec[:template])
         raise Errno::ENOENT, "missing template #{path}" unless File.file?(path)
 
-        File.read(path)
+        mtime = File.mtime(path).to_f
+        cache = self.class.template_cache
+        entry = cache[path]
+        return entry[1] if entry && entry[0] == mtime
+
+        text = File.read(path)
+        cache[path] = [mtime, text]
+        text
       end
 
       def load_theme(name)
@@ -104,7 +126,14 @@ module Born2Flap
         path = File.join(dir, spec[:theme])
         return nil unless File.file?(path)
 
-        Umgss.parse_file(path)
+        mtime = File.mtime(path).to_f
+        cache = self.class.theme_cache
+        entry = cache[path]
+        return entry[1] if entry && entry[0] == mtime
+
+        theme = Umgss.parse_file(path)
+        cache[path] = [mtime, theme]
+        theme
       end
     end
   end

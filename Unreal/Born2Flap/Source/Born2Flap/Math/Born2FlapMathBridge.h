@@ -29,10 +29,19 @@ public:
     bool InjectWindPhaseNoise(double NoiseRadS) const;
     bool ReadWingShape(B2F_WingSection* Left, B2F_WingSection* Right) const;
     bool ReadWingForces(double* Left, double* Right) const;
+    bool ReadMassProperties(double CgX, B2F_MassProperties& Out) const;
 
     // Apply a complete live tuning profile (servo/battery/controller knobs) to
     // the running context in place. Takes effect next step; no-op if unready.
     bool Reconfigure(const B2F_TuningConfig& Tuning) const;
+
+    // Select the bird's physical model (wing outline + carbon-rod inventory) by
+    // id. Takes effect next step; no-op if unready or unsupported by the DLL.
+    bool SetWingModel(uint32_t ModelId) const;
+
+    // Dry mass of a model by id [kg], read from the math core's model config.
+    // Returns 0.0 if unready/unsupported.
+    double GetModelMassKg(uint32_t ModelId) const;
 
     const FString& GetStatus() const { return Status; }
 
@@ -48,6 +57,8 @@ private:
     using ReconfigureFn = int32_t (*)(B2F_MathContext*, const B2F_TuningConfig*);
     using GetWingShapeFn = int32_t (*)(B2F_MathContext*, uint32_t, B2F_WingSection*, B2F_WingSection*);
     using GetWingForcesFn = int32_t (*)(B2F_MathContext*, uint32_t, double*, double*);
+    using SetWingModelFn = int32_t (*)(B2F_MathContext*, uint32_t);
+    using GetModelMassKgFn = double (*)(uint32_t);
     void* LibraryHandle = nullptr;
     B2F_MathContext* Context = nullptr;
     bool bRuntimeInitialized = false;
@@ -58,5 +69,9 @@ private:
     ReconfigureFn ReconfigureFirmwareVehicle = nullptr;
     GetWingShapeFn GetWingShape = nullptr;
     GetWingForcesFn GetWingForces = nullptr;
+    SetWingModelFn SetWingModelHook = nullptr;
+    GetModelMassKgFn GetModelMassKgHook = nullptr;
+    using MassPropertiesFn = int32_t (*)(B2F_MathContext*, double, B2F_MassProperties*);
+    MassPropertiesFn GetMassProperties = nullptr;
     FString Status = TEXT("Math backend not loaded");
 };

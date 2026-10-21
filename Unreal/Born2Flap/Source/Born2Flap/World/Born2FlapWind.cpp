@@ -94,25 +94,29 @@ double WindwardLift(const FVector& P, const FVector& Wind, FHeightSampler Height
     const double W = FMath::Sqrt(Wind.X * Wind.X + Wind.Y * Wind.Y);
     if (W < 0.25 || !Height) return 0.0;
 
-    // Wind blows toward +Dir; the face that piles air is upwind, so probe into
-    // the wind. Work in metres (world positions are centimetres).
-    const FVector2D Up = FVector2D(Wind.X, Wind.Y).GetSafeNormal() * -1.0;
+    // Windward lift lives on the face the air piles against — which is downwind
+    // of a bird riding the upwash. Probe downwind (with the wind) so the obstacle
+    // ahead of the airflow (sea wall, headland, ridge, treeline, building) reads
+    // correctly on its windward side, not the sheltered lee. Work in metres.
+    const FVector2D Down = FVector2D(Wind.X, Wind.Y).GetSafeNormal();
     const double X = P.X / 100.0, Y = P.Y / 100.0, Z = P.Z / 100.0;
     const double Ground = Height(P.X, P.Y) / 100.0;   // metres under the bird
 
-    // Steepest upwind relief ratio (rise/run) drives the upwash. Near probes
-    // feel walls, buildings and trees; far probes feel ridgelines and foothills.
-    // The steepest obstacle dominates locally — a sea wall out-lifts the broad
-    // ridge behind it. Upwash fades once the bird climbs above the obstacle.
-    double BestSlope = 0.0;
-    for (double D : { 8.0, 16.0, 32.0, 64.0, 128.0, 256.0, 512.0, 1024.0, 2048.0, 4096.0 })
+    // Upwash is a foot-of-obstacle effect: its reach is a few obstacle-heights,
+    // so a distant ridge never lifts a bird kilometres away. The column rises
+    // with the obstacle and fades once the bird tops the crest. Higher terrain
+    // (more relief) always deflects more air — the tallest/steepest obstacle
+    // ahead dominates locally.
+    double Best = 0.0;
+    for (double D : { 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0, 256.0, 512.0, 1024.0, 2048.0, 4096.0 })
     {
-        const double H = Height((X + Up.X * D) * 100.0, (Y + Up.Y * D) * 100.0) / 100.0;
+        const double H = Height((X + Down.X * D) * 100.0, (Y + Down.Y * D) * 100.0) / 100.0;
         const double Relief = H - Ground;
         if (Relief <= 0.0) continue;
-        const double Falloff = FMath::Exp(-FMath::Max(0.0, Z - H) / 150.0);
-        BestSlope = FMath::Max(BestSlope, (Relief / D) * Falloff);
+        if (D > Relief * 4.0) continue;   // beyond the upwash reach
+        const double Falloff = FMath::Exp(-FMath::Max(0.0, Z - H) / FMath::Max(40.0, Relief * 0.75));
+        Best = FMath::Max(Best, (Relief / (D + Relief)) * Falloff);
     }
-    return FMath::Clamp(W * BestSlope * 0.8, 0.0, 15.0);
+    return FMath::Clamp(W * Best * 2.5, 0.0, 18.0);
 }
 }

@@ -3,7 +3,6 @@
   "dir": "ltr",
   "title": "BORN2FLAP — 오니솝터 비행 시뮬레이터",
   "meta_desc": "BORN2FLAP은 실시간 오니솝터 비행 시뮬레이터입니다. 분절 날개, 동적 실속, 공력탄성 굽힘. 날갯짓 하나하나가 전부다.",
-
   "asset_prefix": "..",
   "lang_href_en": "../",
   "lang_href_de": "../de/",
@@ -21,7 +20,6 @@
   "lang_class_ja": "",
   "lang_class_ko": "active",
   "lang_class_ru": "",
-
   "nav_home": "BORN2FLAP",
   "nav_essence": "본질",
   "nav_flight": "날개",
@@ -30,7 +28,6 @@
   "nav_open": "오픈소스",
   "nav_tutorials": "튜토리얼",
   "nav_documentation": "문서",
-
   "hero_kicker": "오니솝터 비행 시뮬레이터",
   "hero_title_a": "BORN",
   "hero_title_b": "2",
@@ -42,7 +39,6 @@
   "hero_cta_epic": "Epic에서 받기",
   "hero_cta_source": "소스 읽기",
   "hero_version": "Unreal Engine 5 · Haskell MathCore · MIT 라이선스",
-
   "essence_num": "01",
   "essence_title": "본질",
   "essence_lead": "오니솝터는 쿼드콥터가 아니다. 박동하는 날개다.",
@@ -53,7 +49,6 @@
   "essence_p2_body": "CRSF 무선, ONDAS 믹서, PID, 서보 커널을 실제 펌웨어에서 이식. 진짜 송신기로 날려라.",
   "essence_p3_title": "진짜 결과",
   "essence_p3_body": "후퇴각, 워시아웃, 캠버, 강성이 비행을 바꾼다. 만들고, 그리고 살아남아라.",
-
   "flight_num": "02",
   "flight_title": "날개",
   "flight_lead": "공력탄성, 정직함, 그리고 살아있음.",
@@ -74,7 +69,6 @@
   "flight_spec_wave_val": "비대칭 드웰 / 첨형, 비트 동기",
   "flight_spec_step_label": "타임스텝",
   "flight_spec_step_val": "고정 240 Hz",
-
   "arch_num": "03",
   "arch_title": "아키텍처",
   "arch_lead": "세 가지 언어, 하나의 박동.",
@@ -87,8 +81,7 @@
   "arch_ruby_title": "Ruby 브레인",
   "arch_ruby_desc": "앱 상태, 메뉴, 규칙, 오케스트레이션——빠른 수학 뒤의 느린 사고.",
   "arch_pipeline": "RC / Gamepad  ──►  펌웨어 (CRSF · 믹서 · PID)\n                         │\n                         ▼\n              Haskell MathCore (고정 240 Hz)\n                         │\n                         ▼\n              C / C++ FFI  ──►  Unreal / Chaos",
-
-  "game_num": "04",
+  "game_num": "05",
   "game_title": "게임플레이",
   "game_lead": "시작은 쉽게, 숙달은 어렵게.",
   "game_free_title": "자유 비행",
@@ -103,13 +96,11 @@
   "game_landing_desc": "바람 속의 정점 착륙——가장 오래된 종목, 가장 어렵다.",
   "game_bench_title": "테스트 벤치",
   "game_bench_desc": "풍동 뷰: 힘 벡터, 실속 맵, 날개 변형을 라이브로.",
-
-  "open_num": "06",
+  "open_num": "07",
   "open_title": "오픈소스",
   "open_lead": "상업적이면서 동시에 자유롭다.",
   "open_body": "BORN2FLAP은 Steam과 Epic Games Store에 출시되며, 자체 소스는 <strong>MIT 라이선스</strong>로 공개된다. 물리 코어, 브리지, 브레인——모두 개방. 게임을 날리고, 날개를 가져가 너만의 것을 만들어라. Unreal Engine과 서드파티 에셋은 각자의 라이선스를 유지한다. 관련 오픈소스 프로젝트: <a href=\"https://dantiel.github.io/OrniFlight/\">OrniFlight</a>(STM32 플라이트 컨트롤러용)와 <a href=\"https://dantiel.github.io/PteronautOS/\">PteronautOS</a>(단순한 하드웨어에서 더 범용적)——각각 자체 컨피규레이터와 펌웨어를 갖춘다.",
   "open_license": "MIT 라이선스",
-
   "footer_github": "GitHub",
   "footer_docs": "문서",
   "footer_tutorials": "튜토리얼",
@@ -117,43 +108,33 @@
   "footer_epic": "Epic Games",
   "footer_hermetic": "사나운 심장들이 에테르에 써 내려간다.",
   "footer_credit": "BORN2FLAP ·",
-
   "subnav_scroll": "맨 위로",
   "subnav_home": "BORN2FLAP으로 돌아가기",
-
   "doc_title": "문서 — BORN2FLAP",
   "doc_h1": "문서",
   "doc_lead": "날개와 수학과 기계를 설명한다.",
   "doc_h2_articles": "글",
-
   "ph_title": "물리 — BORN2FLAP",
   "ph_h1": "물리",
   "ph_lead": "축약된 실시간 모델.",
-
   "wing_title": "날개 — BORN2FLAP",
   "wing_h1": "날개",
   "wing_lead": "평면형, 단면, 구조.",
-
   "wave_title": "파형 — BORN2FLAP",
   "wave_h1": "파형",
   "wave_lead": "비트 동기된 진동.",
-
   "ctl_title": "조종 — BORN2FLAP",
   "ctl_h1": "조종",
   "ctl_lead": "CRSF, 믹서, 펌웨어.",
-
   "tut_title": "튜토리얼 — BORN2FLAP",
   "tut_h1": "튜토리얼",
   "tut_lead": "첫 날갯짓부터 수동 튜닝까지.",
-
   "ff_title": "첫 비행 — BORN2FLAP",
   "ff_h1": "첫 비행",
   "ff_lead": "이륙하고, 하늘에 머물러라.",
-
   "wd_title": "날개 설계 — BORN2FLAP",
   "wd_h1": "날개 설계",
   "wd_lead": "기하는 운명이다.",
-
   "tune_title": "튜닝 — BORN2FLAP",
   "tune_h1": "튜닝",
   "tune_lead": "날개를 너의 손에 맞춰라."

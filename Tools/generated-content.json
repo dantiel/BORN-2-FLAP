@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "engine_version": "5.8",
+  "maps": {
+    "ravenstonefield": {
+      "script": "create_ravenstonefield_map.py",
+      "package": "/Game/Ravenstonefield/Maps/RAVENSTONEFIELD",
+      "outputs": ["Ravenstonefield/Maps/RAVENSTONEFIELD.umap"]
+    },
+    "neonabyss": {
+      "script": "create_neon_abyss_map.py",
+      "package": "/Game/NeonAbyss/Maps/NEONABYSS",
+      "outputs": ["NeonAbyss/Maps/NEONABYSS.umap"]
+    },
+    "shiomori": {
+      "script": "create_shiomori_map.py",
+      "package": "/Game/Shiomori/Maps/SHIOMORI",
+      "outputs": [
+        "Shiomori/Maps/SHIOMORI.umap",
+        "Shiomori/Meshes/SM_Campus_*.uasset",
+        "Shiomori/Meshes/SM_ContinuousBeach.uasset",
+        "Shiomori/Meshes/SM_Seabed.uasset",
+        "Shiomori/Meshes/SM_OceanGrid.uasset",
+        "Shiomori/Meshes/SM_MountainsBehind.uasset",
+        "Shiomori/Meshes/SM_MountainsEast.uasset",
+        "Shiomori/Meshes/SM_MountainsWest.uasset",
+        "Shiomori/Meshes/SM_SweetPotatoPlant.uasset",
+        "Shiomori/Meshes/SM_SweetPotatoRidge.uasset"
+      ]
+    }
+  }
+}

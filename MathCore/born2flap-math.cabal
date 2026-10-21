@@ -11,10 +11,13 @@ library
       Born2Flap.Math.Planform
       Born2Flap.Math.Section
       Born2Flap.Math.Structure
+      Born2Flap.Math.Model
       Born2Flap.Math.Waveform
       Born2Flap.Math.Vehicle
       Born2Flap.Math.Firmware
       Born2Flap.Math.Servo
+      Born2Flap.Math.Airframe
+      Born2Flap.Math.RollDynamics
       Born2Flap.Math.FirmwareVehicle
       Born2Flap.Math.FerocityPrice
       Born2Flap.Math.OrderTracker
@@ -42,9 +45,12 @@ foreign-library born2flap_math
       Born2Flap.Math.Planform
       Born2Flap.Math.Section
       Born2Flap.Math.Structure
+      Born2Flap.Math.Model
       Born2Flap.Math.Waveform
       Born2Flap.Math.Firmware
       Born2Flap.Math.Servo
+      Born2Flap.Math.Airframe
+      Born2Flap.Math.RollDynamics
       Born2Flap.Math.FirmwareVehicle
       Born2Flap.Math.OrderTracker
       Born2Flap.Math.PhaseEnvelope

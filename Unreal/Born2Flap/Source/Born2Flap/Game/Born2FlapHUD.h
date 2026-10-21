@@ -20,6 +20,7 @@ class BORN2FLAP_API ABorn2FlapHUD : public AHUD
     float ChannelDisplay[4] = { 0.f, 0.f, 0.f, 0.f };
     void DrawChannels(const ABorn2FlapFlightPawn& Bird);
     void DrawMouseIndicator(const ABorn2FlapFlightPawn& Bird);
+    void DrawRcSticks(const ABorn2FlapFlightPawn& Bird, const FBorn2FlapRcController& Rc);
     void DrawRcPanel(const FBorn2FlapRcController &Rc);
     TWeakObjectPtr<ABorn2FlapRacingManager> CachedRacing;
 };

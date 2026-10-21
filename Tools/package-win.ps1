@@ -40,6 +40,8 @@ try {
 $ThirdParty = Join-Path $RepoRoot 'Unreal\Born2Flap\Binaries\ThirdParty'
 New-Item -ItemType Directory -Force $ThirdParty | Out-Null
 Copy-Item $DllPath.Trim() (Join-Path $ThirdParty 'born2flap_math.dll') -Force
+# Generate missing/stale maps before cooking; source checkouts do not carry them.
+& (Join-Path $RepoRoot 'Tools/generate-maps.ps1') -EngineRoot $EngineRoot
 & $UAT BuildCookRun "-project=$Project" -noP4 -utf8output -unattended -platform=Win64 -clientconfig=Shipping -serverconfig=Shipping -build -cook -allmaps -stage -pak -nodebuginfo -archive "-archivedirectory=$Archive" "-applocaldirectory=$AppLocal"
 if ($LASTEXITCODE) { throw "Unreal packaging failed: $LASTEXITCODE" }
 $Package = Join-Path $Archive 'Windows'

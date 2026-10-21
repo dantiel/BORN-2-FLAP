@@ -141,12 +141,15 @@ private:
     int32 ServoPresetIndex = -1;
     // CONTROL SETTINGS readout paths (row indices into the ScrollBlur VBox) +
     // a throttle timer so the live refresh stays ~10 Hz.
-    TArray<int32> RcStatusPath, RcInstructionPath, RcNoticePath;
+    TArray<int32> RcStatusPath, RcNoticePath;
     TArray<TArray<int32>> RcAxisPaths;
     float RcRefreshTimer = 0.f;
 
     // true = opened from inside a level (F10): offer FLIGHT DESK + RESUME.
     bool bInLevel = false;
+
+    // true = the RC quick-setup wizard is open as its own modal dialog overlay.
+    bool bRcWizardOpen = false;
 
     // KEY BINDINGS capture state: the action id awaiting a new key (empty = idle).
     FString ListeningKeybind;

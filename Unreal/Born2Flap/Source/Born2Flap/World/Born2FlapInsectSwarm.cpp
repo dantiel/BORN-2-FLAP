@@ -4,6 +4,9 @@
 #include "Components/InstancedStaticMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/SceneComponent.h"
+#include "NiagaraComponent.h"
+#include "NiagaraSystem.h"
+#include "Rendering/Born2FlapGraphics.h"
 #include "Engine/StaticMesh.h"
 #include "Materials/MaterialInterface.h"
 #include "Materials/MaterialInstanceDynamic.h"
@@ -15,17 +18,21 @@ ABorn2FlapInsectSwarm::ABorn2FlapInsectSwarm()
 {
     PrimaryActorTick.bCanEverTick = true;
     RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("InsectSwarmRoot"));
+    SwarmFX = CreateDefaultSubobject<UNiagaraComponent>(TEXT("InsectSwarmFX"));
+    SwarmFX->SetupAttachment(RootComponent);
+    SwarmFX->SetAutoActivate(false);
+    SwarmFX->SetVisibility(false);
 }
 
 auto ABorn2FlapInsectSwarm::Species(EInsectType Type) -> const FSpecies*
 {
     static const FSpecies Table[] = {
-        // Name,        Color,                         BodyScale,              WingScale,              SwarmMin, SwarmMax, HeroScale, Speed, Agility, FlapRate, FlapAmp, Wings, Swarm, Heroes, Opaque, Buzzer
-        { TEXT("Butterfly"), FLinearColor(1.00f, 0.55f, 0.15f), FVector(1.0f, 1.0f, 1.4f), FVector(1.2f, 0.9f, 0.05f), 0.35f, 0.60f, 1.00f, 90.f,  2.0f, 6.f,  55.f, 4, 120, 3, false, false },
-        { TEXT("Dragonfly"), FLinearColor(0.15f, 0.85f, 0.80f), FVector(0.6f, 0.6f, 1.6f), FVector(1.0f, 0.35f, 0.04f), 0.45f, 0.70f, 1.40f, 220.f, 3.0f, 28.f, 30.f, 4, 100, 2, false, false },
-        { TEXT("LunarMoth"), FLinearColor(0.92f, 0.94f, 0.85f), FVector(1.3f, 1.3f, 1.0f), FVector(1.4f, 1.1f, 0.05f), 0.60f, 0.90f, 1.30f, 70.f,  1.2f, 4.f,  50.f, 2,  90, 2, false, false },
-        { TEXT("Mantis"),    FLinearColor(0.35f, 0.70f, 0.25f), FVector(0.5f, 0.7f, 1.6f), FVector(1.3f, 0.4f, 0.04f), 0.50f, 0.80f, 1.60f, 60.f,  1.5f, 9.f,  35.f, 4,  80, 2, false, false },
-        { TEXT("BummerBug"), FLinearColor(0.25f, 0.18f, 0.12f), FVector(1.6f, 1.6f, 1.2f), FVector(0.9f, 0.8f, 0.15f), 0.90f, 1.40f, 2.40f, 140.f, 1.0f, 40.f, 18.f, 2,  60, 2, true,  true  },
+        // Name,        Color,                         BodyScale,              WingScale,              SwarmMin, SwarmMax, HeroScale, Speed, Agility, FlapRate, FlapAmp, Wings, Swarm, Heroes, Opaque, Buzzer, RainTol, NightAct, SunAct, WindTol
+        { TEXT("Butterfly"), FLinearColor(1.00f, 0.55f, 0.15f), FVector(1.0f, 1.0f, 1.4f), FVector(1.2f, 0.9f, 0.05f), 0.40f, 0.75f, 1.00f, 90.f,  2.0f, 6.f,  55.f, 4, 200, 14, false, false, 0.05f, 0.15f, 1.30f, 0.25f },
+        { TEXT("Dragonfly"), FLinearColor(0.15f, 0.85f, 0.80f), FVector(1.8f, 0.5f, 0.5f), FVector(1.0f, 0.35f, 0.04f), 0.50f, 0.85f, 1.40f, 220.f, 3.0f, 28.f, 30.f, 4, 180, 16, false, false, 0.10f, 0.25f, 1.20f, 1.00f },
+        { TEXT("LunarMoth"), FLinearColor(0.92f, 0.94f, 0.85f), FVector(1.3f, 1.3f, 1.0f), FVector(1.4f, 1.1f, 0.05f), 0.65f, 1.00f, 1.30f, 70.f,  1.2f, 4.f,  50.f, 2, 150, 12, false, false, 0.15f, 1.50f, 0.35f, 0.35f },
+        { TEXT("Mantis"),    FLinearColor(0.35f, 0.70f, 0.25f), FVector(0.5f, 0.7f, 1.6f), FVector(1.3f, 0.4f, 0.04f), 0.55f, 0.95f, 1.60f, 60.f,  1.5f, 9.f,  35.f, 4, 120, 5, false, false, 0.25f, 0.40f, 1.00f, 0.50f },
+        { TEXT("BummerBug"), FLinearColor(0.25f, 0.18f, 0.12f), FVector(1.6f, 1.6f, 1.2f), FVector(0.9f, 0.8f, 0.15f), 0.95f, 1.50f, 2.40f, 140.f, 1.0f, 40.f, 18.f, 2,  90, 4, true,  true,  0.70f, 0.80f, 0.90f, 1.10f },
     };
     return &Table[(int32)Type];
 }
@@ -50,22 +57,30 @@ FVector ABorn2FlapInsectSwarm::PickPerch(const FVector& Home) const
     const double R = FMath::FRandRange(200.0, HomeRadius);
     const FVector P(Home.X + FMath::Cos(A) * R, Home.Y + FMath::Sin(A) * R, 0.0);
     const double Ground = GroundHeight(P);
-    return FVector(P.X, P.Y, Ground + FMath::FRandRange(150.0, 1400.0));
+    return FVector(P.X, P.Y, Ground + FMath::FRandRange(150.0, (double)FlightCeiling));
 }
 
 FVector ABorn2FlapInsectSwarm::PickVegetationHome(FRandomStream& R) const
 {
-    // Anchor insects to the map's actual vegetation, mirroring the seeded layout in
-    // Tools/create_shiomori_map.py: the on-beach coastal thickets at each end, the
-    // backshore scrub behind the promenade, the cultivated sweet-potato/fern fields,
-    // and the hinterland woodland. Weighted toward what the pilot actually flies over.
+    // Anchor insects to the map's actual vegetation. Predominant hotspots are the
+    // planted clusters the player actually visits (the far-west pine forest, the
+    // campus garden + shrine park, the overgrown hotel terraces); the broad beach
+    // zones stay as a thin background spread so the sky never feels empty.
     struct FVegZone { double MinX; double MaxX; double MinY; double MaxY; float Weight; };
     static const FVegZone Zones[] = {
-        { -44900.0, -40000.0,   -850.0,  7600.0, 1.5f }, // coastal thicket west
-        {  40000.0,  44900.0,   -850.0,  7600.0, 1.5f }, // coastal thicket east
-        { -44500.0,  44500.0,  -6500.0, -5400.0, 1.3f }, // backshore scrub
-        { -44000.0,  44000.0, -19500.0, -12700.0, 1.0f }, // cultivated fields
-        { -48000.0,  48000.0, -34000.0, -19600.0, 0.8f }, // hinterland woodland
+        // --- Campus hotspots (Shiomori west headland, SITE_OFFSET=-12000,24000) ---
+        { -92000.0, -82000.0,   2000.0, 33000.0, 2.6f }, // far-west pine forest (perimeter grove)
+        { -77500.0, -68500.0,  18500.0, 35000.0, 3.0f }, // campus garden + shrine park (cherry/bonsai/beds)
+        { -77500.0, -65000.0,   6500.0, 17500.0, 1.8f }, // hotel terraces + forecourt planting
+        { -74500.0, -66000.0,  -6000.0,  7500.0, 0.5f }, // hangar apron + launch field (sparse)
+        { -53500.0, -45000.0,   2000.0, 19000.0, 1.5f }, // island approach + sheltered lagoon
+        { -47500.0, -43000.0,  16000.0, 21000.0, 1.0f }, // volcanic islet shore
+        // --- Background: the main beach vegetation (thinner, still populated) ---
+        { -44900.0, -40000.0,   -850.0,  7600.0, 0.9f }, // coastal thicket west
+        {  40000.0,  44900.0,   -850.0,  7600.0, 0.9f }, // coastal thicket east
+        { -44500.0,  44500.0,  -6500.0, -5400.0, 0.7f }, // backshore scrub
+        { -44000.0,  44000.0, -19500.0, -12700.0, 0.6f }, // cultivated fields
+        { -48000.0,  48000.0, -34000.0, -19600.0, 0.5f }, // hinterland woodland
     };
     float Total = 0.f;
     for (const FVegZone& Z : Zones) Total += Z.Weight;
@@ -79,7 +94,45 @@ FVector ABorn2FlapInsectSwarm::PickVegetationHome(FRandomStream& R) const
     const float X = R.FRandRange((float)Zone->MinX, (float)Zone->MaxX);
     const float Y = R.FRandRange((float)Zone->MinY, (float)Zone->MaxY);
     const double Ground = GroundHeight(FVector(X, Y, 0.0));
-    return FVector(X, Y, Ground + R.FRandRange(150.0f, 1600.0f));
+    return FVector(X, Y, Ground + R.FRandRange(150.0f, FlightCeiling));
+}
+
+float ABorn2FlapInsectSwarm::WeatherActivity(EInsectType Type) const
+{
+    // Per-species activity from the level's weather + time of day. Rain and snow
+    // ground the frail fliers, night wakes the moths and puts the butterflies to
+    // sleep, and wind favours the strong fliers (dragonflies, bummer bugs) while
+    // the delicate wings drop out. Clamped so a species never explodes past ~1.6×.
+    const FSpecies* S = Species(Type);
+    float A = 1.0f;
+    if (Weather.Snow) A *= 0.03f;
+    else if (Weather.Rain) A *= S->RainTol;
+    const float Bright = bIsNight ? 0.0f : FMath::Clamp(Weather.Sunlight, 0.0f, 1.0f);
+    A *= FMath::Lerp(S->NightAct, S->SunAct, Bright);
+    const float Windiness = FMath::Clamp((Weather.WindSpeed + Weather.Gust) / 5.0f, 0.0f, 1.0f);
+    A *= FMath::Lerp(1.0f, S->WindTol, Windiness);
+    // Season shapes the community itself, then scales its overall abundance.
+    A *= SeasonActivity(Type) * Season.InsectFactor;
+    return FMath::Clamp(A, 0.0f, 1.6f);
+}
+
+float ABorn2FlapInsectSwarm::SeasonActivity(EInsectType Type) const
+{
+    // Which season each species favours. Spring: butterflies explode and mantids
+    // stir. Summer: dragonflies and bummer bugs rule. Autumn: moths surge, the
+    // rest thin. Winter: a near-bare sky — only a few hardy moths persist.
+    const FString& Id = Season.Id;
+    const bool Spring = Id == TEXT("spring"), Summer = Id == TEXT("summer");
+    const bool Autumn = Id == TEXT("autumn"), Winter = Id == TEXT("winter");
+    switch (Type)
+    {
+    case EInsectType::Butterfly:  return Spring ? 1.6f : (Summer ? 1.4f : (Autumn ? .60f : .05f));
+    case EInsectType::Dragonfly:  return Summer ? 1.6f : (Spring ? .60f : (Autumn ? .90f : .00f));
+    case EInsectType::LunarMoth:  return Autumn ? 1.4f : (Summer ? 1.2f : (Spring ? .50f : .20f));
+    case EInsectType::Mantis:     return Summer ? 1.2f : (Autumn ? 1.0f : (Spring ? .40f : .00f));
+    case EInsectType::BummerBug:  return Summer ? 1.5f : (Autumn ? .90f : (Spring ? .60f : .05f));
+    default:                      return 1.0f;
+    }
 }
 
 UMaterialInstanceDynamic* ABorn2FlapInsectSwarm::Tint(UMaterialInterface* Base, const FLinearColor& Color, float Alpha)
@@ -122,9 +175,9 @@ void ABorn2FlapInsectSwarm::BuildSwarm()
         Comp->SetMobility(EComponentMobility::Movable);
         Comp->SetCastShadow(false);
         Comp->RegisterComponent();
-        Comp->SetMaterial(0, Tint(WingMaterial, S->Color, 0.72f));
+        Comp->SetMaterial(0, Tint(SpeckMaterial, S->Color, 0.72f));
         Swarm.Add(Comp);
-        for (int32 I = 0; I < S->SwarmCount; ++I)
+        for (int32 I = 0; I < SwarmCounts[T]; ++I)
         {
             FBoid B = SpawnBoid(R, (EInsectType)T);
             Boids.Add(B);
@@ -167,10 +220,14 @@ void ABorn2FlapInsectSwarm::SpawnHero(FRandomStream& R, const FSpecies& S, EInse
         : TArray<float>{ 50.f, 130.f, 230.f, 310.f };
 
     UMaterialInterface* WingMat = S.bOpaqueWings ? BodyMaterial : WingMaterial;
-    for (float Yaw : Yaws)
+    for (int32 Wi = 0; Wi < Yaws.Num(); ++Wi)
     {
         FHeroWing W;
-        W.Yaw = Yaw;
+        W.Yaw = Yaws[Wi];
+        // Dragonflies beat forewings and hindwings out of phase (their typical
+        // flight): the hind pair (backward Yaw, indices 1 and 2) lags half a
+        // cycle behind the fore pair.
+        W.PhaseOffset = (Type == EInsectType::Dragonfly && (Wi == 1 || Wi == 2)) ? PI : 0.f;
         W.Scale = S.WingScale * H.Scale;
         W.Mesh = NewObject<UStaticMeshComponent>(this);
         W.Mesh->SetupAttachment(H.Root);
@@ -191,7 +248,7 @@ void ABorn2FlapInsectSwarm::BuildHeroes()
     for (int32 T = 0; T < (int32)EInsectType::Count; ++T)
     {
         const FSpecies* S = Species((EInsectType)T);
-        for (int32 I = 0; I < S->HeroCount; ++I)
+        for (int32 I = 0; I < HeroCounts[T]; ++I)
             SpawnHero(R, *S, (EInsectType)T);
     }
     UE_LOG(LogTemp, Log, TEXT("Born2FlapInsectSwarm: %d hero insects"), Heroes.Num());
@@ -203,16 +260,64 @@ void ABorn2FlapInsectSwarm::BeginPlay()
     SpeckMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Game/Nature/Insects/SM_Insect_Speck"));
     WingMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Game/Nature/Insects/SM_Insect_Wing"));
     BodyMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Game/Nature/Insects/SM_Insect_Body"));
+    SpeckMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Nature/Insects/M_InsectSpeck"));
     WingMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Nature/Insects/M_InsectWing"));
     BodyMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Nature/Insects/M_InsectBody"));
 
-    if (!SpeckMesh || !WingMesh || !BodyMesh || !WingMaterial || !BodyMaterial)
+    if (!SpeckMesh || !WingMesh || !BodyMesh || !SpeckMaterial || !WingMaterial || !BodyMaterial)
     {
         UE_LOG(LogTemp, Warning, TEXT("Born2FlapInsectSwarm: insect assets missing — run Tools/create_insect_assets.py"));
         return;
     }
-    BuildSwarm();
+    // Weather-aware population: the level's conditions reshape the insect
+    // community before anything is spawned. Rain grounds the frail fliers,
+    // night wakes the moths, wind herds everyone low into the vegetation.
+    if (const auto* GM = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode()))
+    {
+        const FBorn2FlapConditions& C = GM->GetConditions();
+        Weather = Born2FlapWeather::Profile(C.Weather);
+        Season  = Born2FlapWeather::Season(C.Season);
+        bIsNight = Born2FlapWeather::DayTime(C.Time).Night;
+    }
+    const float Windiness = FMath::Clamp((Weather.WindSpeed + Weather.Gust) / 5.0f, 0.0f, 1.0f);
+    FlightCeiling = FMath::Lerp(1400.0f, 450.0f, Windiness);
+    if (Weather.Rain) FlightCeiling *= 0.7f;
+    if (Weather.Snow) FlightCeiling = 200.0f;
+    for (int32 T = 0; T < (int32)EInsectType::Count; ++T)
+    {
+        const FSpecies* S = Species((EInsectType)T);
+        const float A = WeatherActivity((EInsectType)T);
+        SwarmCounts[T] = FMath::Max(0, FMath::RoundToInt(S->SwarmCount * A));
+        HeroCounts[T]  = FMath::Max(0, FMath::RoundToInt(S->HeroCount * A));
+    }
+    // Heroes are the detailed, catchable individuals — always real meshes.
     BuildHeroes();
+    // The cheap speck swarm migrates to GPU-Niagara on HIGH/EPIC; the ISM path
+    // stays as the software fallback (LOW/MEDIUM, or when the system is absent).
+    bNiagaraSwarm = Born2FlapGraphics::SupportsNiagara();
+    if (SwarmFX)
+    {
+        if (bNiagaraSwarm)
+        {
+            if (auto* System = LoadObject<UNiagaraSystem>(nullptr, TEXT("/Game/Nature/Insects/NS_InsectSwarm")))
+            {
+                if (System->GetEmitterHandles().Num() > 0)
+                {
+                    SwarmFX->SetAsset(System);
+                    SwarmFX->SetVisibility(true);
+                    SwarmFX->Activate(true);
+                }
+                else bNiagaraSwarm = false;
+            }
+            else bNiagaraSwarm = false;
+        }
+        if (!bNiagaraSwarm)
+        {
+            SwarmFX->SetVisibility(false);
+            SwarmFX->Deactivate();
+        }
+    }
+    if (!bNiagaraSwarm) BuildSwarm();
     bReady = true;
 }
 
@@ -224,7 +329,7 @@ void ABorn2FlapInsectSwarm::TickSwarm(float DeltaSeconds)
     {
         const FSpecies* S = Species((EInsectType)T);
         UInstancedStaticMeshComponent* Comp = Swarm[T];
-        for (int32 I = 0; I < S->SwarmCount; ++I)
+        for (int32 I = 0; I < SwarmCounts[T]; ++I)
         {
             FBoid& B = Boids[BoidIdx + I];
             B.Phase += DeltaSeconds * (S->bBuzzer ? 2.2 : 1.0);
@@ -266,9 +371,9 @@ void ABorn2FlapInsectSwarm::TickSwarm(float DeltaSeconds)
                 B.Pos.Z = Floor;
                 B.Vel.Z = FMath::Max(B.Vel.Z, 25.0);
             }
-            if (B.Pos.Z > 3200.0)
+            if (B.Pos.Z > FlightCeiling)
             {
-                B.Pos.Z = 3200.0;
+                B.Pos.Z = FlightCeiling;
                 B.Vel.Z = FMath::Min(B.Vel.Z, -15.0);
             }
 
@@ -286,7 +391,7 @@ void ABorn2FlapInsectSwarm::TickSwarm(float DeltaSeconds)
             Comp->UpdateInstanceTransform(I, FTransform(Rot, B.Pos, FVector(B.Scale)), true, false, false);
         }
         Comp->MarkRenderStateDirty();
-        BoidIdx += S->SwarmCount;
+        BoidIdx += SwarmCounts[T];
     }
 }
 
@@ -299,9 +404,9 @@ void ABorn2FlapInsectSwarm::TickHeroes(float DeltaSeconds)
         const FSpecies* S = Species(H.Type);
 
         H.FlapPhase += DeltaSeconds * S->FlapRate * 2.0 * PI;
-        const float FlapAngle = FMath::Sin(H.FlapPhase) * S->FlapAmp;
         for (FHeroWing& W : H.Wings)
         {
+            const float FlapAngle = FMath::Sin(H.FlapPhase + W.PhaseOffset) * S->FlapAmp;
             const FQuat FlapQ(FVector(1, 0, 0), FMath::DegreesToRadians(FlapAngle));
             const FQuat YawQ(FVector(0, 0, 1), FMath::DegreesToRadians(W.Yaw));
             W.Mesh->SetRelativeTransform(FTransform(FlapQ * YawQ, FVector::ZeroVector, W.Scale));
@@ -332,9 +437,9 @@ void ABorn2FlapInsectSwarm::TickHeroes(float DeltaSeconds)
             H.Pos.Z = Ground + 150.0;
             H.Vel.Z = FMath::Max(H.Vel.Z, 20.0);
         }
-        if (H.Pos.Z > 3200.0)
+        if (H.Pos.Z > FlightCeiling)
         {
-            H.Pos.Z = 3200.0;
+            H.Pos.Z = FlightCeiling;
             H.Vel.Z = FMath::Min(H.Vel.Z, -15.0);
         }
 
@@ -349,6 +454,17 @@ void ABorn2FlapInsectSwarm::Tick(float DeltaSeconds)
     Super::Tick(DeltaSeconds);
     if (!bReady)
         return;
-    TickSwarm(DeltaSeconds);
     TickHeroes(DeltaSeconds);
+    if (bNiagaraSwarm)
+    {
+        if (SwarmFX && SwarmFX->GetAsset())
+        {
+            const double Time = GetWorld()->GetTimeSeconds();
+            SwarmFX->SetVectorParameter(TEXT("Wind"), WindAt(GetActorLocation(), Time) * 100.0);
+        }
+    }
+    else
+    {
+        TickSwarm(DeltaSeconds);
+    }
 }

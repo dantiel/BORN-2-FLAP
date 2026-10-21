@@ -1,7 +1,8 @@
-%Overlay{ align: "left", valign: "top" }
+%Overlay{ align: "left", valign: "top", margin: 24 }
   %SizeBox{ width: 350 }
     %VBox{ spacing: 6 }
-      %Banner#brand{ text: "#{t('brand')}", tone: "accent" }
+      %SizeBox{ width: 300, height: 92 }
+        %Image{ texture: "/Game/Splash/born2flap-logo.born2flap-logo" }
       %Panel{ title: "#{t('hud.instruments')}" }
         %Stat{ label: "#{t('hud.altitude')}", value: #{altitude}, unit: "m",   tone: "good", format: "int" }
         %Stat{ label: "#{t('hud.climb')}",    value: #{climb},    unit: "m/s", signed: true, tone: "#{climb_tone}" }
@@ -9,4 +10,8 @@
       %Panel{ title: "#{t('hud.energy')}" }
         %Gauge{ label: "#{t('hud.battery')}", value: #{battery}, min: 0, max: 100, unit: "%", tone: "#{battery_tone}", format: "int", readout: "#{battery_readout}" }
         %Gauge{ label: "#{t('hud.throttle')}", value: #{throttle}, min: 0, max: 100, unit: "%", tone: "accent", format: "int" }
+      %Panel{ title: "#{t('hud.wind')}" }
+        %Stat{ label: "#{t('hud.speed')}", value: #{wind_speed}, unit: "m/s", tone: "#{wind_tone}" }
+        %WindArrow{ angle: #{wind_angle}, size: 30, tone: "#{wind_tone}" }
+        %Banner{ text: "#{wind_word}", tone: "#{wind_tone}" }
       %Banner{ text: "#{status}", tone: "normal" }

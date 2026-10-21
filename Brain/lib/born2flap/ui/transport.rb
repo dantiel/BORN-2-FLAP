@@ -33,6 +33,7 @@ module Born2Flap
         @bus.subscribe(:ui_patch) { |payload| @buffer.concat(HostConfig.translate(payload[:patch])) }
         @bus.subscribe(:ui_effect) { |payload| @buffer.concat(payload[:ops]) }
         @bus.subscribe(:audio_effect) { |payload| @buffer.concat(payload[:ops]) }
+        @bus.subscribe(:command) { |payload| @buffer << [:command, payload[:name], payload[:payload] || {}] }
       end
 
       # Drain the event bus (running the collectors) and emit a single NDJSON
@@ -47,6 +48,12 @@ module Born2Flap
         @io.flush
         @buffer.clear
         frame.bytesize
+      end
+
+      # Rotation reuses subscriptions; creating another Transport leaks event
+      # listeners and duplicates every subsequent patch into closed sinks.
+      def replace_io(io)
+        @io = io
       end
 
       # Close the underlying IO (idempotent). A closed transport is inert.

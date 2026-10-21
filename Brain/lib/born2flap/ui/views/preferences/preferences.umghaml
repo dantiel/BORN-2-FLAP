@@ -1,0 +1,22 @@
+%Panel{ padding: 24 }
+  %ScrollPage{}
+    %VBox{ spacing: 12 }
+      %Caption{ title: "#{t('settings.title')}" }
+      %Segment{ options: ["#{t('settings.general')}", "#{t('settings.audio')}", "#{t('settings.key_bindings')}"], value: #{page}, action: "preferences.page" }
+    %VBox{ spacing: 18 }
+      - if page == 0
+        %Dropdown{ label: "#{t('settings.language')}", options: ["English", "Deutsch", "Español", "Français", "Italiano", "Português", "Norsk", "العربية", "हिन्दी", "日本語", "한국어", "Русский", "中文"], value: #{%w[en de es fr it pt no ar hi ja ko ru zh].index(lang) || 0}, action: "language.set" }
+        %Select{ label: "#{t('settings.graphics_quality')}", options: ["LOW", "MEDIUM", "HIGH", "EPIC"], value: #{graphics_quality}, action: "graphics.quality", tooltip: "Lower tiers reduce lighting and volumetric effects. Hardware features depend on GPU support." }
+        %Toggle{ label: "#{t('settings.airborne_camera')}", value: #{camera_fpv}, on: "FPV", off: "CHASE", action: "camera.fpv" }
+        %Slider{ label: "#{t('settings.fpv_camera_angle')}", value: #{fpv_angle}, min: -45, max: 45, step: 1, unit: "°", action: "camera.angle" }
+        %Toggle{ label: "#{t('settings.invert_free_look')}", value: #{freelook_invert}, action: "camera.freelook.invert" }
+      - if page == 1
+        %Slider{ label: "#{t('settings.wingbeat_volume')}", value: #{wingbeat_volume}, min: 0, max: 4, step: 0.05, action: "audio.wingbeat", tooltip: "Changes wingbeat audio only; wind and surf are unaffected." }
+        %Slider{ label: "#{t('settings.radio_volume')}", value: #{radio_volume}, min: 0, max: 1, step: 0.05, action: "radio.volume" }
+      - if page == 2
+        %TextBlock{ text: "#{t('settings.key_hint')}", size: "s", wrap: true }
+        - keybindings.each do |binding|
+          %Field{ label: #{binding[:label].inspect} }
+            %KeySelector{ key: #{binding[:key].inspect}, action: "keybind.#{binding[:id]}" }
+        %Button{ label: "#{t('settings.restore_defaults')}", action: "keybind.reset" }
+    %Button{ label: "#{t('menu.back')}", action: "preferences.close" }
