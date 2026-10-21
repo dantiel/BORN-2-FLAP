@@ -252,16 +252,44 @@ def build_meshes():
         u.log('B2F_INSECT_MESH ' + mesh.get_path_name())
 
 
+def build_sand_sprite_png():
+    import math
+    # A soft radial grain sprite: opaque warm-beige core fading to a fully
+    # transparent rim, with low-frequency angular wobble so grains read as
+    # organic dust motes rather than perfect circles. The camera-facing quad
+    # samples this as its alpha, giving the soft Niagara-sprite look.
+    W, H = 128, 128
+    cx = cy = 64.0
+    rows = []
+    for py in range(H):
+        row = []
+        for px in range(W):
+            dx = (px - cx) / 64.0
+            dy = (py - cy) / 64.0
+            d = (dx * dx + dy * dy) ** 0.5
+            ang = math.atan2(dy, dx)
+            wob = 1.0 + 0.14 * math.sin(ang * 5.0) + 0.08 * math.cos(ang * 3.0)
+            t = d / (0.88 * wob)
+            alpha = 0
+            if t < 1.0:
+                alpha = int(255 * (1.0 - t) ** 1.7)
+            row.append((233, 215, 178, alpha))  # warm beige grain
+        rows.append(row)
+    _write_png(ROOT / 'T_SandSprite.png', W, H, rows)
+
+
 def build_textures():
     build_wing_png()
     build_body_png()
+    build_sand_sprite_png()
     wing_tex = import_texture(ROOT / 'T_InsectWing.png', 'T_InsectWing')
     body_tex = import_texture(ROOT / 'T_InsectBody.png', 'T_InsectBody')
-    u.log('B2F_INSECT_TEXTURES T_InsectWing T_InsectBody')
-    return wing_tex, body_tex
+    sand_sprite_tex = import_texture(ROOT / 'T_SandSprite.png', 'T_SandSprite')
+    u.log('B2F_INSECT_TEXTURES T_InsectWing T_InsectBody T_SandSprite')
+    return wing_tex, body_tex, sand_sprite_tex
 
 
-def build_materials(wing_tex, body_tex):
+def build_materials(wing_tex, body_tex, sand_sprite_tex):
     # ---- M_InsectSpeck — plain swarm silhouette, no texture fetch. ----
     speck = newmat('M_InsectSpeck')
     speck.set_editor_property('blend_mode', u.BlendMode.BLEND_TRANSLUCENT)
@@ -287,6 +315,26 @@ def build_materials(wing_tex, body_tex):
     output(sandcolor, 'BASE_COLOR')
     output(sandrough, 'ROUGHNESS')
     save(sand)
+
+    # ---- M_SandSprite — camera-facing soft grain sprite for ambient and
+    # kicked-up sand. Translucent unlit with a radial alpha falloff, so grains
+    # read as soft Niagara-style particles (soft round edges) instead of hard
+    # opaque balls. ----
+    sprite = newmat('M_SandSprite')
+    sprite.set_editor_property('blend_mode', u.BlendMode.BLEND_TRANSLUCENT)
+    sprite.set_editor_property('two_sided', True)
+    sprite.set_editor_property('shading_model', u.MaterialShadingModel.MSM_UNLIT)
+    stex = node(sprite, 'TextureSampleParameter2D', parameter_name='SpriteTexture',
+                texture=sand_sprite_tex)
+    scolor = node(sprite, 'VectorParameter', parameter_name='Color',
+                  default_value=u.LinearColor(0.78, 0.66, 0.48, 1.0))
+    stint = node(sprite, 'Multiply')                 # beige grain colour
+    connect(stex, 'RGB', stint, 'A')
+    connect(scolor, '', stint, 'B')
+    output(stint, 'EMISSIVE_COLOR')
+    # Alpha from the radial sprite; soft falloff = soft particle edge.
+    output(stex, 'OPACITY', 'A')
+    save(sprite)
 
     # ---- M_InsectWing — veined membrane + fresnel/time iridescence. ----
     wing = newmat('M_InsectWing')
@@ -361,8 +409,8 @@ def build_materials(wing_tex, body_tex):
 
 def main():
     build_meshes()
-    wing_tex, body_tex = build_textures()
-    build_materials(wing_tex, body_tex)
+    wing_tex, body_tex, sand_sprite_tex = build_textures()
+    build_materials(wing_tex, body_tex, sand_sprite_tex)
     print('B2F_INSECT_ASSETS_READY', flush=True)
 
 

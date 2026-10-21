@@ -25,6 +25,20 @@ double WeatherGround(const AActor* Actor, double X, double Y)
 }
 }
 
+namespace {
+// Billboard a +Z-facing plane toward the camera so soft grain sprites always
+// face the viewer — the Niagara-sprite look without a Niagara renderer. The
+// radial sprite is rotation-invariant, so the arbitrary roll from MakeFromZ is
+// irrelevant.
+FRotator GrainBillboard(const FVector& Pos, const FVector& Cam)
+{
+    FVector Dir = Cam - Pos;
+    if (Dir.IsNearlyZero()) { Dir = FVector::ForwardVector; }
+    Dir.Normalize();
+    return FRotationMatrix::MakeFromZ(Dir).Rotator();
+}
+}
+
 #include "Components/InstancedStaticMeshComponent.h"
 #include "Components/SceneComponent.h"
 #include "Materials/MaterialInstanceDynamic.h"
@@ -64,25 +78,24 @@ void ABorn2FlapWindLeaves::BeginPlay()
     Super::BeginPlay();
     UStaticMesh* LeafMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Game/Nature/SM_Grass0"));
     UStaticMesh* BladeMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Game/Nature/SM_Grass1"));
-    UStaticMesh* SpeckMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Sphere"));
+    UStaticMesh* SpeckMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Plane"));
     Leaves->SetStaticMesh(LeafMesh);
     Blades->SetStaticMesh(BladeMesh);
-    // Sand/dust motes are grains, not leaves — a sphere reads as a particle
-    // (the leaf quad only remains as a fallback if the engine shape is absent).
+    // Sand/dust motes are soft billboard sprites, not spheres: a camera-facing
+    // plane with a radial-alpha material reads as a Niagara-style particle. The
+    // leaf quad only remains as a fallback if the engine shape is absent.
     Dust->SetStaticMesh(SpeckMesh ? SpeckMesh : LeafMesh);
-    // Sand/dust motes are grains, not leaves. Prefer M_SandGrain — an OPAQUE,
-    // LIT beige material — so grains read as solid 3D specks that catch light
-    // instead of flat translucent circles. Falls back to M_InsectSpeck if the
-    // sand material hasn't been generated yet.
-    UMaterialInterface* SandMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Nature/Insects/M_SandGrain"));
+    // Soft grain sprite. Prefer M_SandSprite — a translucent unlit radial-alpha
+    // sprite — so grains are soft round motes, not hard opaque balls. Falls back
+    // to M_InsectSpeck (translucent tint) if the sand sprite hasn't been built.
+    UMaterialInterface* SandMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Nature/Insects/M_SandSprite"));
     if (!SandMat)
         SandMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Nature/Insects/M_InsectSpeck"));
     if (SandMat)
     {
         if (UMaterialInstanceDynamic* MID = UMaterialInstanceDynamic::Create(SandMat, Dust))
         {
-            MID->SetVectorParameterValue(TEXT("Color"), FLinearColor(0.76f, 0.64f, 0.46f));
-            MID->SetScalarParameterValue(TEXT("Roughness"), 0.9f);
+            MID->SetVectorParameterValue(TEXT("Color"), FLinearColor(0.78f, 0.66f, 0.48f));
             Dust->SetMaterial(0, MID);
         }
     }
@@ -265,7 +278,12 @@ void ABorn2FlapWindLeaves::Tick(float DeltaSeconds)
                     Dust->UpdateInstanceTransform(I, FTransform(FRotator::ZeroRotator, Cam + FVector(0, 0, -50000.0), FVector::ZeroVector), true, false, false);
                     continue;
                 }
-                D.Vel.Z -= 980.0 * DeltaSeconds;   // gravity, cm/s^2
+                // Dust puffs are nearly weightless and billow in place; grains
+                // fall hard. The puff also churns a little so the cloud drifts.
+                D.Vel.Z -= (D.bCloud ? 140.0f : 980.0f) * DeltaSeconds;
+                if (D.bCloud)
+                    D.Vel += FVector(FMath::Sin(Time * 6.0 + D.Rot.Yaw) * 30.0,
+                                     FMath::Cos(Time * 5.0 + D.Rot.Pitch) * 30.0, 0.0) * DeltaSeconds;
                 D.Pos += D.Vel * DeltaSeconds;
                 D.Rot += D.Spin * DeltaSeconds;
                 D.Life -= DeltaSeconds;
@@ -278,7 +296,7 @@ void ABorn2FlapWindLeaves::Tick(float DeltaSeconds)
                     D.Vel.X *= 0.5f;
                     D.Vel.Y *= 0.5f;
                 }
-                Dust->UpdateInstanceTransform(I, FTransform(D.Rot, D.Pos, FVector(D.Scale * Fade)), true, false, false);
+                Dust->UpdateInstanceTransform(I, FTransform(GrainBillboard(D.Pos, Cam), D.Pos, FVector(D.Scale * Fade)), true, false, false);
                 continue;
             }
 
@@ -286,14 +304,14 @@ void ABorn2FlapWindLeaves::Tick(float DeltaSeconds)
                 D = SpawnDust(R, Cam, Bird, BirdLow > 0.05f);
             const FVector Wind = WeatherWind(this, D.Pos, Time) * 100.0;  // m/s → cm/s
             D.Vel = FMath::VInterpTo(D.Vel, Wind, DeltaSeconds, 2.0f);
-            D.Vel.Z -= 980.0 * DeltaSeconds;   // gravity: sand has weight, it settles
+            D.Vel.Z -= (D.bCloud ? 120.0f : 980.0f) * DeltaSeconds;   // puffs float, grains settle
             D.Pos += D.Vel * DeltaSeconds;
             D.Rot += D.Spin * DeltaSeconds;
             D.Life -= DeltaSeconds;
             const double G = WeatherGround(this, D.Pos.X, D.Pos.Y);
             if (D.Pos.Z < G + 2.0) { D.Pos.Z = G + 2.0; D.Vel.Z = -FMath::Abs(D.Vel.Z) * 0.25f; D.Vel.X *= 0.7f; D.Vel.Y *= 0.7f; }
             const float FadeA = FMath::Clamp((float)(D.Life / FMath::Max(D.LifeMax, 0.001)), 0.0f, 1.0f);
-            Dust->UpdateInstanceTransform(I, FTransform(D.Rot, D.Pos, FVector(D.Scale * FadeA)), true, false, false);
+            Dust->UpdateInstanceTransform(I, FTransform(GrainBillboard(D.Pos, Cam), D.Pos, FVector(D.Scale * FadeA)), true, false, false);
         }
         Dust->MarkRenderStateDirty();
     }
@@ -375,8 +393,22 @@ ABorn2FlapWindLeaves::FLeaf ABorn2FlapWindLeaves::SpawnDust(FRandomStream& R, co
     D.Vel = FVector(R.FRandRange(-40.0, 40.0), R.FRandRange(-40.0, 40.0), R.FRandRange(10.0, 40.0));
     D.Rot = FRotator(R.FRandRange(0.0, 360.0), R.FRandRange(0.0, 360.0), R.FRandRange(0.0, 360.0));
     D.Spin = FRotator(R.FRandRange(-200.0, 200.0), R.FRandRange(-260.0, 260.0), R.FRandRange(-200.0, 200.0));
-    D.Scale = R.FRandRange(0.015f, 0.05f);   // tiny grains, 1.5–5 cm diameter
-    D.Life = R.FRandRange(1.0, 3.5);
+    // Fine grains with a wide size spread, plus occasional soft dust puffs so
+    // the motes read as a granular cloud, not uniform confetti. Grains are tiny
+    // (sub-cm to ~4 cm) and settle fast; puffs are larger, lighter, and linger.
+    const bool bPuff = (R.FRandRange(0.0f, 1.0f) < 0.22f);
+    D.bCloud = bPuff;
+    if (bPuff)
+    {
+        D.Scale = R.FRandRange(0.10f, 0.24f);   // soft dust puff
+        D.Life = R.FRandRange(2.5, 5.0);
+        D.Vel.Z = R.FRandRange(20.0, 70.0);     // buoyant, slow rise
+    }
+    else
+    {
+        D.Scale = R.FRandRange(0.008f, 0.045f); // fine grain, 0.8–4.5 cm
+        D.Life = R.FRandRange(1.0, 3.5);
+    }
     D.LifeMax = D.Life;
     D.bBurst = false;
     return D;
@@ -401,7 +433,7 @@ void ABorn2FlapWindLeaves::EmitSandBurst(const FVector& WorldPos, float Strength
     if (!Dust || DustPool.Num() == 0)
         return;
     Strength = FMath::Clamp(Strength, 0.05f, 1.0f);
-    const int32 Count = FMath::Clamp(FMath::RoundToInt(Strength * 48.0f), 10, 48);
+    const int32 Count = FMath::Clamp(FMath::RoundToInt(Strength * 80.0f), 16, 80);
     // Per-burst stream so two bursts in the same frame don't reuse the same seed
     // (a stable seed would place every landing's motes on identical tracks).
     FRandomStream R(int32(FMath::Rand()) ^ int32(FPlatformTime::Cycles()));
@@ -414,14 +446,26 @@ void ABorn2FlapWindLeaves::EmitSandBurst(const FVector& WorldPos, float Strength
         const double Rad = R.FRandRange(0.0, 220.0 * Strength);
         D.Pos = WorldPos + FVector(FMath::Cos(A) * Rad, FMath::Sin(A) * Rad, 0.0);
         D.Pos.Z = Ground + R.FRandRange(2.0, 12.0);
-        // Fast outward-upward cone — ballistic, no wind coupling. The grains arc
-        // under gravity and bounce, reading as kicked-up sand, not drifting mist.
+        // Fast outward-upward cone for the grains — ballistic, no wind coupling.
+        // A fraction are soft dust puffs: slower, larger, longer-lived, so a
+        // landing kicks up a lingering cloud around the sharp ballistic spray.
         const double Eject = 220.0 + R.FRandRange(0.0, 260.0) * Strength;   // cm/s outward
-        D.Vel = FVector(FMath::Cos(A) * Eject, FMath::Sin(A) * Eject, R.FRandRange(180.0, 460.0) * Strength);
+        const bool bPuff = (R.FRandRange(0.0f, 1.0f) < 0.30f);
+        D.bCloud = bPuff;
+        if (bPuff)
+        {
+            D.Vel = FVector(FMath::Cos(A) * Eject * 0.35, FMath::Sin(A) * Eject * 0.35, R.FRandRange(40.0, 120.0) * Strength);
+            D.Scale = R.FRandRange(0.12f, 0.28f);   // soft cloud puff
+            D.Life = R.FRandRange(1.8, 4.5);
+        }
+        else
+        {
+            D.Vel = FVector(FMath::Cos(A) * Eject, FMath::Sin(A) * Eject, R.FRandRange(180.0, 460.0) * Strength);
+            D.Scale = R.FRandRange(0.015f, 0.06f);  // fine grains, varied size
+            D.Life = R.FRandRange(0.7, 1.6);
+        }
         D.Rot = FRotator(R.FRandRange(0.0, 360.0), R.FRandRange(0.0, 360.0), R.FRandRange(0.0, 360.0));
         D.Spin = FRotator(R.FRandRange(-420.0, 420.0), R.FRandRange(-420.0, 420.0), R.FRandRange(-420.0, 420.0));
-        D.Scale = R.FRandRange(0.03f, 0.08f);   // small solid grains, not big circles
-        D.Life = R.FRandRange(0.7, 1.6);
         D.LifeMax = D.Life;
         D.bBurst = true;
     }

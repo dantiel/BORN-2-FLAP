@@ -39,6 +39,8 @@ private:
     UPROPERTY() TObjectPtr<UProceduralMeshComponent> Mesh;
     // Surf spray: a camera-local Niagara burst riding the breaking crest.
     UPROPERTY() TObjectPtr<UNiagaraComponent> SprayFX;
+    // Surf mist: a soft Niagara haze settling over the white-water wash.
+    UPROPERTY() TObjectPtr<UNiagaraComponent> MistFX;
     TArray<FVector> Vertices,Normals;
     TArray<int32> Triangles;
     TArray<FVector2D> UV;

@@ -27,6 +27,7 @@ the lesson *and* the mood of an existing world, it is a reskin, not a world.
 | Shiomori Bay | civilization meets the sacred | coastal wind, updraft, precision around architecture |
 | Training | the neutral gymnasium | gates, racing, precision, repeatability |
 | Neon Abyss *(planned)* | dreamlike neon cosmic festival | weightless aether flight — swim, drift, capture in motion |
+| Yúnshā *(planned)* | vast, ancient, sun-scorched sacred silence | thermal + ridge soaring — read invisible air, earn altitude, land on a cloud-summit |
 
 > **Naming note:** the natural valley world is called **Ravenstonefield** in the
 > current menu (`/Game/Ravenstonefield/Maps/RAVENSTONEFIELD`, preview label
@@ -167,6 +168,11 @@ addition — not "another map".
    "The high country." Lesson: reading rising air, energy from windward slopes.
 2. **Desert canyon** — *thermal columns, endurance, precision.* "The oven."
    Lesson: finding lift, managing battery/energy, tight canyon lines.
+   **→ Developed into `Qar'Veth` — "the Hanging Silence"** (see
+   [qarveth.md](qarveth.md)): a wind-carved canyon hollowed into the singing
+   Honeycomb grottoes and crowned by the Hanging Temple, a sky-perch reachable
+   only by flight. Fictional throughout — no real place, no "Dunhuang/Mogao"
+   reference survives in the design.
 3. **Tropical island chain / open ocean** — *long-distance, crosswind, storm.*
    "The open water." Lesson: navigation, energy budget, gust recovery.
 4. **Urban rooftops** — *delivery/rescue, obstacles, tight precision.* "The

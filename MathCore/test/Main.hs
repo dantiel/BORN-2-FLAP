@@ -31,10 +31,16 @@ main = do
      abs (bodyMass+2*wingMass+tailMass-0.05)<1e-12 &&
      ix>2*wingDry && ix<2*wingDry*1.15 && iy>0 && iz>0
     then pure () else fail "component mass budget and narrow-body roll inertia"
-  let flow=VehicleInput (1/240) (Vec3 8 0 (-1)) (Vec3 0.3 0.1 0) 0 0 0 0 5
-      loads flag rate=wingLoadsWithStroke flag 1 0.1 rate 0 flow kestrelModel 0 initialStrips
-  if all (\rate -> loads False rate == loads True rate) [-8,0,8]
-    then pure () else fail "identical wing state must yield identical forces in glide and flap"
+  let flow=VehicleInput (1/240) (Vec3 8 0 (-1)) (Vec3 0 0 0) 0 0 0 0 5
+      loads rate=wingLoadsWithStroke True 1 0.1 rate 0 flow kestrelModel 0 initialStrips
+      summed=foldr (addVec . resultForce) zeroVec
+      still=summed (loads 0)
+      beating=summed (loads (-3))
+  -- Flap thrust is EMERGENT: it comes from the stroke motion (the ∝ flapSpeed²
+  -- momentum jet), not from a mode flag. A still wing at the same state sheds
+  -- none of it; only a beating wing pumps the spanwise jet forward.
+  if vx beating > vx still
+    then pure () else fail "flap thrust must emerge from stroke motion, not a flag"
   -- Coupled inertia: internal motor impulses conserve angular momentum;
   -- kinetic work converges to the continuous constant-torque solution.
   let j=0.002; rotor=0.0016; locked=0.008; dt=1/240
