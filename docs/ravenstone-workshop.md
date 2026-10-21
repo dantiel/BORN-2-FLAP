@@ -13,16 +13,26 @@ A fictional farm workshop that has gradually become an established flight-develo
 
 ## Flight meadow
 
-The main field has 63,270 deterministic, jittered grass clumps using the existing grass meshes and a new green masked foliage material. Productive sward varies from 24 to 60 cm. A 155 x 11 m launch strip is cut to 6-10 cm. The radio, signs, river margin and road have clearance; grass has no collision. Instancing and distance culling limit rendering cost. This is managed grassland, without an ornamental wildflower treatment.
+The expanded field has 130,692 deterministic, jittered grass clumps, ranging from 36 to 90 cm outside the 6-10 cm mown launch strip. The user subsequently requested meadow flowers: 32,290 white, yellow and purple flower heads now form uneven colonies, with grass-dominated areas between them. This implements the mixed-grass-and-flowers option rather than a cereal crop. A textured ground layer maintains coverage at a distance and fades at the field edges. Radio, signs, river margin, road and footpath retain clearance; vegetation has no collision.
+
+The tree exclusion now covers the field plus a buffer (X -20000 to 38500, Y -14000 to the river's far margin). A roughly two-metre pedestrian path winds from the southern woodland through the meadow to the near riverbank. It has a matching vegetation clearance and an opening in the old fence.
+
+## Roof and Autobahn refinement
+
+The main barn now has a half-hipped roof: clipped upper gables, a shorter ridge, sloping end planes, hip caps and a timber underside. The assembly hall and gallery remain intact.
+
+The bridge uses neutral gray concrete materials. Its old staircase-like approach blocks have been replaced by connected road polygons following a cubic grade, with terrain-connected embankments. Each approach now reaches 390 m from the river centre, with a further 10 m transition into the ground. Road markings and guardrails follow the slope. Collision samples along both approaches pass, with 7.1 cm minimum centreline clearance above the underlying terrain.
 
 ## Maintenance and verification
 
-The generator is `Source/Born2Flap/World/Born2FlapRavenWorkshop.cpp`; meadow placement and checks are in `Born2FlapValley.cpp`. World generator version is 5.
+The workshop generator is `Source/Born2Flap/World/Born2FlapRavenWorkshop.cpp`; field details are in `Born2FlapRavenMeadow.cpp`, bridge geometry in `Born2FlapRavenLandmarks.cpp`, and vegetation placement/checks in `Born2FlapValley.cpp`. `RavenSurface.h` builds the authored polygon surfaces. World generator version is 6.
 
 After rebuilding Born2FlapEditor, run `Tools/rebuild_raven_workshop.py` through Unreal Editor Python. It loads the existing map and rebuilds only the valley actor's generated components, preserving independent actors. It also creates/validates the grass material. The saved map contains the generated scenery for editor use.
 
-`Tools/test-ravenstonefield.ps1` checks the existing terrain/water/radio contract, upstairs floor collision and a 6 m-wide aircraft sweep through the barn door. Validation runs after GameMode radio initialization. `-Workshop` captures six rendered views, including the two interiors and the flight meadow at eye height. Evidence is retained under `.setup/raven-workshop-20261010`.
+`Tools/test-ravenstonefield.ps1` checks the existing terrain/water/radio contract, upstairs floor collision, a 6 m-wide aircraft sweep through the barn door and the road approaches. Validation runs after GameMode radio initialization. `-Workshop` captures nine rendered views including the interiors, meadow, footpath, field overview and bridge. Refinement evidence is retained under `.setup/raven-refinement-20261010`.
 
 The editor build and collision/world checks pass. Six rendered views completed after switching the grass to conventional instancing; an earlier Nanite foliage run caused a GPU memory fault, retained in the evidence folder. Missing Nanite usage flags on existing Ravenstonefield foliage materials were also repaired. This does not establish long-run GPU stability or packaged Shipping performance.
 
-Follow-up lighting verification: after the user closed the editor, the exposure-bounds fix was built and saved. Rendered barn interior and gallery views now show the aircraft, beams and workspaces clearly; runtime diagnostics confirm the camera is inside the barn exposure region. Exterior views remain outside it. The hangar has the same corrected bounds, but its dedicated capture remains an exterior doorway view. One further GPU fault occurred during startup; retrying the unchanged build completed all six captures. GPU startup stability remains a separate unresolved limitation.
+Follow-up lighting verification: the exposure-bounds fix was built and saved. Barn, gallery and hangar interior views show the aircraft and workspaces clearly; runtime diagnostics confirm the interior camera regions. Exterior views remain outside them. Earlier runs encountered intermittent GPU startup faults; the latest refinement run completed all nine views successfully. Long-run GPU stability remains outside these checks.
+
+Final refinement verification: editor build succeeded, world/workshop/road checks passed, all nine captures completed, and roof, meadow, path, overview and bridge images were visually inspected. Evidence is in `.setup/raven-refinement-20261010/verified`. Independent actors and unrelated concurrent project changes were preserved.

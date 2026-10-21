@@ -7,6 +7,13 @@
 #include "Game/Born2FlapGameMode.h"
 #include "CollisionShape.h"
 
+namespace
+{
+// Ground-observer eye height in cm (1.8 m). Shared by the landing anchor and the
+// walker snap so the ground perspective always sits at a human eye line.
+constexpr float GroundEyeHeightCm = 180.f;
+}
+
 void ABorn2FlapFlightPawn::RememberLanding(FVector Position)
 {
     LastLanding=Position;
@@ -19,7 +26,7 @@ void ABorn2FlapFlightPawn::RememberLanding(FVector Position)
     FCollisionQueryParams Query(SCENE_QUERY_STAT(GroundCameraAnchor),false,this);
     if(GetWorld()->LineTraceSingleByChannel(Hit,GroundAnchor+FVector(0,0,150),GroundAnchor-FVector(0,0,5000),ECC_Visibility,Query))
         Ground=Hit.ImpactPoint.Z;
-    GroundAnchor.Z=Ground+180; // Eye-height observer (1.8 m) beside the latest landing.
+    GroundAnchor.Z=Ground+GroundEyeHeightCm; // Eye-height observer (1.8 m) beside the latest landing.
     bGroundGazeReady=false;
     if(bGroundView)
         if(auto* PC=Cast<APlayerController>(GetController()); PC && PC->PlayerCameraManager)
@@ -51,7 +58,7 @@ void ABorn2FlapFlightPawn::MoveWalker(const FVector& Delta)
     GQuery.AddIgnoredActor(this);
     if (World->LineTraceSingleByChannel(GHit, To + FVector(0, 0, 400), To - FVector(0, 0, 5000), ECC_Visibility, GQuery))
         Ground = GHit.ImpactPoint.Z;
-    To.Z = Ground + 180.0;   // eye height (1.8 m)
+    To.Z = Ground + GroundEyeHeightCm;   // eye height (1.8 m)
     GroundAnchor = To;
     // The pilot walks alone: the bird stays exactly where it landed so the
     // player can circle and inspect it (e.g. where it came down at the sea).
@@ -69,8 +76,15 @@ void ABorn2FlapFlightPawn::UpdateLandingCamera(float Dt)
     GroundSettleTime=Supported ? GroundSettleTime+Dt : 0;
     if(GroundSettleTime>.3)
     {
-        if(!bCameraGrounded || FVector::DistSquared(LastLanding,Body->GetComponentLocation())>10000)
-            RememberLanding(Body->GetComponentLocation());
+        // Only a genuine thrown flight re-anchors the observer to the landing
+        // spot. A bird that merely settles on the ground (placed at spawn or
+        // nudged by wind) must not teleport the pilot around.
+        if(bThrown)
+        {
+            if(!bCameraGrounded || FVector::DistSquared(LastLanding,Body->GetComponentLocation())>10000)
+                RememberLanding(Body->GetComponentLocation());
+            bThrown=false;   // consumed this throw's landing
+        }
         bCameraGrounded=true;
         bFlying=false;
     }
@@ -182,6 +196,7 @@ bool ABorn2FlapFlightPawn::CheckFlightCameras()
     Body->SetPhysicsLinearVelocity(FVector::ZeroVector);
     Body->SetPhysicsAngularVelocityInRadians(FVector::ZeroVector);
     bCameraGrounded=false;
+    bThrown=true;   // simulate a thrown flight so the landing teleport fires
     UpdateLandingCamera(.2f); UpdateLandingCamera(.2f);
     Pass &= bCameraGrounded && FVector::Distance(LastLanding,Land)<1;
     const FVector NewAnchor=GroundAnchor;

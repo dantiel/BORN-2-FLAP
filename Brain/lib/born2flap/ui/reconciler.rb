@@ -57,8 +57,12 @@ module Born2Flap
       end
 
       def diff_children(old_node, new_node, path, ops)
-        length = [old_node.children.length, new_node.children.length].max
-        length.times do |index|
+        # Remove trailing siblings back-to-front: ascending removal shifts the
+        # remaining indices and leaves hidden HUD panels mounted in Unreal.
+        (old_node.children.length - 1).downto(new_node.children.length) do |index|
+          ops << { op: :remove_child, path: path, index: index }
+        end
+        new_node.children.length.times do |index|
           old_child = old_node.children[index]
           new_child = new_node.children[index]
 

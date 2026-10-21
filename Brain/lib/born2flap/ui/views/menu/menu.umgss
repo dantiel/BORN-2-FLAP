@@ -1,0 +1,23 @@
+// menu.umgss — semantic theme for the post-splash menu / level selector.
+//
+// Progressive scroll blur is now *activated declaratively*: any ScrollBox can
+// opt into the frosted dissolve (content progressively blurs toward the top /
+// bottom edges, safe zone stays sharp) by setting `scroll_blur: true`. The
+// side amounts are `edge` (top half-band) and `edge_bottom` (bottom half-band),
+// normalized 0..0.5 (or "auto" for the safe-area-derived top default).
+//
+// Every property below is an ordinary UMGHAML prop, so it may equally be set
+// inline on the element — an inline prop always wins over this themed default:
+//
+//     %ScrollBox{ scroll_blur: true, edge: 0.14, edge_bottom: 0.18 }
+
+ScrollBox
+  scroll_blur: true
+  edge: 0.12
+  edge_bottom: 0.15
+
+ScrollPage
+  safe_top: 145
+  safe_bottom: 80
+  edge: 0.24
+  edge_bottom: 0.15

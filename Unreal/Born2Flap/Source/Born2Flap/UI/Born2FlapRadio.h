@@ -67,6 +67,8 @@ public:
 
     void TogglePlayPause();
     void SetPaused(bool bPaused);
+    static float PreferenceVolume();
+    static void SavePreferenceVolume(float Value);
     void AdjustVolume(float Delta);
     // Absolute volume (0..1) — also persists as the user's radio level, so the
     // GENERAL SETTINGS slider and [ / ] keys share one setting.

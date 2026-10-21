@@ -36,14 +36,16 @@ target, so the blur now affects the content itself.
 
 | prop          | type   | default    | meaning                                                        |
 |---------------|--------|------------|----------------------------------------------------------------|
-| `edge`        | number | `"auto"`   | safe zone as a normalized half-band `0..0.5`                   |
+| `edge`        | number | `"auto"`   | TOP safe zone as a normalized half-band `0..0.5`               |
 | `edge: "auto"`| string | —          | derive the band from the platform safe-area inset (notch)      |
+| `edgeBottom`  | number | `0.05`     | BOTTOM safe zone half-band (small: no bottom safe-area)        |
 | `blur`        | number | `0.02`     | max blur radius in UV units                                    |
-| `amount`      | number | `0.65`     | progressive-blur falloff width `0..1`                          |
+| `amount`      | number | `0.85`     | progressive-blur falloff width `0..1`                          |
 | `refract`     | number | `0.35`     | refraction warp strength (hammered glass / water) `0..1`       |
 | `refractScale`| number | `6.0`      | organic noise frequency                                        |
 | `void`        | number | `0.9`      | how fully the edge dissolves into the void `0..1`              |
 | `pad`         | number | `0`        | internal top/bottom scroll padding (px) so the first/last rows scroll clear of the dissolve band and any overlaid tabs/footer |
+| `scrollbar_padding` | number / array | `0` | inset of the scrollbar track from the view edges — sizes AND repositions the scrollbar inside the view. Uniform number, or `[left,top,right,bottom]` / `[horizontal,vertical]` (like `padding`) |
 
 `edge` is the answer to "definable amount **or** automatic safe-area-bar size":
 pass a number for a fixed band, or `"auto"` (the default) to size it from the
@@ -68,10 +70,23 @@ Nd("ScrollBlur", P({ {"edge", S("auto")}, {"blur", N(0.02)} }),
 **UMGHAML** (declarative, via `Brain/lib/born2flap/ui/emitter.rb`):
 
 ```haml
-%scroll{ edge: "auto", blur: 0.02, refract: 0.4 }
+%scroll{ edge: "auto", blur: 0.02, refract: 0.4, scrollbar_padding: 12 }
   %vbox{ spacing: 12 }
     %button{ label: "…" }
 ```
+
+`scrollbar_padding` may also be authored in the matching `.umgss` theme (as a
+default for every `ScrollBox`), and inline on `%ScrollPage{}` — `Layout.expand`
+forwards it onto the generated `ScrollBox`:
+
+```haml
+%ScrollPage{ scrollbar_padding: [8, 16, 12, 16] }
+  %caption{ title: "…" }
+  %vbox{ spacing: 12 }
+    %button{ label: "…" }
+  %button{ label: "FOOTER" }
+```
+=======
 
 ## Files
 

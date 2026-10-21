@@ -9,7 +9,8 @@ void. Output is pre-multiplied alpha for the retainer's AlphaComposite blend.
 
 Scalar params (drive the dynamic instance):
 
-    EdgeSize     0..0.5  normalized half-band (the "safe area")
+    EdgeSize     0..0.5  normalized TOP half-band (tucks under header/tabs)
+    EdgeBottom   0..0.5  normalized BOTTOM half-band (small: no bottom safe-area)
     Amount       0..1    progressive-blur falloff width
     BlurRadius   >0      max blur radius in UV units
     Refract      0..1    refraction warp strength (hammered glass / water)
@@ -54,8 +55,9 @@ def conn(a, b, pin, output=''):
 
 uv = expr('TextureCoordinate')
 
-edge = scalar('EdgeSize', 0.24)
-amount = scalar('Amount', 0.65)
+edge = scalar('EdgeSize', 0.10)
+edge_bottom = scalar('EdgeBottom', 0.05)
+amount = scalar('Amount', 0.85)
 blur_radius = scalar('BlurRadius', 0.02)
 refract = scalar('Refract', 0.35)
 refract_scale = scalar('RefractScale', 6.0)
@@ -65,25 +67,27 @@ void = scalar('Void', 0.9)
 # Output float4 = (blur, alpha, warp, unused).
 math_n = expr('Custom', code='''
 float2 p = UV;
-float e = clamp(EdgeSize, 0.001, 0.5);
+float eTop = clamp(EdgeSize, 0.001, 0.5);
+float eBot = clamp(EdgeBottom, 0.001, 0.5);
 float s = max(RefractScale, 0.001);
 float n1 = sin(p.y*s*3.7 + sin(p.x*s*2.3)) * cos(p.x*s*2.9 + p.y*s*1.7);
 float n2 = sin(p.y*s*8.1 + p.x*s*5.3);
 float noise = 0.5 + 0.5*(n1*0.6 + n2*0.4);
-float band = max(saturate(1.0 - p.y/e), saturate(1.0 - (1.0-p.y)/e));
+float band = max(saturate(1.0 - p.y/eTop), saturate(1.0 - (1.0-p.y)/eBot));
 float blur = smoothstep(0.0, 1.0, saturate((band - (1.0-Amount)) / max(Amount, 0.001)));
 float warp = (noise - 0.5) * Refract * 0.08 * blur;
 float alpha = 1.0 - blur * Void;
 return float4(blur, alpha, warp, 0.0);
 ''', output_type=u.CustomMaterialOutputType.CMOT_FLOAT4)
 pins = []
-for nm in ['UV', 'EdgeSize', 'Amount', 'Refract', 'RefractScale', 'Void']:
+for nm in ['UV', 'EdgeSize', 'EdgeBottom', 'Amount', 'Refract', 'RefractScale', 'Void']:
     cpin = u.CustomInput()
     cpin.set_editor_property('input_name', nm)
     pins.append(cpin)
 math_n.set_editor_property('inputs', pins)
 conn(uv, math_n, 'UV')
 conn(edge, math_n, 'EdgeSize')
+conn(edge_bottom, math_n, 'EdgeBottom')
 conn(amount, math_n, 'Amount')
 conn(refract, math_n, 'Refract')
 conn(refract_scale, math_n, 'RefractScale')
@@ -117,6 +121,7 @@ KERNEL = [(-1, -1, 1), (0, -1, 2), (1, -1, 1),
 TOTAL = 16
 
 samples = []
+alpha_samples = []
 for dx, dy, w in KERNEL:
     dirv = expr('Constant2Vector', r=float(dx), g=float(dy))
     off = expr('Multiply')
@@ -127,6 +132,10 @@ for dx, dy, w in KERNEL:
     conn(off, tap_uv, 'B')
     s = expr('TextureSampleParameter2D', parameter_name='Texture')
     conn(tap_uv, s, 'UVs')
+    a = expr('Multiply')
+    a.set_editor_property('const_b', float(w) / TOTAL)
+    lib.connect_material_expressions(s, 'A', a, 'A')
+    alpha_samples.append(a)
     if w != 1:
         sw = expr('Multiply')
         sw.set_editor_property('const_b', float(w))
@@ -153,7 +162,18 @@ conn(blurred, premul, 'A')
 conn(alpha, premul, 'B')
 
 assert lib.connect_material_property(premul, '', u.MaterialProperty.MP_EMISSIVE_COLOR)
-assert lib.connect_material_property(alpha, '', u.MaterialProperty.MP_OPACITY)
+# Preserve the retainer's transparent pixels. A constant opacity of 1 in
+# the safe zone otherwise turns the entire scroll viewport into a black slab.
+alpha_sum = alpha_samples[0]
+for tap in alpha_samples[1:]:
+    add = expr('Add')
+    conn(alpha_sum, add, 'A')
+    conn(tap, add, 'B')
+    alpha_sum = add
+opacity = expr('Multiply')
+conn(alpha_sum, opacity, 'A')
+conn(alpha, opacity, 'B')
+assert lib.connect_material_property(opacity, '', u.MaterialProperty.MP_OPACITY)
 lib.recompile_material(m)
 assert u.EditorAssetLibrary.save_loaded_asset(m)
 u.log('SCROLL_RETAINER_BLUR_READY')

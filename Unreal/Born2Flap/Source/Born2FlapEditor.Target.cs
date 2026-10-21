@@ -25,5 +25,6 @@ public class Born2FlapEditorTarget : TargetRules
         }
 
         ExtraModuleNames.Add("Born2Flap");
+        ExtraModuleNames.Add("Born2FlapEditor");
     }
 }

@@ -11,6 +11,7 @@
 #include "UI/Born2FlapRadio.h"
 #include "Flight/Born2FlapFlightPawn.h"
 #include "Flight/Born2FlapTuning.h"
+#include "Rendering/Born2FlapGraphics.h"
 #include "Input/Born2FlapRcController.h"
 #include "Input/Born2FlapKeybinds.h"
 #include "Kismet/GameplayStatics.h"
@@ -49,24 +50,34 @@ FNode Nd(const char* Type, FProps Props = {}, std::vector<FNode> Children = {})
     return N_;
 }
 
-// A scroll page: the ScrollBlur fills the whole content area while the tab bar
-// and footer float above it (top / bottom). The dissolve band runs underneath
-// them, and the scroll content's internal `pad` lets the first/last rows scroll
-// clear of it.
-FNode ScrollPage(FNode Tabs, FNode Scroll, FNode Footer)
+// A scroll page: the ScrollBlur fills the whole content area (top to bottom)
+// while the header caption, tab bar and footer float above it as overlays. The
+// dissolve bands run underneath them — so the content scrolls under the header
+// and tabs instead of clipping at a hard edge below them.
+FNode ScrollPage(FNode Header, FNode Tabs, FNode Scroll, FNode Footer)
 {
     return Nd("Overlay", P({}), {
         std::move(Scroll),
-        Nd("Overlay", P({ {"visible", B(true)}, {"valign", S("top")} }), { std::move(Tabs) }),
+        Nd("Overlay", P({ {"visible", B(true)}, {"valign", S("top")} }), {
+            Nd("VerticalBox", P({ {"spacing", N(12)}, {"visible", B(true)} }), {
+                Nd("Overlay", P({ {"align", S("left")}, {"visible", B(true)} }), { std::move(Header) }),
+                std::move(Tabs),
+            }),
+        }),
         Nd("Overlay", P({ {"visible", B(true)}, {"valign", S("bottom")} }), { std::move(Footer) }),
     });
 }
 
-FNode ScrollPage(FNode Tabs, FNode Scroll)
+FNode ScrollPage(FNode Header, FNode Tabs, FNode Scroll)
 {
     return Nd("Overlay", P({}), {
         std::move(Scroll),
-        Nd("Overlay", P({ {"visible", B(true)}, {"valign", S("top")} }), { std::move(Tabs) }),
+        Nd("Overlay", P({ {"visible", B(true)}, {"valign", S("top")} }), {
+            Nd("VerticalBox", P({ {"spacing", N(12)}, {"visible", B(true)} }), {
+                Nd("Overlay", P({ {"align", S("left")}, {"visible", B(true)} }), { std::move(Header) }),
+                std::move(Tabs),
+            }),
+        }),
     });
 }
 
@@ -93,12 +104,13 @@ void SendUpdate(UBorn2FlapUIRenderer* R, const TArray<int32>& Path, FProps Props
 // is not published on the table, so presets keep the simulator default (20).
 struct FServoPreset { const TCHAR* Name; float SpeedDegS; float StallTorqueNm; float Backdrive; float Voltage; };
 static const FServoPreset ServoPresets[] = {
-    { TEXT("Blue Arrow AF D43S-6.0-MG"), 1500.f, 0.17f, 20.f, 6.0f },
-    { TEXT("VOTIK PTK 7465 / 7465W MG"),   667.f, 0.56f, 20.f, 8.4f },
-    { TEXT("Blue Arrow D0576HT-MG-HV"),   1000.f, 0.41f, 20.f, 7.4f },
-    { TEXT("Inservos D0474HT-MG-HV"),      750.f, 0.35f, 20.f, 7.4f },
-    { TEXT("KST MR320"),                   750.f, 0.54f, 20.f, 7.4f },
-    { TEXT("SAVOX SV-1270TG"),             545.f, 3.43f, 20.f, 7.4f },
+    { TEXT("Blue Arrow AF D43S-6.0-MG"), 1500.f, 0.31f, 20.f, 6.0f },
+    { TEXT("VOTIK PTK 7465 / 7465W MG"),   667.f, 1.01f, 20.f, 8.4f },
+    { TEXT("VOTIK PTK 7465 Plus"),         750.f, 1.33f, 20.f, 7.4f },
+    { TEXT("Blue Arrow D0576HT-MG-HV"),   1000.f, 0.74f, 20.f, 7.4f },
+    { TEXT("Inservos D0474HT-MG-HV"),      750.f, 0.63f, 20.f, 7.4f },
+    { TEXT("KST MR320"),                   750.f, 0.97f, 20.f, 7.4f },
+    { TEXT("SAVOX SV-1270TG"),             545.f, 6.17f, 20.f, 7.4f },
 };
 constexpr int32 ServoPresetCount = (int32)(sizeof(ServoPresets) / sizeof(ServoPresets[0]));
 
@@ -112,8 +124,10 @@ const FWorldDef Worlds[] = {
       TEXT("A broad pale beach arcing around a sheltered bay of dark, glassy water. Salt-cured rock, wind-bent grass and a low tide-walk of basalt stretch inland toward hazy, sunlit hills. Quiet enough that you notice what the sky is doing.") },
     { TEXT("Training"), TEXT("TRAINING"),
       TEXT("A flat grass course marked with floating sky-gates. The field where every pilot learns to fold the wing, hold the line and thread the gates against the clock.") },
+    { TEXT("NeonAbyss"), TEXT("NEON ABYSS"),
+      TEXT("A primordial, eternal sanctuary floating outside time — soft nebulae, ringed planets and a circle of ancient bronzes whose gold seams brighten as you draw near. There is no ground and no horizon: a baby turtle swims the aether, netting neon jellyfish before the festival timer ends.") },
 };
-constexpr int32 WorldCount = 3;
+constexpr int32 WorldCount = 4;
 
 // Available locales for the language switch. Names are the languages' native
 // endonyms (always shown in their own language regardless of the active locale);
@@ -274,7 +288,7 @@ void ABorn2FlapMenu::BeginPlay()
     // Apply the persisted language before the first Build() so every localized
     // string (nav rail, pane titles, HUD/status via the shared locale) is right.
     Born2Flap::I18n::SetLocale(Settings.Language);
-    for(const FString Level:{FString(TEXT("Ravenstonefield")),FString(TEXT("Shiomori")),FString(TEXT("Training"))})
+    for(const FString Level:{FString(TEXT("Ravenstonefield")),FString(TEXT("Shiomori")),FString(TEXT("Training")),FString(TEXT("NeonAbyss"))})
         LevelConditions.Add(Level,Born2FlapWeather::Load(Level));
     Build();
     if(FParse::Param(FCommandLine::Get(),TEXT("B2FWeatherMenuTest")))
@@ -326,23 +340,21 @@ void ABorn2FlapMenu::Build()
 
     if (NavPage == 2)
     {
-        PaneTitle = Born2Flap::I18n::T("menu.settings");
         BuildPreferences(PaneChildren);
         ContentPane = Nd("SizeBox", P({ {"width", N(1040)}, {"height", N(860)} }),
         {
-            Nd("Panel", P({ {"title", S(PaneTitle)}, {"bg", S("solid")}, {"padding", N(26)}, {"spacing", N(12)} }), std::move(PaneChildren))
+            Nd("Panel", P({ {"bg", S("solid")}, {"padding", N(26)}, {"spacing", N(12)} }), std::move(PaneChildren))
         });
     }
     else if (NavPage == 1)
     {
-        PaneTitle = Born2Flap::I18n::T("menu.flight_desk");
         // ---- FLIGHT DESK page: the integrated tuning panel ----
         // Always reachable (home screen or in-level). Edits live in Settings and
         // are mirrored into the bird when one is present.
         BuildFlightDesk(PaneChildren);
         ContentPane = Nd("SizeBox", P({ {"width", N(1040)}, {"height", N(860)} }),
         {
-            Nd("Panel", P({ {"title", S(PaneTitle)}, {"bg", S("solid")}, {"padding", N(26)}, {"spacing", N(12)} }), std::move(PaneChildren))
+            Nd("Panel", P({ {"bg", S("solid")}, {"padding", N(26)}, {"spacing", N(12)} }), std::move(PaneChildren))
         });
     }
     else
@@ -368,7 +380,7 @@ void ABorn2FlapMenu::Build()
         // one selection at a time, equal-width cells on a shared track.
         PaneChildren.push_back(Nd("Segment",P({{"options",Pages},{"value",N(SelectedPage)},{"action",S("menu.page")},{"tooltip",S("Choose a location, set flight conditions, then select your starting point.")}})));
         const int32 LocationStart=PaneChildren.size();
-        const FString Preview = Level == TEXT("Shiomori") ? TEXT("Coast") : Level == TEXT("Ravenstonefield") ? TEXT("Valley") : TEXT("Islands");
+        const FString Preview = Level == TEXT("Shiomori") ? TEXT("Coast") : Level == TEXT("Ravenstonefield") ? TEXT("Valley") : Level == TEXT("NeonAbyss") ? TEXT("Abyss") : TEXT("Islands");
         PaneChildren.push_back(Nd("HorizontalBox", P({{"spacing",N(18)}}), {
             Nd("SizeBox",P({{"width",N(234)},{"height",N(128)}}),{
                 Nd("Image",P({{"texture",S(TEXT("/Game/UI/Elements/")+Preview+TEXT(".")+Preview)}}))}),
@@ -380,6 +392,34 @@ void ABorn2FlapMenu::Build()
         PaneChildren.push_back(Nd("Select", P({ {"label", S("Weather")}, {"options", WeatherLabels}, {"value", N(Weathers.IndexOfByKey(C.Weather))}, {"action", S(TEXT("weather.") + Level)} })));
         PaneChildren.push_back(Nd("Select", P({ {"label", S("Time of day")}, {"options", TimeLabels}, {"value", N(Times.IndexOfByKey(C.Time))}, {"action", S(TEXT("daytime.") + Level)} })));
         PaneChildren.push_back(Nd("TextBlock", P({ {"text", S(FString::Printf(TEXT("Wind %.1f m/s | %s"), Speed, W.Gust < .5f ? TEXT("gentle gusts") : TEXT("variable breeze")))}, {"size", S("s")} })));
+        // WIND overrides — direction / strength / gusts / randomness / thermals.
+        // Each slider shows the *effective* value: the player's explicit override
+        // when one was saved (>= 0), otherwise the weather/time profile default
+        // (1× = auto; direction = the level's base heading). Reset returns all
+        // five to "auto". Persisted per level and carried into level travel.
+        {
+            const bool bWindCustom = C.WindDir >= 0.f || C.WindSpeed >= 0.f || C.WindGust >= 0.f || C.WindRandom >= 0.f || C.WindThermal >= 0.f;
+            const float WindDirEff    = C.WindDir     >= 0.f ? C.WindDir     : Born2FlapWeather::DefaultWindDirection(Level);
+            const float WindSpeedEff  = C.WindSpeed   >= 0.f ? C.WindSpeed   : 1.f;
+            const float WindGustEff   = C.WindGust    >= 0.f ? C.WindGust    : 1.f;
+            const float WindRandomEff = C.WindRandom  >= 0.f ? C.WindRandom  : 1.f;
+            const float WindThermalEff= C.WindThermal >= 0.f ? C.WindThermal : 1.f;
+            auto WindSlider = [&](const char* Label, const char* Action, float Value_, float Min, float Max, float Step, const char* Unit, const char* Help)
+            {
+                return Nd("Slider", P({
+                    {"label", S(Label)}, {"action", S(Action)}, {"value", N(Value_)},
+                    {"min", N(Min)}, {"max", N(Max)}, {"step", N(Step)}, {"unit", S(Unit)}, {"tooltip", S(Help)}
+                }));
+            };
+            PaneChildren.push_back(Nd("TextBlock", P({ {"text", S("WIND")}, {"size", S("xs")}, {"tone", S("dim")} })));
+            PaneChildren.push_back(WindSlider("DIRECTION",  "wind.dir",     WindDirEff,     0.f, 360.f, 5.f,  "°", "Compass heading the wind blows toward. Auto follows the weather profile."));
+            PaneChildren.push_back(WindSlider("STRENGTH",   "wind.speed",   WindSpeedEff,   0.f, 5.f,   0.1f, "×", "Multiplier on base horizontal wind strength."));
+            PaneChildren.push_back(WindSlider("GUSTS",      "wind.gust",    WindGustEff,    0.f, 8.f,   0.1f, "×", "Multiplier on gust turbulence magnitude."));
+            PaneChildren.push_back(WindSlider("RANDOMNESS", "wind.random",  WindRandomEff,  0.f, 8.f,   0.1f, "×", "Multiplier on heading drift / directional wander."));
+            PaneChildren.push_back(WindSlider("THERMALS",   "wind.thermal", WindThermalEff, 0.f, 5.f,   0.1f, "×", "Multiplier on thermal updraft strength."));
+            if (bWindCustom)
+                PaneChildren.push_back(Nd("Button", P({ {"label", S("RESET WIND TO WEATHER DEFAULT")}, {"action", S("wind.reset")}, {"tone", S("dim")} })));
+        }
         // Travel destinations: a scrollable list of this world's points of
         // interest. Choosing one makes it the reset start point the FLY button
         // travels to. It replaces the old in-world beacon/cycling UI.
@@ -408,6 +448,7 @@ void ABorn2FlapMenu::Build()
         for(int32 I=LocationStart;I<(int32)PaneChildren.size();++I)
             PaneChildren[I].props["visible"]=B(SelectedPage==(I<WeatherStart ? 0 : I<RouteStart ? 1 : 2));
         PaneChildren.push_back(Nd("Button", P({ {"label", S(FString(TEXT("FLY  ")) + WD.Title)}, {"action", S(TEXT("menu.") + Level.ToLower())}, {"tone", S("good")} })));
+        if(Level==TEXT("Shiomori"))PaneChildren.push_back(Nd("Button",P({{"label",S("HARVEST WATCH - guard the sweet potatoes")},{"action",S("menu.harvestwatch")},{"tone",S("accent")}})));
 
         PaneChildren.push_back(Nd("Spacer", P({})));
         PaneChildren.push_back(Nd("TextBlock", P({ {"text", S(FString::Printf(TEXT("WORLD %d OF %d"), SelectedWorld + 1, WorldCount))}, {"size", S("xs")}, {"align", S("center")}, {"tone", S("dim")} })));
@@ -489,6 +530,18 @@ void ABorn2FlapMenu::Build()
         })
     });
 
+    // Modal RC quick-setup wizard (own overlay + dim scrim, only when open).
+    FString RcInstruction, RcNotice, RcStatus;
+    if (bRcWizardOpen)
+    {
+        if (FBorn2FlapRcController* Rc = ActiveRc())
+        {
+            RcInstruction = Rc->GetInstruction();
+            RcNotice = Rc->GetNotice();
+            RcStatus = Rc->GetStatus();
+        }
+    }
+
     FNode Root = Nd("Overlay", P({}),
     {
         Nd("Image", P({ {"texture", S("/Game/Splash/born2flap-background.born2flap-background")} })),
@@ -496,6 +549,29 @@ void ABorn2FlapMenu::Build()
         {
             std::move(SidebarPane),
             std::move(ContentPane)
+        }),
+        Nd("Overlay", P({ {"visible", B(bRcWizardOpen)} }),
+        {
+            Nd("Border", P({ {"bg", S("scrim")} })),
+            Nd("Overlay", P({ {"align", S("center")}, {"valign", S("center")} }),
+            {
+                Nd("SizeBox", P({ {"width", N(760)}, {"height", N(460)} }),
+                {
+                    Nd("Panel", P({ {"bg", S("solid")}, {"padding", N(28)}, {"spacing", N(14)} }),
+                    {
+                        Nd("Banner", P({ {"text", S("RC QUICK SETUP")}, {"tone", S("accent")} })),
+                        Nd("TextBlock", P({ {"text", S(RcInstruction)}, {"tone", S("accent")}, {"size", S("m")}, {"wrap", B(true)} })),
+                        Nd("TextBlock", P({ {"text", S(RcNotice)}, {"tone", S("accent")}, {"size", S("s")}, {"wrap", B(true)} })),
+                        Nd("TextBlock", P({ {"text", S(RcStatus)}, {"tone", S("dim")}, {"size", S("s")} })),
+                        Nd("Spacer", P({})),
+                        Nd("HorizontalBox", P({ {"spacing", N(10)} }),
+                        {
+                            Nd("Button", P({ {"label", S("WEITER")}, {"action", S("rc.calibrate.advance")}, {"tone", S("good")} })),
+                            Nd("Button", P({ {"label", S("ABBRECHEN")}, {"action", S("rc.calibrate.cancel")}, {"tone", S("danger")} }))
+                        })
+                    })
+                })
+            })
         })
     });
 
@@ -511,8 +587,8 @@ void ABorn2FlapMenu::Build()
 void ABorn2FlapMenu::BuildFlightDesk(std::vector<FNode>& Out)
 {
     // The hosting Panel sits at root path {1,1,0}; its single child is the
-    // ScrollPage Overlay: [0]=ScrollBlur, [1]=tabs Select, [2]=footer. Rows
-    // hang off the ScrollBlur's VBox at {1,1,0,0,0,0}.
+    // ScrollPage Overlay: [0]=ScrollBlur, [1]=header+tabs overlay, [2]=footer.
+    // Rows hang off the ScrollBlur's VBox at {1,1,0,0,0,0}.
     // The desk is purely the hangar — choose the aircraft and tune it. Global
     // preferences (camera, audio, input, replay) live in SETTINGS → GENERAL.
     static const TArray<int32> VBox{ 1, 1, 0, 0, 0, 0 };
@@ -554,7 +630,7 @@ void ABorn2FlapMenu::BuildFlightDesk(std::vector<FNode>& Out)
     Push(Nd("TextBlock", P({ {"text", S("CHOOSE YOUR SILHOUETTE")}, {"tone", S("accent")}, {"size", S("l")} })), 0);
     {
         FValue Silhouettes; Silhouettes.kind = FValue::Kind::Array;
-        for (const TCHAR* Name : { TEXT("RAVENCROW"), TEXT("PROTOTYPE"), TEXT("COMMON KESTREL") }) Silhouettes.arr.push_back(S(FString(Name)));
+        for (const TCHAR* Name : { TEXT("RAVENCROW"), TEXT("PROTOTYPE"), TEXT("COMMON KESTREL"), TEXT("NEON TURTLE"), TEXT("KESTREL LIGHT") }) Silhouettes.arr.push_back(S(FString(Name)));
         Push(Nd("Segment", P({
             {"options", std::move(Silhouettes)},
             {"value", N(CurModel)},
@@ -600,7 +676,8 @@ void ABorn2FlapMenu::BuildFlightDesk(std::vector<FNode>& Out)
         Push(Nd("Toggle", std::move(Props)), 1);
     }
     Push(Nd("TextBlock", P({ {"text", S("MOUNT")}, {"tone", S("accent")}, {"size", S("l")} })), 1);
-    PushTuning(ETuningField::MountAngle, 1);
+    PushTuning(ETuningField::FlapCentre, 1);
+    PushTuning(ETuningField::VerticalMountAngle, 1);
 
     // ---- SERVO & POWER (2) ----
     Push(Nd("TextBlock", P({ {"text", S("SERVO")}, {"tone", S("accent")}, {"size", S("l")} })), 2);
@@ -679,6 +756,7 @@ void ABorn2FlapMenu::BuildFlightDesk(std::vector<FNode>& Out)
     Rows.back().props["visible"]=B(false);
 
     Out.push_back(ScrollPage(
+        Nd("Caption", P({ {"text", S(Born2Flap::I18n::T("menu.flight_desk"))} })),
         std::move(Tabs),
         Nd("ScrollBlur", P({ {"pad", N(200)} }), { Nd("VerticalBox", P({ { "spacing", N(12)} }), std::move(Rows)) }),
         std::move(Footer)));
@@ -700,7 +778,6 @@ void ABorn2FlapMenu::BuildPreferences(std::vector<FNode>& Out)
         auto RowPath = [&](int32 Row) { TArray<int32> P = VBox; P.Add(Row); return P; };
 
         RcStatusPath.Reset();
-        RcInstructionPath.Reset();
         RcNoticePath.Reset();
         RcAxisPaths.Reset();
 
@@ -722,11 +799,6 @@ void ABorn2FlapMenu::BuildPreferences(std::vector<FNode>& Out)
         }
         {
             const int32 Idx = Next();
-            RcInstructionPath = RowPath(Idx);
-            Rows.push_back(Nd("TextBlock", P({ {"text", S(Rc->GetInstruction())}, {"tone", S("accent")}, {"size", S("s")}, {"wrap", B(true)} })));
-        }
-        {
-            const int32 Idx = Next();
             RcNoticePath = RowPath(Idx);
             Rows.push_back(Nd("TextBlock", P({ {"text", S(Rc->GetNotice())}, {"tone", S("accent")}, {"size", S("s")}, {"wrap", B(true)} })));
         }
@@ -740,15 +812,13 @@ void ABorn2FlapMenu::BuildPreferences(std::vector<FNode>& Out)
         }));
         Next();
 
-        // QUICK SETUP — optional wizard
-        Rows.push_back(Nd("Field", P({ {"label", S("QUICK SETUP  (optional)")} })));
+        // QUICK SETUP — opens the guided wizard as its own modal dialog.
+        Rows.push_back(Nd("Field", P({ {"label", S("QUICK SETUP")} })));
         Next();
-        Rows.push_back(Nd("TextBlock", P({ {"text", S(FString(TEXT("START runs the guided 7-step calibration. You can also map each channel below directly — the wizard is not required.")))}, {"tone", S("dim")}, {"size", S("xs")}, {"wrap", B(true)} })));
+        Rows.push_back(Nd("TextBlock", P({ {"text", S(FString(TEXT("Guided 7-step calibration in its own dialog. You can also map each channel below directly — the wizard is not required.")))}, {"tone", S("dim")}, {"size", S("xs")}, {"wrap", B(true)} })));
         Next();
         Rows.push_back(Nd("HorizontalBox", P({ {"spacing", N(8)} }), {
-            Nd("Button", P({ {"label", S("START")}, {"action", S("rc.calibrate.start")}, {"tone", S("good")} })),
-            Nd("Button", P({ {"label", S("NEXT STEP")}, {"action", S("rc.calibrate.advance")} })),
-            Nd("Button", P({ {"label", S("CANCEL")}, {"action", S("rc.calibrate.cancel")}, {"tone", S("danger")} }))
+            Nd("Button", P({ {"label", S("OPEN QUICK SETUP...")}, {"action", S("rc.calibrate.open")}, {"tone", S("good")} }))
         }));
         Next();
 
@@ -813,7 +883,9 @@ void ABorn2FlapMenu::BuildPreferences(std::vector<FNode>& Out)
             Rows.push_back(Nd("Stat", P({ {"label", S(AxisLabel)}, {"value", N(Axes[I])}, {"tone", S(Avail[I] ? "info" : "dim")} })));
         }
 
-        Out.push_back(ScrollPage(std::move(Tabs),
+        Out.push_back(ScrollPage(
+            Nd("Caption", P({ {"text", S(Born2Flap::I18n::T("menu.settings"))} })),
+            std::move(Tabs),
             Nd("ScrollBlur", P({ {"pad", N(200)} }), { Nd("VerticalBox", P({ { "spacing", N(12)} }), std::move(Rows)) })));
     }
     else if (PrefsPage == 1)
@@ -907,6 +979,23 @@ void ABorn2FlapMenu::BuildPreferences(std::vector<FNode>& Out)
                 Props["off"] = S("NORMAL  /  click to invert");
                 Props["value"] = B(Settings.bFreeLookInvert);
                 Rows.push_back(Nd("Toggle", std::move(Props)));
+            }
+
+            // GRAPHICS / RENDERER
+            Rows.push_back(Nd("TextBlock", P({ {"text", S("GRAPHICS  /  RENDERER")}, {"tone", S("accent")}, {"size", S("l")} })));
+            Rows.push_back(Nd("TextBlock", P({ {"text", S(FString(TEXT("Hardware Lumen, volumetric fog & clouds and MegaLights. Lower tiers fall back to the software renderer (screen-space / SDF tracing).")))}, {"tone", S("dim")}, {"size", S("xs")}, {"wrap", B(true)} })));
+            {
+                FValue QOpts; QOpts.kind = FValue::Kind::Array;
+                QOpts.arr.push_back(S(FString(TEXT("LOW  /  software Lumen"))));
+                QOpts.arr.push_back(S(FString(TEXT("MEDIUM  /  + volumetric fog & clouds"))));
+                QOpts.arr.push_back(S(FString(TEXT("HIGH  /  + hardware reflections"))));
+                QOpts.arr.push_back(S(FString(TEXT("EPIC  /  + full HW Lumen + MegaLights"))));
+                FProps Props;
+                Props["action"] = S("graphics.quality");
+                Props["label"] = S("RENDERER QUALITY");
+                Props["options"] = std::move(QOpts);
+                Props["value"] = N(Born2FlapGraphics::LoadQuality());
+                Rows.push_back(Nd("Dropdown", std::move(Props)));
             }
 
             // AUDIO
@@ -1058,7 +1147,9 @@ void ABorn2FlapMenu::BuildPreferences(std::vector<FNode>& Out)
                 Rows.push_back(Nd("Button", std::move(Props)));
             }
 
-            Out.push_back(ScrollPage(std::move(Tabs),
+            Out.push_back(ScrollPage(
+                Nd("Caption", P({ {"text", S(Born2Flap::I18n::T("menu.settings"))} })),
+                std::move(Tabs),
                 Nd("ScrollBlur", P({ {"pad", N(200)} }), { Nd("VerticalBox", P({ { "spacing", N(12)} }), std::move(Rows)) })));
         }
     }
@@ -1094,7 +1185,9 @@ void ABorn2FlapMenu::BuildPreferences(std::vector<FNode>& Out)
             Props["tone"] = S("danger");
             Rows.push_back(Nd("Button", std::move(Props)));
         }
-        Out.push_back(ScrollPage(std::move(Tabs),
+        Out.push_back(ScrollPage(
+            Nd("Caption", P({ {"text", S(Born2Flap::I18n::T("menu.settings"))} })),
+            std::move(Tabs),
             Nd("ScrollBlur", P({ {"pad", N(200)} }), { Nd("VerticalBox", P({ { "spacing", N(10)} }), std::move(Rows)) })));
     }
 }
@@ -1128,11 +1221,9 @@ void ABorn2FlapMenu::RefreshRcReadouts()
     if (!Rc)
         return;
 
-    // Status / instruction / notice: update the existing TextBlocks in place.
+    // Status / notice: update the existing TextBlocks in place.
     if (RcStatusPath.Num())
         SendUpdate(Renderer, RcStatusPath, P({ {"text", S(Rc->GetStatus())} }));
-    if (RcInstructionPath.Num())
-        SendUpdate(Renderer, RcInstructionPath, P({ {"text", S(Rc->GetInstruction())} }));
     if (RcNoticePath.Num())
         SendUpdate(Renderer, RcNoticePath, P({ {"text", S(Rc->GetNotice())} }));
 
@@ -1236,6 +1327,14 @@ void ABorn2FlapMenu::OnAction(const FString& Action, float Value, const FString&
     if (Action == TEXT("menu.preferences"))  { NavPage = 2; PrefsPage = 0; Build(); return; }
     if (Action == TEXT("prefs.page"))        { PrefsPage = FMath::Clamp(FMath::RoundToInt(Value), 0, 2); Build(); return; }
     if (Action == TEXT("settings.page"))     { SettingsPage = FMath::Clamp(FMath::RoundToInt(Value), 0, 3); Build(); return; }
+    // GRAPHICS / RENDERER quality — persisted + applied live (LOW = software fallback).
+    if (Action == TEXT("graphics.quality"))
+    {
+        const int32 Q = FMath::Clamp(FMath::RoundToInt(Value), 0, static_cast<int32>(Born2FlapGraphics::EQuality::Count) - 1);
+        Born2FlapGraphics::SaveQuality(Q);
+        Born2FlapGraphics::Apply(Born2FlapGraphics::ForQuality(static_cast<Born2FlapGraphics::EQuality>(Q)));
+        return;
+    }
     // OPEN WORLDS sub-page: LOCATION / WEATHER & TIME / ROUTE (segmented).
     if (Action == TEXT("menu.page"))         { SelectedPage = FMath::Clamp(FMath::RoundToInt(Value), 0, 2); Build(); return; }
 
@@ -1245,9 +1344,10 @@ void ABorn2FlapMenu::OnAction(const FString& Action, float Value, const FString&
         if (FBorn2FlapRcController* Rc = ActiveRc())
         {
             if      (Action == TEXT("rc.device.next"))       Rc->NextDevice();
-            else if (Action == TEXT("rc.calibrate.start"))   Rc->StartCalibration();
-            else if (Action == TEXT("rc.calibrate.advance")) Rc->AdvanceCalibration();
-            else if (Action == TEXT("rc.calibrate.cancel"))  Rc->CancelCalibration();
+            else if (Action == TEXT("rc.calibrate.open"))    { bRcWizardOpen = true;  Rc->StartCalibration(); }
+            else if (Action == TEXT("rc.calibrate.start"))   { bRcWizardOpen = true;  Rc->StartCalibration(); }
+            else if (Action == TEXT("rc.calibrate.advance")) { Rc->AdvanceCalibration(); if (Rc->GetStage() < 0) bRcWizardOpen = false; }
+            else if (Action == TEXT("rc.calibrate.cancel"))  { Rc->CancelCalibration(); bRcWizardOpen = false; }
             else if (Action == TEXT("rc.enable.toggle"))     Rc->ToggleEnabled();
             else if (Action == TEXT("rc.learn.launch"))      Rc->LearnLaunch();
             else if (Action == TEXT("rc.learn.reset"))       Rc->LearnReset();
@@ -1275,6 +1375,32 @@ void ABorn2FlapMenu::OnAction(const FString& Action, float Value, const FString&
                 if(!FParse::Param(FCommandLine::Get(),TEXT("B2FWeatherMenuTest"))) Born2FlapWeather::Save(Level,*C);
                 Build();
             }
+        }
+        return;
+    }
+    // Wind overrides (per displayed world): direction / strength / gusts /
+    // randomness / thermals. Sliders write an explicit value; reset returns
+    // every field to -1 ("auto"). Persisted + carried into level travel.
+    if (Action.StartsWith(TEXT("wind.")))
+    {
+        const FString Level = Worlds[SelectedWorld].Id;
+        if (FBorn2FlapConditions* C = LevelConditions.Find(Level))
+        {
+            if (Action == TEXT("wind.reset"))
+            {
+                C->WindDir = C->WindSpeed = C->WindGust = C->WindRandom = C->WindThermal = -1.f;
+            }
+            else
+            {
+                if      (Action == TEXT("wind.dir"))     C->WindDir = Value;
+                else if (Action == TEXT("wind.speed"))   C->WindSpeed = Value;
+                else if (Action == TEXT("wind.gust"))    C->WindGust = Value;
+                else if (Action == TEXT("wind.random"))  C->WindRandom = Value;
+                else if (Action == TEXT("wind.thermal")) C->WindThermal = Value;
+            }
+            *C = Born2FlapWeather::Validate(Level, *C);
+            if (!FParse::Param(FCommandLine::Get(), TEXT("B2FWeatherMenuTest"))) Born2FlapWeather::Save(Level, *C);
+            Build();
         }
         return;
     }
@@ -1321,8 +1447,10 @@ void ABorn2FlapMenu::OnAction(const FString& Action, float Value, const FString&
     struct FEntry { const TCHAR* Action; const TCHAR* Map; const TCHAR* Level; };
     static const FEntry Entries[] = {
         { TEXT("menu.ravenstonefield"), TEXT("/Game/Ravenstonefield/Maps/RAVENSTONEFIELD"), TEXT("Ravenstonefield") },
+        { TEXT("menu.harvestwatch"), TEXT("/Game/Shiomori/Maps/SHIOMORI"), TEXT("Shiomori") },
         { TEXT("menu.shiomori"),        TEXT("/Game/Shiomori/Maps/SHIOMORI"),               TEXT("Shiomori") },
         { TEXT("menu.training"),        TEXT("/Engine/Maps/Entry"),                         TEXT("Training") },
+        { TEXT("menu.neonabyss"),       TEXT("/Game/NeonAbyss/Maps/NEONABYSS"),             TEXT("NeonAbyss") },
     };
     for (const FEntry& E : Entries)
     {
@@ -1330,6 +1458,7 @@ void ABorn2FlapMenu::OnAction(const FString& Action, float Value, const FString&
         {
             PersistSettings();
             FString Options = Born2FlapWeather::TravelOptions(E.Level, LevelConditions.FindChecked(E.Level));
+            if(Action==TEXT("menu.harvestwatch"))Options+=TEXT("?Activity=HarvestWatch");
             if (const int32* Sel = SelectedPoi.Find(E.Level))
             {
                 const TArray<FBorn2FlapPoi> Cat = Born2FlapPoi::Catalog(E.Level);
@@ -1359,7 +1488,7 @@ void ABorn2FlapMenu::OnAction(const FString& Action, float Value, const FString&
     }
     if (Action == TEXT("bird.model"))
     {
-        Settings.BirdModel = FMath::Clamp(FMath::RoundToInt(Value), 0, 2);
+        Settings.BirdModel = FMath::Clamp(FMath::RoundToInt(Value), 0, 4);
         Settings.CgOffsetMm = FMath::Clamp(Settings.CgOffsetMm, -CgRangeMm(), CgRangeMm());
         if (Bird.IsValid()) Bird->SelectBirdModel(Settings.BirdModel);
         Build();   // CG slider min/max scale with the new craft's length

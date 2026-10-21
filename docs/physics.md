@@ -154,3 +154,17 @@ Jede Physikversion erhält einen Satz goldener Szenarien mit tolerierten Abweich
 ## Genauigkeitsgrenzen
 
 Das Modell darf keine Genauigkeit behaupten, die nicht validiert wurde. Besonders starke Ablösung, Leading-Edge-Vortices, clap-and-fling und komplexe Membranverformung brauchen empirische Korrekturen oder höherwertige Offline-Simulation.
+
+## Strukturelle Resonanz, Feder und Dwell (Audit-Stand)
+
+Es beschreiben drei unverbundene Größen denselben Flügel: der Wellenform-Endpunkt-Dwell, `Resonance.rsDwell` (gefilterte Tracking-Fehler-*Engagement*, nicht der kommandierte Dwell) und `StripState.stripSpringLoad` (gefiltertes, normalisiertes Verformungs-*Ziel*). Die strukturelle Relaxation in `Structure` ist ein Lag erster Ordnung, kein Trägheitsoszillator — sie kann allein keine unterdämpfte Strukturresonanz modellieren.
+
+Bekannte Punkte (Priorität):
+
+1. **Feder-Sättigung ändert das Gleichgewicht mit dem Zeitschritt.** Die tanh-Sättigung nach dem Relaxationsschritt (`Vehicle.hs` ~843) kontrahiert gespeicherte Verformung auch bei unveränderter Last (Ziel 1, Limit 1, tau 0.05 → Gleichgewicht 0.551 / 0.476 / 0.404 bei dt 1/120 / 1/240 / 1/480). Biegelinie wird ohne passende Sättigung der Verschiebung relaxiert.
+2. **Federenergie und Lasterleichterung teilen keine Energiebilanz.** Die Federenergie ist quadratisch in der generalisierten Verformung; der Rückstoß-/Tip-Jet-Schub bucht keine gespeicherte Energie ab. Dadurch lässt sich passive elastische Rückgewinnung nicht nachweisen.
+3. **Resonanzphase wird nicht aus der Servoantwort beobachtet.** Der Phasenfehler-ODE liest injiziertes eta und sein eigenes altes delta, nicht die gemessene Antwortphase (bei delta=0, eta=0 bleibt delta exakt 0).
+4. **Tracker-Normierung hängt von Frequenz/dt ab.** Der Resonanz-Gain ist 1/omega (Spitzen 1.0 / 0.5 / 0.25 bei omega 10 / 20 / 40); eine feste Schwelle unterdrückt höhere Kadenz.
+5. **Integration O(n³).** Verschachtelte Summen mit Listenindex in `Structure`; Suffix-Summen + Rückwärts-Momentenrekurrenz machen es O(n).
+
+Empfohlene Zielarchitektur: `Structure` besitzt elastische Verformung, Geschwindigkeit, Reaktionsmoment und gespeicherte Energie; ein Resonanz-Beobachter liest diesen Zustand und die tatsächliche Servobewegung und fordert begrenzte Kadenz-/Timing-Änderungen an; `Waveform` erzeugt nur die angeforderte Bewegung. `rsDwell` in Engagement umbenennen, den Tracker in Resonator. Federlast sollte in den Resonanz-Dwell und das WaveForming-Skew (Plateauform + freier Spitzenschwung) eingehen.

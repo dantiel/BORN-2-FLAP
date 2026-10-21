@@ -77,9 +77,10 @@ struct FOceanParameters
     }
 
     // Height displacement (cm) of the deterministic Gerstner spectrum above
-    // OceanLevel at world XY (cm) at time T (s). Fewer than ten components:
-    // one swell, three wind waves, four surface-detail waves. Kept in lock-step
-    // with the water material's HLSL (see create_shiomori_map.py).
+    // OceanLevel at world XY (cm) at time T (s). Sixteen components (two swell
+    // plus fourteen wind/detail waves) with de-harmonised lengths and a broad
+    // directional spread. Kept in lock-step with the water material's HLSL
+    // (see create_shiomori_map.py).
     float SampleWaveHeight(const FVector2D& P, float Time) const;
 };
 

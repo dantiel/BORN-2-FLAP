@@ -34,6 +34,9 @@ cmake-build-*/
 Testing/
 .setup/
 
+# Vendored self-contained Ruby (reproducible via Tools/fetch_portable_ruby.ps1)
+ThirdParty/ruby/
+
 # Haskell compiler outputs
 MathCore/dist-newstyle/
 MathCore/**/*.hi
@@ -60,6 +63,17 @@ Tools/effects_render
 Unreal/Born2Flap/Tools/out/
 Unreal/Born2Flap/Tools/_inspect_parhelion.py
 
+# Generated maps and procedural meshes (regenerate via Tools/generate_maps.py)
+/Unreal/Born2Flap/Content/Ravenstonefield/Maps/
+/Unreal/Born2Flap/Content/NeonAbyss/Maps/
+/Unreal/Born2Flap/Content/Shiomori/Maps/
+/Unreal/Born2Flap/Content/Shiomori/Meshes/SM_Campus_*.uasset
+/Unreal/Born2Flap/Content/Shiomori/Meshes/SM_ContinuousBeach.uasset
+/Unreal/Born2Flap/Content/Shiomori/Meshes/SM_Seabed.uasset
+/Unreal/Born2Flap/Content/Shiomori/Meshes/SM_OceanGrid.uasset
+/Unreal/Born2Flap/Content/Shiomori/Meshes/SM_Mountains*.uasset
+/Unreal/Born2Flap/Content/Shiomori/Meshes/SM_SweetPotato*.uasset
+
 # Scratch analysis scripts
 _analyze*.py
 _analyze_shot.py
@@ -79,3 +93,12 @@ Unreal/Born2Flap/Build/IOS/Resources/*
 !Unreal/Born2Flap/Build/IOS/Resources/Graphics/*.png
 !Unreal/Born2Flap/Build/IOS/Resources/Assets.xcassets/
 !Unreal/Born2Flap/Build/IOS/Resources/Assets.xcassets/**
+
+# Windows PowerShell redirect artifacts
+$null
+# Build-staged Ruby runtime and authoring sources (originals live at repo root)
+/Unreal/Born2Flap/Brain/
+/Unreal/Born2Flap/ThirdParty/ruby/
+
+# Local debug artifacts emitted by Brain export scripts
+/Brain/tmp_*.json

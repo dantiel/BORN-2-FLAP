@@ -15,12 +15,13 @@
 $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
 require "born2flap"
 require "json"
+require "born2flap/ui/session"
 
 telemetry_path = ARGV[0]
 frames_path    = ARGV[1]
 
 ticks    = nil
-interval = 0.016
+interval = 0.025
 idx = 2
 while idx < ARGV.length
   case ARGV[idx]
@@ -34,18 +35,13 @@ TRUNCATE_AT = 8 * 1024 * 1024  # rotate the frames file; remount resyncs the hos
 
 def read_telemetry(path)
   return nil if path.nil? || path == "-"
-  text = File.read(path)
-  line = text.lines.map(&:strip).reject(&:empty?).last
-  return nil unless line
-  JSON.parse(line, symbolize_names: true)
-rescue StandardError
-  nil
-end
-
-def sanitize(telemetry)
-  telemetry.each_with_object({}) do |(key, value), out|
-    out[key] = value.is_a?(String) ? value.gsub(/["\\]/, "").strip : value
-  end
+  text = File.read(path, encoding: 'UTF-8')
+  return nil if text == @last_telemetry_text
+  parsed = JSON.parse(text, symbolize_names: true)
+  @last_telemetry_text = text
+  parsed
+rescue Errno::ENOENT, Errno::EACCES, JSON::ParserError
+  nil # a rename can briefly make the snapshot unavailable; keep the last UI
 end
 
 def open_sink(path)
@@ -56,7 +52,9 @@ def open_sink(path)
 end
 
 sink = open_sink(frames_path)
-bus = Born2Flap::EventBus.new
+brain = Born2Flap::Brain.new
+session = Born2Flap::UI::Session.new(brain)
+bus = brain.bus
 root = Born2Flap::UI::Root.new(bus: bus)
 transport = Born2Flap::UI::Transport.new(bus: bus, io: sink)
 
@@ -64,15 +62,23 @@ current_tree = nil
 telemetry = nil
 frames_bytes = 0
 iteration = 0
+last_visual = nil
 
 loop do
   raw = read_telemetry(telemetry_path)
-  telemetry = sanitize(raw) if raw
+  telemetry = session.update(raw) if raw
 
-  current_tree = telemetry ? Born2Flap::UI::Dashboard.build(telemetry)
-                           : (current_tree || Born2Flap::UI::Dashboard.build({}))
-
-  root.render(current_tree)
+  if raw || current_tree.nil?
+    brain.tick(telemetry)
+    screen = brain.view_model[:screen]
+    visual = (telemetry || {}).reject { |key, _| key == :ui_events }
+    visual_key = [screen, visual]
+    if visual_key != last_visual
+      current_tree = Born2Flap::UI::Dashboard.build(visual, screen: screen)
+      root.render(current_tree)
+      last_visual = visual_key
+    end
+  end
   frames_bytes += transport.flush
 
   # Bounded growth: after truncation the host's tail offset is stale, so remount
@@ -82,7 +88,7 @@ loop do
     File.open(frames_path, "wb") {} # truncate
     sink = File.open(frames_path, "ab")
     sink.sync = true
-    transport = Born2Flap::UI::Transport.new(bus: bus, io: sink)
+    transport.replace_io(sink)
     root = Born2Flap::UI::Root.new(bus: bus)
     frames_bytes = 0
     root.render(current_tree)

@@ -42,15 +42,20 @@ FNode Nd(const char* Type, FProps Props = {}, std::vector<FNode> Children = {})
     return N_;
 }
 
-// A scroll page: the ScrollBlur fills the whole content area while the tab bar
-// and footer float above it (top / bottom). The dissolve band runs underneath
-// them, and the scroll content's internal `pad` lets the first/last rows scroll
-// clear of it.
-FNode ScrollPage(FNode Tabs, FNode Scroll, FNode Footer)
+// A scroll page: the ScrollBlur fills the whole content area (top to bottom)
+// while the header caption, tab bar and footer float above it as overlays. The
+// dissolve bands run underneath them — so the content scrolls under the header
+// and tabs instead of clipping at a hard edge below them.
+FNode ScrollPage(FNode Header, FNode Tabs, FNode Scroll, FNode Footer)
 {
     return Nd("Overlay", P({}), {
         std::move(Scroll),
-        Nd("Overlay", P({ {"visible", B(true)}, {"valign", S("top")} }), { std::move(Tabs) }),
+        Nd("Overlay", P({ {"visible", B(true)}, {"valign", S("top")} }), {
+            Nd("VerticalBox", P({ {"spacing", N(12)}, {"visible", B(true)} }), {
+                Nd("Overlay", P({ {"align", S("left")}, {"visible", B(true)} }), { std::move(Header) }),
+                std::move(Tabs),
+            }),
+        }),
         Nd("Overlay", P({ {"visible", B(true)}, {"valign", S("bottom")} }), { std::move(Footer) }),
     });
 }
@@ -74,16 +79,19 @@ void SendUpdate(UBorn2FlapUIRenderer* R, const TArray<int32>& Path, FProps Props
 }
 
 // Servos tested for flapping (dantiel.github.io/OrniFlight servo-efficiency
-// table). Speed = 60 / s-per-60°, torque = kg·cm × 0.0980665 → N·m. Backdrive
+// table). Speed = 60 / s-per-60°; torque = kg·cm × 0.0980665 → N·m, then × 1.8
+// servo-power fidelity — the solver under-models a servo's effective authority,
+// so stall torque carries the ×1.8 to match measured flap authority. Backdrive
 // is not published on the table, so presets keep the simulator default (20).
 struct FServoPreset { const TCHAR* Name; float SpeedDegS; float StallTorqueNm; float Backdrive; float Voltage; };
 static const FServoPreset ServoPresets[] = {
-    { TEXT("Blue Arrow AF D43S-6.0-MG"), 1500.f, 0.17f, 20.f, 6.0f },
-    { TEXT("VOTIK PTK 7465 / 7465W MG"),   667.f, 0.56f, 20.f, 8.4f },
-    { TEXT("Blue Arrow D0576HT-MG-HV"),   1000.f, 0.41f, 20.f, 7.4f },
-    { TEXT("Inservos D0474HT-MG-HV"),      750.f, 0.35f, 20.f, 7.4f },
-    { TEXT("KST MR320"),                   750.f, 0.54f, 20.f, 7.4f },
-    { TEXT("SAVOX SV-1270TG"),             545.f, 3.43f, 20.f, 7.4f },
+    { TEXT("Blue Arrow AF D43S-6.0-MG"), 1500.f, 0.31f, 20.f, 6.0f },
+    { TEXT("VOTIK PTK 7465 / 7465W MG"),   667.f, 1.01f, 20.f, 8.4f },
+    { TEXT("VOTIK PTK 7465 Plus"),         750.f, 1.33f, 20.f, 7.4f },
+    { TEXT("Blue Arrow D0576HT-MG-HV"),   1000.f, 0.74f, 20.f, 7.4f },
+    { TEXT("Inservos D0474HT-MG-HV"),      750.f, 0.63f, 20.f, 7.4f },
+    { TEXT("KST MR320"),                   750.f, 0.97f, 20.f, 7.4f },
+    { TEXT("SAVOX SV-1270TG"),             545.f, 6.17f, 20.f, 7.4f },
 };
 constexpr int32 ServoPresetCount = (int32)(sizeof(ServoPresets) / sizeof(ServoPresets[0]));
 
@@ -387,14 +395,17 @@ void ABorn2FlapFlightSettings::BuildTree()
     Rows.front().props["visible"]=B(false);
     Rows.back().props["visible"]=B(false);
     // Root: centered, fixed-size card → Panel → ScrollPage overlay (ScrollBlur
-    // fills; tabs/footer float above the dissolve bands).
+    // fills top-to-bottom; the header caption, tabs and footer float above the
+    // dissolve bands).
     FNode Root = Nd("Overlay", P({ {"align", S("center")}, {"valign", S("center")} }),
     {
         Nd("SizeBox", P({ {"width", N(900)}, {"height", N(SelectedPage==0 ? 510 : 800)} }),
         {
-            Nd("Panel", P({ {"title",S("FLIGHT DESK")}, {"bg", S("solid")}, {"padding", N(24)}, {"spacing",N(12)} }),
+            Nd("Panel", P({ {"bg", S("solid")}, {"padding", N(24)}, {"spacing",N(12)} }),
             {
-                ScrollPage(std::move(Tabs),
+                ScrollPage(
+                    Nd("Caption", P({ {"text", S("FLIGHT DESK")} })),
+                    std::move(Tabs),
                     Nd("ScrollBlur", P({ {"pad", N(200)} }), { Nd("VerticalBox", P({ { "spacing", N(12)} }), std::move(Rows)) }),
                     std::move(Footer))
             })

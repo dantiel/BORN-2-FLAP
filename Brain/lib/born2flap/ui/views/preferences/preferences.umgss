@@ -1,0 +1,5 @@
+ScrollPage
+  safe_top: 145
+  safe_bottom: 80
+  edge: 0.24
+  edge_bottom: 0.15

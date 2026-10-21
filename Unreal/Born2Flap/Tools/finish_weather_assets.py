@@ -29,7 +29,14 @@ def custom(m,code,inputs,size=1):
 def material(name):
     path='/Game/Weather/'+name
     m=u.load_asset(path) if ela.does_asset_exist(path) else assets.create_asset(name,'/Game/Weather',u.Material,u.MaterialFactoryNew())
-    lib.delete_all_material_expressions(m)
+    # UE 5.8 DeleteAllMaterialExpressions iterates a live TConstArrayView while
+    # RemoveExpression mutates that same array (iterator invalidation) — it only
+    # deletes ~half the expressions per call, silently accumulating stale nodes
+    # across re-runs. Loop until the expression list is actually empty.
+    for _ in range(64):
+        if not lib.get_material_expressions(m):
+            break
+        lib.delete_all_material_expressions(m)
     m.set_editor_property('two_sided',True)
     return m
 
@@ -70,23 +77,33 @@ for folder in ['/Game/Ravenstonefield/Materials','/Game/Shiomori/Materials','/Ga
             output(layer,prop)
         lib.recompile_material(m);assert ela.save_loaded_asset(m);count+=1
 
+# Breaking-surf foam. Mirrors the WORKING M_Foam recipe (create_shiomori_map.py):
+# BLEND_TRANSLUCENT + MSM_DEFAULT_LIT (default TLM, no TLM_SURFACE) + white in
+# BASE_COLOR + ROUGHNESS. Both TLM_SURFACE (surface forward shading does not
+# light here) and MSM_UNLIT+EMISSIVE (translucent unlit renders black) are the
+# black-foam regressions — neither is used.
 m=material('M_BreakingSurf')
 m.set_editor_property('disable_depth_test',False)
 m.set_editor_property('translucency_pass',u.MaterialTranslucencyPass.MTP_BEFORE_DOF)
 m.set_editor_property('blend_mode',u.BlendMode.BLEND_TRANSLUCENT)
 m.set_editor_property('shading_model',u.MaterialShadingModel.MSM_DEFAULT_LIT)
-m.set_editor_property('translucency_lighting_mode',u.TranslucencyLightingMode.TLM_SURFACE)
-vc=node(m,'VertexColor');pos=node(m,'WorldPosition');time=node(m,'Time')
+vc=node(m,'VertexColor');pos=node(m,'WorldPosition')
 scaled=node(m,'Multiply',const_b=.025);connect(pos,scaled,'A')
 noise=node(m,'Noise',levels=3,output_min=0.,output_max=1.);connect(scaled,noise,'')
-foam=custom(m,'return saturate(C.r*(.20+1.35*N));',{'N':noise,'C':vc})
-color=custom(m,'return lerp(float3(.025,.18,.20),float3(.88,.94,.94),F);',{'F':foam},3)
-output(color,'BASE_COLOR');output(node(m,'Constant',r=.34),'ROUGHNESS')
-eye=node(m,'EyeAdaptation')
-glow=custom(m,'return float3(.14,.16,.17)*F/max(Eye,.000001);',{'F':foam,'Eye':eye},3)
-output(glow,'EMISSIVE_COLOR')
-opacity=custom(m,'return Alpha*lerp(.65,1.,F);',{'Alpha':vc,'F':foam})
-connect(vc,opacity,'Alpha','A')
+# Each Custom node takes ONLY built-in inputs (Noise / VertexColor). Chaining a
+# Custom output into another Custom input (foam -> color.F) via
+# connect_material_expressions silently drops the FExpressionInput in UE 5.8 —
+# the SM6 shader then fails ("missing input 1 (F)") and the mesh falls back to
+# the grey Default Material checkerboard. Inline the foam mask instead.
+color=custom(m,'return lerp(float3(.05,.42,.46),float3(.92,.95,.95),saturate(C.r*(.20+1.35*N)));',{'N':noise,'C':vc},3)
+output(color,'BASE_COLOR')
+output(node(m,'Constant',r=.35),'ROUGHNESS')
+# The VertexColor node's output pin is MCT_Float3 (alpha masked out) — passing
+# it into a Custom input and swizzling .a fails ("vector swizzle 'a' is out of
+# bounds"). The underlying interpolant is full float4: read the alpha straight
+# from Parameters.VertexColor. The vc node stays connected to BASE_COLOR so the
+# engine still flags bUsesVertexColor and interpolates the full RGBA.
+opacity=custom(m,'return Parameters.VertexColor.a*lerp(.5,1.,saturate(Parameters.VertexColor.r*(.20+1.35*N)));',{'N':noise})
 output(opacity,'OPACITY');lib.recompile_material(m);assert ela.save_loaded_asset(m)
 
 m=material('M_RainSplash');m.set_editor_property('blend_mode',u.BlendMode.BLEND_TRANSLUCENT)

@@ -1,4 +1,5 @@
 #include "World/Born2FlapWeather.h"
+#include "World/Born2FlapBayTerrain.h"
 #include "Game/Born2FlapGameMode.h"
 #include "Components/InstancedStaticMeshComponent.h"
 #include "Components/BoxComponent.h"
@@ -22,6 +23,9 @@
 #include "HAL/IConsoleManager.h"
 #include "UObject/ConstructorHelpers.h"
 #include "UnrealClient.h"
+#include "NiagaraComponent.h"
+#include "NiagaraSystem.h"
+#include "Rendering/Born2FlapGraphics.h"
 #include "Water/Born2FlapSurf.h"
 #include "Audio/Born2FlapSoundscape.h"
 #include "AudioMixerBlueprintLibrary.h"
@@ -37,6 +41,10 @@ ABorn2FlapWeather::ABorn2FlapWeather()
     Precipitation->SetupAttachment(RootComponent);
     Precipitation->SetCollisionEnabled(ECollisionEnabled::NoCollision);
     Precipitation->SetCastShadow(false);
+    PrecipitationFX=CreateDefaultSubobject<UNiagaraComponent>(TEXT("PrecipitationFX"));
+    PrecipitationFX->SetupAttachment(RootComponent);
+    PrecipitationFX->SetAutoActivate(false);
+    PrecipitationFX->SetVisibility(false);
     Splashes=CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("RainSplashes"));
     Splashes->SetupAttachment(RootComponent);
     Splashes->SetCollisionEnabled(ECollisionEnabled::NoCollision);
@@ -65,10 +73,15 @@ void ABorn2FlapWeather::Apply()
 {
     const auto& W=Born2FlapWeather::Profile(Conditions.Weather);
     const auto& D=Born2FlapWeather::DayTime(Conditions.Time);
-    const FRotator SunRotation(-D.Elevation,D.Yaw,0);
+    // The season bends the whole sky, not just the sun disc: the daily arc
+    // shifts, the spectrum cools or warms, and the air thins or hazes. This is
+    // stage art — one hidden number set re-derives every visible facet.
+    const auto& Ssn=Born2FlapWeather::Season(Conditions.Season);
+    const FRotator SunRotation(-(D.Elevation+Ssn.SunElevation),D.Yaw+Ssn.SunAzimuth,0);
     const FVector SunDirection=-SunRotation.Vector();
-    const FLinearColor LightColor=D.Night ? FLinearColor(.52f,.67f,1.f) :
+    const FLinearColor BaseLight=D.Night ? FLinearColor(.52f,.67f,1.f) :
         ((D.Id==TEXT("dawn") || D.Id==TEXT("sunset")) ? FLinearColor(1.f,.64f,.36f) : FLinearColor(1.f,.94f,.84f));
+    const FLinearColor LightColor(BaseLight.R*Ssn.LightTint.R,BaseLight.G*Ssn.LightTint.G,BaseLight.B*Ssn.LightTint.B);
     bool bFogFound=false;
     for(TActorIterator<AActor> It(GetWorld());It;++It)
     {
@@ -78,7 +91,7 @@ void ABorn2FlapWeather::Apply()
             if(!Sun->bAtmosphereSunLight) continue;
             Sun->SetMobility(EComponentMobility::Movable);
             Sun->SetWorldRotation(SunRotation);
-            Sun->SetIntensity(D.Lux*W.Sunlight);
+            Sun->SetIntensity(D.Lux*W.Sunlight*Ssn.SunLux);
             Sun->SetLightColor(LightColor);
         }
         TInlineComponentArray<USkyLightComponent*> Skies(*It);
@@ -86,13 +99,13 @@ void ABorn2FlapWeather::Apply()
         {
             Sky->SetMobility(EComponentMobility::Movable);
             Sky->SetRealTimeCapture(true);
-            Sky->SetIntensity(D.Night ? .7f : 1.2f);
+            Sky->SetIntensity((D.Night ? .7f : 1.2f)*Ssn.SkyIntensity);
         }
         TInlineComponentArray<UExponentialHeightFogComponent*> Fogs(*It);
         for(auto* Fog:Fogs)
         {
             bFogFound=true;
-            Fog->SetFogDensity(W.Fog);
+            Fog->SetFogDensity(FMath::Max(0.f,W.Fog+Ssn.FogBias));
             Fog->SetFogHeightFalloff(W.Id==TEXT("mist") ? .12f : .25f);
             Fog->SetFogInscatteringColor(D.Night ? FLinearColor(.08f,.12f,.23f) : FLinearColor(.57f,.66f,.73f));
             Fog->SetVolumetricFog(true);
@@ -138,16 +151,40 @@ void ABorn2FlapWeather::Apply()
         Clouds->SetVisibility(W.Cloud>.2f);
     }
     Precipitation->ClearInstances();
+    // HIGH/EPIC: GPU-Niagara drives rain/snow. LOW/MEDIUM (or a missing system
+    // asset) falls back to the instanced-mesh path below.
+    bNiagara=Born2FlapGraphics::SupportsNiagara() && (W.Rain || W.Snow);
+    if(PrecipitationFX)
+    {
+        if(bNiagara)
+        {
+            PrecipitationFX->SetAsset(LoadObject<UNiagaraSystem>(nullptr,W.Snow ? TEXT("/Game/Weather/NS_Snow") : TEXT("/Game/Weather/NS_Rain")));
+            // An empty (emitter-less) system renders nothing — treat it as
+            // "not ready" and fall back to the ISM path rather than blanking rain.
+            if(PrecipitationFX->GetAsset() && PrecipitationFX->GetAsset()->GetEmitterHandles().Num()>0)
+            {
+                PrecipitationFX->SetVisibility(true);
+                PrecipitationFX->Activate(true);
+            }
+            else bNiagara=false;
+        }
+        else
+        {
+            PrecipitationFX->SetVisibility(false);
+            PrecipitationFX->Deactivate();
+        }
+    }
     SurfaceCollection=LoadObject<UMaterialParameterCollection>(nullptr,TEXT("/Game/Weather/MPC_Weather"));
     Wetness=W.Rain ? .45f : 0;
-    SnowCoverage=W.Snow ? .30f : 0;
+    // Winter snow settles deeper and lingers; summer/spring snow is a light dust.
+    SnowCoverage=W.Snow ? (.30f+.25f*Ssn.SnowBias) : 0;
     Splashes->ClearInstances();SplashPositions.SetNum(96);SplashAges.Init(1.f,96);
     Splashes->SetStaticMesh(LoadObject<UStaticMesh>(nullptr,TEXT("/Engine/BasicShapes/Plane")));
     Splashes->SetMaterial(0,LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Weather/M_RainSplash")));
     for(int I=0;I<96;++I) Splashes->AddInstance(FTransform(FQuat::Identity,FVector::ZeroVector,FVector::ZeroVector));
     Positions.Reset(); Floors.Reset();
     const int32 Count=W.Rain ? 480 : (W.Snow ? 300 : 0);
-    if(Count)
+    if(Count && !bNiagara)
     {
         Precipitation->SetStaticMesh(LoadObject<UStaticMesh>(nullptr,W.Snow ? TEXT("/Engine/BasicShapes/Sphere") : TEXT("/Engine/BasicShapes/Cube")));
         Precipitation->SetMaterial(0,LoadObject<UMaterialInterface>(nullptr,W.Snow ? TEXT("/Game/Weather/M_Snow") : TEXT("/Game/Weather/M_Rain")));
@@ -287,6 +324,13 @@ void ABorn2FlapWeather::Tick(float DeltaSeconds)
         // Re-centre the sky dome on the camera every frame (see EnsureMobileSky).
         if (MobileSkyDome)
             MobileSkyDome->SetActorLocation(Center);
+        if(bNiagara && PrecipitationFX && PrecipitationFX->GetAsset())
+        {
+            // Local-space system follows the camera; wind in cm/s to match the
+            // ISM path's Velocity=Wind(...)*100 convention.
+            PrecipitationFX->SetWorldLocation(Center);
+            PrecipitationFX->SetVectorParameter(TEXT("Wind"),Flow*100);
+        }
         for(int32 I=0;I<Positions.Num();++I)
         {
             FVector Velocity=Born2FlapWeather::Wind(Level,Conditions,Positions[I],Time)*100;
@@ -313,7 +357,9 @@ void ABorn2FlapWeather::Tick(float DeltaSeconds)
 void ABorn2FlapWeather::CheckExperienceTest()
 {
     const bool Campus=FParse::Param(FCommandLine::Get(),TEXT("B2FCampusTest"));
-    const int32 CaptureCount=Campus?7:FParse::Param(FCommandLine::Get(),TEXT("B2FVolcanicTest"))?5:3;
+    const bool Cliffs=FParse::Param(FCommandLine::Get(),TEXT("B2FCliffTest"));
+    const bool EastShore=FParse::Param(FCommandLine::Get(),TEXT("B2FEastShoreTest"));
+    const int32 CaptureCount=Campus?7:(Cliffs||EastShore)?4:FParse::Param(FCommandLine::Get(),TEXT("B2FVolcanicTest"))?5:3;
     if(Elapsed>1 && !ExperienceCamera)
     {
         // Offscreen windows never gain focus. Keep the test mix audible rather
@@ -336,7 +382,7 @@ void ABorn2FlapWeather::CheckExperienceTest()
                 View->GetCameraComponent()->SetFieldOfView(55);
             }
         }
-        if(Campus)
+        if(Campus || Cliffs || EastShore)
             if(auto* Bird=Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this,0)))
                 if(!Bird->IsUIHidden()) Bird->ToggleUIHidden();
         UGameplayStatics::GetPlayerController(this,0)->SetViewTarget(View);
@@ -354,15 +400,51 @@ void ABorn2FlapWeather::CheckExperienceTest()
     if(ExperienceCamera && Campus)
     {
         const int32 Index=FMath::Clamp(int32((Elapsed-2)/4),0,6);
-        const FVector CampusViews[]={FVector(-37000,14000,7000),FVector(-60000,-900,1110),
-            FVector(-45000,18000,23000),FVector(-65000,-14000,620),
-            FVector(-61700,7220,520),FVector(-62900,-3500,1190),FVector(-58500,-7200,2600)};
-        const FVector Targets[]={FVector(-60000,-3000,1400),FVector(-63500,-9700,2600),
-            FVector(-56000,-7000,1000),FVector(-65500,-17900,450),
-            FVector(-45200,18200,530),FVector(-62618,-5045,1170),FVector(-61800,-8600,2250)};
-        ExperienceCamera->SetActorLocation(CampusViews[Index]);
-        ExperienceCamera->SetActorRotation((Targets[Index]-CampusViews[Index]).Rotation());
+        const FName CameraTag(*FString::Printf(TEXT("CampusAnchor_View%d"),Index));
+        for(TActorIterator<AActor> It(GetWorld());It;++It)if(It->ActorHasTag(CameraTag))
+        {ExperienceCamera->SetActorLocationAndRotation(It->GetActorLocation(),It->GetActorRotation());break;}
         CastChecked<ACameraActor>(ExperienceCamera)->GetCameraComponent()->SetFieldOfView(Index==0?70:Index==4?65:75);
+    }
+    if(ExperienceCamera && Cliffs)
+    {
+        const int32 Index=FMath::Clamp(int32((Elapsed-2)/4),0,3);
+        const FVector GroundEye(-72500,46000,Born2FlapBay::Height(-72500,46000)+170);
+        const FVector Eyes[]={FVector(-70000,55500,3000),FVector(-71000,45900,2750),FVector(-56000,39000,9000),GroundEye};
+        const FVector Targets[]={FVector(-73000,47500,1150),FVector(-69000,50500,1100),FVector(-73500,41500,1100),GroundEye+FVector(3000,900,-150)};
+        ExperienceCamera->SetActorLocationAndRotation(Eyes[Index],(Targets[Index]-Eyes[Index]).Rotation());
+        CastChecked<ACameraActor>(ExperienceCamera)->GetCameraComponent()->SetFieldOfView(70);
+
+    }
+    if(ExperienceCamera && EastShore)
+    {
+        const int32 Index=FMath::Clamp(int32((Elapsed-2)/4),0,3);
+        const double Y=Born2FlapBay::EastShoreEdge(73500)-2200;
+        const FVector Close(73500,Y,Born2FlapBay::Height(73500,Y)+170);
+        const FVector Wood(66000,27000,Born2FlapBay::Height(66000,27000)+190);
+        const FVector Eyes[]={FVector(76000,57000,1500),Close,FVector(45000,43000,9000),Wood};
+        const FVector Targets[]={FVector(73000,48500,150),Close+FVector(3200,1100,-130),FVector(73000,35000,300),Wood+FVector(-1800,-3500,0)};
+        ExperienceCamera->SetActorLocationAndRotation(Eyes[Index],(Targets[Index]-Eyes[Index]).Rotation());
+        CastChecked<ACameraActor>(ExperienceCamera)->GetCameraComponent()->SetFieldOfView(70);
+        if(FParse::Param(FCommandLine::Get(),TEXT("B2FEasternStationTest")))
+        {
+            const FVector StationEyes[]={FVector(50500,17000,Born2FlapBay::Height(50500,17000)+180),FVector(76900,27900,Born2FlapBay::Height(76900,27900)+180),FVector(86500,55000,1100),FVector(73500,36500,6500)};
+            const FVector StationTargets[]={FVector(81100,29000,1500),FVector(81200,29300,1100),FVector(88500,52000,0),FVector(81500,29000,900)};
+            ExperienceCamera->SetActorLocationAndRotation(StationEyes[Index],(StationTargets[Index]-StationEyes[Index]).Rotation());
+        }
+        if(FParse::Param(FCommandLine::Get(),TEXT("B2FEastStrandTest")))
+        {
+            // Inspect both ends of the old coarse-sand patch and the woodland toe.
+            const FVector StrandEyes[]={FVector(40500,6500,260),FVector(46000,8500,420),FVector(42000,16000,3600),FVector(49500,16000,1100)};
+            const FVector StrandTargets[]={FVector(47000,7000,100),FVector(41000,7500,50),FVector(47500,7000,150),FVector(45000,9000,100)};
+            ExperienceCamera->SetActorLocationAndRotation(StrandEyes[Index],(StrandTargets[Index]-StrandEyes[Index]).Rotation());
+        }
+    }
+    if(ExperienceCamera && FParse::Param(FCommandLine::Get(),TEXT("B2FSandDetailTest")))
+    {
+        const int32 Index=FMath::Clamp(int32((Elapsed-2)/4),0,3);
+        const FVector Eyes[]={FVector(0,3000,95),FVector(-5000,4000,190),FVector(0,3000,800),FVector(0,6500,160)};
+        const FVector Targets[]={FVector(120,3200,20),FVector(-4200,4500,35),FVector(0,3800,0),FVector(700,9000,-30)};
+        ExperienceCamera->SetActorLocationAndRotation(Eyes[Index],(Targets[Index]-Eyes[Index]).Rotation());
     }
     if(FParse::Param(FCommandLine::Get(),TEXT("B2FBirdWaterTest")) && ExperienceCapture==2 && Elapsed>12)
     {
@@ -374,7 +456,7 @@ void ABorn2FlapWeather::CheckExperienceTest()
     {
         const bool BirdView=FParse::Param(FCommandLine::Get(),TEXT("B2FBirdWaterTest"));
         const bool Volcanic=FParse::Param(FCommandLine::Get(),TEXT("B2FVolcanicTest"));
-        FScreenshotRequest::RequestScreenshot(FString::Printf(TEXT("%s_%s_%s_%d.png"),Campus ? TEXT("CAMPUS") : Volcanic ? TEXT("VOLCANIC") : BirdView ? TEXT("BIRD_WATER") : TEXT("EXPERIENCE"),*Level,*Conditions.Weather,ExperienceCapture),false,false);
+        FScreenshotRequest::RequestScreenshot(FString::Printf(TEXT("%s_%s_%s_%d.png"),EastShore ? TEXT("EAST_SHORE") : Campus ? TEXT("CAMPUS") : Volcanic ? TEXT("VOLCANIC") : BirdView ? TEXT("BIRD_WATER") : TEXT("EXPERIENCE"),*Level,*Conditions.Weather,ExperienceCapture),false,false);
         ++ExperienceCapture;
     }
     if(Elapsed>15 && !bTestDone)
@@ -413,16 +495,20 @@ void ABorn2FlapWeather::CheckExperienceTest()
                 UE_LOG(LogTemp,Display,TEXT("CampusProbe %s %s hit=%d actor=%s z=%.1f"),Name,Correct?TEXT("PASS"):TEXT("FAIL"),Found,*GetNameSafe(Hit.GetActor()),Hit.ImpactPoint.Z);
                 return Correct;
             };
-            Pass &= Probe(TEXT("hangar open central handling aisle"),FVector(-65500,-15500,450),FVector(-65500,-18500,450),false);
-            Pass &= Probe(TEXT("hangar roof"),FVector(-65500,-17900,1800),FVector(-65500,-17900,500),true);
-            Pass &= Probe(TEXT("campus forecourt ground"),FVector(-62000,-5500,1100),FVector(-62000,-5500,500),true);
-            Pass &= Probe(TEXT("launch field ground"),FVector(-57500,-15300,650),FVector(-57500,-15300,-100),true);
-            Pass &= Probe(TEXT("mainland garden path"),FVector(-62400,2000,1200),FVector(-62400,2000,0),true);
-            Pass &= Probe(TEXT("peninsula shrine ledge"),FVector(-62000,10200,550),FVector(-62000,10200,100),true);
-            Pass &= Probe(TEXT("terrace retaining ground"),FVector(-67000,-6000,1150),FVector(-67000,-6000,500),true);
+            auto Anchor=[&](const TCHAR* Name)
+            {
+                const FName Tag(*(FString(TEXT("CampusAnchor_"))+Name));
+                for(TActorIterator<AActor> It(GetWorld());It;++It)if(It->ActorHasTag(Tag))return It->GetActorLocation();
+                Pass=false;return FVector::ZeroVector;
+            };
+            const FVector Hangar=Anchor(TEXT("Hangar"));
+            Pass &= Probe(TEXT("hangar open central handling aisle"),Hangar+FVector(0,2400,0),Hangar+FVector(0,-300,0),false);
+            Pass &= Probe(TEXT("hangar roof"),Hangar+FVector(0,0,1350),Hangar+FVector(0,0,50),true);
+            for(const TCHAR* Name:{TEXT("Forecourt"),TEXT("Field"),TEXT("Path"),TEXT("Shrine"),TEXT("Terrace")})
+            {const FVector P=Anchor(Name);Pass &= Probe(Name,P+FVector(0,0,1800),P+FVector(0,0,100),true);}
             FHitResult ClearanceHit;
             FCollisionQueryParams ClearanceQuery(SCENE_QUERY_STAT(CampusAircraftClearance),true);
-            const bool Obstructed=GetWorld()->SweepSingleByChannel(ClearanceHit,FVector(-65500,-15500,450),FVector(-65500,-18200,450),
+            const bool Obstructed=GetWorld()->SweepSingleByChannel(ClearanceHit,Hangar+FVector(0,2400,0),Hangar+FVector(0,-300,0),
                 FQuat::Identity,ECC_WorldStatic,FCollisionShape::MakeBox(FVector(300,180,120)),ClearanceQuery);
             Pass &= !Obstructed;
             UE_LOG(LogTemp,Display,TEXT("CampusProbe 6m aircraft handling envelope %s actor=%s"),Obstructed?TEXT("FAIL"):TEXT("PASS"),*GetNameSafe(ClearanceHit.GetActor()));

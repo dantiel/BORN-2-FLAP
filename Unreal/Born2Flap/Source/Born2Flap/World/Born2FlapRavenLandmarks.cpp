@@ -167,6 +167,14 @@ void ABorn2FlapValley::BuildBridge()
                 if(End<0)Algo::Reverse(Mark);Markings.Add(Mark);
             }
         }
+        // Feather the last twenty centimetres into the existing roadbed over 10 m.
+        for(int I=0;I<10;++I)
+        {
+            const double Y0=Y+End*(39000+I*100),Y1=Y+End*(39100+I*100);
+            const double Z0=GroundHeight(X,Y0)+20*(1-I/10.),Z1=GroundHeight(X,Y1)+20*(1-(I+1)/10.);
+            TArray<FVector> Q={FVector(X-950,Y0,Z0),FVector(X+950,Y0,Z0),FVector(X+950,Y1,Z1),FVector(X-950,Y1,Z1)};
+            if(End<0)Algo::Reverse(Q);Road.Add(Q);
+        }
     }
     RavenSurface(this,Road,TEXT("RoadConcrete"),true);
     RavenSurface(this,Markings,TEXT("Ivory"),false);
@@ -367,9 +375,9 @@ void ABorn2FlapValley::BuildLandmarks()
     for(int I=0;I<60;++I)
     {
         const double X=-32000+I*480,Y=-8200+900*FMath::Sin(I*.11),Z=GroundHeight(X,Y);
-        if(I>38&&I<44)continue;
+        if((I>38&&I<44)||FMath::Abs(X-FootpathX(Y))<750)continue;
         Beam(FVector(X,Y,Z),FVector(X+I%4*3,Y+10,Z+140),9,TEXT("Timber"),true);
-        if(I<59&&I!=38)for(int H:{55,113})
+        if(I<59&&I!=38&&FMath::Abs(X+480-FootpathX(Y))>=750)for(int H:{55,113})
             Beam(FVector(X,Y,Z+H),FVector(X+480,-8200+900*FMath::Sin((I+1)*.11),GroundHeight(X+480,-8200+900*FMath::Sin((I+1)*.11))+H),5,TEXT("Timber"));
     }
     // Lake landing pier and eroded mooring posts.

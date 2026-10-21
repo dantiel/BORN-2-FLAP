@@ -21,7 +21,11 @@ module Born2Flap.Math.Servo
   , ServoState(..)
   , defaultServoState
   , stepServo
+  , servoDriveTorque
+  , servoBackdriveTorque
+  , reflectedDriveInertia
   , batteryVoltageUnderLoad
+  , batteryVoltageUnderLoadBoost
   ) where
 
 -- ── Servo specification (selectable in the game) ───────────────────
@@ -37,8 +41,8 @@ data ServoSpec = ServoSpec
 
 defaultServoSpec :: ServoSpec
 defaultServoSpec = ServoSpec
-  { servoNoLoadSpeedDegPerSec = 60 / (70 * 0.001)  -- 70 ms/60° → 857 °/s
-  , servoStallTorqueNm = 2.0
+  { servoNoLoadSpeedDegPerSec = 1500  -- strong HV servo (40 ms/60°)
+  , servoStallTorqueNm = 1.332       -- strong metal-gear stall torque
   , servoBackdriveDegPerSecNm = 20
   }
 
@@ -49,6 +53,8 @@ data BatterySpec = BatterySpec
   , batteryInternalResistanceOhm :: !Double
   , batteryCapacityAh :: !Double
   , batteryStateOfCharge :: !Double  -- ^ 0..1
+  , batteryCRating :: !Double        -- ^ continuous discharge rating (C), e.g. 30
+  , batteryBurstCRating :: !Double   -- ^ burst discharge rating (C), e.g. 60 = momentarily double
   } deriving stock (Eq, Show)
 
 defaultBatterySpec :: BatterySpec
@@ -57,6 +63,8 @@ defaultBatterySpec = BatterySpec
   , batteryInternalResistanceOhm = 0.05
   , batteryCapacityAh = 0.35
   , batteryStateOfCharge = 1.0
+  , batteryCRating = 30
+  , batteryBurstCRating = 60
   }
 
 -- | Terminal voltage under a current draw: V = V_nom·soc − I·R_internal.
@@ -64,6 +72,23 @@ batteryVoltageUnderLoad :: BatterySpec -> Double -> Double
 batteryVoltageUnderLoad battery currentDrawA =
   max 0 (batteryNominalVoltage battery * batteryStateOfCharge battery
          - currentDrawA * batteryInternalResistanceOhm battery)
+
+-- | Terminal voltage under load with the LiPo burst reservoir. A C-rated pack
+-- can only sustain its continuous current (C·Ah); the burst rating (e.g. 60C vs
+-- 30C) lets it momentarily deliver up to double that — while the burst
+-- reservoir @boost@ (0..1) holds energy, the effective internal resistance
+-- drops, so a hard downstroke punch sags less and the servo punches harder. As
+-- the reservoir drains the sag returns. This is the battery-side half of the
+-- ferocity cost: a snapped stroke needs the burst, and pays for it in sag.
+batteryVoltageUnderLoadBoost :: BatterySpec -> Double -> Double -> Double
+batteryVoltageUnderLoadBoost battery currentDrawA boost =
+  let contA = max 0.01 (batteryCRating battery * batteryCapacityAh battery)
+      burstA = max contA (batteryBurstCRating battery * batteryCapacityAh battery)
+      -- Sag halves at full boost for a 2× burst rating, linearly interpolated.
+      sagFactor = 1 / (1 + (burstA / contA - 1) * clampRate 0 1 boost)
+      rEff = batteryInternalResistanceOhm battery * sagFactor
+  in max 0 (batteryNominalVoltage battery * batteryStateOfCharge battery
+            - currentDrawA * rEff)
 
 -- ── Servo state ────────────────────────────────────────────────────
 
@@ -75,12 +100,44 @@ data ServoState = ServoState
 defaultServoState :: ServoState
 defaultServoState = ServoState 0 0
 
+-- Reflected rotor/gearing inertia is relative to the case, not additional
+-- wing mass. It belongs on the joint diagonal, not in body recoil.
+reflectedDriveInertia :: Double
+reflectedDriveInertia = 0.0016
+
+-- | Convert the existing position/speed controller's demand into bounded
+-- motor torque. The fixed-base calculation is only a controller reference;
+-- actual motion is integrated by the coupled body/joint mass matrix.
+-- This preserves the established servo response without prescribing actual
+-- joint acceleration independently of the moving fuselage.
+servoDriveTorque :: ServoSpec -> BatterySpec -> Double -> Double -> Double -> Double -> Double -> ServoState -> Double -> Double
+servoDriveTorque servo battery voltage dt target load wingInertia old rate =
+  let vf = clampRate 0 1 (voltage / max 0.01 (batteryNominalVoltage battery))
+      stall = max 0 (servoStallTorqueNm servo * vf)
+      (_, reference) = stepServo servo battery target load wingInertia voltage dt old
+      acceleration = ((2*servoRateDegPerSec reference-servoRateDegPerSec old)*pi/180-rate)/dt
+      demand = (wingInertia+reflectedDriveInertia)*acceleration-load
+  in clampRate (-stall) stall demand
+
+-- | Passive gearbox resistance when an external load overpowers the drive.
+-- Retains the user's backdrive compliance setting without prescribing joint
+-- motion. This torque always dissipates energy and cannot power a dead servo.
+servoBackdriveTorque :: ServoSpec -> BatterySpec -> Double -> Double -> Double -> Double
+servoBackdriveTorque servo battery voltage load rate =
+  let vf = clampRate 0 1 (voltage / max 0.01 (batteryNominalVoltage battery))
+      stall = max 0 (servoStallTorqueNm servo * vf)
+      engaged = clampRate 0 1 ((abs load-stall) / max 0.05 (0.2*stall))
+      compliance = max 0.001 (servoBackdriveDegPerSecNm servo) * pi/180
+  in -engaged * signum load * max 0 (rate*signum load) / compliance
+
 -- | Advance one servo step.
 --
 --   * @targetDeg@   — commanded flap-deviation angle (from the firmware mixer)
 --   * @loadTorqueNm@ — aerodynamic hinge torque the wing exerts on the servo
 --                     shaft, signed by the torque the load applies: positive
 --                     tries to rotate the shaft in the positive-angle direction.
+--   * @wingInertia@ — wing moment of inertia about the flap hinge [kg·m²],
+--                     derived from the planform (structural + added mass).
 --   * @voltage@     — battery terminal voltage (drives the voltage factor)
 --   * @dt@          — timestep
 --
@@ -91,7 +148,7 @@ defaultServoState = ServoState 0 0
 -- speed. This is the physical "struggle".
 stepServo :: ServoSpec -> BatterySpec -> Double -> Double -> Double -> Double -> Double
           -> ServoState -> (Double, ServoState)
-stepServo servo battery targetDeg loadTorqueNm wingScale voltage dt state
+stepServo servo battery targetDeg loadTorqueNm wingInertia voltage dt state
   | dt <= 0 = (servoAngleDeg state, state)
   | otherwise =
       let voltFactor = clampRate 0 1 (voltage / max 0.01 (batteryNominalVoltage battery))
@@ -119,14 +176,13 @@ stepServo servo battery targetDeg loadTorqueNm wingScale voltage dt state
           -- The servo accelerates its *rate* toward the requested rate, but
           -- that acceleration is limited by the torque still available after
           -- the aerodynamic hinge load is overcome: α_max = (stallT − load)/I.
-          -- A wing's moment of inertia about the flap hinge scales as I ∝ m·L²
-          -- = wingScale⁵; a heavier wing does NOT make the servo respond more
-          -- slowly in time — it demands MORE TORQUE to reach the same angular
-          -- acceleration. So a strong (high-torque) servo flings a heavy wing
-          -- just as fast as a weak servo flings a light one, and servo power
-          -- genuinely shows up in how quickly the stroke reverses.
-          wingInertia = 0.0016 * (wingScale ** 5)   -- reference wing ≈0.0016 kg·m² at hinge
-          servoInertia = 0.0016                     -- rotor+geartrain reflected to the flap hinge
+          -- @wingInertia@ is the DERIVED moment of inertia of one wing about
+          -- the flap hinge (structural mass + entrained-air added mass), computed
+          -- from the planform by @shapeFlapInertia@ and passed in by the caller.
+          -- A heavier wing does NOT make the servo respond more slowly in time
+          -- — it demands MORE TORQUE to reach the same angular acceleration, so
+          -- servo power genuinely shows up in how quickly the stroke reverses.
+          servoInertia = reflectedDriveInertia
           inertia = servoInertia + wingInertia
           -- The torque available to accelerate the rate. When tracking, the
           -- servo's spare torque (stallT − load) drives it; when overpowered,

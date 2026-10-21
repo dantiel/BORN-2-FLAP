@@ -50,10 +50,10 @@ data SectionProfile = SectionProfile
 -- only modest membrane billow.
 defaultBirdArmSection :: SectionProfile
 defaultBirdArmSection = SectionProfile
-  { spRestCamber = 0.035
+  { spRestCamber = 0.020
   , spReflex = 0.15
-  , spMembraneK = 0.012
-  , spMembraneTau = 0.05
+  , spMembraneK = 0.07
+  , spMembraneTau = 0.025
   }
 
 -- | Bird handwing: a little less camber, more reflex (washed-out tip feathers
@@ -61,10 +61,10 @@ defaultBirdArmSection = SectionProfile
 -- region that cups more readily.
 defaultBirdHandSection :: SectionProfile
 defaultBirdHandSection = SectionProfile
-  { spRestCamber = 0.025
+  { spRestCamber = 0.020
   , spReflex = 0.40
-  , spMembraneK = 0.035
-  , spMembraneTau = 0.04
+  , spMembraneK = 0.16
+  , spMembraneTau = 0.018
   }
 
 -- | Zero-lift angle shift from camber [rad]. Thin-airfoil theory: a cambered
@@ -89,7 +89,7 @@ sectionPitchMomentCoeff camber reflex =
 -- braced inboard arm wing (diagonal LE→TE brace + mid-chord spar) holds its
 -- torsional centre AFT (≈0.15c), leaving only ~0.05c for the lift to twist it;
 -- the unbraced outboard hand wing has its elastic axis at the leading edge, so
--- the full ~0.20c AC offset twists it. This concentrates aeroelastic washout in
+-- a reduced ~0.10c AC offset twists it. This concentrates aeroelastic washout in
 -- the hand wing (the part a real bird twists) and keeps the stiff, braced arm
 -- wing from washing out under the accumulated outboard torque — the inner wing
 -- stays near its geometric incidence while the tip washes out with load. Using a
@@ -100,7 +100,7 @@ sectionTwistLever frac =
   let f = clamp01 frac
       t = clamp01 ((f - 0.15) / 0.45)
       s = t * t * (3.0 - 2.0 * t)   -- smoothstep inboard → outboard
-  in 0.05 + 0.15 * s
+  in 0.02 + 0.02 * s
 
 -- | Section pitching-moment coefficient about the LEADING-EDGE elastic axis
 -- (the twist axis), not the quarter-chord AC. It is the camber/reflex AC moment

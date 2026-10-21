@@ -35,8 +35,10 @@ namespace Born2FlapPoi
         if (Level.Equals(TEXT("Shiomori"), ESearchCase::IgnoreCase))
         {
             for (const TCHAR* K : { TEXT("poi.shiomori_beach"), TEXT("poi.bay_overlook"),
-                                    TEXT("poi.tidewalk"), TEXT("poi.basalt_cove"), TEXT("poi.shoreline"),
-                                    TEXT("poi.east_vegetation"), TEXT("poi.west_vegetation") })
+                                    TEXT("poi.basalt_cove"),
+                                    TEXT("poi.east_vegetation"), TEXT("poi.west_vegetation"),
+                                    TEXT("poi.campus_hotel"), TEXT("poi.island_beach"), TEXT("poi.shrine_park"),
+                                    TEXT("poi.pine_grove"), TEXT("poi.launch_field"), TEXT("poi.hangar") })
             {
                 FBorn2FlapPoi P; P.Key = K; Out.Add(P);
             }
@@ -48,6 +50,10 @@ namespace Born2FlapPoi
             {
                 FBorn2FlapPoi P; P.Key = TEXT("poi.gate"); P.Number = I; Out.Add(P);
             }
+        }
+        else if (Level.Equals(TEXT("NeonAbyss"), ESearchCase::IgnoreCase))
+        {
+            { FBorn2FlapPoi P; P.Key = TEXT("poi.bronze_ring"); Out.Add(P); }
         }
         else // Ravenstonefield
         {

@@ -11,6 +11,20 @@ module Born2Flap
       # Widget primitives → per-renderer native widgets.
       # html = [tag, default_class]; rn = React Native component name.
       PRIMITIVES = {
+        caption: { umg: "Caption", html: ["span", nil], rn: "Text" },
+        dropdown: { umg: "Dropdown", html: ["select", nil], rn: "View" },
+        keyselector: { umg: "KeySelector", html: ["input", nil], rn: "TextInput" },
+        loadingprogress: { umg: "LoadingProgress", html: ["progress", nil], rn: "ProgressBar" },
+        textblock: { umg: "TextBlock", html: ["span", "text"], rn: "Text" },
+        sizebox: { umg: "SizeBox", html: ["div", "sizebox"], rn: "View" },
+        scalebox: { umg: "ScaleBox", html: ["div", "scalebox"], rn: "View" },
+        verticalbox: { umg: "VerticalBox", html: ["div", "vbox"], rn: "View" },
+        horizontalbox: { umg: "HorizontalBox", html: ["div", "hbox"], rn: "View" },
+        progressbar: { umg: "ProgressBar", html: ["progress", nil], rn: "ProgressBar" },
+        numberbox: { umg: "NumberBox", html: ["input", nil], rn: "TextInput" },
+        windarrow: { umg: "WindArrow", html: ["div", "windarrow"], rn: "View" },
+        scrollblur: { umg: "ScrollBlur", html: ["div", "scroll"], rn: "ScrollView" },
+        border: { umg: "Border", html: ["div", "border"], rn: "View" },
         overlay:  { umg: "Overlay",        html: ["div", "overlay"],  rn: "View" },
         panel:    { umg: "Panel",          html: ["div", "panel"],    rn: "View" },
         vbox:     { umg: "VerticalBox",    html: ["div", "vbox"],     rn: "View" },
@@ -32,7 +46,8 @@ module Born2Flap
         progress: { umg: "ProgressBar",    html: ["progress", nil],   rn: "ProgressBar" },
         image:    { umg: "Image",          html: ["img", nil],        rn: "Image" },
         list:     { umg: "ListView",       html: ["ul", nil],         rn: "FlatList" },
-        scroll:   { umg: "ScrollBlur",     html: ["div", "scroll"],   rn: "ScrollView" },
+        scroll:   { umg: "ScrollBox",      html: ["div", "scroll"],   rn: "ScrollView" },
+        scrollbox:{ umg: "ScrollBox",      html: ["div", "scrollbox"], rn: "ScrollView" },
         gauge:    { umg: "Gauge",          html: ["div", "gauge"],    rn: "View" },
         spacer:   { umg: "Spacer",         html: ["div", "spacer"],   rn: "View" }
       }.freeze

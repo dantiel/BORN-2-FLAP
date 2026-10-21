@@ -1,20 +1,36 @@
-%Overlay{ align: "center", valign: "center" }
-  %SizeBox{ width: 960 }
-    %Panel{ title: "#{world_title}", padding: 28 }
-      %Segment{ options: ["LOCATION", "WEATHER & TIME"], value: #{page}, action: "menu.page", tooltip: "Browse a world, then choose the conditions for your flight." }
-      %VBox{ visible: #{page == 0}, spacing: 14 }
-        %SizeBox{ width: 350, height: 190 }
-          %Image{ texture: "/Game/UI/Elements/#{artwork}.#{artwork}" }
-        %TextBlock{ text: "#{world_story}", size: "m", wrap: true }
-      %VBox{ visible: #{page == 1}, spacing: 16 }
-        %Select{ label: "WEATHER", value: #{weather_index}, options: #{weathers}, action: "weather.#{world_id}" }
-        %Select{ label: "TIME OF DAY", value: #{time_index}, options: #{times}, action: "daytime.#{world_id}" }
-      %HBox{ spacing: 12 }
-        %Button{ label: "PREV", action: "menu.prevWorld", tooltip: "Browse the previous world." }
-        %Button{ label: "FLY  #{world_title}", action: "menu.#{world_id.downcase}", tone: "good", tooltip: "Start a flight with the selected weather and time." }
-        %Button{ label: "NEXT", action: "menu.nextWorld", tooltip: "Browse the next world." }
-      - if menu_inlevel
-        %Button{ label: "RESUME", action: "menu.resume", tone: "good" }
-        %Button{ label: "FLIGHT DESK", action: "menu.settings" }
-        %Button{ label: "CONTROLS", action: "menu.controls" }
-      %Button{ label: "QUIT", action: "menu.quit", tone: "dim" }
+%Panel{ padding: 24 }
+  %ScrollPage{}
+    %VBox{ spacing: 12 }
+      %Caption{ title: #{world_title.inspect} }
+      %Segment{ options: ["#{t('menu.location')}", "#{t('menu.weather_time')}", "#{t('menu.launch_point')}"], value: #{page}, action: "menu.page" }
+    %VBox{ spacing: 18 }
+        %VBox{ visible: #{page == 0}, spacing: 14 }
+          %SizeBox{ width: 350, height: 190 }
+            %Image{ texture: "/Game/UI/Elements/#{artwork}.#{artwork}" }
+          %TextBlock{ text: #{world_story.inspect}, size: "m", wrap: true }
+        %VBox{ visible: #{page == 1}, spacing: 14 }
+          %Select{ label: "#{t('menu.weather')}", value: #{weather_index}, options: #{weathers}, action: "weather.#{world_id}" }
+          %Select{ label: "#{t('menu.time_of_day')}", value: #{time_index}, options: #{times}, action: "daytime.#{world_id}" }
+          %Select{ label: "#{t('menu.season')}", value: #{season_index}, options: #{seasons}, action: "season.#{world_id}" }
+          %Section{ title: "#{t('menu.wind')}", open: true }
+            %Field{ label: "#{t('menu.direction')}" }
+              %Slider{ value: #{wind_dir}, min: -180, max: 180, step: 5, unit: "°", action: "wind.dir", hint: #{wind_dir_hint.inspect} }
+            %Field{ label: "#{t('menu.strength')}" }
+              %Slider{ value: #{wind_speed}, min: 0, max: 5, step: 0.1, unit: "×", action: "wind.speed", hint: #{wind_speed_hint.inspect} }
+            %Field{ label: "#{t('menu.gusts')}" }
+              %Slider{ value: #{wind_gust}, min: 0, max: 8, step: 0.1, unit: "×", action: "wind.gust" }
+            %Field{ label: "#{t('menu.randomness')}" }
+              %Slider{ value: #{wind_random}, min: 0, max: 8, step: 0.1, unit: "×", action: "wind.random" }
+            %Field{ label: "#{t('menu.thermals')}" }
+              %Slider{ value: #{wind_thermal}, min: 0, max: 5, step: 0.1, unit: "×", action: "wind.thermal" }
+            - if wind_custom
+              %Button{ label: "#{t('menu.reset_wind')}", action: "wind.reset", tone: "dim" }
+        %VBox{ visible: #{page == 2}, spacing: 12 }
+          - launch_points.each_with_index do |point, index|
+            %Button{ label: #{point.inspect}, action: "launch.#{index}", tone: "#{index == launch_index ? 'good' : 'dim'}" }
+    %HBox{ spacing: 12 }
+      %Button{ label: "#{t('menu.prev')}", action: "menu.prevWorld" }
+      %Button{ label: "#{t('menu.play')}  #{world_title}", action: "menu.#{world_id.downcase}", tone: "good" }
+      - if world_id == "Shiomori"
+        %Button{ label: "HARVEST WATCH - guard the sweet potatoes", action: "menu.harvestwatch", tone: "accent" }
+      %Button{ label: "#{t('menu.next')}", action: "menu.nextWorld" }

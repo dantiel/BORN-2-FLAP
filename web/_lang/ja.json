@@ -3,7 +3,6 @@
   "dir": "ltr",
   "title": "BORN2FLAP — オーニソプター飛行シミュレーター",
   "meta_desc": "BORN2FLAP はリアルタイムのオーニソプター飛行シミュレーター。分割翼、動的失速、空力弾性の曲げ。一振りごとに、意味がある。",
-
   "asset_prefix": "..",
   "lang_href_en": "../",
   "lang_href_de": "../de/",
@@ -21,7 +20,6 @@
   "lang_class_ja": "active",
   "lang_class_ko": "",
   "lang_class_ru": "",
-
   "nav_home": "BORN2FLAP",
   "nav_essence": "本質",
   "nav_flight": "翼",
@@ -30,7 +28,6 @@
   "nav_open": "オープンソース",
   "nav_tutorials": "チュートリアル",
   "nav_documentation": "ドキュメント",
-
   "hero_kicker": "オーニソプター飛行シミュレーター",
   "hero_title_a": "BORN",
   "hero_title_b": "2",
@@ -42,7 +39,6 @@
   "hero_cta_epic": "Epic で入手",
   "hero_cta_source": "ソースを読む",
   "hero_version": "Unreal Engine 5 · Haskell MathCore · MIT ライセンス",
-
   "essence_num": "01",
   "essence_title": "本質",
   "essence_lead": "オーニソプターはクアッドではない。羽ばたく翼だ。",
@@ -53,7 +49,6 @@
   "essence_p2_body": "CRSF 無線、ONDAS ミキサー、PID、サーボカーネルを実機ファームウェアから移植。本物の送信機で飛ばせ。",
   "essence_p3_title": "本物の帰結",
   "essence_p3_body": "後退角、洗い下げ、キャンバー、剛性が飛び方を変える。組み立て、そして乗りこなせ。",
-
   "flight_num": "02",
   "flight_title": "翼",
   "flight_lead": "空力弾性、誠実、そして生きている。",
@@ -74,7 +69,6 @@
   "flight_spec_wave_val": "非対称ドウェル / 尖形、ビート同期",
   "flight_spec_step_label": "タイムステップ",
   "flight_spec_step_val": "固定 240 Hz",
-
   "arch_num": "03",
   "arch_title": "アーキテクチャ",
   "arch_lead": "三つの言語、一つの鼓動。",
@@ -87,8 +81,7 @@
   "arch_ruby_title": "Ruby ブレイン",
   "arch_ruby_desc": "アプリ状態、メニュー、ルール、オーケストレーション——速い数学の背後にある遅い思考。",
   "arch_pipeline": "RC / Gamepad  ──►  ファームウェア (CRSF · ミキサー · PID)\n                         │\n                         ▼\n              Haskell MathCore (固定 240 Hz)\n                         │\n                         ▼\n              C / C++ FFI  ──►  Unreal / Chaos",
-
-  "game_num": "04",
+  "game_num": "05",
   "game_title": "ゲームプレイ",
   "game_lead": "始めるのは易しく、極めるのは難しい。",
   "game_free_title": "フリーフライト",
@@ -103,13 +96,11 @@
   "game_landing_desc": "風の中の定点着陸——最古の種目にして最難。",
   "game_bench_title": "テストベンチ",
   "game_bench_desc": "風洞ビュー：力ベクトル、失速マップ、翼の変形をライブで。",
-
-  "open_num": "06",
+  "open_num": "07",
   "open_title": "オープンソース",
   "open_lead": "商用であり、同時に自由。",
   "open_body": "BORN2FLAP は Steam と Epic Games Store でリリースされ、自前のソースは <strong>MIT ライセンス</strong>で公開される。物理コアもブリッジもブレインも——オープンだ。ゲームを飛ばし、翼を持ち帰り、自分だけのものを作れ。Unreal Engine とサードパーティ資産はそれぞれのライセンスを保持する。 関連するオープンソースプロジェクト: <a href=\"https://dantiel.github.io/OrniFlight/\">OrniFlight</a>（STM32 フライトコントローラー向け）と <a href=\"https://dantiel.github.io/PteronautOS/\">PteronautOS</a>（シンプルなハードウェアでより汎用的）——それぞれ独自のコンフィギュレーターとファームウェアを備える。",
   "open_license": "MIT ライセンス",
-
   "footer_github": "GitHub",
   "footer_docs": "ドキュメント",
   "footer_tutorials": "チュートリアル",
@@ -117,43 +108,33 @@
   "footer_epic": "Epic Games",
   "footer_hermetic": "猛き心がエーテルに書きつける。",
   "footer_credit": "BORN2FLAP ·",
-
   "subnav_scroll": "上へ戻る",
   "subnav_home": "BORN2FLAP へ戻る",
-
   "doc_title": "ドキュメント — BORN2FLAP",
   "doc_h1": "ドキュメント",
   "doc_lead": "翼と数学と機体を、解説する。",
   "doc_h2_articles": "記事",
-
   "ph_title": "物理 — BORN2FLAP",
   "ph_h1": "物理",
   "ph_lead": "縮約されたリアルタイムモデル。",
-
   "wing_title": "翼 — BORN2FLAP",
   "wing_h1": "翼",
   "wing_lead": "平面形、翼型、構造。",
-
   "wave_title": "波形 — BORN2FLAP",
   "wave_h1": "波形",
   "wave_lead": "ビート同期した振動。",
-
   "ctl_title": "操縦 — BORN2FLAP",
   "ctl_h1": "操縦",
   "ctl_lead": "CRSF、ミキサー、ファームウェア。",
-
   "tut_title": "チュートリアル — BORN2FLAP",
   "tut_h1": "チュートリアル",
   "tut_lead": "最初の羽ばたきから手動チューニングへ。",
-
   "ff_title": "初飛行 — BORN2FLAP",
   "ff_h1": "初飛行",
   "ff_lead": "離陸して、空に留まれ。",
-
   "wd_title": "翼の設計 — BORN2FLAP",
   "wd_h1": "翼の設計",
   "wd_lead": "幾何は運命である。",
-
   "tune_title": "チューニング — BORN2FLAP",
   "tune_h1": "チューニング",
   "tune_lead": "翼を自分の手に合わせろ。"

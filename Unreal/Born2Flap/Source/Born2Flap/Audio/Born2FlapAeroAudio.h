@@ -101,9 +101,11 @@ inline ui::FProps ComputeIntrinsic(const std::string& Voice, const FTelemetry& T
         // breathe the whoosh bed gently (±~10%), vanishing to zero in a glide.
         SetNum(P, "beat", T.wingbeat_hz);
         SetNum(P, "tone", Clamp01(1.0 - std::fabs(T.phase_error_rad) / 0.5));
-        // whoosh / whistle — the CONSTANT STREAM: airspeed-gated, never pulsed.
+        // whoosh / wind-breath — the CONSTANT STREAM: airspeed-gated, never pulsed.
         SetNum(P, "whoosh", Clamp01(T.airspeed / 22.0));
-        SetNum(P, "whistle", Clamp01(T.airspeed / 18.0));
+        // A LOW, soft airstream body rather than a sharp feather-slot whistle:
+        // a gentler ramp (/26 instead of /18) so it only swells at high speed.
+        SetNum(P, "whistle", Clamp01(T.airspeed / 26.0));
         SetNum(P, "brightness", Clamp01(T.airspeed / 40.0));
         // "crack" — the papery-whoosh blend weight, driven by the force
         // fluctuation (a flapping/stalling wing fizzles; a clean glide doesn't).

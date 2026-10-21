@@ -25,6 +25,8 @@
 
 class IFileHandle;
 class UBorn2FlapUIRenderer;
+class FJsonObject;
+class FJsonValue;
 
 UCLASS()
 class BORN2FLAP_API ABorn2FlapUIBridge : public AActor
@@ -63,16 +65,40 @@ public:
     virtual void Tick(float DeltaSeconds) override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
+    // Force an immediate telemetry write, bypassing the same-as-last-frame
+    // dedup. Used to stamp `loading:true` into the telemetry file just before
+    // OpenLevel so a freshly-spawned Brain on the destination map renders
+    // nothing while the movie player still covers the viewport — no menu flash
+    // bleeding through over the loading screen.
+    void ForceTelemetry();
+
+    // Remove the Brain-authored UMG host from the viewport immediately. Called
+    // right before OpenLevel so the menu cannot linger across the level travel
+    // and flash over the destination map; EndPlay re-invokes it as a safety net
+    // (the call is idempotent).
+    void CloseRenderer();
+
 private:
+    void RunUITest(float DeltaSeconds);
+    float UITestElapsed=0;
+    int32 UITestStage=0;
+    bool bUITestPassed=true;
     void OpenSource();
     void SpawnBrain();
     void DrainSource();
     void WriteTelemetry();
     void ApplyFrame(const TArray<uint8>& Bytes);
+    void DispatchCommand(const FJsonObject& Cmd);
 
     UPROPERTY() TObjectPtr<UBorn2FlapUIRenderer> Renderer;
     IFileHandle* FileHandle = nullptr;
     int64 FileOffset = 0;
+    int64 TelemetryWrites=0, AppliedFrames=0, SampleWrites=0, SampleFrames=0;
+    double MaxBridgeMs=0;
+    double NextTelemetryTime = 0;
+    FString LastTelemetryJson;
+    int64 NextEventId = 1;
+    TArray<TSharedPtr<FJsonValue>> PendingEvents;
     FProcHandle BrainProcess;
     TArray<uint8> LineBuffer;
 };

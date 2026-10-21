@@ -40,6 +40,8 @@ module Born2Flap.Math.Planform
   , shapeArea
   , shapeMeanChord
   , shapeAspectRatio
+  , referenceWingMassKg
+  , shapeFlapInertia
   , shapeStationsAt
   ) where
 
@@ -47,13 +49,15 @@ import Data.List (sortOn)
 import Born2Flap.Math.Section
   ( SectionProfile(..), defaultBirdArmSection, defaultBirdHandSection )
 import Born2Flap.Math.Structure
-  ( StructureProfile(..), defaultBirdArmStructure, defaultBirdHandStructure )
+  ( StructureProfile(..), armStructure, handStructure, kestrelSpars )
 
 -- | One wing's outline: its spanwise extent plus an ordered list of shape
 -- stations from root (fraction 0) to tip (fraction 1).
 data WingShape = WingShape
   { wsSpanM     :: !Double          -- ^ half-span (spanwise extent) [m]
   , wsShoulderM :: !Double          -- ^ shoulder distance: wing-root hinge offset from body centreline [m]
+  , wsMountAngleDeg :: !Double      -- ^ horizontal servo mount angle: yaw of the flap-hinge axis [deg], set per wing pair
+  , wsArmAngleDeg   :: !Double      -- ^ horizontal servo-arm angle: LE carbon-spar rotation at the arm, compensating the mount [deg]
   , wsStations  :: ![ShapeStation]  -- ^ ordered root → tip
   } deriving stock (Eq, Show)
 
@@ -82,17 +86,27 @@ data SpanStation = SpanStation
   , spanStructure :: !StructureProfile  -- ^ bending / torsion / damping material
   } deriving stock (Eq, Show)
 
--- | Conservative, robust default: a ~1.44 m-span bird with a broad armwing and
--- a tapered, swept, washed-out handwing. Defined purely as an outline; sweep is
--- the slope of the leading edge (≈15° on the armwing → ≈24° on the handwing).
+-- | Reference kestrel ornithopter: 550 mm half-span (1.10 m full span) — 222 mm
+-- inner spar + 32 mm servo arm to the elbow, 310 mm outer LE spar to the tip,
+-- overlapping. Broad armwing with a tapered, swept, washed-out handwing. Defined
+-- purely as an outline; sweep is the slope of the leading edge (≈15° on the
+-- armwing → ≈24° on the handwing). Geometrically similar to the 0.87 m micro
+-- variant, scaled 1.27× for the bigger bird and bigger servo.
+--
+-- NOTE: 0.55 m half-span is the CORRECT reference. It must not be enlarged; the
+-- whole aerodynamic force budget (area, lever arms, flap-jet thrust, hinge
+-- torque) scales as span⁴..span⁵, so a bigger outline over-loads the servo and
+-- sends the bird ballistic on a single beat.
 defaultBirdWing :: WingShape
 defaultBirdWing = WingShape
-  { wsSpanM = 0.72
-  , wsShoulderM = 0.01  -- 1 cm shoulder: parallel-flapping ornithopter flies best with almost no shoulder width
+  { wsSpanM = 0.55
+  , wsShoulderM = 0.0127  -- 1.27 cm shoulder: parallel-flapping ornithopter flies best with almost no shoulder width
+  , wsMountAngleDeg = 0   -- parallel flapping: flap hinge unyawed (pure dihedral)
+  , wsArmAngleDeg = 0     -- no spar compensation needed when the mount is unyawed
   , wsStations =
-      [ ShapeStation 0.00 0.000 0.220  9.00 16.0 defaultBirdArmSection defaultBirdArmStructure  -- shoulder
-      , ShapeStation 0.45 0.087 0.185  5.00 16.0 defaultBirdArmSection defaultBirdArmStructure  -- elbow
-      , ShapeStation 1.00 0.262 0.090  0.00 16.0 defaultBirdHandSection defaultBirdHandStructure  -- tip
+      [ ShapeStation 0.00 0.000 0.279  6.50 16.0 defaultBirdArmSection (armStructure kestrelSpars)  -- shoulder
+      , ShapeStation 0.45 0.110 0.235  3.50 16.0 defaultBirdArmSection (armStructure kestrelSpars)  -- elbow
+      , ShapeStation 1.00 0.333 0.114  1.50 16.0 defaultBirdHandSection (handStructure kestrelSpars)  -- tip
       ]
   }
 
@@ -190,6 +204,39 @@ shapeAspectRatio :: WingShape -> Double
 shapeAspectRatio wp =
   let halfSpan = wsSpanM wp
   in 2 * halfSpan * halfSpan / max 1.0e-6 (shapeArea wp)
+
+-- | Reference structural mass of ONE wing of the 1.10 m kestrel [kg].
+-- Ornithopter membrane wings are extremely light: ~5 g each for this bird
+-- (tensioned membrane + carbon spars). This is the physical wing's mass; a
+-- different model supplies its own via its spar inventory + outline.
+referenceWingMassKg :: Double
+referenceWingMassKg = 0.005
+
+-- | Moment of inertia of ONE wing about the flap hinge (the shoulder axis)
+-- [kg·m²]. Two physical contributions, both integrated over the planform:
+--
+--   * __structural__ — the wing's own mass, distributed proportional to local
+--     chord (deeper wing = more membrane + longer ribs).
+--   * __added mass__ — the entrained air a flapping membrane drags with it,
+--     @ρ·π·c²/4@ per unit span (2-D flat plate accelerating normal to itself).
+--     For a light membrane wing this DOMINATES the structural term (~3× for
+--     the 5 g kestrel wing).
+shapeFlapInertia :: Double -> Double -> WingShape -> Double
+shapeFlapInertia wingMass airRho wp =
+  let span = wsSpanM wp
+      shoulder = wsShoulderM wp
+      n = 128
+      samples = [ (frac, shapeChord wp frac)
+                | i <- [0 .. n - 1]
+                , let frac = (fromIntegral i + 0.5) / fromIntegral n ]
+      dfrac = 1 / fromIntegral n
+      -- ∫ r²·chord dfrac and ∫ r²·chord² dfrac, r = shoulder + span·frac.
+      intR2C  = sum [ (shoulder + span * f) ** 2 * c * dfrac | (f, c) <- samples ]
+      intR2C2 = sum [ (shoulder + span * f) ** 2 * c * c * dfrac | (f, c) <- samples ]
+      area = shapeArea wp
+      structural = wingMass / max 1.0e-9 area * span * intR2C
+      added = airRho * (pi / 4) * span * intR2C2
+  in structural + added
 
 -- | Resample the wing into @n@ spanwise stations (strip midpoints) carrying the
 -- derived geometry. Strip @i@ of @n@; feeds the solver and the future mesh.

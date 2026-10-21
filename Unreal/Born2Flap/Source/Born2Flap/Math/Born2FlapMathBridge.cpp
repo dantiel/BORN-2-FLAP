@@ -61,10 +61,12 @@ bool FBorn2FlapMathBridge::Load()
         SetWindPhaseNoise = &::b2f_math_set_wind_phase_noise;
         ReconfigureFirmwareVehicle = &::b2f_math_reconfigure_firmware_vehicle;
         GetWingShape = &::b2f_math_get_wing_shape;
+        SetWingModelHook = &::b2f_math_set_wing_model;
+        GetModelMassKgHook = &::b2f_math_get_model_mass_kg;
 
         B2F_FirmwareConfig FlightConfig{};
         FlightConfig.servo_no_load_speed_deg_s = 1200;
-        FlightConfig.servo_stall_torque_nm = 8;
+        FlightConfig.servo_stall_torque_nm = 20;
         FlightConfig.servo_backdrive_deg_s_nm = 20;
         FlightConfig.battery_voltage = 11.1;
         FlightConfig.battery_resistance_ohm = .08;
@@ -82,8 +84,13 @@ bool FBorn2FlapMathBridge::Load()
         return true;
     }
 #else
-    const FString LibraryPath = FPaths::Combine(
+    FString LibraryPath = FPaths::Combine(
         FPaths::ProjectDir(), TEXT("Binaries"), TEXT("ThirdParty"), MathLibraryName());
+#if !UE_BUILD_SHIPPING
+    // Isolated regression comparisons without replacing the installed DLL.
+    if (FParse::Param(FCommandLine::Get(), TEXT("B2FFlightTest")))
+        FParse::Value(FCommandLine::Get(), TEXT("B2FPhysicsTestLibrary="), LibraryPath);
+#endif
     // Pin one loader reference for the process: GHC cannot be stopped/restarted
     // between PIE sessions. Per-aircraft contexts are still freed by Unload().
     static void* ProcessLibraryHandle = nullptr;
@@ -114,12 +121,15 @@ bool FBorn2FlapMathBridge::Load()
         LoadExport<ReconfigureFn>(LibraryHandle, TEXT("b2f_math_reconfigure_firmware_vehicle"));
     GetWingShape = LoadExport<GetWingShapeFn>(LibraryHandle, TEXT("b2f_math_get_wing_shape"));
     GetWingForces = LoadExport<GetWingForcesFn>(LibraryHandle, TEXT("b2f_math_get_wing_forces"));
+    SetWingModelHook = LoadExport<SetWingModelFn>(LibraryHandle, TEXT("b2f_math_set_wing_model"));
+    GetModelMassKgHook = LoadExport<GetModelMassKgFn>(LibraryHandle, TEXT("b2f_math_get_model_mass_kg"));
+    GetMassProperties = LoadExport<MassPropertiesFn>(LibraryHandle, TEXT("b2f_math_get_mass_properties"));
     if (!GetWingShape)
         UE_LOG(LogTemp, Warning, TEXT("Wing deformation unavailable: rebuild the Haskell backend for wing-shape telemetry."));
     if (!GetWingForces)
         UE_LOG(LogTemp, Warning, TEXT("Per-strip wing forces unavailable: rebuild the Haskell backend for force-driven audio."));
     if (!AbiVersion || !RuntimeInit || !RuntimeShutdown || !CreateFirmwareVehicle ||
-        !DestroyFirmwareVehicle || !StepFirmwareVehicle || !ReconfigureFirmwareVehicle)
+        !DestroyFirmwareVehicle || !StepFirmwareVehicle || !ReconfigureFirmwareVehicle || !GetMassProperties)
     {
         Status = TEXT("Haskell math backend has an incomplete C ABI");
         UE_LOG(LogTemp, Error, TEXT("%s"), *Status);
@@ -150,7 +160,7 @@ bool FBorn2FlapMathBridge::Load()
     // not a force multiplier. The firmware still feels every aerodynamic load.
     B2F_FirmwareConfig FlightConfig{};
     FlightConfig.servo_no_load_speed_deg_s = 1200;
-    FlightConfig.servo_stall_torque_nm = 8;
+    FlightConfig.servo_stall_torque_nm = 20;
     FlightConfig.servo_backdrive_deg_s_nm = 20;
     FlightConfig.battery_voltage = 11.1;
     FlightConfig.battery_resistance_ohm = .08;
@@ -188,7 +198,10 @@ void FBorn2FlapMathBridge::Unload()
     SetWindPhaseNoise = nullptr;
     ReconfigureFirmwareVehicle = nullptr;
     GetWingShape = nullptr;
+    GetMassProperties = nullptr;
     GetWingForces = nullptr;
+    SetWingModelHook = nullptr;
+    GetModelMassKgHook = nullptr;
     if (LibraryHandle)
     {
         // The process owns the loader reference, not this aircraft.
@@ -212,6 +225,14 @@ bool FBorn2FlapMathBridge::Reconfigure(const B2F_TuningConfig& Tuning) const
 {
     return Context && ReconfigureFirmwareVehicle && ReconfigureFirmwareVehicle(Context, &Tuning) != 0;
 }
+bool FBorn2FlapMathBridge::SetWingModel(uint32_t ModelId) const
+{
+    return Context && SetWingModelHook && SetWingModelHook(Context, ModelId) != 0;
+}
+double FBorn2FlapMathBridge::GetModelMassKg(uint32_t ModelId) const
+{
+    return GetModelMassKgHook ? GetModelMassKgHook(ModelId) : 0.0;
+}
 bool FBorn2FlapMathBridge::ReadWingShape(B2F_WingSection* Left, B2F_WingSection* Right) const
 {
     return Context && GetWingShape && GetWingShape(Context, B2F_WING_STATIONS, Left, Right) == B2F_WING_STATIONS;
@@ -219,4 +240,9 @@ bool FBorn2FlapMathBridge::ReadWingShape(B2F_WingSection* Left, B2F_WingSection*
 bool FBorn2FlapMathBridge::ReadWingForces(double* Left, double* Right) const
 {
     return Context && GetWingForces && GetWingForces(Context, B2F_WING_STATIONS, Left, Right) == B2F_WING_STATIONS;
+}
+
+bool FBorn2FlapMathBridge::ReadMassProperties(double CgX, B2F_MassProperties& Out) const
+{
+    return Context && GetMassProperties && GetMassProperties(Context, CgX, &Out) != 0;
 }
