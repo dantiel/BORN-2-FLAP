@@ -271,8 +271,9 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     // centre so a grounded bird can be thrown by pushing the left stick up.
     bool bTouchLaunchPrimed = true;
     // Mobile multi-touch gestures (see UpdateTouchGestures). Single-finger drag
-    // rotates the view; two-finger pinch walks forward/back, a pivot (one finger
-    // still, one moving) strafes, and a parallel pan rotates. Positions are
+    // rotates the view; a two-finger same-direction drag strafes, a symmetric
+    // pinch walks forward/back (spread = closer), and a pivot (one finger still,
+    // one moving) walks in the moving finger's direction. Positions are
     // normalized viewport coordinates (0..1).
     bool GestureTracked[2] = { false, false };
     FVector2D GesturePrev[2];
