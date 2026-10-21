@@ -1614,7 +1614,7 @@ FString ABorn2FlapGameMode::BuildBrainTelemetry() const
     {
         TSharedPtr<FJsonObject> Cap = MakeShareable(new FJsonObject());
         bool bHasCapture = false;
-        for (TActorIterator<ABorn2FlapNeonVoid> It(GetWorld()); It; ++It)
+        if (TActorIterator<ABorn2FlapNeonVoid> It(GetWorld()); It)
         {
             Cap->SetNumberField(TEXT("captured"), It->GetCaptured());
             Cap->SetNumberField(TEXT("target"), It->GetTargetCount());
@@ -1624,7 +1624,6 @@ FString ABorn2FlapGameMode::BuildBrainTelemetry() const
             Cap->SetNumberField(TEXT("active"), It->GetActiveJellyfish());
             Cap->SetBoolField(TEXT("running"), It->IsFestivalRunning());
             bHasCapture = true;
-            break;
         }
         Root->SetObjectField(TEXT("capture"), Cap);
         Root->SetBoolField(TEXT("capture_active"), bHasCapture);
