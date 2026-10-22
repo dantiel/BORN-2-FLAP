@@ -149,6 +149,18 @@ components (Vec3 a b c) = [a,b,c]
 hingeTorque :: Double -> [StripResult] -> Double
 hingeTorque side = (* side) . sum . map (\r -> springEaseFactor (resultState r) * (x (resultMoment r) + wingRootHeight * y (resultForce r)))
 
+-- | Supplementary aerodynamic roll damping (N·m per rad/s of body roll rate,
+-- per m/s of airspeed). The strip solver already produces part of the wing's
+-- roll-damping derivative Lp (scaled by circulationLiftEfficiency, currently
+-- 0.55); this adds the missing share so a fast servo's sharper differential
+-- flap torque cannot excite an underdamped body-roll oscillation — the
+-- "faster servo flaps left/right instead of in unison" failure. Sized as a
+-- modest fraction of the full lift-slope roll damping, and scaled by airspeed
+-- so it vanishes at rest and grows with forward speed, as real roll damping
+-- does. Final moment = -rollDampingPerSpeed * airspeed * p.
+rollDampingPerSpeed :: Double
+rollDampingPerSpeed = 0.03
+
 advanceFirmwareVehicle
   :: Double -> Bool -> RcChannels -> FirmwareParams -> ServoSpec -> BatterySpec -> WingModel
   -> Double -> Vec3 -> Vec3 -> Double -> FirmwareVehicleState -> (VehicleOutput, FirmwareVehicleState)
@@ -209,9 +221,18 @@ advanceFirmwareVehicle hostInertia coupled rc params servo battery model dt body
           aero0 = aeroAt oldRates
           loads rates =
             let aero = aeroAt rates
+                p = x rates
+                -- Characteristic airspeed for roll damping: forward speed with
+                -- a flap-flow floor. A hovering bird still sweeps its wings at
+                -- several m/s (flap radius × stroke rate), so roll damping must
+                -- not vanish at rest — the free-flight flip happens precisely
+                -- at low airspeed, where a speed-only term is zero.
+                charSpeed = max speed 2.0
+                rollDamp = rollDampingPerSpeed * charSpeed * p
                 drag load rate = servoBackdriveTorque servo battery voltage load rate
-            in addVec aero (Vec3 0 (motorL (y rates) + drag (y aero0) (y rates))
-                                   (motorR (z rates) + drag (z aero0) (z rates)))
+            in addVec (addVec aero (Vec3 (negate rollDamp) 0 0))
+                      (Vec3 0 (motorL (y rates) + drag (y aero0) (y rates))
+                              (motorR (z rates) + drag (z aero0) (z rates)))
           solved = stepRoll dt lockedInertia wingInertia reflectedDriveInertia oldRates (angleL,angleR) loads
           -- NaN triggers transactional rollback if Newton cannot converge.
           ratesNext = case solved of Just rates -> rates; Nothing -> Vec3 (0/0) (0/0) (0/0)

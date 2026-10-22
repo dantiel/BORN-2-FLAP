@@ -296,13 +296,16 @@ main = do
   if a2 > a1 && a2 <= 120
     then pure ()
     else fail "unloaded servo must slew toward its target"
-  -- Servo: load exceeding stall torque back-drives it (the wing wins).
-  -- A strong NEGATIVE load pushes the servo away from a positive target.
+  -- Servo: an overpowering load saturates the tracker's commanded rate to ZERO
+  -- (the servo can no longer track the target). The unified tracker never
+  -- actively back-drives the shaft in the load's direction — that assist is
+  -- what flung the wing into extreme-up flutter. The wing wins through the
+  -- passive 'servoBackdriveTorque' in the joint solve, not through the motor.
   let stall = servoStallTorqueNm servo
       (back, _) = stepServo servo battery 120 (negate stall * 2) wingI voltage (1 / 240) defaultServoState
-  if back < 0
+  if back == 0
     then pure ()
-    else fail "overloaded servo must be back-driven by the aerodynamic load"
+    else fail "overloaded servo tracker must saturate to zero commanded rate"
   -- Closed loop: full throttle flaps the wings (servo tracks, lift appears).
   let flapRcClosed = defaultRcChannels { rcThrottle = 1811 }
       dtClosed = 1 / 240
