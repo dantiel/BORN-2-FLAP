@@ -18,9 +18,8 @@ import Born2Flap.Math.Servo
 import Born2Flap.Math.RollDynamics
 import Born2Flap.Math.FirmwareVehicle
 import Born2Flap.Math.FerocityPrice
-import Born2Flap.Math.OrderTracker
 import Born2Flap.Math.PhaseEnvelope
-import Born2Flap.Math.Resonance
+import Born2Flap.Math.ResponsePhase
 
 main :: IO ()
 main = do
@@ -402,18 +401,13 @@ main = do
     then pure () else fail "ferocity price must match the 9.5 audit anchors"
   if abs (dwellFromFerocity 8 - 0.98) < 1e-12 && dwellFromFerocity 0 == 0
     then pure () else fail "dwell must scale ferocity 0..8 onto [0, 0.98]"
-  -- ONDAS Rubedo M1: order tracker idles below ω_min and starts from zero.
-  let (idleOut, idleSt) = stepOrderTracker 5.0 0.05 0.001 defaultOrderTracker
-  if idleOut == 0 && idleSt == defaultOrderTracker
-    then pure () else fail "order tracker must idle below the omega threshold"
-  let (firstTracked, _) = stepOrderTracker 1.0 10.0 0.001 defaultOrderTracker
-  if abs firstTracked < 1e-3 then pure () else fail "order tracker must start from zero state"
-  -- ONDAS Rubedo M2: parking well attracts δ→0; resonance demand stays bounded.
-  if abs (stepPhaseLockDwell 0 8 0.5 0.01 0.1) < 0.1
-    then pure () else fail "phase-lock well must pull phase error toward zero"
-  let (kGainModDemand, _) = stepResonance 5.0 10.0 0 0.01 defaultResonance
-  if kGainModDemand >= 0.5 && kGainModDemand <= 1.5
-    then pure () else fail "resonance phase-advance demand must stay bounded"
+  -- Read-only response-phase diagnostic: it must idle below omega_min and keep
+  -- its lag estimate within [-pi, pi] — pure telemetry, never a controller output.
+  if rpPhaseError (stepResponsePhase 10 9 0 0.05 0.001 defaultResponsePhase) == 0
+    then pure () else fail "response phase must idle below the omega threshold"
+  let rpLag = rpPhaseError (stepResponsePhase 10 9 (pi/4) 10 0.001 defaultResponsePhase)
+  if abs rpLag <= pi
+    then pure () else fail "response-phase lag must stay within [-pi, pi]"
   -- ONDAS Rubedo M3: golden-angle strobe covers every bin without aliasing.
   if gcd (toInteger goldenAngleStep) (2 ^ (20 :: Integer)) == 1
     then pure () else fail "golden-angle step must be coprime to 2^20"
@@ -429,22 +423,16 @@ main = do
     then pure () else fail "golden-angle strobe must cover all bins and de-alias below a fixed raster"
   if detectReversal 0 3 1.5 && not (detectReversal 0 1 1.5) && detectReversal 6 0 1.5
     then pure () else fail "reversal must fire on the limiar crossing and the 2π wrap"
-  -- ONDAS stabilized mode: the dwell parking well pins wind phase noise to a
-  -- bounded steady state; the master switch gates the phase-advance demand.
-  let pinned n = iterate (stepPhaseLockDwell 1.0 8.0 0.3 (1 / 240)) 0.0 !! n
-  if abs (pinned 2400) < 0.3
-    then pure () else fail "wind phase noise must be pinned by the dwell parking well"
-  let stabOn = defaultFirmwareVehicleState { fvStabilized = True, fvWindPhaseNoise = 1.0 }
-      stabOff = defaultFirmwareVehicleState { fvStabilized = False, fvWindPhaseNoise = 1.0 }
-      flyFrom s = snd (stepFirmwareVehicle True flapRcClosed defaultFirmwareParams
-                       defaultServoSpec defaultBatterySpec kestrelModel (1 / 240)
-                       (Vec3 5 0 0) (Vec3 0 0 0) 1000 s)
-      steadyOn = iterate flyFrom stabOn !! 2400
-      steadyOff = iterate flyFrom stabOff !! 2400
-      kOn = fwKGainMod (fvFirmware steadyOn)
-      kOff = fwKGainMod (fvFirmware steadyOff)
-  if abs (kOn - 1) > 1.0e-7 && kOff == 1.0
-    then pure () else fail "stabilized mode must gate the phase-advance demand (on ≠ 1, off = 1)"
+  -- Resonance is EMERGENT from the physical wing spring, not injected: after a
+  -- long closed-loop flight the oscillator gain must remain at its nominal 1
+  -- (the removed phase-lock no longer writes fwKGainMod).
+  let flyFrom s = snd (stepFirmwareVehicle True flapRcClosed defaultFirmwareParams
+                        defaultServoSpec defaultBatterySpec kestrelModel (1 / 240)
+                        (Vec3 5 0 0) (Vec3 0 0 0) 1000 s)
+      steady = iterate flyFrom defaultFirmwareVehicleState !! 2400
+      kNominal = fwKGainMod (fvFirmware steady)
+  if kNominal == 1.0
+    then pure () else fail "oscillator gain must stay nominal (no phase-lock controller)"
   putStrLn "MathCore properties passed"
 
 zeroVehicleOutput :: VehicleOutput

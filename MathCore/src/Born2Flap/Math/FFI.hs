@@ -8,7 +8,7 @@ import Born2Flap.Math.Vehicle
 import Born2Flap.Math.Model (WingModel(..), kestrelModel, kestrelLightModel, ravenModel, prototypeModel, turtleModel)
 import Born2Flap.Math.Planform (shapeChord, shapeTwistRad)
 import Born2Flap.Math.PhaseEnvelope (phaseEnvelope, phaseCoverage)
-import Born2Flap.Math.Resonance (rsPhaseError)
+import Born2Flap.Math.ResponsePhase (rpPhaseError)
 import Born2Flap.Math.Firmware
   ( FirmwareParams(..), FlightProfile(..), defaultFirmwareParams, FirmwareState(..)
   , PilotInput(..), defaultPilotInput, pilotToRc )
@@ -232,25 +232,23 @@ b2f_math_destroy_firmware_vehicle pointer
   | pointer == nullPtr = pure ()
   | otherwise = freeStablePtr (castPtrToStablePtr pointer :: StablePtr (IORef FwContext))
 
+-- | LEGACY no-op (ABI-preserved). The former ONDAS "stabilized" master switch
+-- gated a phase-lock resonance controller that has been removed: physical
+-- resonance is now emergent from the wing's elastic spring model, so there is
+-- no stabilization flag to set. The symbol is kept so the host ABI is stable.
 b2f_math_set_stabilization :: Ptr () -> Word32 -> IO Int32
-b2f_math_set_stabilization contextPointer enabled
+b2f_math_set_stabilization contextPointer _enabled
   | contextPointer == nullPtr = pure 0
-  | otherwise = do
-      contextRef <- deRefStablePtr (castPtrToStablePtr contextPointer :: StablePtr (IORef FwContext))
-      context <- readIORef contextRef
-      writeIORef contextRef context
-        { fwcState = (fwcState context) { fvStabilized = enabled /= 0 } }
-      pure 1
+  | otherwise = pure 1
 
+-- | LEGACY no-op (ABI-preserved). Wind phase noise (eta) only fed the removed
+-- phase-lock resonance controller; the read-only response-phase diagnostic
+-- takes no injected noise, and the physical spring model is driven by real
+-- aerodynamic forcing. The symbol is kept so the host can still link/call it.
 b2f_math_set_wind_phase_noise :: Ptr () -> Double -> IO Int32
-b2f_math_set_wind_phase_noise contextPointer noiseRadS
+b2f_math_set_wind_phase_noise contextPointer _noiseRadS
   | contextPointer == nullPtr = pure 0
-  | otherwise = do
-      contextRef <- deRefStablePtr (castPtrToStablePtr contextPointer :: StablePtr (IORef FwContext))
-      context <- readIORef contextRef
-      writeIORef contextRef context
-        { fwcState = (fwcState context) { fvWindPhaseNoise = noiseRadS } }
-      pure 1
+  | otherwise = pure 1
 
 -- | Select the bird's physical model (wing outline + carbon-rod inventory) by
 -- id. This is the per-model configuration hook: a second bird is a new
@@ -426,12 +424,12 @@ pokeFwOutput pointer output state = do
       rightFlap = servoAngleDeg (fvServoRight state)
       soc = fvBatterySoc state
       pe = fvPhaseEnvelope state
-      res = fvResonance state
+      rp = fvResponsePhase state
       isFlapping = fwWasFlapping (fvFirmware state)
       doubles = [fx, fy, fz, mx, my, mz, totalMechanicalPowerW output
                 , maxSeparation output, leftFlap, rightFlap, soc
                 , phaseEnvelope pe, phaseCoverage pe
-                , rsPhaseError res, fwKGainMod (fvFirmware state)]
+                , rpPhaseError rp, fwKGainMod (fvFirmware state)]
       doublePointer = castPtr pointer :: Ptr CDouble
   sequence_ [pokeElemOff doublePointer index (CDouble value) | (index, value) <- zip [0 ..] doubles]
   let flags = if isFlapping then 1 else 0 :: Word32
