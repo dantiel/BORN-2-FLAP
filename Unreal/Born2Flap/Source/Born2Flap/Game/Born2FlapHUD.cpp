@@ -131,7 +131,7 @@ void ABorn2FlapHUD::DrawHUD()
         }
         DrawRect(FLinearColor(.015f, .035f, .045f, .82f), 20, 20, 360, 72);
         DrawText(TEXT("BLINDFLUG — NUR KLANG"), Gold, 38, 30, GEngine->GetLargeFont(), 1.5f);
-        DrawText(TEXT("F5: Vogel zeigen    R: Reset    SPACE: Start"), Muted, 40, 68, GEngine->GetSmallFont(), 1.f);
+        DrawText(TEXT("F1: Vogel zeigen    R: Reset    SPACE: Start"), Muted, 40, 68, GEngine->GetSmallFont(), 1.f);
         return;
     }
     if (!bSemanticHUD)
