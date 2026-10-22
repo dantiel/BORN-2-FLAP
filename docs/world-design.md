@@ -168,11 +168,11 @@ addition — not "another map".
    "The high country." Lesson: reading rising air, energy from windward slopes.
 2. **Desert canyon** — *thermal columns, endurance, precision.* "The oven."
    Lesson: finding lift, managing battery/energy, tight canyon lines.
-   **→ Developed into `Qar'Veth` — "the Hanging Silence"** (see
-   [qarveth.md](qarveth.md)): a wind-carved canyon hollowed into the singing
-   Honeycomb grottoes and crowned by the Hanging Temple, a sky-perch reachable
-   only by flight. Fictional throughout — no real place, no "Dunhuang/Mogao"
-   reference survives in the design.
+   **→ Developed into `Yúnshā` — "the Cloud-Sand Gorge"** (see
+   [yunsha.md](yunsha.md)): a wind-carved canyon hollowed into the singing
+   Wind-Harp grottoes and crowned by the Sky-Temples, a cloud-summit perch
+   reachable only by flight. Fictional throughout — no real place, no real
+   name survives in the design.
 3. **Tropical island chain / open ocean** — *long-distance, crosswind, storm.*
    "The open water." Lesson: navigation, energy budget, gust recovery.
 4. **Urban rooftops** — *delivery/rescue, obstacles, tight precision.* "The
