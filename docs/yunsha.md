@@ -1,38 +1,107 @@
-# Yúnshā — "the Cloud-Sand Gorge"
+# Yúnshā (云沙) — "the Cloud-Sand Gorge"
 
 > **Design intent & narrative:** see [world-design.md](world-design.md) — what
 > this world *is*, why it exists, and what could be developed next. This
 > document is the *canonical concept*: it locks the name, the register, the
 > lesson, the visual/audio palette, and the three signature monuments before any
 > geometry is generated.
+>
+> **Cosmology:** Yúnshā is the **Age of Iron (玄铁)** — the present-day
+> threshold of the Ages cosmology (Hesiod's *Works and Days*, re-imagined as a
+> map threaded by time and space). Its Sky-Temples are the gates to the five
+> elder realms — the Jade Kingdom 玉京, Bronze 赤铜, Silver 素银, Gold 鎏金,
+> and the Source 鸿蒙. See **The Ages**, below.
 
 ---
 
 ## Name lock
 
-- **World label (menu):** `Yúnshā`
-- **Lore subtitle / mood:** *the Cloud-Sand Gorge* — a vast desert corridor
+- **World label (menu):** `Yúnshā` (云沙)
+- **Lore subtitle / mood:** *the Cloud-Sand Gorge* — a Gobi-like desert corridor
   where a crescent spring feeds a temple garden in the sand's heart, and red
   sandstone pillars rise into a cloud-forest that only winged things can reach.
 - **Internal level id:** `Yunsha` (`ABorn2FlapGameMode::GetLevelId()` will
   return `"Yunsha"`; a new `bDesertLevel` flag).
 - **Saved map:** `/Game/Yunsha/Maps/YUNSHA`.
 
-**In-world etymology (fiction, not history).** `Yúnshā` is the *modern*
-name — a word of the later canyon-folk, given long after the fall. In their
-tongue `Yún` means *cloud* and `Shā` means *sand*. **Yúnshā =
-"cloud-sand"** — the two halves of one horizon: the sand-sea of the desert
-floor below, and the cloud-sea of the pillar forest above. It is an invented
-name for a real thing, exactly like *Shiomori Bay* — **and it is not the
-Atlantean name.** The original Atlantean name for this colony was lost with
-the empire itself; what survived is only the place, and the later word the
-canyon-folk found for it.
+**In-world etymology (fiction, not history).** `Yún` (云) = *cloud*; `Shā` (沙)
+= *sand*. **Yúnshā = "cloud-sand"** — the two halves of one horizon: the
+sand-sea of the desert floor below, and the cloud-sea of the pillar forest
+above. The name is invented and references no real place, exactly like
+*Shiomori Bay*.
 
 Alternatives considered (trivially renamable — one string in `GetLevelId()` +
-the menu catalog): *Xiáyún* ("sunglow cloud" — echoes the red rock), *Shāquán*
-("sand spring" — honours the oasis), *Yúnyá* ("cloud cliff"). `Yúnshā` was
-chosen because it holds the whole world in two syllables — the sand below and
-the cloud above.
+the menu catalog): *Xiáyún* (霞云, "sunglow cloud" — echoes the red danxia
+rock), *Shāquán* (沙泉, "sand spring" — honours the oasis), *Yúnyá* (云崖,
+`Yúnshā` was chosen because it holds the whole world in two
+syllables — the sand below and the cloud above.
+
+---
+
+## The Ages — six realms threaded through one gorge
+
+The frame is Hesiod's *Works and Days* (Gold → Silver → Bronze → Heroic →
+Iron), re-imagined as a **map** instead of a history. Each age is one **sky**
+(its locked time) + one **architecture** (its symbolic space) + one unassailable
+theme. Yúnshā — the **Age of Iron (玄铁)** — is the present-day gorge that
+*remembers* the five elder ages, each surviving as one place on the map, each
+reachable **only by flight**.
+
+The thread of time is a **climb**: altitude is age. The gorge floor is the
+present (Iron); the higher you fly, the older the world becomes — up through the
+Jade oasis, the Bronze cliff, the Silver mirrors, the Golden peaks, to the
+Source beyond the cloud. *Going back to the source* is the world's deepest
+invitation, and the Sky-Temples are its gates.
+
+| Realm | 名 Name | Sky (time) | Space (architecture) | Home on the map |
+| --- | --- | --- | --- | --- |
+| the Source | 鸿蒙 Hóngméng | beyond time — no sun | unformed cloud | the standing cloud + sky above the pillars |
+| Gold | 鎏金 Liújīn | eternal noon | golden peaks, sun-temples | the pillar summits — 鎏金顶 Liújīndǐng, "the Gilded Peaks" |
+| Silver | 素银 Sùyín | eternal moonlight | mirror-lakes, mirror-halls | the monsoon wadis — 素银镜湖 Sùyín Jìnghú, "the Silver Mirror-Lakes" |
+| Bronze | 赤铜 Chìtóng | storm-dawn | bronze cliffs, forge-cathedrals | the Grotto Cliff — 赤铜崖 Chìtóngyá, "the Bronze Cliff" |
+| Jade | 玉京 Yùjīng | dreamlike lamp-light | jade palaces & shrines | the oasis — Lunya 轮亚 "the Disc of Atlantis" · 琼宫 Qiónggōng "the Jade Palace" |
+| Iron | 玄铁 Xuántiě | mortal time — dawn/noon/dusk, weather | the gorge itself | all of Yúnshā (the present) |
+
+Three of these are Pteronaut-built (Jade, Bronze, Gold); Silver is revealed by
+the monsoon, the Source by altitude, and Iron is the present itself.
+
+**Jade — the oasis.** The oasis and its temple are the **Jade Kingdom (玉京
+Yùjīng)**, the blessed sanctuary — Hesiod's *Heroic* age, which he calls *more
+just and better* than the Bronze that came before it. The crescent spring is
+named **Lunya (轮亚) — "the Disc of Atlantis"** — the crescent recast as the
+jade moon-wheel that sank with the golden source and resurfaced here (*Luna* +
+亚 yà, the opening glyph of 亚特兰蒂斯 *Atlantis*; 轮 lún the moon-disc, the
+玉轮 "jade wheel" of poetry, whose sliver *is* the crescent). The temple is
+**琼宫 Qiónggōng —
+"the Jade Palace"**. The old name "Moon-Spring Garden" was not wrong — the moon
+is itself jade (玉盘 the jade disc, 玉兔 the jade hare, 玉轮 the jade wheel) —
+and *Lunya* keeps the moon-crescent even as 亚 binds the spring to the sunken
+source — the *return to the source* that Yúnshā threads: one material, one
+colour, one dream.
+
+**Gold — the summits.** The pillar summits, blazed by eternal noon, are the
+**Age of Gold (鎏金 Liújīn)** — the **Gilded Peaks 鎏金顶 Liújīndǐng**, where
+the Pteronauts raised **sun-temples**. Everything soars beneath their glow.
+
+**Bronze — the cliff.** The red carved cliff — the **Grotto Cliff (the Wind-Harp)**
+— is the **Age of Bronze (赤铜 Chìtóng)**, the **Bronze Cliff 赤铜崖
+Chìtóngyá**: the forge-cathedrals of a hundred cave-mouths, red as copper in
+the storm-dawn light.
+
+**Silver — the mirror-wadis.** The dry monsoon channels are the **Age of Silver
+(素银 Sùyín)**: only when the monsoon returns do they flash to **Silver
+Mirror-Lakes 素银镜湖 Sùyín Jìnghú** — the one age you can *remember but never
+hold*, because its architecture is a reflection that vanishes with the water.
+
+**The Source — the cloud.** Above the peaks, the perpetual standing cloud is the
+**Source (鸿蒙 Hóngméng)** — the unformed vastness before the first sunrise. No
+sun, no ground, only becoming. To go back to the source is to fly into the
+cloud and beyond.
+
+**Iron — the gorge.** Yúnshā itself is the **Age of Iron (玄铁 Xuántiě)** — the
+present, mortal time: dawn and noon and dusk, season and weather, the Canyon
+Mouth and the Narrows. It keeps the memory of all five elder ages, the way the
+Iron Age keeps the memory of Gold.
 
 ---
 
@@ -52,7 +121,7 @@ name `Yúnshā` is not the original — it is the modern word the descendants
 gave the gorge, the original Atlantean name being long forgotten.
 
 The later names below are the modern words of the corridor's peoples, in their
-own invented tongues. `Lúnyā` (like `Yúnshā`, `Yǔ-ka`, `Hūnyā`) *reads* as
+own invented tongues. `Lunya` (like `Yúnshā`, `Yǔ-ka`, `Hūnyā`) *reads* as
 Chinese because the canyon-folk's tongue is this story's analogue of Chinese —
 but each is a made-up word, not a real name, and not the Atlantean original.
 Among all these echoes, the eastern sand-corridor keeps the **oldest known**:
@@ -63,14 +132,29 @@ the source.
 | Later echo (fictional site) | The Atlantean original it dimly remembers |
 | --- | --- |
 | **The Qarāsh Caves** — a cliff of painted cave-temples in the deep sand-corridor | the Grotto Cliff (the Wind-Harp): a mile of carved, mural-painted cave-mouths, each a pipe the desert wind plays |
-| **Lúnyā, the Spring-of-the-Moon** — singing dunes around a crescent oasis | the Moon-Spring Garden: the only water, ringed by dunes |
+| **Lunya 轮亚, the Disc of Atlantis** — singing dunes around a crescent oasis | the Moon-Spring Garden: the only water, ringed by dunes |
 | **The Śul ancestor-halls** — monumental rock-carved shrines | the carved scale and the winged-figure reliefs |
 | **Yǔ-ka, the Mist-Pillars** — misty pillar mountains with cloud forest | the Cloud-Forest Pillars: sheer sandstone summits wrapped in cloud |
 | **Hūnyā, the Air-Perch** — a shrine cantilevered into a cliff, reached by no path | the "flight-only" principle, pushed to its limit: no ground path at all |
 
-Explicitly **excluded**: the terraced paddy-mountains of the later east — the
-user has ruled them out; the world's agriculture is nothing, its water is one
-spring.
+---
+
+## Real-world inspiration (sites as flavour, never as names)
+
+The world borrows its *aesthetic grammar* from real Chinese excavation and
+landscape sites, but every in-game name is invented — the same rule that keeps
+`Shiomori Bay` Japanese-flavoured yet fictional. The sources of flavour:
+
+| Inspiration | What Yúnshā takes from it |
+| --- | --- |
+| **Mogao Grottoes / Dunhuang (莫高窟)** — cliff of painted cave-temples in the Gobi | the Grotto Cliff: a mile of carved, mural-painted cave-mouths |
+| **Mingsha Shan + Crescent Spring / Yuèyáquán (鸣沙山·月牙泉)** — singing dunes around a crescent oasis | Lunya 轮亚, the Disc of Atlantis spring (瑶池 "the Jade Pool"): the only water, ringed by dunes |
+| **Yungang / Longmen / Dazu grottos (云冈·龙门·大足)** — monumental rock-carved shrines | the carved scale and the winged-figure reliefs |
+| **Zhangjiajie sandstone pillars / Wulingyuan (张家界)** — misty pillar mountains with cloud forest | the Cloud-Forest Pillars: sheer sandstone summits wrapped in cloud |
+| **Xuankong Si, the Hanging Temple (悬空寺)** — shrine cantilevered into a cliff | the "flight-only" principle, pushed to its limit: no ground path at all |
+
+Explicitly **excluded**: rice terraces (Longji/Yuanyang) — the user has ruled
+them out; the world's agriculture is nothing, its water is one spring.
 
 ---
 
@@ -104,54 +188,39 @@ mood no existing world expresses. `Yúnshā` does **both**:
 
 ---
 
-## The Pteronauts — winged colonists of a world empire
+## The Pteronauts — winged colonists of lost Atlantis
 
 The world's lore is fictional from the root, but it is anchored to one name the
-project already knows: **Atlantis**. In this story Atlantis was
-already a **world empire twenty thousand years ago** — fifteen millennia before
-the first dynasty of the eastern sand-corridor, the first city of the western
-sea, the first written word. Its
-reach was planetary: not one island, but a civilisation whose ships and wings
-had touched every coast and every wind. When the continent sank, what the world
-kept was not its cities (those are gone) but its **sanctuaries** — the
-sky-temples its winged citizens, the **Pteronauts**, had raised in every place
-no foot-traveller could reach. Each is a marker addressed to the sky, a refuge,
-a shrine.
-
-The [Pteronaut Saga](http://darographix.de/2026/07/15/the-pteronaut-saga/)
-records *one* departure — the Dodekapteroi flying **west** beyond the Pillars of
-Heracles to a landing the later peoples called "the Place of the Thunderbirds."
-That was the western branch of the diaspora. **Yúnshā is the eastern branch**:
-a sky-temple colony at the far edge of a vast sand-corridor, raised in the same
-era, by the same hands. Two continents, two echoes of one fall.
-
-Because every written culture postdates Atlantis, the original names are lost;
-the Archive names each colony by its descendant culture's name for it
-(Thunderbirds in the west, **Yúnshā** in the east). Those later names are
-themselves faint, distorted loanwords of the Atlantean originals.
+project already knows: **Atlantis (亚特兰蒂斯)**. Twenty thousand years ago —
+long before any written history — the **Pteronauts** were the winged citizens
+of a seafaring island-civilisation that sank beneath the sea. Before the fall
+they rode the world's winds outward, and wherever they found a place no
+foot-traveller could reach, they built a **sky-temple**: a marker addressed to
+the sky, a refuge, a shrine.
 
 They left no cities — only sanctuaries, and only in the places flight could
-enter. In Yúnshā the Pteronauts left three marks on the stone:
+enter. **Yúnshā** is one of them: a desert gorge at the far edge of a vast
+sand-corridor, where the Pteronauts left three marks on the stone:
 
-1. **The Moon-Spring Garden (the Oasis).** A crescent spring in the desert's
-   heart — the only water for a hundred miles — ringed by a temple whose
-   bracket-set roofs and walled garden of borrowed scenery would, millennia
-   later, be imitated by the first builders of the eastern sand-corridor. The
-   garden is composed so
-   that every view from within it frames a pillar of the cloud-forest. It is the
-   world's serene centre — the place to which all flight returns.
-2. **The Grotto Cliff (the Wind-Harp).** A mile-long cliff hollowed into
-   hundreds of carved cave-temples, painted inside with murals of wing and wind.
-   They were not tombs — they were *song-holes*: the mouths were shaped so the
-   wind would play them, a harp of stone the desert breathes through. The
-   Qarāsh Caves are what this cliff became after the memory faded.
-3. **The Cloud-Forest Pillars (the Sky-Temples).** Red sandstone pillars whose
-   summits carry a forest wrapped in perpetual cloud — the "mist mountains".
-   Their walls are sheer; no stair, no trail, no ramp reaches the top. The
-   Pteronauts built their sky-temples on the summits precisely so that **only
-   flight could enter**. Reaching one unassisted was the rite of passage for
-   every young Pteronaut; in the game it is the world's central challenge and
-   its crown POI.
+1. **Lunya 轮亚, the Disc of Atlantis (the Oasis) — the Jade Kingdom 玉京.** A
+   crescent spring in the desert's heart — the only water for a hundred miles —
+   ringed by the Jade Palace 琼宫 (Qiónggōng), a classical Chinese temple, and a
+   walled
+   garden of borrowed scenery. The garden is composed so that every view from
+   within it frames a pillar of the cloud-forest. It is the world's serene
+   centre — the place to which all flight returns.
+2. **The Bronze Cliff 赤铜崖 — the Grotto Cliff (the Wind-Harp).** A mile-long
+   cliff hollowed into hundreds of carved cave-temples, painted inside with
+   murals of wing and wind. They were not tombs — they were *song-holes*: the
+   mouths were shaped so the wind would play them.
+3. **The Gilded Peaks 鎏金顶 — the Cloud-Forest Pillars (the Sky-Temples).**
+   Red sandstone pillars whose summits carry a forest wrapped in perpetual cloud
+   — the "mist mountains". Their walls are sheer; no stair, no trail, no ramp
+   reaches the top. The Pteronauts built their sun-temples on the summits
+   precisely so that **only flight could enter** — and above the peaks, the
+   standing cloud is the Source 鸿蒙. Reaching one unassisted was the rite of
+   passage for every young Pteronaut; in the game it is the world's central
+   challenge and its crown POI.
 
 > **Design principle — "flight-only architecture".** The Sky-Temples are the
 > purest expression of the world's lesson. Their geometry must make a ground
@@ -169,9 +238,11 @@ sun. Long shadows at dawn and dusk; at noon the stone bleaches pale and the
 heat-shimmer makes the air itself visible. The floor is sand and wind-rippled
 dune; the narrows pinch into a slot canyon where the venturi sings.
 
-**The oasis.** The single green note: the crescent spring, a band of jade and
-cinnabar roof-tiles, pale garden walls, a few desert willows. At night the
-temple's lanterns are the only warm light for miles.
+**The oasis (the Jade Kingdom 玉京).** The single green note: the crescent
+spring — Lunya 轮亚, the Disc of Atlantis — a band of jade and cinnabar roof-tiles,
+the Jade Palace 琼宫, pale garden walls, a few desert willows. At night the
+temple's
+lanterns are the only warm light for miles.
 
 **The cloud-forest.** Above the desert line, the pillars turn green. Their
 summits are wrapped in a standing cloud — the one place in the world where the
@@ -191,7 +262,7 @@ lives**:
 - **Golden hour (dawn/dusk):** the warm low spectrum reveals the **Wing Murals**
   — the Pteronauts in flight — in full colour.
 - **High noon:** the hard white light bleaches them to near-bare stone (the
-  pilot flies past and sees only the bare stone mouths).
+  pilot flies past and sees only the honeycomb).
 - **Dusk, briefly:** after the sun drops, the pigment releases a faint stored
   glow — a pale ember in each cave-mouth, like a canyon full of banked coals.
 
@@ -269,8 +340,8 @@ Per the seasonal-soundtrack direction, Yúnshā will carry a dedicated station:
 
 ## POI plan (named launch/reset points, `F8`)
 
-- **Moon-Spring Garden** — the default launch; the oasis temple and garden, the
-  serene centre.
+- **Lunya 轮亚, the Disc of Atlantis spring** — the default launch; the Jade Palace
+  and garden of the Jade Kingdom 玉京, the serene centre.
 - **Canyon Mouth** — where the first thermal teaches the lesson.
 - **The Wind-Harp** — the grotto cliff; fly-past POIs at several cave-mouths.
 - **The Narrows** — the slot canyon venturi.
@@ -289,7 +360,7 @@ Follows the established generator pattern (`create_shiomori_map.py`,
    wind-rippled dune, slot-canyon walls) with a crescent-spring oasis and a
    band of green around it; world-space triplanar materials, sun-glass emissive
    pigment for the murals.
-2. **The Wind-Harp.** A procedurally scattered field of carved cave-mouths (ISM
+2. **The Wind-Harp.** A procedurally scattered honeycomb of cave-mouths (ISM
    instancing for coverage over detail) on the cliff face, with sun-glass mural
    quads inside each mouth.
 3. **The Sky-Temples.** Freestanding sandstone pillars + a cloud-forest canopy
