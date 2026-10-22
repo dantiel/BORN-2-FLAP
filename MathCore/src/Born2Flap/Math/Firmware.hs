@@ -398,7 +398,7 @@ flappingBranch coupled prof aileronNorm elevatorNorm rc params state dt =
       -- zero torque to spare): a fraction of the no-load rate is reserved so the
       -- full geometric stroke stays TRACKABLE under aerodynamic load instead of
       -- back-driving the servo every downstroke.
-      servoSpeedMargin = 0.75
+      servoSpeedMargin = 0.82
       freqServoCapHz = servoSpeedMargin * servoSpeedDegS / (2 * pi * ampMaxDeg)
       freqMax = min (fwFlapBaseFreqDh params * 0.1 * speedFactor) freqServoCapHz
       freqHz = freqMinHz + freq01 * (freqMax - freqMinHz)

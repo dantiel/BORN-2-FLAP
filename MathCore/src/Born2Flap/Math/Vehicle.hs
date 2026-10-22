@@ -511,16 +511,17 @@ stepStrip implicitLoads _phaseRate _flapping side stroke input incidenceRad wp i
       !sweep = shapeSweepRad wp fraction + (mountRad - armRad) + sin mountRad * stroke
       !chordAxis0 = Vec3 (cos sweep) (side * sin sweep * cos dihedralLocal) (sin sweep * sin dihedralLocal)
       !spanAxis = Vec3 (-sin sweep) (side * cos sweep * cos dihedralLocal) (cos sweep * sin dihedralLocal)
-      -- Real wing mount incidence: a RIGID rotation of the section about the
-      -- span axis (nose-up +). Rotating the force frame — rather than folding
-      -- the angle into 'twist' — makes the lift/thrust directions rotate with
-      -- the wing, the same single axis and sign the render's shoulder pitch
-      -- shows. The geometric washout stays a spanwise twist; the mount
-      -- incidence is a uniform frame rotation. The flap velocity below keeps
-      -- the UNROTATED dihedral normal: the shoulder hinge is a body-X dihedral
-      -- hinge, so its motion is not tilted by the mount incidence.
-      !ci = cos incidenceRad
-      !si = sin incidenceRad
+      -- Section frame rotation about the span axis (nose-up +). The mount
+      -- incidence AND the geometric washout AND the aeroelastic twist all
+      -- rotate the force frame — rather than folding washout/twist into
+      -- 'alpha' — so the lift/thrust directions rotate with the deformed
+      -- wing. Folding the elastic twist into the frame is what makes the
+      -- momentum jet (flap thrust) REDIRECT with the twisted wing instead of
+      -- only scaling its magnitude. The flap velocity below keeps the
+      -- UNROTATED dihedral normal: the shoulder hinge is a body-X dihedral
+      -- hinge, so its motion is not tilted by incidence/washout/twist.
+      !ci = cos (incidenceRad + twist + aeroTwist)
+      !si = sin (incidenceRad + twist + aeroTwist)
       !chordAxis = addVec (scaleVec ci chordAxis0) (scaleVec si normal0)
       !normal    = addVec (scaleVec ci normal0) (scaleVec (-si) chordAxis0)
       -- Flap velocity is the wing surface's motion through the air about the
@@ -573,18 +574,18 @@ stepStrip implicitLoads _phaseRate _flapping side stroke input incidenceRad wp i
       -- if would jump the feather angle ~+washout in one step and leave no root.
       feather =
         let inflow = atan2 sweepNormal (abs chordVelocity)
-            washout = twist + aeroTwist
             overfeather = radians 3
             upEnv = smoothStep 0 0.5 sweepNormal
             compliance = lerp 0.85 1.0 upEnv
-        in compliance * inflow - upEnv * (washout + overfeather)
+        in compliance * inflow - upEnv * overfeather
       -- A 2-servo ornithopter has one actuator per wing: the flap hinge. Pitch
       -- and roll reach the wing through the flap angle (stroke-centre shift and
       -- differential), never through a separate live incidence control; the
-      -- fixed mount incidence is the rigid frame rotation computed above. Angle
-      -- of attack is the passive sum of geometric washout, aeroelastic twist,
-      -- flap-induced feathering and the local flow direction.
-      alpha = twist + aeroTwist + feather + atan2 (-normalVelocity) chordVelocity
+      -- mount incidence, geometric washout and aeroelastic twist are all the
+      -- rigid frame rotation computed above. Angle of attack is therefore the
+      -- passive sum of flap-induced feathering and the local flow direction
+      -- only.
+      alpha = feather + atan2 (-normalVelocity) chordVelocity
       alphaEff = alpha - zeroLiftAngle camberPrev
       alphaRate = (alpha - stripPreviousAlpha old) / dt
       reynolds = planarSpeed * chord / 1.48e-5
@@ -829,7 +830,7 @@ applyStructure inv wp input results =
       sectionMoments = map resultSectionMoment results
       (targetBend, targetSlope) = integrateFlapBeam forces bendingEIs dr
       targetTwist = integrateTwist sectionMoments twistGJs dr
-      maxBend = 0.15 * wsSpanM wp
+      maxBend = 0.10 * wsSpanM wp
       maxTwist = radians 15
       update result structure bend slope twist =
         let old = resultState result

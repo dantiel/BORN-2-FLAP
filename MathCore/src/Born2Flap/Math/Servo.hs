@@ -155,22 +155,19 @@ stepServo servo battery targetDeg loadTorqueNm wingInertia voltage dt state
           stallT = max 1.0e-6 (servoStallTorqueNm servo * voltFactor)
           maxRate = servoNoLoadSpeedDegPerSec servo * voltFactor
           err = clampRate (-80) 80 targetDeg - servoAngleDeg state
-          loadMag = abs loadTorqueNm
-          available = stallT - loadMag
-          requestedRate = if available <= 0
-           then -- Overpowered: the aerodynamic load back-drives the servo in
-                -- its own torque direction (the wing wins).
-                let excess = loadMag - stallT
-                    -- Passive backdrive remains possible with the motor unpowered.
-                    backRate = min (servoNoLoadSpeedDegPerSec servo)
-                                   (servoBackdriveDegPerSecNm servo * excess)
-                in signum loadTorqueNm * backRate
-           else -- Tracking, speed reduced by the load fraction.
-                let opposingLoad = max 0 (negate (signum err * loadTorqueNm))
-                    speed = maxRate * (1 - opposingLoad / stallT)
-                    wantRate = err / dt
-                    rate = clampRate (-speed) speed wantRate
-                in rate
+          -- Unified tracker (NO back-drive branch). The servo ALWAYS tracks the
+          -- target; the aerodynamic load only reduces the achievable speed, it
+          -- never reverses the commanded rate into the load's own direction.
+          -- The old `available <= 0` branch commanded signum(load)·backRate,
+          -- which the drive torque's lead term (2·refRate − oldRate) turned
+          -- into a motor torque that ASSISTED the load and flung the wing into
+          -- a limit-cycle overshoot (the "weaker servo behaves stronger" /
+          -- extreme-up flutter). Passive back-drive is still modelled separately
+          -- by 'servoBackdriveTorque' in the joint row, where it can only
+          -- dissipate, never assist.
+          opposingLoad = max 0 (negate (signum err * loadTorqueNm))
+          speed = maxRate * max 0 (1 - opposingLoad / stallT)
+          requestedRate = clampRate (-speed) speed (err / dt)
           -- Finite actuator response plus linkage end stops. Backdrive must
           -- never integrate an unlimited angle/speed into the aero loop.
           -- The servo accelerates its *rate* toward the requested rate, but
