@@ -29,7 +29,7 @@ import Born2Flap.Math.Planform
 import Born2Flap.Math.Simulation
 import Born2Flap.Math.Waveform (OscillatorState(..), limiarFromFerocities)
 import Born2Flap.Math.PhaseEnvelope
-import Born2Flap.Math.Resonance
+import Born2Flap.Math.ResponsePhase
 import Born2Flap.Math.Vehicle
   ( VehicleInput(..), VehicleOutput(..)
   , StripState(..), StripResult(..), initialStrips
@@ -50,9 +50,7 @@ data FirmwareVehicleState = FirmwareVehicleState
   , fvBatterySoc      :: !Double     -- ^ 0..1, drains under servo current
   , fvBatteryBoost    :: !Double     -- ^ 0..1, LiPo burst reservoir (C-rating headroom)
   , fvPhaseEnvelope   :: !PhaseEnvelopeState  -- ^ ONDAS A-layer
-  , fvResonance       :: !ResonanceState      -- ^ ONDAS C-layer
-  , fvStabilized      :: !Bool      -- ^ ONDAS stabilized-mode master switch
-  , fvWindPhaseNoise  :: !Double    -- ^ wind phase noise η [rad/s] (environmental)
+  , fvResponsePhase   :: !ResponsePhaseState  -- ^ read-only response-phase diagnostic (no controller output)
   } deriving stock (Eq, Show)
 
 defaultFirmwareVehicleState :: FirmwareVehicleState
@@ -69,9 +67,7 @@ defaultFirmwareVehicleState = FirmwareVehicleState
   , fvBatterySoc = 1.0
   , fvBatteryBoost = 1.0
   , fvPhaseEnvelope = defaultPhaseEnvelope
-  , fvResonance = defaultResonance
-  , fvStabilized = False
-  , fvWindPhaseNoise = 0
+  , fvResponsePhase = defaultResponsePhase
   }
 
 -- | One closed-loop timestep.
@@ -228,27 +224,24 @@ advanceFirmwareVehicle hostInertia coupled rc params servo battery model dt body
           limiar = limiarFromFerocities (mixStrokeFerL mix) (mixReturnFerL mix)
           reversal = mixIsFlapping mix
                      && detectReversal prevPhase (mixPhase mix) limiar
-          -- Signed servo tracking error: the Vold–Kalman tracker extracts its
-          -- phase-coherent ω-component, so the RESONANCE layer must see the
-          -- SIGNED lag (an |abs| would double the frequency and read ~0 at ω).
+          -- Signed servo tracking error (commanded flap deviation vs. actual
+          -- servo angle): its magnitude feeds the phase-envelope strobe below,
+          -- its signed value feeds the read-only response-phase diagnostic.
           signedTrackErr = mixLeftFlapDevDeg mix - servoAngleDeg nextServoL
           trackErr = abs signedTrackErr
           peNext = if reversal then phaseStrobe trackErr (fvPhaseEnvelope state)
                                 else fvPhaseEnvelope state
 
-          -- 2c. ONDAS C-injection: Vold–Kalman engagement → phase-lock demand.
+          -- 2c. Read-only response-phase diagnostic. It estimates the servo's
+          -- response lag vs. its flap command but writes NO controller output:
+          -- physical resonance is EMERGENT from the wing's elastic spring model
+          -- (Structure/Vehicle), never injected as a phase-lock/phase-advance
+          -- demand on the oscillator.
           omega = oscCadence (fwOscillator nextFw)
-          (kGainModDemand, nextResonance) =
-            stepResonance signedTrackErr omega (fvWindPhaseNoise state) dt (fvResonance state)
-          -- The stabilized mode closes the A-layer: the golden-angle strobe's
-          -- coverage (0..1) gates the resonance demand, so the phase-lock only
-          -- acts once the cycle has been read honestly — never on an aliased
-          -- overtone. Off-mode holds the oscillator at nominal phase-advance 1.
-          aGate = if fvStabilized state
-                  then max 0 (min 1 ((phaseCoverage peNext - 0.5) / 0.5))
-                  else 0
-          kGainModNext = 1 + aGate * (kGainModDemand - 1)
-          nextFw' = nextFw { fwKGainMod = kGainModNext }
+          nextResponsePhase =
+            stepResponsePhase (mixLeftFlapDevDeg mix) (servoAngleDeg nextServoL)
+                              (oscPhase (fwOscillator nextFw)) omega dt
+                              (fvResponsePhase state)
 
           -- 3. Actual flap deviation → wing physics.
           input = VehicleInput dt bodyVel bodyRates 0 (crsfToNorm (rcAileron rc)) elevatorNorm 0 groundClearance
@@ -350,7 +343,7 @@ advanceFirmwareVehicle hostInertia coupled rc params servo battery model dt body
           nextSoc = max 0 (fvBatterySoc state - socDrop)
 
           nextState = state
-            { fvFirmware = nextFw'
+            { fvFirmware = nextFw
             , fvServoLeft = nextServoL
             , fvServoRight = nextServoR
             , fvLeftStrips = leftNext
@@ -362,7 +355,7 @@ advanceFirmwareVehicle hostInertia coupled rc params servo battery model dt body
             , fvBatterySoc = nextSoc
             , fvBatteryBoost = boostNext
             , fvPhaseEnvelope = peNext
-            , fvResonance = nextResonance
+            , fvResponsePhase = nextResponsePhase
             }
 
           output = VehicleOutput force moment power maximumSeparation (-1) 0

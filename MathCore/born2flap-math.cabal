@@ -20,9 +20,8 @@ library
       Born2Flap.Math.RollDynamics
       Born2Flap.Math.FirmwareVehicle
       Born2Flap.Math.FerocityPrice
-      Born2Flap.Math.OrderTracker
       Born2Flap.Math.PhaseEnvelope
-      Born2Flap.Math.Resonance
+      Born2Flap.Math.ResponsePhase
       Born2Flap.Math.Simulation
   hs-source-dirs: src
   build-depends: base >=4.17 && <5
@@ -52,9 +51,8 @@ foreign-library born2flap_math
       Born2Flap.Math.Airframe
       Born2Flap.Math.RollDynamics
       Born2Flap.Math.FirmwareVehicle
-      Born2Flap.Math.OrderTracker
       Born2Flap.Math.PhaseEnvelope
-      Born2Flap.Math.Resonance
+      Born2Flap.Math.ResponsePhase
   c-sources: cbits/bridge.c
   hs-source-dirs: src
   build-depends: base >=4.17 && <5
