@@ -28,7 +28,7 @@ F2 disables this attitude assistance; raw flight still needs trim/calibration.
 | A / D | Bank left / right |
 | Up / Down, or S for down | Raise / lower the nose; pulling up costs airspeed |
 | R | Reset body and the complete native firmware/servo/wing/battery state |
-| F1 | Cyan aerodynamic force and red weight vectors |
+| F5 | Local thrust overlay; keeps the bird visible |
 | F2 | Toggle attitude assistance |
 
 The hand launch cannot repeat in the air. The field-return helper only steers
@@ -120,3 +120,31 @@ The native Haskell and isolated C++ research models are not yet reconciled.
 
 The earlier stability report (intern: flight-stability-2026-09-24.md) is retained as a
 historical record of the drag-sign repair and the now-replaced trainer.
+## Local thrust overlay
+
+F5 toggles thin, directional force arrows while the bird stays visible. Green
+shows each strip's momentum-jet thrust; amber shows stroke pressure. Cyan is
+total aerodynamic force and red is weight. These are forces on the aircraft,
+not the direction of the expelled air. Arrow length is linear at 500 cm/N:
+no normalization, length caps, or minimum-strength arrows. Zero means no arrow.
+Camera-facing arrowheads show direction without origin dots.
+
+Local arrows are displayed on the corresponding deformed mesh strip, spanning
+root to outer wing. A grey trailing-edge guide continues to the actual mesh tip.
+The solver integrates 16 strips per wing at their centres: the last sample is
+96.875% span, not the mathematical tip. Labels show each outer strip's actual
+instantaneous thrust in newtons. Local forces use the last physics substep;
+the cyan total uses the frame-averaged force.
+
+Display anchors are explicitly distinct from mechanical application points.
+Thin violet links at the root, middle and outer strip expose their offsets.
+The solver currently pins momentum-jet application height at shoulder height;
+this is a physical-model approximation, not evidence of zero tip thrust.
+The overlay does not silently change that lever arm or any forces. In a 240 Hz,
+8 m/s, 70%-throttle probe, outer-strip jet thrust peaked at 0.346 N and averaged
+0.080 N during the second second. This fixture does not validate full flight.
+
+An older backend without the optional `b2f_math_get_local_thrust` export shows an
+unavailable message. `-B2FForceVectors` enables the overlay at startup.
+`Tools/test-local-thrust.py` checks telemetry symmetry, units, buffer rejection,
+and that repeated reads do not change simulation.

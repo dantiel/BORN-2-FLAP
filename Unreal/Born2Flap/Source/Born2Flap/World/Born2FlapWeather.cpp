@@ -21,7 +21,6 @@
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
 #include "HAL/IConsoleManager.h"
-#include "UObject/ConstructorHelpers.h"
 #include "UnrealClient.h"
 #include "NiagaraComponent.h"
 #include "NiagaraSystem.h"
@@ -57,11 +56,6 @@ ABorn2FlapWeather::ABorn2FlapWeather()
     PostProcess->SetupAttachment(RootComponent);
     PostProcess->bUnbound=true;
     PostProcess->Priority=100.f;
-    // Cook references for the mobile sky-sphere dome (see EnsureMobileSky).
-    static ConstructorHelpers::FObjectFinder<UStaticMesh> SkyMesh(TEXT("/Engine/EngineSky/SM_SkySphere.SM_SkySphere"));
-    static ConstructorHelpers::FObjectFinder<UMaterialInterface> SkyMat(TEXT("/Engine/EngineSky/M_SimpleSkyDome.M_SimpleSkyDome"));
-    if (SkyMesh.Succeeded()) MobileSkyMesh = SkyMesh.Object;
-    if (SkyMat.Succeeded()) MobileSkyMaterial = SkyMat.Object;
 }
 void ABorn2FlapWeather::Configure(const FString& InLevel,const FBorn2FlapConditions& InConditions)
 {
@@ -199,72 +193,8 @@ void ABorn2FlapWeather::Apply()
         }
     }
     bApplied=true;
-    EnsureMobileSky();
     UE_LOG(LogTemp,Display,TEXT("WeatherApplied level=%s weather=%s time=%s wind=%.2fm/s gust=%.2f particles=%d EV=%.2f"),
         *Level,*Conditions.Weather,*Conditions.Time,W.WindSpeed,W.Gust,Count,EV);
-}
-
-void ABorn2FlapWeather::EnsureMobileSky()
-{
-#if PLATFORM_IOS || PLATFORM_ANDROID
-    // SkyAtmosphereComponent is SM5-only and silently renders nothing on the
-    // mobile forward renderer, leaving the sky black. A classic sky-sphere dome
-    // (unlit gradient) supplies the visible sky on mobile and gives the real-time
-    // SkyLight something to capture. Desktop keeps its authored SkyAtmosphere.
-    if (bMobileSkySpawned)
-        return;
-    bMobileSkySpawned = true;
-
-    UStaticMesh* Mesh = MobileSkyMesh.Get();
-    UMaterialInterface* Mat = MobileSkyMaterial.Get();
-    if (!Mesh)
-        Mesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/EngineSky/SM_SkySphere.SM_SkySphere"));
-    if (!Mat)
-        Mat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/EngineSky/M_SimpleSkyDome.M_SimpleSkyDome"));
-    if (!Mat)
-        Mat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/EngineSky/M_Sky_Panning_Clouds2.M_Sky_Panning_Clouds2"));
-    if (!Mesh)
-        Mesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Sphere.Sphere"));
-    if (!Mesh || !Mat)
-    {
-        UE_LOG(LogTemp, Warning, TEXT("MobileSky: missing sky mesh or material"));
-        return;
-    }
-
-    FActorSpawnParameters Params;
-    Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-    AActor* Dome = GetWorld()->SpawnActor<AActor>(FVector::ZeroVector, FRotator::ZeroRotator, Params);
-    UStaticMeshComponent* Sky = NewObject<UStaticMeshComponent>(Dome);
-    Sky->SetStaticMesh(Mesh);
-    Sky->SetMaterial(0, Mat);
-    Sky->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-    Sky->SetCastShadow(false);
-    Sky->SetMobility(EComponentMobility::Movable);
-    Dome->SetRootComponent(Sky);
-    Sky->RegisterComponent();
-
-    // Scale the sphere to a fixed large radius (~900 m) regardless of the mesh's
-    // native size, so the horizon sits near the far plane and the opaque lower
-    // hemisphere never dips into the visible ground — the hard "circle on the
-    // floor" at the nearer view range. Never distance-cull the dome so it stays
-    // visible at the widened horizon.
-    if (Mesh)
-    {
-        const float R = Mesh->GetBounds().SphereRadius;
-        if (R > 1.f)
-            Dome->SetActorScale3D(FVector(90000.f / R));
-    }
-    Sky->LDMaxDrawDistance = 0.f;
-
-    // Centre the dome on the active CAMERA (not the pawn/view-target). Centring
-    // on the pawn made the sphere's lower hemisphere dip below the horizon when
-    // the chase/ground camera moved away — a visible circle on the ground. A
-    // camera-centred dome keeps the horizon at infinity; Tick re-centres it.
-    MobileSkyDome = Dome;
-    if (APlayerCameraManager* CamMgr = UGameplayStatics::GetPlayerCameraManager(this, 0))
-        Dome->SetActorLocation(CamMgr->GetCameraLocation());
-    UE_LOG(LogTemp, Display, TEXT("MobileSky: spawned sky-sphere dome (SkyAtmosphere is SM5-only)"));
-#endif
 }
 void ABorn2FlapWeather::Respawn(int32 Index,const FVector& Camera)
 {
@@ -321,9 +251,6 @@ void ABorn2FlapWeather::Tick(float DeltaSeconds)
     if(auto* Camera=UGameplayStatics::GetPlayerCameraManager(this,0))
     {
         const FVector Center=Camera->GetCameraLocation();
-        // Re-centre the sky dome on the camera every frame (see EnsureMobileSky).
-        if (MobileSkyDome)
-            MobileSkyDome->SetActorLocation(Center);
         if(bNiagara && PrecipitationFX && PrecipitationFX->GetAsset())
         {
             // Local-space system follows the camera; wind in cm/s to match the
@@ -535,9 +462,9 @@ void ABorn2FlapWeather::CheckTest()
     {
         FScreenshotRequest::RequestScreenshot(FString::Printf(TEXT("WEATHER_%s_%s_%s.png"),*Level,*Conditions.Weather,*Conditions.Time),false,false);
         bool Pass=bApplied;
-        for(const FString L:{FString(TEXT("Ravenstonefield")),FString(TEXT("Shiomori")),FString(TEXT("Training"))})
-            for(const FString W:Born2FlapWeather::WeatherOptions(L))
-                for(const FString T:Born2FlapWeather::TimeOptions(L,W))
+        for(const FString& L:{FString(TEXT("Ravenstonefield")),FString(TEXT("Shiomori")),FString(TEXT("Training"))})
+            for(const FString& W:Born2FlapWeather::WeatherOptions(L))
+                for(const FString& T:Born2FlapWeather::TimeOptions(L,W))
                 {
                     const FBorn2FlapConditions C{W,T};
                     const FString Options=Born2FlapWeather::TravelOptions(L,C);

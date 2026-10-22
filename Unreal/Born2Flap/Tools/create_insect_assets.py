@@ -254,10 +254,10 @@ def build_meshes():
 
 def build_sand_sprite_png():
     import math
-    # A soft radial grain sprite: opaque warm-beige core fading to a fully
-    # transparent rim, with low-frequency angular wobble so grains read as
-    # organic dust motes rather than perfect circles. The camera-facing quad
-    # samples this as its alpha, giving the soft Niagara-sprite look.
+    # A soft, WISPY dust-puff sprite (not a hard confetti disc): multi-octave
+    # radial + angular perturbation tears the rim into an organic smoky edge,
+    # and the ^2.6 falloff keeps the tail soft. The core is pale near-white
+    # sand — the material tint lightens it further, never darkening to "burnt".
     W, H = 128, 128
     cx = cy = 64.0
     rows = []
@@ -266,14 +266,17 @@ def build_sand_sprite_png():
         for px in range(W):
             dx = (px - cx) / 64.0
             dy = (py - cy) / 64.0
-            d = (dx * dx + dy * dy) ** 0.5
+            d = math.hypot(dx, dy)
             ang = math.atan2(dy, dx)
-            wob = 1.0 + 0.14 * math.sin(ang * 5.0) + 0.08 * math.cos(ang * 3.0)
-            t = d / (0.88 * wob)
+            wob = (1.0
+                   + 0.20 * math.sin(ang * 3.0 + 1.7)
+                   + 0.12 * math.sin(ang * 7.0 + 0.6)
+                   + 0.10 * math.sin(d * 9.0 - ang * 2.0))
+            t = d / (0.80 * wob)
             alpha = 0
             if t < 1.0:
-                alpha = int(255 * (1.0 - t) ** 1.7)
-            row.append((233, 215, 178, alpha))  # warm beige grain
+                alpha = int(255 * (1.0 - t) ** 2.6)
+            row.append((241, 230, 208, alpha))  # pale sand, near-white
         rows.append(row)
     _write_png(ROOT / 'T_SandSprite.png', W, H, rows)
 
@@ -324,15 +327,19 @@ def build_materials(wing_tex, body_tex, sand_sprite_tex):
     sprite.set_editor_property('blend_mode', u.BlendMode.BLEND_TRANSLUCENT)
     sprite.set_editor_property('two_sided', True)
     sprite.set_editor_property('shading_model', u.MaterialShadingModel.MSM_UNLIT)
+    sprite.set_editor_property('used_with_niagara_sprites', True)
     stex = node(sprite, 'TextureSampleParameter2D', parameter_name='SpriteTexture',
                 texture=sand_sprite_tex)
     scolor = node(sprite, 'VectorParameter', parameter_name='Color',
-                  default_value=u.LinearColor(0.78, 0.66, 0.48, 1.0))
+                  default_value=u.LinearColor(0.98, 0.95, 0.88, 1.0))
     stint = node(sprite, 'Multiply')                 # beige grain colour
     connect(stex, 'RGB', stint, 'A')
     connect(scolor, '', stint, 'B')
     output(stint, 'EMISSIVE_COLOR')
-    # Alpha from the radial sprite; soft falloff = soft particle edge.
+    # Radial alpha ONLY. A depth fade (soft-particle) was hiding the sand: a grain
+    # resting at the ground plane has SceneDepth≈PixelDepth, so DepthFade→0 and the
+    # grain vanished — invisible sand, the exact bug seen in-game. The multi-octave
+    # radial falloff (^2.6) already gives a soft edge without any depth fade.
     output(stex, 'OPACITY', 'A')
     save(sprite)
 

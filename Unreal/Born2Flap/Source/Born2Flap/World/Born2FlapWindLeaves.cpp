@@ -48,6 +48,9 @@ FRotator GrainBillboard(const FVector& Pos, const FVector& Cam)
 #include "GameFramework/Pawn.h"
 #include "Kismet/GameplayStatics.h"
 #include "Camera/PlayerCameraManager.h"
+#include "NiagaraComponent.h"
+#include "NiagaraSystem.h"
+#include "Rendering/Born2FlapGraphics.h"
 
 ABorn2FlapWindLeaves::ABorn2FlapWindLeaves()
 {
@@ -71,6 +74,17 @@ ABorn2FlapWindLeaves::ABorn2FlapWindLeaves()
     Dust->SetCollisionEnabled(ECollisionEnabled::NoCollision);
     Dust->SetMobility(EComponentMobility::Movable);
     Dust->SetCastShadow(false);
+
+    DustFX = CreateDefaultSubobject<UNiagaraComponent>(TEXT("DustFX"));
+    DustFX->SetupAttachment(RootComponent);
+    DustFX->SetAutoActivate(false);
+    DustFX->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    DustFX->SetCastShadow(false);
+    SandBurstFX = CreateDefaultSubobject<UNiagaraComponent>(TEXT("SandBurstFX"));
+    SandBurstFX->SetupAttachment(RootComponent);
+    SandBurstFX->SetAutoActivate(false);
+    SandBurstFX->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    SandBurstFX->SetCastShadow(false);
 }
 
 void ABorn2FlapWindLeaves::BeginPlay()
@@ -95,9 +109,27 @@ void ABorn2FlapWindLeaves::BeginPlay()
     {
         if (UMaterialInstanceDynamic* MID = UMaterialInstanceDynamic::Create(SandMat, Dust))
         {
-            MID->SetVectorParameterValue(TEXT("Color"), FLinearColor(0.78f, 0.66f, 0.48f));
+            MID->SetVectorParameterValue(TEXT("Color"), FLinearColor(0.98f, 0.95f, 0.88f));
             Dust->SetMaterial(0, MID);
         }
+    }
+
+    // GPU Niagara sand (High/Epic): thousands of fine grains instead of ~640 ISM
+    // quads. The ISM Dust is hidden on this path; it stays the software fallback
+    // on Low/Medium so the wind remains visible without Niagara.
+    bNiagaraSand = Born2FlapGraphics::SupportsNiagara();
+    if (bNiagaraSand)
+    {
+        if (auto* Ambient = LoadObject<UNiagaraSystem>(nullptr, TEXT("/Game/Weather/NS_Sand")))
+        {
+            DustFX->SetAsset(Ambient);
+            DustFX->Activate(true);
+        }
+        if (auto* Burst = LoadObject<UNiagaraSystem>(nullptr, TEXT("/Game/Weather/NS_SandBurst")))
+        {
+            SandBurstFX->SetAsset(Burst);
+        }
+        Dust->SetVisibility(false);
     }
 
     if (!LeafMesh && !BladeMesh)
@@ -177,6 +209,14 @@ void ABorn2FlapWindLeaves::Tick(float DeltaSeconds)
     const double Time = GetWorld()->GetTimeSeconds();
     const FVector Cam = CameraLocation();
     const bool CamMoved = FVector::Dist(Cam, LastCam) > 2500.0;
+
+    if (bNiagaraSand && DustFX && DustFX->GetAsset())
+    {
+        // Pin the ambient sand slab to the ground under the camera — not the
+        // camera altitude: sand lives on the beach, the bird soars above it.
+        const double G = WeatherGround(this, Cam.X, Cam.Y);
+        DustFX->SetWorldLocation(FVector(Cam.X, Cam.Y, G));
+    }
 
     if (LeafPool.Num() == MaxLeaves)
     {
@@ -396,7 +436,7 @@ ABorn2FlapWindLeaves::FLeaf ABorn2FlapWindLeaves::SpawnDust(FRandomStream& R, co
     // Fine grains with a wide size spread, plus occasional soft dust puffs so
     // the motes read as a granular cloud, not uniform confetti. Grains are tiny
     // (sub-cm to ~4 cm) and settle fast; puffs are larger, lighter, and linger.
-    const bool bPuff = (R.FRandRange(0.0f, 1.0f) < 0.22f);
+    const bool bPuff = (R.FRandRange(0.0f, 1.0f) < 0.32f);
     D.bCloud = bPuff;
     if (bPuff)
     {
@@ -406,7 +446,7 @@ ABorn2FlapWindLeaves::FLeaf ABorn2FlapWindLeaves::SpawnDust(FRandomStream& R, co
     }
     else
     {
-        D.Scale = R.FRandRange(0.008f, 0.045f); // fine grain, 0.8–4.5 cm
+        D.Scale = R.FRandRange(0.005f, 0.032f); // fine grain, 0.5–3.2 cm
         D.Life = R.FRandRange(1.0, 3.5);
     }
     D.LifeMax = D.Life;
@@ -430,6 +470,13 @@ void ABorn2FlapWindLeaves::RespawnBlades(bool bForce)
 
 void ABorn2FlapWindLeaves::EmitSandBurst(const FVector& WorldPos, float Strength)
 {
+    // GPU Niagara path: fire the one-shot projectile burst at the contact point.
+    if (bNiagaraSand && SandBurstFX && SandBurstFX->GetAsset())
+    {
+        SandBurstFX->SetWorldLocation(WorldPos);
+        SandBurstFX->Activate(true);   // reset + re-fire the one-shot cone burst
+        return;
+    }
     if (!Dust || DustPool.Num() == 0)
         return;
     Strength = FMath::Clamp(Strength, 0.05f, 1.0f);
@@ -450,7 +497,7 @@ void ABorn2FlapWindLeaves::EmitSandBurst(const FVector& WorldPos, float Strength
         // A fraction are soft dust puffs: slower, larger, longer-lived, so a
         // landing kicks up a lingering cloud around the sharp ballistic spray.
         const double Eject = 220.0 + R.FRandRange(0.0, 260.0) * Strength;   // cm/s outward
-        const bool bPuff = (R.FRandRange(0.0f, 1.0f) < 0.30f);
+        const bool bPuff = (R.FRandRange(0.0f, 1.0f) < 0.45f);
         D.bCloud = bPuff;
         if (bPuff)
         {
@@ -461,7 +508,7 @@ void ABorn2FlapWindLeaves::EmitSandBurst(const FVector& WorldPos, float Strength
         else
         {
             D.Vel = FVector(FMath::Cos(A) * Eject, FMath::Sin(A) * Eject, R.FRandRange(180.0, 460.0) * Strength);
-            D.Scale = R.FRandRange(0.015f, 0.06f);  // fine grains, varied size
+            D.Scale = R.FRandRange(0.01f, 0.04f);   // fine grains, varied size
             D.Life = R.FRandRange(0.7, 1.6);
         }
         D.Rot = FRotator(R.FRandRange(0.0, 360.0), R.FRandRange(0.0, 360.0), R.FRandRange(0.0, 360.0));
