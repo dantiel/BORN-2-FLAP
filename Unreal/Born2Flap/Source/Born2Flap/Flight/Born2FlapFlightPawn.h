@@ -320,6 +320,10 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     FVector AeroForce = FVector::ZeroVector, AeroMoment = FVector::ZeroVector;
     FVector CurrentWind = FVector::ZeroVector;
     int32 SafetyResets = 0, MathFailures = 0, BoundaryReturns = 0;
+    // Dry roll inertia (kg·m²) cached from the backend so a carried bird —
+    // whose Chaos inertia tensor reads zero with simulation off — still
+    // presents a valid positive value to the firmware step.
+    double DryRollInertiaKgM2 = 0.001;
     // The integration test uses the actual pawn/controller/Chaos path.
     bool bFlightTest = false, bSoakTest = false, bRavenFlightTest = false, bTestResetSent = false, bTestFinished = false;
     double TestTime = 0, TestPeakSpeed = 0, TestPeakAltitude = 0;

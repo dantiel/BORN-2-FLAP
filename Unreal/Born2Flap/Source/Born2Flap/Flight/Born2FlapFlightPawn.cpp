@@ -276,6 +276,7 @@ void ABorn2FlapFlightPawn::ApplyTuning()
         if (MathBridge->ReadMassProperties(-double(CgOffsetMm)/1000.0, Props))
         {
             const FVector Tensor(Props.dry_inertia_kg_m2[0], Props.dry_inertia_kg_m2[1], Props.dry_inertia_kg_m2[2]);
+            DryRollInertiaKgM2 = Props.dry_inertia_kg_m2[0];
             FPhysicsCommand::ExecuteWrite(Body->GetBodyInstance()->ActorHandle, [&](const FPhysicsActorHandle& Actor)
             {
                 FPhysicsInterface::SetMassSpaceInertiaTensor_AssumesLocked(Actor, Tensor * 10000.0);
@@ -926,7 +927,7 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
     Pilot.throttle_mode = bCoupledThrottle ? 1.0 : 0.0;
     B2F_BodyState State{};
     State.delta_time_s = MathDt;
-    State.roll_inertia_kg_m2 = Inertia.X;
+    State.roll_inertia_kg_m2 = Inertia.X > 0.0 ? Inertia.X : DryRollInertiaKgM2;
     // Ground effect: body-origin height above the surface below (terrain +
     // rocks/buildings via GroundHeight), in metres. The math core normalises
     // this by wingspan and applies per-strip lift/drag/thrust corrections.
