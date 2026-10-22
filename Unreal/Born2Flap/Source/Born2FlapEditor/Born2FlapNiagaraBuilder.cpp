@@ -157,6 +157,24 @@ namespace
         float Drag = 0.0f;
         bool bCurlNoise = false;
         float NoiseStrength = 400.0f;
+        // Niagara's default sprite size is "X=50.0 Y=50.0" — 50 cm squares, which
+        // is exactly the "square patches / heat shimmer" look. A soft default sprite
+        // at 50 cm reads as a thermal blob. Per-system size + droplet material fix it.
+        FString SpriteMaterialPath = TEXT("/Niagara/DefaultAssets/DefaultSpriteMaterial.DefaultSpriteMaterial");
+        float SpriteSize = 12.0f;
+        float Lifetime = 5.0f;
+        // GPU sprite simulation: tens of thousands of fine grains on the GPU
+        // (the ISM approach caps at ~640 CPU transforms, which is what reads as
+        // "confetti balls"). GPU + soft depth-fade = pixel-level sand.
+        bool bGPU = false;
+        // One-shot burst (landing / wing-touch) instead of a continuous spawn.
+        bool bBurst = false;
+        // Cone ejection (outward-upward projectile spray) instead of a single
+        // fixed velocity vector.
+        bool bConeVelocity = false;
+        FVector3f ConeDirection = FVector3f(0, 0, 1);
+        float ConeAngle = 45.0f;
+        float ConeSpeed = 500.0f;
     };
 
     UNiagaraSystem* BuildSystem(const FString& PackagePath, const FBuildSpec& S)
@@ -170,14 +188,22 @@ namespace
         FVersionedNiagaraEmitterData* Data = Emitter->GetLatestEmitterData();
         const FString EmitterName = Emitter->GetUniqueEmitterName();
 
+        if (S.bGPU)
+        {
+            // GPU emitters need fixed bounds for culling (dynamic bounds are a
+            // CPU-only path); without them the particles can vanish off-screen.
+            Data->SimTarget = ENiagaraSimTarget::GPUComputeSim;
+            Data->CalculateBoundsMode = ENiagaraEmitterCalculateBoundMode::Fixed;
+            Data->FixedBounds = FBox(FVector(-4000.0), FVector(4000.0));
+        }
+
         UNiagaraSpriteRendererProperties* SpriteRenderer =
             NewObject<UNiagaraSpriteRendererProperties>(Emitter, TEXT("Renderer"));
         // A bare sprite renderer carries no material — the particles would draw
         // as unlit dark quads. Bind the engine's Niagara default soft sprite
         // (the exact asset the editor assigns when a sprite renderer is added
         // by hand) so rain, snow and the insect swarm render as soft points.
-        SpriteRenderer->Material = LoadObject<UMaterialInterface>(nullptr,
-            TEXT("/Niagara/DefaultAssets/DefaultSpriteMaterial.DefaultSpriteMaterial"));
+        SpriteRenderer->Material = LoadObject<UMaterialInterface>(nullptr, *S.SpriteMaterialPath);
         Emitter->AddRenderer(SpriteRenderer, Data->Version.VersionGuid);
 
         UNiagaraScript* EmitterUpdate = Data->EmitterUpdateScriptProps.Script;
@@ -189,12 +215,26 @@ namespace
         UNiagaraNodeOutput* ParticleUpdateOut = OutputNode(*ParticleUpdate);
 
         AddModule(TEXT("/Niagara/Modules/Emitter/EmitterState.EmitterState"), *EmitterUpdateOut);
-        UNiagaraNodeFunctionCall* SpawnRateNode = AddModule(TEXT("/Niagara/Modules/Emitter/SpawnRate.SpawnRate"), *EmitterUpdateOut);
-        if (SpawnRateNode)
+        if (S.bBurst)
         {
-            LogStackInputs(*SpawnRateNode, TEXT("SpawnRate"));
-            SetMatched(EmitterName, *EmitterUpdate, *SpawnRateNode,
-                { TEXT("SpawnRate") }, FNiagaraTypeDefinition::GetFloatDef(), S.SpawnRate, TEXT("SpawnRate"));
+            UNiagaraNodeFunctionCall* Burst = AddModule(TEXT("/Niagara/Modules/Emitter/SpawnBurst_Instantaneous.SpawnBurst_Instantaneous"), *EmitterUpdateOut);
+            if (Burst)
+            {
+                LogStackInputs(*Burst, TEXT("SpawnBurst"));
+                SetMatched(EmitterName, *EmitterUpdate, *Burst,
+                    { TEXT("Spawn Count"), TEXT("SpawnCount"), TEXT("Count") },
+                    FNiagaraTypeDefinition::GetIntDef(), int32(S.SpawnRate), TEXT("SpawnCount"));
+            }
+        }
+        else
+        {
+            UNiagaraNodeFunctionCall* SpawnRateNode = AddModule(TEXT("/Niagara/Modules/Emitter/SpawnRate.SpawnRate"), *EmitterUpdateOut);
+            if (SpawnRateNode)
+            {
+                LogStackInputs(*SpawnRateNode, TEXT("SpawnRate"));
+                SetMatched(EmitterName, *EmitterUpdate, *SpawnRateNode,
+                    { TEXT("SpawnRate") }, FNiagaraTypeDefinition::GetFloatDef(), S.SpawnRate, TEXT("SpawnRate"));
+            }
         }
 
         if (S.bBox)
@@ -223,12 +263,32 @@ namespace
             }
         }
 
-        UNiagaraNodeFunctionCall* Vel = AddModule(TEXT("/Niagara/Modules/Spawn/Velocity/AddVelocity.AddVelocity"), *ParticleSpawnOut);
-        if (Vel)
+        if (!S.bConeVelocity)
         {
-            LogStackInputs(*Vel, TEXT("AddVelocity"));
-            SetMatched(EmitterName, *ParticleSpawn, *Vel,
-                { TEXT("Velocity") }, FNiagaraTypeDefinition::GetVec3Def(), S.Velocity, TEXT("Velocity"));
+            UNiagaraNodeFunctionCall* Vel = AddModule(TEXT("/Niagara/Modules/Spawn/Velocity/AddVelocity.AddVelocity"), *ParticleSpawnOut);
+            if (Vel)
+            {
+                LogStackInputs(*Vel, TEXT("AddVelocity"));
+                SetMatched(EmitterName, *ParticleSpawn, *Vel,
+                    { TEXT("Velocity") }, FNiagaraTypeDefinition::GetVec3Def(), S.Velocity, TEXT("Velocity"));
+            }
+        }
+        if (S.bConeVelocity)
+        {
+            UNiagaraNodeFunctionCall* Cone = AddModule(TEXT("/Niagara/Modules/Spawn/Velocity/AddVelocityInCone.AddVelocityInCone"), *ParticleSpawnOut);
+            if (Cone)
+            {
+                LogStackInputs(*Cone, TEXT("AddVelocityInCone"));
+                SetMatched(EmitterName, *ParticleSpawn, *Cone,
+                    { TEXT("Cone Axis"), TEXT("Axis") },
+                    FNiagaraTypeDefinition::GetVec3Def(), S.ConeDirection, TEXT("ConeDirection"));
+                SetMatched(EmitterName, *ParticleSpawn, *Cone,
+                    { TEXT("Cone Angle"), TEXT("ConeAngle"), TEXT("Angle") },
+                    FNiagaraTypeDefinition::GetFloatDef(), S.ConeAngle, TEXT("ConeAngle"));
+                SetMatched(EmitterName, *ParticleSpawn, *Cone,
+                    { TEXT("Velocity Strength"), TEXT("Strength"), TEXT("Speed") },
+                    FNiagaraTypeDefinition::GetFloatDef(), S.ConeSpeed, TEXT("ConeSpeed"));
+            }
         }
 
         {
@@ -240,9 +300,9 @@ namespace
             };
             TArray<FString> Defaults =
             {
-                FNiagaraConstants::GetAttributeDefaultValue(SYS_PARAM_PARTICLES_SPRITE_SIZE),
+                FString::Printf(TEXT("X=%.2f Y=%.2f"), S.SpriteSize, S.SpriteSize),
                 FNiagaraConstants::GetAttributeDefaultValue(SYS_PARAM_PARTICLES_SPRITE_ROTATION),
-                FNiagaraConstants::GetAttributeDefaultValue(SYS_PARAM_PARTICLES_LIFETIME)
+                FString::SanitizeFloat(S.Lifetime)
             };
             FNiagaraStackGraphUtilities::AddParameterModuleToStack(Vars, *ParticleSpawnOut, INDEX_NONE, Defaults);
         }
@@ -319,6 +379,8 @@ int32 UBorn2FlapNiagaraBuilderCommandlet::Main(const FString& Params)
     {
         FBuildSpec S;
         S.AssetName = TEXT("NS_Rain");
+        S.SpriteSize = 6.0f;
+        S.Lifetime = 1.0f;
         S.SpawnRate = 2500.0f;
         S.Velocity = FVector3f(0, 0, -1500.0f);
         S.BoxSize = FVector3f(2000, 2000, 1400);
@@ -331,6 +393,8 @@ int32 UBorn2FlapNiagaraBuilderCommandlet::Main(const FString& Params)
     {
         FBuildSpec S;
         S.AssetName = TEXT("NS_Snow");
+        S.SpriteSize = 14.0f;
+        S.Lifetime = 4.0f;
         S.SpawnRate = 1200.0f;
         S.Velocity = FVector3f(0, 0, -180.0f);
         S.BoxSize = FVector3f(2400, 2400, 1800);
@@ -345,6 +409,8 @@ int32 UBorn2FlapNiagaraBuilderCommandlet::Main(const FString& Params)
     {
         FBuildSpec S;
         S.AssetName = TEXT("NS_InsectSwarm");
+        S.SpriteSize = 5.0f;
+        S.Lifetime = 3.0f;
         S.SpawnRate = 400.0f;
         S.Velocity = FVector3f(0, 0, 60.0f);
         S.bBox = false;
@@ -357,21 +423,25 @@ int32 UBorn2FlapNiagaraBuilderCommandlet::Main(const FString& Params)
     }
 
     {
-        // Surf spray: a tight mist burst thrown up off the breaking crest, arcing
-        // back down under gravity. Camera-local in Born2FlapSurf (repositioned to
-        // the wave front every tick), so it reads as wave impact, not rain.
+        // Surf spray: real water droplets thrown up off the breaking crest, arcing
+        // back down under strong gravity — projectile, not a rising thermal column.
+        // Small 2.5 cm bright droplet sprite + minimal curl noise (the high curl +
+        // soft DefaultSpriteMaterial is what made it read as heat shimmer).
         FBuildSpec S;
         S.AssetName = TEXT("NS_SurfSpray");
-        S.SpawnRate = 600.0f;
-        S.Velocity = FVector3f(0, 0, 420.0f);
+        S.SpriteMaterialPath = TEXT("/Game/Weather/M_SurfDroplet");
+        S.SpriteSize = 2.5f;
+        S.Lifetime = 1.2f;
+        S.SpawnRate = 2200.0f;
+        S.Velocity = FVector3f(0, 0, 520.0f);
         S.bBox = false;
-        S.SphereRadius = 350.0f;
+        S.SphereRadius = 240.0f;
         S.bGravity = true;
-        S.Gravity = FVector3f(0, 0, -1500.0f);
+        S.Gravity = FVector3f(0, 0, -2600.0f);
         S.bDrag = true;
-        S.Drag = 0.6f;
+        S.Drag = 0.35f;
         S.bCurlNoise = true;
-        S.NoiseStrength = 300.0f;
+        S.NoiseStrength = 60.0f;
         BuildSystem(TEXT("/Game/Weather/NS_SurfSpray"), S);
     }
 
@@ -381,6 +451,8 @@ int32 UBorn2FlapNiagaraBuilderCommandlet::Main(const FString& Params)
         // High drag + weak gravity keeps it hanging in the air like sea mist.
         FBuildSpec S;
         S.AssetName = TEXT("NS_SurfMist");
+        S.SpriteSize = 14.0f;
+        S.Lifetime = 2.5f;
         S.SpawnRate = 700.0f;
         S.Velocity = FVector3f(0, 0, 90.0f);
         S.bBox = false;
@@ -392,6 +464,54 @@ int32 UBorn2FlapNiagaraBuilderCommandlet::Main(const FString& Params)
         S.bCurlNoise = true;
         S.NoiseStrength = 220.0f;
         BuildSystem(TEXT("/Game/Weather/NS_SurfMist"), S);
+    }
+
+    {
+        // Ambient fine sand: thousands of sub-centimetre GPU sprite grains that
+        // drift and settle in a flat slab near the ground under the camera. This
+        // is the pixel-level haze the ISM (~640 big quads) could never produce.
+        FBuildSpec S;
+        S.AssetName = TEXT("NS_Sand");
+        S.SpriteMaterialPath = TEXT("/Game/Nature/Insects/M_SandSprite");
+        S.SpriteSize = 5.0f;
+        S.Lifetime = 3.0f;
+        S.SpawnRate = 9000.0f;
+        S.bGPU = true;
+        S.bBox = true;
+        S.BoxSize = FVector3f(2200, 2200, 160);
+        S.BoxOffset = FVector3f(0, 0, 80);
+        S.bGravity = true;
+        S.Gravity = FVector3f(0, 0, -300.0f);
+        S.bDrag = true;
+        S.Drag = 1.2f;
+        S.bCurlNoise = true;
+        S.NoiseStrength = 120.0f;
+        BuildSystem(TEXT("/Game/Weather/NS_Sand"), S);
+    }
+
+    {
+        // One-shot sand burst (landing / wing touching ground): a cone of fine
+        // grains thrown outward-upward, arcing back down under strong gravity —
+        // a projectile spray, not a rising thermal column.
+        FBuildSpec S;
+        S.AssetName = TEXT("NS_SandBurst");
+        S.SpriteMaterialPath = TEXT("/Game/Nature/Insects/M_SandSprite");
+        S.SpriteSize = 3.5f;
+        S.Lifetime = 1.4f;
+        S.SpawnRate = 700.0f;   // SpawnCount for the one-shot burst
+        S.bGPU = true;
+        S.bBurst = true;
+        S.bBox = false;
+        S.SphereRadius = 40.0f;
+        S.bConeVelocity = true;
+        S.ConeDirection = FVector3f(0, 0, 1);
+        S.ConeAngle = 55.0f;
+        S.ConeSpeed = 500.0f;
+        S.bGravity = true;
+        S.Gravity = FVector3f(0, 0, -2000.0f);
+        S.bDrag = true;
+        S.Drag = 0.3f;
+        BuildSystem(TEXT("/Game/Weather/NS_SandBurst"), S);
     }
 
     UE_LOG(LogTemp, Display, TEXT("[NiagaraBuilder] === DONE ==="));

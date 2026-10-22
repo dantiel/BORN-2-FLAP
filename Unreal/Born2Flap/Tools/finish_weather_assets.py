@@ -114,6 +114,23 @@ eye=node(m,'EyeAdaptation');light=node(m,'Divide');connect(c,light,'A');connect(
 ring=custom(m,'float r=length(UV-.5)*2; return smoothstep(.52,.72,r)*(1-smoothstep(.8,1.,r))*.48;',{'UV':uv})
 output(ring,'OPACITY');lib.recompile_material(m);assert ela.save_loaded_asset(m)
 
+# Surf droplet: a small, bright, fast-falloff water droplet sprite for the Niagara
+# breaking-surf spray (NS_SurfSpray). The engine DefaultSpriteMaterial is a soft,
+# wide radial gradient — at Niagara's 50 cm default sprite size it reads as a soft
+# blob / heat shimmer, not a projectile. This is unlit translucent with a tight
+# pow(1-r) core so it renders as a hard, weighty droplet. bUsedWithNiagaraSprites
+# is required or the sprite renderer ignores the material.
+m=material('M_SurfDroplet');m.set_editor_property('blend_mode',u.BlendMode.BLEND_TRANSLUCENT)
+m.set_editor_property('shading_model',u.MaterialShadingModel.MSM_UNLIT)
+m.set_editor_property('used_with_niagara_sprites',True)
+m.set_editor_property('used_with_particle_sprites',True)
+m.set_editor_property('two_sided',False)
+uv=node(m,'TextureCoordinate')
+col=custom(m,'float2 c=UV-.5; float r=length(c)*2.; float d=pow(saturate(1.-r),2.5); return float3(.95,.99,1.05)*d;',{'UV':uv},3)
+output(col,'EMISSIVE_COLOR')
+op=custom(m,'float2 c=UV-.5; float r=length(c)*2.; return pow(saturate(1.-r),2.5);',{'UV':uv})
+output(op,'OPACITY');lib.recompile_material(m);assert ela.save_loaded_asset(m)
+
 source=Path(__file__).resolve().parents[1]/'Saved/GeneratedSoundscape'
 for wav in sorted(source.glob('*.wav')):
     task=u.AssetImportTask();task.set_editor_property('filename',str(wav));task.set_editor_property('destination_path','/Game/Weather/Audio')

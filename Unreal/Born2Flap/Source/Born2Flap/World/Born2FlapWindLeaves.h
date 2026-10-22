@@ -13,6 +13,7 @@
 #include "Born2FlapWindLeaves.generated.h"
 
 class UInstancedStaticMeshComponent;
+class UNiagaraComponent;
 
 UCLASS()
 class BORN2FLAP_API ABorn2FlapWindLeaves : public AActor
@@ -61,6 +62,11 @@ private:
     UPROPERTY() TObjectPtr<UInstancedStaticMeshComponent> Leaves;
     UPROPERTY() TObjectPtr<UInstancedStaticMeshComponent> Blades;
     UPROPERTY() TObjectPtr<UInstancedStaticMeshComponent> Dust;
+    // GPU Niagara sand path (High/Epic): DustFX is the looping ambient fine-sand
+    // field; SandBurstFX is the one-shot landing/wing-touch projectile burst.
+    UPROPERTY() TObjectPtr<UNiagaraComponent> DustFX;
+    UPROPERTY() TObjectPtr<UNiagaraComponent> SandBurstFX;
+    bool bNiagaraSand = false;   // true when the GPU Niagara path is active
 
     TArray<FLeaf> LeafPool;
     TArray<FBlade> BladePool;
@@ -83,5 +89,5 @@ private:
     static constexpr int32 MinLeaves = 50;
     static constexpr int32 MaxLeaves = 520;
     static constexpr int32 MaxBlades = 320;
-    static constexpr int32 MaxDust = 400;
+    static constexpr int32 MaxDust = 640;
 };
