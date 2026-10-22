@@ -128,7 +128,7 @@ rollAuthorityGain :: Double
 rollAuthorityGain = 2.0
 
 ampMaxDeg, freqMinHz, servoSpeedMsDefault :: Double
-ampMaxDeg = 55
+ampMaxDeg = 35
 freqMinHz = 0.5
 servoSpeedMsDefault = 40
 
