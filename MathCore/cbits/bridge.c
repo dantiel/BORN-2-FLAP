@@ -246,6 +246,14 @@ B2F_EXPORT HsInt32 b2f_math_set_wind_phase_noise(HsPtr context, HsDouble noise) 
 B2F_EXPORT HsInt32 b2f_math_reconfigure_firmware_vehicle(HsPtr context, HsPtr tuning) {
     return hs_b2f_math_reconfigure_firmware_vehicle(context, tuning);
 }
+extern HsInt32 hs_b2f_math_set_wing_model(HsPtr context, HsWord32 model_id);
+B2F_EXPORT HsInt32 b2f_math_set_wing_model(HsPtr context, HsWord32 model_id) {
+    return hs_b2f_math_set_wing_model(context, model_id);
+}
+extern HsDouble hs_b2f_math_get_model_mass_kg(HsWord32 model_id);
+B2F_EXPORT HsDouble b2f_math_get_model_mass_kg(HsWord32 model_id) {
+    return hs_b2f_math_get_model_mass_kg(model_id);
+}
 extern HsInt32 hs_b2f_math_get_mass_properties(HsPtr context, HsDouble cg_x, HsPtr output);
 B2F_EXPORT HsInt32 b2f_math_get_mass_properties(HsPtr context, HsDouble cg_x, HsPtr output) {
     return hs_b2f_math_get_mass_properties(context, cg_x, output);
