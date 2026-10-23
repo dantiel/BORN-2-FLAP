@@ -23,8 +23,8 @@
 --     nose-down moment) accumulates into a torque, torque ∕ torsional
 --     stiffness gives twist rate, integrated once from the clamped root.
 --
--- Both are quasi-static targets relaxed into the strip state with a first-order
--- lag, so the aeroelastic feedback loop is stable at fixed timestep.
+-- Static compliance supplies reduced bend/twist mode shapes. Vehicle integrates
+-- their coupled structural and added-air inertia, stiffness and damping.
 --
 -- The structure is carried as an OPEN-ENDED LIST of 'Spar' records inside the
 -- 'SparInventory' — the per-model "carbon rods" configuration. Each spar has
@@ -48,6 +48,8 @@ module Born2Flap.Math.Structure
     -- * Relaxation
   , relaxDeflection
   , softSaturate
+  , stepElasticMode
+  , stepCoupledElasticModes
     -- * Spanwise spar stiffness
   , sparBendEI
   , sparTorsionGJ
@@ -57,6 +59,37 @@ module Born2Flap.Math.Structure
   ) where
 
 import Data.Maybe (listToMaybe)
+
+-- | Implicit midpoint integration of m*q'' + c*q' + k*q = load.
+-- At zero damping it conserves the quadratic elastic/kinetic energy; positive
+-- damping dissipates energy. No oscillator phase or flap-frequency forcing.
+stepElasticMode :: Double -> Double -> Double -> Double -> Double -> Double -> Double
+                -> (Double, Double)
+stepElasticMode dt mass stiffness damping load position velocity
+  | dt <= 0 = (position,velocity)
+  | otherwise =
+      let m=max 1e-12 mass; k=max 0 stiffness; c=max 0 damping
+          nextVelocity=((m-c*dt/2-k*dt*dt/4)*velocity + dt*(load-k*position))
+                        /(m+c*dt/2+k*dt*dt/4)
+      in (position+dt*(velocity+nextVelocity)/2,nextVelocity)
+
+-- | Bending/torsion share chordwise mass: LE translation and pitch cannot
+-- be integrated as unrelated oscillators. Symmetric mass matrix, diagonal
+-- material stiffness/damping; implicit midpoint preserves the energy identity.
+stepCoupledElasticModes :: Double -> (Double,Double,Double) -> (Double,Double)
+                        -> (Double,Double) -> (Double,Double) -> (Double,Double)
+                        -> (Double,Double) -> ((Double,Double),(Double,Double))
+stepCoupledElasticModes dt (mb,mbt,mt) (kb,kt) (cb,ct) (fb,ft) (qb,qt) (vb,vt)
+  | dt<=0 = ((qb,qt),(vb,vt))
+  | otherwise =
+      let ab=mb+cb*dt/2+kb*dt*dt/4
+          at=mt+ct*dt/2+kt*dt*dt/4
+          rb=(mb-cb*dt/2-kb*dt*dt/4)*vb+mbt*vt+dt*(fb-kb*qb)
+          rt=mbt*vb+(mt-ct*dt/2-kt*dt*dt/4)*vt+dt*(ft-kt*qt)
+          det=ab*at-mbt*mbt
+          wb=(at*rb-mbt*rt)/det
+          wt=(ab*rt-mbt*rb)/det
+      in ((qb+dt*(vb+wb)/2,qt+dt*(vt+wt)/2),(wb,wt))
 
 -- | Per-station structural material of one spanwise station.
 data StructureProfile = StructureProfile
@@ -124,13 +157,11 @@ kestrelSpars :: SparInventory
 kestrelSpars = SparInventory
   { siYoungsModulus = 135e9
   , siShearModulus  = 5e9
-    -- Calibrated for the 50 g reference kestrel: 2× stiffer than the prior 25 g
-    -- calibration (siBendScale 130 → 260), so the full 0.49 N design load flexes
-    -- the wing to the SAME ideal airfoil the 25 g bird reached at 130 — keeping
-    -- the aeroelastic response in its resonant range at 50 g. (kestrelLightSpars
-    -- thins the rods by 0.5^(1/4) so the 25 g variant reaches that same flex.)
-    , siBendScale     = 260.0
-    , siTwistScale    = 4.0
+    -- Effective stressed-skin calibration. Bending is modestly stiffer than
+    -- the prior wing; torsion is retuned for the inertial mode model instead
+    -- of relying on the old 15-degree deflection clamp to hide compliance.
+    , siBendScale     = 325.0
+    , siTwistScale    = 12.5
     , siMembraneGJ    = 1.0e-2
     , siBraceScale    = 0.4
   , siSpars         = kestrelSparList
@@ -150,7 +181,7 @@ kestrelSparList =
 
 -- | Scale a spar inventory by a geometric factor @s@ (structural similarity):
 -- every rod diameter, length and lever arm scale by @s@, the tensioned-membrane
--- baseline torsional stiffness scales by @s³@, and the dimensionless
+-- baseline torsional stiffness scales by @s⁴@, and the dimensionless
 -- calibration gains (bend/twist/brace) are unchanged. Spanwise extents are
 -- fractions, so they are invariant under scaling. Use this to derive a
 -- geometrically-similar bird; for a truly individual wing, build the 'Spar'
@@ -158,7 +189,7 @@ kestrelSparList =
 scaleSpars :: Double -> SparInventory -> SparInventory
 scaleSpars s inv = inv
   { siSpars      = map scaleOne (siSpars inv)
-  , siMembraneGJ = siMembraneGJ inv * s * s * s
+  , siMembraneGJ = siMembraneGJ inv * s * s * s * s
   }
   where
     scaleOne sp = sp
@@ -207,7 +238,14 @@ sparBendEISpanwise inv frac =
 -- | A brace's effective torsional stiffness [N·m²]: it resists the trailing
 -- edge swinging under twist by bending as a cantilever.
 sparBraceGJ :: SparInventory -> Spar -> Double
-sparBraceGJ inv s = 3 * sparBendEI inv (spDiameter s) / (spLengthM s ^ 3) * (spLeverM s ^ 2)
+sparBraceGJ inv s =
+  let rotationalK = 3 * sparBendEI inv (spDiameter s) / (spLengthM s ^ 3) * (spLeverM s ^ 2)
+      spanM = maximum (0 : [spLengthM main / max 1e-9 (spTipFrac main-spRootFrac main)
+                           | main <- mainSpars inv])
+      coveredSpan = spanM * max 0 (spTipFrac s-spRootFrac s)
+  -- k_theta is Nm/rad. Its equivalent distributed GJ is k_theta * length,
+  -- not k_theta itself. This is a homogenized brace, not a full truss FEM.
+  in rotationalK * coveredSpan
 
 -- | Spanwise torsional stiffness [N·m²]: the tensioned membrane (whole wing),
 -- plus the active main spars' own torsion and the active braces' bending

@@ -326,28 +326,18 @@ applyTuning t ctx =
         { profTailElevatorAngleDeg = clampRange (-15) 15 (tgTailElevatorAngleDeg t)
         , profGlideAngleDeg = clampRange (-15) 15 (tgGlideAngleDeg t)
         , profStrokeFerocity = clampRange 0 100 (tgStrokeFerocity t)
+        -- The game exposes one waveform control for the complete cycle.
+        -- Leaving recovery at the firmware default of 50 made a zero setting
+        -- asymmetric and silently limited cadence through recovery dwell.
+        , profReturnFerocity = clampRange 0 100 (tgStrokeFerocity t)
         , profAileronScale = clampRange 0 100 (tgAileronScale t)
         , profElevatorScale = clampRange 0 100 (tgElevatorScale t)
         }
-      -- The wing geometry is fixed by the selected model (fwcModel) — changing
-      -- battery/body mass must not shrink the same physical wings. Flapping
-      -- frequency must be CAPPED by the servo's no-load speed: a servo sweeping
-      -- at ω₀ can only flap a stroke of amplitude A at cadence f ≤ ω₀/(2π·A).
-      -- The mixer's flappingBranch caps the cadence to the FULL geometric stroke
-      -- (ampMaxDeg, 35°), so the commanded arc is always deliverable and
-      -- monotonic in throttle. This stored ceiling mirrors that same limit, so a
-      -- faster servo earns a faster flap, never a stroke it cannot deliver.
-      -- Flapping frequency rises for lighter birds (f ∝ m^(-1/4)): the
-      -- mass-derived wing scale gives the small kestrel a faster natural beat
-      -- than a larger bird on the same servo. Restored after a regression had
-      -- hard-coded this to 1 (halving the kestrel's cadence ceiling).
-      wingScale = clampRange 0.4 1.8 ((max 0.01 (tgBodyMassKg t) / 0.45) ** (1 / 4))
-      freqScale = 1 / wingScale
+      -- Preserve the requested frequency. The mixer limits cadence using the
+      -- actual arc and waveform derivative, once all control mixes are known.
+      -- Adding body mass does not change the requested motion or wing geometry.
       servoSpeedDegS = max 1 (servoNoLoadSpeedDegPerSec servo)
-      usefulStrokeDeg = 35
-      freqCapHz = servoSpeedDegS / (2 * pi * usefulStrokeDeg)
-      flapBaseFreqDh = clampRange 10 200 (min (tgFlapBaseFreqDh t * freqScale)
-                                             (freqCapHz * 10))
+      flapBaseFreqDh = clampRange 10 200 (tgFlapBaseFreqDh t)
       params = (fwcParams ctx)
         { fwServoSpeedMs = 60000 / servoSpeedDegS
         , fwFlapBaseFreqDh = flapBaseFreqDh
