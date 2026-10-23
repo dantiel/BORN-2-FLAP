@@ -117,7 +117,11 @@ servoDriveTorque servo battery voltage dt target load wingInertia old rate =
       (_, reference) = stepServo servo battery target load wingInertia voltage dt old
       acceleration = ((2*servoRateDegPerSec reference-servoRateDegPerSec old)*pi/180-rate)/dt
       demand = (wingInertia+reflectedDriveInertia)*acceleration-load
-  in clampRate (-stall) stall demand
+      -- DC drive envelope: stall torque and no-load speed cannot coexist.
+      freeRate = max 1e-6 (servoNoLoadSpeedDegPerSec servo * vf * pi/180)
+      positiveLimit = stall * clampRate 0 1 (1-rate/freeRate)
+      negativeLimit = -stall * clampRate 0 1 (1+rate/freeRate)
+  in clampRate negativeLimit positiveLimit demand
 
 -- | Passive gearbox resistance when an external load overpowers the drive.
 -- Retains the user's backdrive compliance setting without prescribing joint

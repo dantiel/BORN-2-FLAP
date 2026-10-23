@@ -22,6 +22,7 @@ module Born2Flap.Math.Waveform
   , limiarFromFerocities
   , shapeWave
   , shapeWaveWithDerivative
+  , wavePeakDerivativeBound
   ) where
 
 -- ── Oscillator state ───────────────────────────────────────────────
@@ -172,6 +173,22 @@ shapeWaveWithDerivative theta strokeFerocity returnFerocity limiarShared
       halfWaveDeriv = plateauDeriv * (1 - shapeMix) + pointedDeriv * shapeMix
       sign = if descida then 1 else -1
   in (sign * halfWave, sign * halfWaveDeriv)
+
+-- | Conservative absolute d(wave)/d(phase) bound, including dwell, skew,
+-- shape blending and unequal half-cycle durations. Used for cadence planning.
+wavePeakDerivativeBound :: Double -> Double -> Double -> Double -> Double -> Double -> Double
+wavePeakDerivativeBound strokeFer returnFer reversal shapeMix strokeSkew returnSkew =
+  let mix = clamp 0 1 (shapeMix * 0.01)
+      half = if reversal >= 0 then clamp 1e-6 (twoPi-1e-6) reversal
+             else limiarFromFerocities strokeFer returnFer
+      bound f width skew =
+        let u = clamp 0 8 f * 0.125
+            dwell = u * kWaveMaxDwell
+            k = kWaveMaxPoint * (2*u-u*u)
+            pointed = if k < 0.0001 then 1 else k / asin k
+        in pi / width * (1+abs (clamp (-1) 1 (skew*0.01)))
+             * ((1-mix)/(1-dwell)+mix*pointed)
+  in max (bound strokeFer half strokeSkew) (bound returnFer (twoPi-half) returnSkew)
 
 clamp :: Ord a => a -> a -> a -> a
 clamp low high = max low . min high
