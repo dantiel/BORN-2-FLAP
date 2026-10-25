@@ -71,7 +71,10 @@ void ABorn2FlapWeather::Apply()
     // shifts, the spectrum cools or warms, and the air thins or hazes. This is
     // stage art — one hidden number set re-derives every visible facet.
     const auto& Ssn=Born2FlapWeather::Season(Conditions.Season);
-    const FRotator SunRotation(-(D.Elevation+Ssn.SunElevation),D.Yaw+Ssn.SunAzimuth,0);
+    // Yunsha's open eastern sky lights the western grotto face. Its northern
+    // summits must not throw kilometre-long morning shadows over the oasis.
+    const float WorldAzimuth=Level==TEXT("Yunsha") ? 270.f : 0.f;
+    const FRotator SunRotation(-(D.Elevation+Ssn.SunElevation),D.Yaw+Ssn.SunAzimuth+WorldAzimuth,0);
     const FVector SunDirection=-SunRotation.Vector();
     const FLinearColor BaseLight=D.Night ? FLinearColor(.52f,.67f,1.f) :
         ((D.Id==TEXT("dawn") || D.Id==TEXT("sunset")) ? FLinearColor(1.f,.64f,.36f) : FLinearColor(1.f,.94f,.84f));
@@ -101,7 +104,7 @@ void ABorn2FlapWeather::Apply()
             bFogFound=true;
             Fog->SetFogDensity(FMath::Max(0.f,W.Fog+Ssn.FogBias));
             Fog->SetFogHeightFalloff(W.Id==TEXT("mist") ? .12f : .25f);
-            Fog->SetFogInscatteringColor(D.Night ? FLinearColor(.08f,.12f,.23f) : FLinearColor(.57f,.66f,.73f));
+            Fog->SetFogInscatteringColor(D.Night ? FLinearColor(.08f,.12f,.23f) : (Level==TEXT("Yunsha") && Conditions.Season==TEXT("dry") ? FLinearColor(.67f,.49f,.30f) : FLinearColor(.57f,.66f,.73f)));
             Fog->SetVolumetricFog(true);
         }
         // The authored cloud props must not survive a clear-weather selection.
@@ -115,7 +118,7 @@ void ABorn2FlapWeather::Apply()
     }
     auto& S=PostProcess->Settings;
     const auto* Range=IConsoleManager::Get().FindConsoleVariable(TEXT("r.DefaultFeature.AutoExposure.ExtendDefaultLuminanceRange"));
-    const float EV=Born2FlapWeather::Exposure(Conditions);
+    const float EV=Born2FlapWeather::Exposure(Conditions)-(Level==TEXT("Yunsha") && !D.Night ? .3f : 0.f);
     const float Brightness=Range && Range->GetInt() ? EV : FMath::Pow(2.f,EV);
     S.bOverride_AutoExposureMinBrightness=S.bOverride_AutoExposureMaxBrightness=S.bOverride_AutoExposureBias=true;
     S.AutoExposureMinBrightness=S.AutoExposureMaxBrightness=Brightness;

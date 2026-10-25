@@ -34,6 +34,7 @@ FORCEINLINE const TCHAR* Key(ETuningField Field)
     case ETuningField::ElevatorScale:      return TEXT("ElevatorScale");
     case ETuningField::FlapCentre:         return TEXT("FlapCentre");
     case ETuningField::VerticalMountAngle: return TEXT("VerticalMountAngle");
+    case ETuningField::ReturnFerocity:    return TEXT("ReturnFerocity");
     default:                               return TEXT("");
     }
 }
@@ -101,6 +102,7 @@ static const FRow Rows[] =
     { ETuningField::ElevatorScale,      TEXT("ELEVATOR SCALE"),        TEXT("%"),             0.f,  100.f, 0, TEXT("Pitch authority from the ruddervators. Low = subtle pitch; high = very strong pitch response.") },
     { ETuningField::FlapCentre,         TEXT("FLAP CENTRE"),          TEXT("°"),           -15.f,   15.f, 0, TEXT("Flap-stroke-centre (dihedral) trim. Shifts the servo stroke centre, same aero effect as the tail elevator. Negative = nose-down; positive = nose-up.") },
     { ETuningField::VerticalMountAngle, TEXT("VERTICAL MOUNT ANGLE"), TEXT("°"),           -15.f,   15.f, 0, TEXT("Real wing mount incidence (nose-up +). Tilts the wing about its span axis; feeds the strip's geometric twist. Negative = nose-down; positive = nose-up.") },
+    { ETuningField::ReturnFerocity,    TEXT("RETURN FEROCITY"),      TEXT("%"),             0.f,  100.f, 0, TEXT("How aggressively the upstroke/return accelerates through centre, independently of the downstroke. Low = soft return; high = crisp snap.") },
 };
 
 FORCEINLINE const FRow& Row(ETuningField Field)

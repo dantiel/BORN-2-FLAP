@@ -32,6 +32,7 @@ module Born2Flap
                      when "shiomori" then "Coast"
                      when "ravenstonefield" then "Valley"
                      when "neonabyss" then "Abyss"
+                     when "yunsha" then "Desert"
                      else "Islands"
                      end,
             world_title: world[:title] || world_id,

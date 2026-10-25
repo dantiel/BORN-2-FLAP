@@ -94,7 +94,7 @@ void ABorn2FlapSpirit::SetupSpirit(const FB2FSpiritRecording &InRecording, bool 
     bChampion = bIsChampion;
     bReady = Recording.IsValid();
     SpiritTime = 0;
-    BirdModel = FMath::Clamp(Recording.BirdModel, 0, 3);
+    BirdModel = FMath::Clamp(Recording.BirdModel, 0, 5);
 
     // Rebuild the same airframe the player flew, so the ghost matches the
     // original model instead of always appearing as the raven-crow.
@@ -102,9 +102,13 @@ void ABorn2FlapSpirit::SetupSpirit(const FB2FSpiritRecording &InRecording, bool 
     {
         switch (BirdModel)
         {
+        case 5:
+            RavenRoot = Born2FlapRaven::Build(this, GetRootComponent(), LeftShoulder, RightShoulder, TailPivot, 5);
+            break;
         case 3:
             RavenRoot = Born2FlapRaven::Build(this, GetRootComponent(), LeftShoulder, RightShoulder, TailPivot, 3);
             break;
+        case 4:
         case 2:
             RavenRoot = Born2FlapRaven::Build(this, GetRootComponent(), LeftShoulder, RightShoulder, TailPivot, 2);
             break;

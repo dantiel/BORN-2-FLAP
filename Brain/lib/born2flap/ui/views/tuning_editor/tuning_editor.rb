@@ -64,7 +64,7 @@ module Born2Flap
 
         FLIGHT_PROFILES = %w[CRUISE THERMAL AEROBATIC CALM].freeze
 
-        BIRD_KEYS = %w[bird.ravencrow bird.prototype bird.peregrine bird.turtle].freeze
+        BIRD_KEYS = %w[bird.ravencrow bird.prototype bird.peregrine bird.turtle bird.kestrel_light bird.pterosaur].freeze
 
         PROFILE_KEYS = {
 

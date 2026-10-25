@@ -5,12 +5,16 @@
     "ravenstonefield": {
       "script": "create_ravenstonefield_map.py",
       "package": "/Game/Ravenstonefield/Maps/RAVENSTONEFIELD",
-      "outputs": ["Ravenstonefield/Maps/RAVENSTONEFIELD.umap"]
+      "outputs": [
+        "Ravenstonefield/Maps/RAVENSTONEFIELD.umap"
+      ]
     },
     "neonabyss": {
       "script": "create_neon_abyss_map.py",
       "package": "/Game/NeonAbyss/Maps/NEONABYSS",
-      "outputs": ["NeonAbyss/Maps/NEONABYSS.umap"]
+      "outputs": [
+        "NeonAbyss/Maps/NEONABYSS.umap"
+      ]
     },
     "shiomori": {
       "script": "create_shiomori_map.py",
@@ -26,6 +30,16 @@
         "Shiomori/Meshes/SM_MountainsWest.uasset",
         "Shiomori/Meshes/SM_SweetPotatoPlant.uasset",
         "Shiomori/Meshes/SM_SweetPotatoRidge.uasset"
+      ]
+    },
+    "yunsha": {
+      "script": "create_yunsha_map.py",
+      "package": "/Game/Yunsha/Maps/YUNSHA",
+      "outputs": [
+        "Yunsha/Maps/YUNSHA.umap",
+        "Yunsha/Meshes/*.uasset",
+        "Yunsha/Materials/*.uasset",
+        "Yunsha/Audio/*.uasset"
       ]
     }
   }

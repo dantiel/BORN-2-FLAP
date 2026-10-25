@@ -26,6 +26,7 @@
 #include "World/Born2FlapWindLeaves.h"
 #include "World/Born2FlapInsectSwarm.h"
 #include "World/Born2FlapNeonVoid.h"
+#include "World/Born2FlapYunsha.h"
 #include "UI/Born2FlapUIBridge.h"
 #include "UI/Born2FlapFlightHUD.h"
 #include "UI/Born2FlapRadio.h"
@@ -108,10 +109,12 @@ const FMenuWorld MenuWorlds[] = {
       TEXT("A broad pale beach arcing around a sheltered bay of dark, glassy water, where the tide draws a slow walk of basalt out toward hazy, sunlit hills. Salt-cured rock and wind-bent grass give way inland to a pine-draped headland and a university campus that clings to the cliff above the surf. It is quiet enough that you notice what the sky is doing — and what the sea is answering. Follow the shoreline, skim the terrace roofs, and ride the bay's offshore wind.") },
     { TEXT("Training"), TEXT("TRAINING"),
       TEXT("A flat grass course marked with floating sky-gates, ringed by the hum of a weather station and the chalk lines of a hundred practice rounds. This is the field where every pilot learns to fold the wing, hold the line and thread the gates against the clock. Start on the launch pad, hit the gates in order, and mind the wind arrow — the course rewards a clean line more than a fast one.") },
+    { TEXT("Yunsha"), TEXT("Yúnshā"),
+      TEXT("The Cloud-Sand Gorge. A crescent jade spring beneath a mile of singing grottoes. Ride the rising air to cloud-forest pillars and the flight-only sun-temples. Read the shimmer, earn the ridge, and come back to the Wind-Harp at dusk.") },
     { TEXT("NeonAbyss"), TEXT("NEON ABYSS"),
       TEXT("A primordial, eternal sanctuary that has always floated here — a void of soft nebulae and ringed planets hung under a circle of ancient bronzes, their verdigris seams opening to gold as you draw near. There is no ground and no horizon: a baby turtle swims the aether, chasing neon jellyfish that flutter like insects. Flap to pulse forward, glide to coast, and net the festival lights before the timer ends.") },
 };
-constexpr int32 MenuWorldCount = 4;
+constexpr int32 MenuWorldCount = 5;
 }  // namespace
 
 ABorn2FlapGameMode::ABorn2FlapGameMode()
@@ -143,7 +146,8 @@ void ABorn2FlapGameMode::InitGame(const FString &MapName, const FString &Options
                    !FParse::Param(FCommandLine::Get(), TEXT("B2FSoakTest")) &&
                    !FParse::Param(FCommandLine::Get(), TEXT("B2FHandlingTest"));
     bVoidLevel = Level.Equals(TEXT("NeonAbyss"), ESearchCase::IgnoreCase) || (Level.IsEmpty() && MapName.Contains(TEXT("NEONABYSS")));
-    if (bVoidLevel) { bCoastLevel = false; bNatureLevel = false; }
+    bDesertLevel = Level.Equals(TEXT("Yunsha"), ESearchCase::IgnoreCase) || (Level.IsEmpty() && MapName.Contains(TEXT("YUNSHA")));
+    if (bVoidLevel || bDesertLevel) { bCoastLevel = false; bNatureLevel = false; }
     // Menu mode: a plain interactive boot into the minimal Entry map (no
     // explicit level) is the home screen, NOT a playable level. Nothing is
     // built and no bird spawns behind the menu — a real level only loads when
@@ -219,6 +223,15 @@ void ABorn2FlapGameMode::RestartPlayerAtPlayerStart(AController* NewPlayer, AAct
 }
 double ABorn2FlapGameMode::GroundHeight(double X, double Y) const
 {
+    if(bDesertLevel)
+    {
+        FHitResult Hit; FCollisionQueryParams Query(SCENE_QUERY_STAT(YunshaGround),true);
+        double TraceTop=90000;
+        if(const auto* Pawn=UGameplayStatics::GetPlayerPawn(this,0))
+            if(FVector2D(Pawn->GetActorLocation().X-X,Pawn->GetActorLocation().Y-Y).Size()<500)TraceTop=Pawn->GetActorLocation().Z+40;
+        if(GetWorld()->LineTraceSingleByObjectType(Hit,FVector(X,Y,TraceTop),FVector(X,Y,-2000),FCollisionObjectQueryParams(ECC_WorldStatic),Query))return Hit.ImpactPoint.Z;
+        return ABorn2FlapYunsha::GroundHeight(X,Y);
+    }
     if(bCoastLevel)
     {
         // Photoscans have cavities and tidal gaps: use their actual surface.
@@ -253,9 +266,10 @@ double ABorn2FlapGameMode::GroundHeight(double X, double Y) const
 }
 bool ABorn2FlapGameMode::IsWater(double X, double Y) const
 {
+    if(bDesertLevel)return ABorn2FlapYunsha::SpringContains(X,Y);
     return bCoastLevel ? GroundHeight(X, Y) < -50 : bNatureLevel && ABorn2FlapValley::IsWater(X, Y);
 }
-double ABorn2FlapGameMode::WaterHeight() const { return bCoastLevel ? -50 : ABorn2FlapValley::WaterHeight; }
+double ABorn2FlapGameMode::WaterHeight() const { return bDesertLevel ? 0 : bCoastLevel ? -50 : ABorn2FlapValley::WaterHeight; }
 FVector ABorn2FlapGameMode::WindAt(const FVector& P,double Time) const
 {
     return Born2FlapWeather::Wind(GetLevelId(),Conditions,P,Time);
@@ -344,7 +358,7 @@ void ABorn2FlapGameMode::BeginPlay()
     // playlist is data-driven per level (Config/DefaultGame.ini).
     {
         RadioStation = NewObject<UBorn2FlapRadioStation>(this);
-        const FString RadioLevel = bCoastLevel ? TEXT("Shiomori") : (bNatureLevel ? TEXT("Ravenstonefield") : (bVoidLevel ? TEXT("NeonAbyss") : TEXT("Training")));
+        const FString RadioLevel = GetLevelId();
         RadioStation->Initialize(World, RadioLevel);
         if (!bBrain && RadioStation->HasTrack())
         {
@@ -394,6 +408,11 @@ void ABorn2FlapGameMode::BeginPlay()
         // Entry still supports the procedural fallback for old launch scripts.
         if (!TActorIterator<ABorn2FlapValley>(World))
             World->SpawnActor<ABorn2FlapValley>();
+        return;
+    }
+    if (bDesertLevel)
+    {
+        World->SpawnActor<ABorn2FlapYunsha>(FVector::ZeroVector, FRotator::ZeroRotator, Params);
         return;
     }
     if (bVoidLevel)
@@ -603,6 +622,16 @@ void ABorn2FlapGameMode::AddPoi(const FString& Key, const FVector& Position, flo
 void ABorn2FlapGameMode::PopulatePOIs()
 {
     POIs.Reset();
+    if(bDesertLevel)
+    {
+        AddPoi(TEXT("Lunya - the Jade Palace"), 13000.,-68500.);
+        AddPoi(TEXT("Canyon Mouth - read the shimmer"), -12000.,-42000.);
+        AddPoi(TEXT("The Wind-Harp - come back at dusk"), FVector(-45000.,-54400.,6500.),0.f);
+        AddPoi(TEXT("The Narrows"), 4500.,7000.);
+        AddPoi(TEXT("Cloud-Forest - begin the climb"), -10000.,30000.);
+        AddPoi(TEXT("The Dune Sea"), 18000.,-85000.);
+        return;
+    }
     if (bCoastLevel)
     {
         // Shiomori: the launch beach + the four remaining named scenic cameras
@@ -1129,7 +1158,7 @@ void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, c
     if (!ActiveBird && bMenuMode) {
         auto& S=BrainPreferences;
         bool Changed=true;
-        if(Action==TEXT("bird.select")) S.BirdModel=FMath::Clamp(FMath::RoundToInt(Value),0,3);
+        if(Action==TEXT("bird.select")) S.BirdModel=FMath::Clamp(FMath::RoundToInt(Value),0,5);
         else if(Action==TEXT("bird.weight")) S.BodyMassKg=FMath::Clamp(Value,.01f,2.f);
         else if(Action==TEXT("bird.cg")) S.CgOffsetMm=FMath::Clamp(Value,-100.f,100.f);
         else if(Action==TEXT("bird.coupled")) S.bCoupledThrottle=Value>.5f;
@@ -1329,7 +1358,7 @@ void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, c
     if (Action == TEXT("bird.select"))
     {
         if (auto* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
-            Bird->SelectBirdModel(FMath::Clamp(FMath::RoundToInt(Value), 0, 4));
+            Bird->SelectBirdModel(FMath::Clamp(FMath::RoundToInt(Value), 0, 5));
         return;
     }
     if (Action == TEXT("radio.play") || Action == TEXT("radio.volume") || Action == TEXT("radio.mute"))
@@ -1467,6 +1496,7 @@ void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, c
         { TEXT("menu.harvestwatch"), TEXT("/Game/Shiomori/Maps/SHIOMORI"), TEXT("Shiomori") },
         { TEXT("menu.shiomori"),        TEXT("/Game/Shiomori/Maps/SHIOMORI"),               TEXT("Shiomori") },
         { TEXT("menu.training"),        TEXT("/Engine/Maps/Entry"),                         TEXT("Training") },
+        { TEXT("menu.yunsha"), TEXT("/Game/Yunsha/Maps/YUNSHA"), TEXT("Yunsha") },
         { TEXT("menu.neonabyss"),       TEXT("/Game/NeonAbyss/Maps/NEONABYSS"),             TEXT("NeonAbyss") },
     };
     for (const FEntry& E : Entries)
