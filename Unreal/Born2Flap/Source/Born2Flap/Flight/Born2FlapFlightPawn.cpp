@@ -586,6 +586,7 @@ void ABorn2FlapFlightPawn::ResetFlight(bool bSafety)
     bFlying = bReturning = false;
     Desktop = {};
     Throttle = RollInput = YawInput = PitchInput = LeftFlap = RightFlap = 0;
+    LatchedThrottle = 0.f;
     BatterySoc = 1;
     Accumulator = 0;
     AeroForce = AeroMoment = FVector::ZeroVector;
@@ -1273,12 +1274,16 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
             // always lives on the non-throttle stick; yaw on the non-roll stick.
             const bool bThrottleRight = (MobileThrottleStick == 1);
             const bool bRollRight     = (MobileRollStick == 1);
-            const float ThrottleY = bThrottleRight ? RightUpY : LeftUpY;
             const float PitchY    = bThrottleRight ? LeftUpY   : RightUpY;
             const float RollX     = bRollRight     ? RightX    : LeftX;
             const float YawX      = bRollRight     ? LeftX     : RightX;
 
-            const float TouchThrottle = FMath::Clamp(ThrottleY, 0.f, 1.f);
+            // Throttle is a bottom-zero, latched lever. The HUD's vertical
+            // throttle slider writes LatchedThrottle via SetLatchedThrottle and
+            // holds it on release (USlider latches). The throttle stick's Y axis
+            // is no longer a throttle — its X stays yaw — so no self-centring
+            // axis drives thrust and the lever rests at the bottom = idle.
+            const float TouchThrottle = LatchedThrottle;
             Effort = TouchThrottle;
             WDown  = TouchThrottle > 0.05f;
             Steer  = YawX;

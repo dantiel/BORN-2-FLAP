@@ -114,6 +114,20 @@ const FMenuWorld MenuWorlds[] = {
 constexpr int32 MenuWorldCount = 4;
 }  // namespace
 
+namespace
+{
+// Sky-gate positions for the training course (cm). Shared by PopulatePOIs()
+// (so the F8 launch-point overlay lists all six gates) and the world-assembly
+// block below (so gate actors + race logic use the identical positions).
+TArray<FVector> TrainingGates()
+{
+    return {
+        FVector(3000, 0, 400),      FVector(6000, 0, 650),      FVector(9000, 0, 900),
+        FVector(12000, 1500, 1100), FVector(13500, 4500, 1000), FVector(12000, 7500, 800)
+    };
+}
+}  // namespace
+
 ABorn2FlapGameMode::ABorn2FlapGameMode()
 {
     DefaultPawnClass = ABorn2FlapFlightPawn::StaticClass();
@@ -293,7 +307,15 @@ void ABorn2FlapGameMode::BeginPlay()
     // (set in InitGame) plus the saved-map camera actors, so they can be built
     // before the level geometry branches below. Menu mode has no level.
     if (!bMenuMode)
+    {
+        // The training course's six sky gates must be known before the POI list
+        // is built: PopulatePOIs() reads Gates to add the gate reset points, but
+        // Gates used to be assigned only in the later world-assembly block, so
+        // the F8 overlay showed just the start line.
+        if (!bCoastLevel && !bNatureLevel && !bVoidLevel)
+            Gates = TrainingGates();
         PopulatePOIs();
+    }
 
     // Menu world-select state (for the Brain-authored menu; the native
     // ABorn2FlapMenu keeps its own copy when the Brain is offline).
@@ -449,8 +471,7 @@ void ABorn2FlapGameMode::BeginPlay()
     Part(Cube, FVector(0, 0, .5), FVector(9, 9, .01), FRotator::ZeroRotator, TEXT("Sand"));
     for (int I = 0; I < 12; ++I)
         Part(Cube, FVector(500 + I * 220, 0, 1), FVector(.9, .15, .015), FRotator::ZeroRotator, TEXT("Ivory"));
-    Gates = {FVector(3000, 0, 400),      FVector(6000, 0, 650),      FVector(9000, 0, 900),
-             FVector(12000, 1500, 1100), FVector(13500, 4500, 1000), FVector(12000, 7500, 800)};
+    Gates = TrainingGates();
     // Painted sky gates: the user's artwork floats in the sky as a non-colliding,
     // two-sided billboard. Each state carries its own painted graphics — red for the
     // active gate, green once passed, and quasi/ghost rings for everything still
