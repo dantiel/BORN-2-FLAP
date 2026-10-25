@@ -157,6 +157,10 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     int32 GetSelectedPoi() const { return SelectedPoi; }
     int32 GetPoiCount() const { return POIs.Num(); }
     const TArray<FBorn2FlapPoi>& GetPOIs() const { return POIs; }
+    // Mobile throttle lever (bottom-zero, latched). The HUD lever writes the
+    // latched value; Tick reads it as the throttle channel.
+    void SetLatchedThrottle(float Value) { LatchedThrottle = Value < 0.f ? 0.f : (Value > 1.f ? 1.f : Value); }
+    float GetLatchedThrottle() const { return LatchedThrottle; }
     // Teleport to a point of interest from the F8 overlay (resets flight state).
     void SelectPoi(int32 Index);
     // F8 "points of interest" overlay (lightweight in-flight teleport selector).
@@ -244,6 +248,7 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     bool bMobileInvertPitch = false;
     int32 MobileThrottleStick = 0;   // Mode-2 default: throttle + yaw on left
     int32 MobileRollStick = 1;       // Mode-2 default: pitch + roll on right
+    float LatchedThrottle = 0.f;     // bottom-zero throttle lever (holds on release)
     // Fixed FPV camera angle (degrees, pitch offset from the body). Adjustable
     // in flight (Q/E) and persisted; the FPV lens stays at this fixed tilt.
     float FpvCameraAngleDeg = 0.f;

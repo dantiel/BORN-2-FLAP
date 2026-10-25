@@ -34,6 +34,7 @@ private:
     void HandleComponentAction(const FString& Action, float Value, const FString& Text);
     void BuildCockpit();
     void BuildButtons();
+    void BuildThrottle();
     void SyncButtons(bool bUIHidden);
     void Refresh();
 
@@ -42,7 +43,13 @@ private:
     // they can sit above the virtual joysticks (z-order 10 > 0) and stay
     // tappable, while the readout column stays below the sticks (z-order -10).
     UPROPERTY() TObjectPtr<UBorn2FlapUIRenderer> ButtonRenderer;
+    // The bottom-zero latched throttle lever. Lives in its own overlay above the
+    // virtual joysticks (z-order 10 > 0) so the finger can grab the whole lever.
+    UPROPERTY() TObjectPtr<UBorn2FlapUIRenderer> ThrottleRenderer;
     ABorn2FlapFlightPawn* CachedBird = nullptr;
+    // Last throttle value the slider emitted — used to sync an external reset
+    // (ResetFlight zeroes the latch) back onto the lever.
+    float LastThrottleSlider = -1.f;
 
     // Last-emitted readouts, cached as the *displayed* strings: Refresh only
     // re-drives a stat when what the pilot actually reads changes — oscillating

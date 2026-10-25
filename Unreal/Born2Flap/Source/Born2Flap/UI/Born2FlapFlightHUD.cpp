@@ -104,6 +104,14 @@ void ABorn2FlapFlightHUD::BeginPlay()
     ButtonRenderer->OnComponentAction.AddDynamic(this, &ABorn2FlapFlightHUD::HandleComponentAction);
     ButtonRenderer->ViewportZOrder = 10;
     BuildButtons();
+
+    // The throttle lever (bottom-zero, latched) floats above the virtual
+    // joysticks at the throttle stick's corner. Its Y replaces the self-centring
+    // stick axis, which cannot rest at the bottom or hold on release.
+    ThrottleRenderer = NewObject<UBorn2FlapUIRenderer>(this);
+    ThrottleRenderer->OnComponentAction.AddDynamic(this, &ABorn2FlapFlightHUD::HandleComponentAction);
+    ThrottleRenderer->ViewportZOrder = 10;
+    BuildThrottle();
 }
 
 // The semantic tree. Paths are child indices from the Overlay root ([]):
@@ -209,6 +217,43 @@ void ABorn2FlapFlightHUD::BuildButtons()
     ButtonRenderer->ApplyOps(MoveTemp(Ops));
 }
 
+// The throttle lever: a tall vertical slider anchored to the throttle stick's
+// corner (Mode-2 default = bottom-left). USlider latches — the thumb stays
+// where the finger leaves it — and Orient_Vertical maps min (0) to the bottom,
+// so the lever rests at idle and climbs to full throttle at the top.
+void ABorn2FlapFlightHUD::BuildThrottle()
+{
+    if (!ThrottleRenderer)
+        return;
+
+    int32 ThrottleSide = 0;
+    if (CachedBird)
+        ThrottleSide = CachedBird->GetMobileThrottleStick();
+    const char* Align = (ThrottleSide == 1) ? "right" : "left";
+
+    const FVector4 Insets = UBorn2FlapUIRenderer::SafeAreaInsets();
+    const double LeftMargin  = ThrottleSide == 1 ? 0.0 : (double)Insets.X;
+    const double RightMargin = ThrottleSide == 1 ? (double)Insets.Z : 0.0;
+
+    FNode Root = Nd("Overlay", P({ {"align", S(Align)}, {"valign", S("bottom")},
+        {"margin", A({LeftMargin, 0.0, RightMargin, (double)Insets.W})}, {"visible", N(1)} }),
+    {
+        Nd("SizeBox", P({ {"width", N(72)}, {"height", N(320)} }),
+        {
+            Nd("Throttle", P({ {"action", S("flight.throttle")}, {"value", N(0)} }))
+        })
+    });
+
+    FOp Mount;
+    Mount.op = EOp::CreateInstance;
+    Mount.path = FPath();  // root
+    Mount.node = std::move(Root);
+
+    TArray<FOp> Ops;
+    Ops.Add(MoveTemp(Mount));
+    ThrottleRenderer->ApplyOps(MoveTemp(Ops));
+}
+
 // The HIDE (eye) toggle collapses the whole action bar to a single tiny
 // eye-off glyph, leaving nothing but the cinematic view. THROW / POI / CAM /
 // MENU collapse; only the eye stays so the player can bring the UI back.
@@ -226,6 +271,14 @@ void ABorn2FlapFlightHUD::SyncButtons(bool bUIHidden)
     // Flip the eye glyph: open eye = UI visible, crossed eye = cinematic view.
     Ops.Add(UpdateProps(Pth({4}), P({ {"icon", S(bUIHidden ? "glyph:eyeoff" : "glyph:eye")} })));
     ButtonRenderer->ApplyOps(MoveTemp(Ops));
+
+    // Fold the throttle lever away with the rest of the UI in cinematic mode.
+    if (ThrottleRenderer)
+    {
+        TArray<FOp> ThrottleOps;
+        ThrottleOps.Add(UpdateProps(FPath(), P({ {"visible", N(bUIHidden ? 0.0 : 1.0)} })));
+        ThrottleRenderer->ApplyOps(MoveTemp(ThrottleOps));
+    }
 }
 
 void ABorn2FlapFlightHUD::HandleComponentAction(const FString& Action, float Value, const FString& Text)
@@ -241,6 +294,19 @@ void ABorn2FlapFlightHUD::HandleComponentAction(const FString& Action, float Val
         }
         if (CachedBird)
             CachedBird->RequestHandLaunch();
+    }
+    else if (Action == TEXT("flight.throttle"))
+    {
+        if (!CachedBird)
+        {
+            if (APlayerController* PC = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr)
+                CachedBird = Cast<ABorn2FlapFlightPawn>(PC->GetPawn());
+        }
+        if (CachedBird)
+        {
+            LastThrottleSlider = Value;
+            CachedBird->SetLatchedThrottle(Value);
+        }
     }
     else if (Action == TEXT("ui.menu"))
     {
@@ -308,6 +374,16 @@ void ABorn2FlapFlightHUD::Refresh()
             CachedBird = Cast<ABorn2FlapFlightPawn>(PC->GetPawn());
         if (!CachedBird)
             return;
+    }
+
+    // Sync an external throttle reset (ResetFlight zeroes the latch) back onto
+    // the lever so it returns to the bottom instead of parking mid-throw.
+    if (ThrottleRenderer && CachedBird->GetLatchedThrottle() != LastThrottleSlider)
+    {
+        LastThrottleSlider = CachedBird->GetLatchedThrottle();
+        TArray<FOp> ThrottleOps;
+        ThrottleOps.Add(UpdateProps(FPath{0, 0}, P({ {"value", N(LastThrottleSlider)} })));
+        ThrottleRenderer->ApplyOps(MoveTemp(ThrottleOps));
     }
 
     // Blind flight is ear-only: collapse the whole cockpit (no banner — just

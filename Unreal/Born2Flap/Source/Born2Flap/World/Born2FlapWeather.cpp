@@ -7,6 +7,7 @@
 #include "Components/PostProcessComponent.h"
 #include "Components/DirectionalLightComponent.h"
 #include "Components/SkyLightComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "Components/ExponentialHeightFogComponent.h"
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
@@ -193,9 +194,56 @@ void ABorn2FlapWeather::Apply()
         }
     }
     bApplied=true;
+    EnsureMobileSky();
     UE_LOG(LogTemp,Display,TEXT("WeatherApplied level=%s weather=%s time=%s wind=%.2fm/s gust=%.2f particles=%d EV=%.2f"),
         *Level,*Conditions.Weather,*Conditions.Time,W.WindSpeed,W.Gust,Count,EV);
 }
+
+// SkyAtmosphere is SM5-only, so the mobile renderer draws a black background
+// where the desktop atmosphere would be. Spawn a sky-sphere dome on mobile that
+// follows the camera and re-centres each tick — an unlit gradient sky that
+// renders on the forward renderer without SkyAtmosphere.
+void ABorn2FlapWeather::EnsureMobileSky()
+{
+#if PLATFORM_IOS || PLATFORM_ANDROID
+    if (bMobileSkySpawned || !GetWorld())
+        return;
+    bMobileSkySpawned = true;
+
+    MobileSkyMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/EngineSky/SM_SkySphere.SM_SkySphere"));
+    MobileSkyMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/EngineSky/M_Sky_Panning_Clouds2_Inst.M_Sky_Panning_Clouds2_Inst"));
+    if (!MobileSkyMesh || !MobileSkyMaterial)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("MobileSky: assets missing (mesh=%d material=%d)"),
+               MobileSkyMesh != nullptr, MobileSkyMaterial != nullptr);
+        return;
+    }
+
+    FActorSpawnParameters Params;
+    Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+    MobileSkyDome = GetWorld()->SpawnActor<AActor>(FVector::ZeroVector, FRotator::ZeroRotator, Params);
+    if (!MobileSkyDome)
+        return;
+
+    UStaticMeshComponent* Comp = NewObject<UStaticMeshComponent>(MobileSkyDome, TEXT("MobileSkyDome"));
+    MobileSkyDome->SetRootComponent(Comp);
+    Comp->SetStaticMesh(MobileSkyMesh);
+    Comp->SetMaterial(0, MobileSkyMaterial);
+    Comp->SetMobility(EComponentMobility::Movable);
+    Comp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    Comp->SetCastShadow(false);
+    Comp->bCastDynamicShadow = false;
+
+    // Scale to a fixed 900 m radius so the dome sits at the far edge of every
+    // level, beyond all playable geometry, and re-centres on the camera in Tick.
+    const float NativeRadius = FMath::Max(1.f, MobileSkyMesh->GetBounds().SphereRadius);
+    const float SkyScale = 90000.f / NativeRadius;  // 900 m in Unreal units (cm)
+    Comp->SetRelativeScale3D(FVector(SkyScale));
+    Comp->RegisterComponent();
+    UE_LOG(LogTemp, Display, TEXT("MobileSky: dome spawned nativeRadius=%.0f scale=%.1f"), NativeRadius, SkyScale);
+#endif
+}
+
 void ABorn2FlapWeather::Respawn(int32 Index,const FVector& Camera)
 {
     Positions[Index]=Camera+FVector(Random.FRandRange(-1200,1200),Random.FRandRange(-1200,1200),Random.FRandRange(800,1800));
@@ -251,6 +299,10 @@ void ABorn2FlapWeather::Tick(float DeltaSeconds)
     if(auto* Camera=UGameplayStatics::GetPlayerCameraManager(this,0))
     {
         const FVector Center=Camera->GetCameraLocation();
+#if PLATFORM_IOS || PLATFORM_ANDROID
+        if (MobileSkyDome)
+            MobileSkyDome->SetActorLocation(Center);
+#endif
         if(bNiagara && PrecipitationFX && PrecipitationFX->GetAsset())
         {
             // Local-space system follows the camera; wind in cm/s to match the

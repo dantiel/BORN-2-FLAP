@@ -438,9 +438,15 @@ void ABorn2FlapMenu::Build()
                 {"tone", S(I == PoiSel ? "good" : "accent")} })));
         }
         PaneChildren.push_back(Nd("TextBlock", P({ {"text", S("TRAVEL TO")}, {"size", S("xs")}, {"tone", S("dim")} })));
-        PaneChildren.push_back(Nd("SizeBox", P({ {"height", N(150)} }),
+        // A bounded width keeps the RetainerBox/ScrollBox from collapsing to a
+        // zero-width render target inside the auto-sized content pane; without
+        // it the scroll content (the world's POI buttons) can measure to 0×0.
+        // Enough vertical room to show several POI buttons at once (the old
+        // 150px showed roughly one before the blur dissolve kicked in); the
+        // ScrollBlur still scrolls the rest into view.
+        PaneChildren.push_back(Nd("SizeBox", P({ {"width", N(700)}, {"height", N(320)} }),
         {
-            Nd("ScrollBlur", P({}),
+            Nd("ScrollBlur", P({ {"pad", N(20)}, {"edge", N(0.10)}, {"edge_bottom", N(0.08)} }),
             {
                 Nd("VerticalBox", P({}), std::move(PoiButtons))
             })

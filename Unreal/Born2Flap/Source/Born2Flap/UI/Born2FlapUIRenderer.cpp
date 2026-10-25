@@ -824,7 +824,7 @@ UWidget* UBorn2FlapUIRenderer::CreateInstance(const std::string& Type)
         T == TEXT("Slider") || T == TEXT("Toggle") || T == TEXT("Select") ||
         T == TEXT("Segment") || T == TEXT("Dropdown") || T == TEXT("NumberBox") || T == TEXT("Field") ||
         T == TEXT("Caption") || T == TEXT("Section") ||
-        T == TEXT("Divider") || T == TEXT("ScrollBlur") || T == TEXT("ScrollBox"))
+        T == TEXT("Divider") || T == TEXT("ScrollBlur") || T == TEXT("Throttle"))
     {
         return BuildComponent(T);
     }
@@ -838,6 +838,15 @@ UWidget* UBorn2FlapUIRenderer::CreateInstance(const std::string& Type)
     if (Type == "ProgressBar")   return NewObject<UProgressBar>(this);
     if (Type == "Image")         return NewObject<UImage>(this);
     if (Type == "Spacer")        return NewObject<USpacer>(this);
+    if (Type == "ScrollBox")
+    {
+        auto* Scroll = NewObject<UScrollBox>(this);
+        // Keep the scrollbar visible on touch devices: a bare UScrollBox with
+        // no scrollbar reads as a clipped list (only the first row visible)
+        // because nothing signals that more rows sit below the fold.
+        Scroll->SetScrollBarVisibility(ESlateVisibility::Visible);
+        return Scroll;
+    }
     if (Type == "ScaleBox") { auto* Scale=NewObject<UScaleBox>(this); Scale->SetStretch(EStretch::ScaleToFit); Scale->SetStretchDirection(EStretchDirection::DownOnly); return Scale; }
     if (Type == "SizeBox")       return NewObject<USizeBox>(this);
     if (Type == "WindArrow")     return NewObject<UBorn2FlapWindArrow>(this);
@@ -1245,10 +1254,57 @@ UBorn2FlapComposite* UBorn2FlapUIRenderer::BuildComponent(const FString& Type)
         Slider->SetWidgetStyle(SliderStyle);
         Slider->SetSliderBarColor(FLinearColor::White);
         Slider->SetSliderHandleColor(FLinearColor::White);
+#if PLATFORM_IOS || PLATFORM_ANDROID
+        // Touch target: the visual bar is only ~20px tall — far too small for a
+        // finger. Wrap the slider in a SizeBox that enforces Apple's 44px minimum
+        // hit height; the slider fills the slot, so the whole band is grabbable
+        // while the bar/thumb keep their design size. Desktop keeps the tight hit
+        // area for mouse precision.
+        {
+            USizeBox* TouchTarget = NewObject<USizeBox>(this);
+            TouchTarget->SetMinDesiredHeight(44.0f);
+            TouchTarget->SetContent(Slider);
+            Body->AddChildToVerticalBox(TouchTarget);
+        }
+#else
         Body->AddChildToVerticalBox(Slider);
+#endif
         C->Parts.Add(TEXT("label"), Label);
         C->Parts.Add(TEXT("value"), ValueText);
         C->Parts.Add(TEXT("hint"), HintText);
+        C->Parts.Add(TEXT("slider"), Slider);
+        BindSlider(Slider, C);
+        return C;
+    }
+    if (Type == TEXT("Throttle"))
+    {
+        // A bottom-zero, latched throttle lever: a bare VERTICAL slider with no
+        // label/readout header. Unlike a self-centring virtual joystick, a
+        // slider rests at its value (USlider keeps the thumb where the finger
+        // left it), and Orient_Vertical maps min (0) to the BOTTOM and max (1)
+        // to the top — exactly the throttle semantics the mobile flight model
+        // expects. Wrapped in a SizeBox so the whole tall band is touchable.
+        UBorn2FlapComposite* C = NewComposite(this, TEXT("Throttle"));
+        C->SetPadding(FMargin(0.f));
+        UVerticalBox* Body = NewObject<UVerticalBox>(this);
+        C->SetContent(Body);
+        USlider* Slider = NewObject<USlider>(this);
+        Slider->SetOrientation(Orient_Vertical);
+        FSliderStyle SliderStyle;
+        SliderStyle.NormalBarImage = ArtBrush(TEXT("SliderTrackDark"), FVector2D(10, 220), FMargin(.05f));
+        SliderStyle.HoveredBarImage = SliderStyle.DisabledBarImage = SliderStyle.NormalBarImage;
+        SliderStyle.NormalThumbImage = ArtBrush(TEXT("SliderThumb"), FVector2D(34, 34));
+        SliderStyle.HoveredThumbImage = ArtBrush(TEXT("SliderThumbGold"), FVector2D(34, 34));
+        SliderStyle.DisabledThumbImage = SliderStyle.NormalThumbImage;
+        SliderStyle.BarThickness = 10;
+        Slider->SetWidgetStyle(SliderStyle);
+        Slider->SetSliderBarColor(FLinearColor::White);
+        Slider->SetSliderHandleColor(FLinearColor::White);
+        Slider->SetMinValue(0.f);
+        Slider->SetMaxValue(1.f);
+        Slider->SetStepSize(0.01f);
+        Slider->SetValue(0.f);
+        Body->AddChildToVerticalBox(Slider);
         C->Parts.Add(TEXT("slider"), Slider);
         BindSlider(Slider, C);
         return C;
@@ -1491,6 +1547,7 @@ void UBorn2FlapUIRenderer::ApplyCompositeProps(UBorn2FlapComposite* C, const FPr
     const FString Tone = ToneOf(Props);
     const FLinearColor ToneColor = theme::Tone(Tone, theme::FG());
     const bool bInteractive = (Type == TEXT("Button") || Type == TEXT("Slider") ||
+                               Type == TEXT("Throttle") ||
                                Type == TEXT("Toggle") || Type == TEXT("Select") ||
                                Type == TEXT("Segment") || Type == TEXT("Dropdown") ||
                                Type == TEXT("NumberBox") ||
@@ -1553,16 +1610,15 @@ void UBorn2FlapUIRenderer::ApplyCompositeProps(UBorn2FlapComposite* C, const FPr
     }
     else if (Type == TEXT("ScrollBlur"))
     {
-        // Progressive content blur via the retainer effect material, now
-        // *opt-in*: the Ruby Brain sets the semantic `scroll_blur: true` prop
-        // (via UMGSS or inline) to enable it. Without it the composite is a
-        // plain scroll box (a RetainerBox with no effect material is a
-        // passthrough). `edge` is the TOP dissolve half-band (0..0.5); "auto"
-        // (or absent) derives it from the title-safe inset. `edge_bottom`
-        // (alias `edgeBottom`) is the BOTTOM half-band. `blur` / `amount` /
-        // `refract` / `refractScale` / `void` tune the material.
+        // Progressive content blur via the retainer effect material. Blur is ON
+        // by default (`scroll_blur: false` explicitly disables it): the composite
+        // is always built as SemanticType "ScrollBlur", whether the source node
+        // was `ScrollBlur` or `ScrollBox`. `edge` is the TOP dissolve half-band
+        // (0..0.5); "auto" (or absent) derives it from the title-safe inset.
+        // `edge_bottom` (alias `edgeBottom`) is the BOTTOM half-band. `blur` /
+        // `amount` / `refract` / `refractScale` / `void` tune the material.
         URetainerBox* Retainer = Cast<URetainerBox>(C->Part(TEXT("retainer")));
-        const bool bBlur = Props.count("scroll_blur") && Props.at("scroll_blur").AsBool(false);
+        const bool bBlur = !(Props.count("scroll_blur") && !Props.at("scroll_blur").AsBool(true));
         if (Retainer)
         {
             UMaterialInstanceDynamic* MID = bBlur ? GetOrCreateDynamicMaterial(Retainer) : nullptr;
@@ -1788,7 +1844,7 @@ void UBorn2FlapUIRenderer::ApplyCompositeProps(UBorn2FlapComposite* C, const FPr
         if (Label) Label->SetColorAndOpacity(FSlateColor(Ink));
         StyleText(Label, Props);
     }
-    else if (Type == TEXT("Slider"))
+    else if (Type == TEXT("Slider") || Type == TEXT("Throttle"))
     {
         USlider* Slider = Cast<USlider>(C->Part(TEXT("slider")));
         UTextBlock* Label = Cast<UTextBlock>(C->Part(TEXT("label")));
