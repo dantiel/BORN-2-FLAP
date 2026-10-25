@@ -1,0 +1,95 @@
+[
+  {
+    "name": "TempleHalls",
+    "title": "Two buddhist temples in Asia",
+    "author": "3Dystopia",
+    "source": "https://sketchfab.com/3d-models/two-buddhist-temples-in-asia-22dd0c0fdf314619a671b82bbac0743a",
+    "license": "http://creativecommons.org/licenses/by/4.0/",
+    "download": "https://huggingface.co/datasets/allenai/objaverse/resolve/main/glbs/000-042/22dd0c0fdf314619a671b82bbac0743a.glb",
+    "sha256": "92adb785fb0a34a1a122871abfb424e15d31a5b041dcb6e52e9f72d228a489b0",
+    "modifications": "Transforms baked; origin centred at base. Hall road context removed; pagoda ground plane removed. Original UVs and materials retained. Scaled and placed in fictional landscape."
+  },
+  {
+    "name": "Pagoda",
+    "title": "Chinese Buddhist Pagoda",
+    "author": "Aaron Huo",
+    "source": "https://sketchfab.com/3d-models/chinese-buddhist-pagoda-c95a8214aa6147629d1442c02261d351",
+    "license": "http://creativecommons.org/licenses/by/4.0/",
+    "download": "https://huggingface.co/datasets/allenai/objaverse/resolve/main/glbs/000-031/c95a8214aa6147629d1442c02261d351.glb",
+    "sha256": "03576c97e0f38103000c0c5b816e9939e2830952ed46c2c67ff6b66a174de59d",
+    "modifications": "Transforms baked; origin centred at base. Hall road context removed; pagoda ground plane removed. Original UVs and materials retained. Scaled and placed in fictional landscape."
+  },
+  {
+    "name": "Gate",
+    "title": "CHINESE TEMPLE",
+    "author": "mervemacit",
+    "source": "https://sketchfab.com/3d-models/chinese-temple-0ffd9067916642779ae1c270d083d77f",
+    "license": "http://creativecommons.org/licenses/by/4.0/",
+    "download": "https://huggingface.co/datasets/allenai/objaverse/resolve/main/glbs/000-128/0ffd9067916642779ae1c270d083d77f.glb",
+    "sha256": "3927db74c729a74501cf04906d33e369dc65ac9e8cf7dda8ccd182d834aef79c",
+    "modifications": "Transforms baked; origin centred at base. Hall road context removed; pagoda ground plane removed. Original UVs and materials retained. Scaled and placed in fictional landscape."
+  },
+  {
+    "name": "rock_face_01",
+    "source": "https://polyhaven.com/a/rock_face_01",
+    "license": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "files": {
+      "include": {
+        "textures/rock_face_01_arm_2k.jpg": {
+          "size": 2592972,
+          "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/2k/rock_face_01/rock_face_01_arm_2k.jpg",
+          "md5": "d0d379e42040bebf05dff3490143c67c"
+        },
+        "rock_face_01.bin": {
+          "size": 476436,
+          "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/8k/rock_face_01/rock_face_01.bin",
+          "md5": "06caed23e725af568b64f8cbee210c1c"
+        },
+        "textures/rock_face_01_nor_gl_2k.jpg": {
+          "size": 3970196,
+          "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/2k/rock_face_01/rock_face_01_nor_gl_2k.jpg",
+          "md5": "94fcd3c45f5dbc5b62d9782f7f6f09ff"
+        },
+        "textures/rock_face_01_diff_2k.jpg": {
+          "size": 3167302,
+          "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/2k/rock_face_01/rock_face_01_diff_2k.jpg",
+          "md5": "40424b085d788e1a6c0abf274e3501d3"
+        }
+      },
+      "size": 2793,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/2k/rock_face_01/rock_face_01_2k.gltf",
+      "md5": "fdf18bc1f9c06a8d6448b3e50934d15f"
+    },
+    "modifications": "Imported at 2k; instanced at varied sizes and orientations."
+  },
+  {
+    "name": "GoldenHall",
+    "title": "Model of the Golden Temple, Wan fa Gui yi Hall",
+    "author": "Världskulturmuseerna",
+    "source": "https://sketchfab.com/3d-models/model-of-the-golden-temple-wan-fa-gui-yi-hall-97673d5721d743328022c282b77b33ae",
+    "license": "http://creativecommons.org/publicdomain/zero/1.0/",
+    "download": "https://huggingface.co/datasets/allenai/objaverse/resolve/main/glbs/000-052/97673d5721d743328022c282b77b33ae.glb",
+    "sha256": "be390357d889ed22cd5b0c590360c1c9b07b2efb36d3109b4baceef202e43012",
+    "modifications": "Transforms baked and origin centred at base. Golden Hall axial doorways opened in geometry with interpolated UVs; Paifang display plane removed and stone material applied in map. Scaled and placed in fictional Moon Jade Palace and gardens."
+  },
+  {
+    "name": "Paifang",
+    "title": "Chinese Archway 01",
+    "author": "Leo.Leung",
+    "source": "https://sketchfab.com/3d-models/chinese-archway-01-bdb0ec824f9b4568a8200b8ddf4ec83e",
+    "license": "http://creativecommons.org/licenses/by/4.0/",
+    "download": "https://huggingface.co/datasets/allenai/objaverse/resolve/main/glbs/000-017/bdb0ec824f9b4568a8200b8ddf4ec83e.glb",
+    "sha256": "86bf9a2b1ddc1cd54073beb32ec1f1b8656dc894c970da4cfa3fb4d22cf1a87b",
+    "modifications": "Transforms baked and origin centred at base. Golden Hall axial doorways opened in geometry with interpolated UVs; Paifang display plane removed and stone material applied in map. Scaled and placed in fictional Moon Jade Palace and gardens."
+  },
+  {
+    "name": "Bonsai",
+    "title": "Bonsai Tree",
+    "author": "zacharyfrs",
+    "source": "https://sketchfab.com/3d-models/bonsai-tree-94eb3b961bf34c3699c1e23172d001b3",
+    "license": "http://creativecommons.org/licenses/by/4.0/",
+    "download": "https://huggingface.co/datasets/allenai/objaverse/resolve/main/glbs/000-083/94eb3b961bf34c3699c1e23172d001b3.glb",
+    "sha256": "803b85b9ed0628849d4675cd7e1ce1942c77ed856a876e749ae2894ed4477399",
+    "modifications": "Transforms baked and origin centred at base. Golden Hall axial doorways opened in geometry with interpolated UVs; Paifang display plane removed and stone material applied in map. Scaled and placed in fictional Moon Jade Palace and gardens."
+  }
+]

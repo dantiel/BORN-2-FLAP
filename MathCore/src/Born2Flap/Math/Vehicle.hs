@@ -56,12 +56,30 @@ import Born2Flap.Math.Waveform
 -- No separate propulsion gain: stroke motion enters through relative velocity.
 airDensity, circulationLiftEfficiency :: Double
 airDensity = 1.05
-circulationLiftEfficiency = 1.0
+circulationLiftEfficiency = 0.85
 
 -- Shared membrane/plate coefficients for wings and ruddervators. Effective
 -- low-Re calibration, not measured material data. Pressure is always passive.
 surfaceSkinCd :: Double
-surfaceSkinCd = 0.03
+surfaceSkinCd = 0.009
+
+-- | Broadside normal-pressure coefficient of a stalled or reversed flat
+-- plate. Raised above the attached sail coefficient (a bluff, fully-separated
+-- plate presents more normal resistance than an edge-on membrane), and a
+-- separated section's normal force follows sin(alpha) (linear) rather than
+-- sin²(alpha), so separation adds pressure resistance at moderate angles
+-- instead of only near full broadside. Always passive (F·V ≤ 0).
+platePressureCp :: Double
+platePressureCp = 3.0
+
+-- | Broadside normal-pressure coefficient of an ATTACHED (thin, edge-on)
+-- section. The attached term follows sin(alpha) (linear in the normal velocity)
+-- rather than sin²(alpha), so a wing at a moderate angle of attack still
+-- presents baseline broadside resistance instead of falling through the air
+-- whenever the stall onset is still below threshold. Separation still ramps
+-- the coefficient up to 'platePressureCp'; both terms are always passive.
+attachedPressureCp :: Double
+attachedPressureCp = 0.8
 
 surfacePressure :: Double -> Double -> Double
 surfacePressure area normalSpeed = -0.5 * airDensity * area * 1.8
@@ -429,7 +447,7 @@ stepStrip implicitLoads _phaseRate _flapping side stroke input incidenceRad wp i
       -- must not make a newly rotating wing transparent to air.
       cd = surfaceSkinCd + inducedCd
       -- Effective edge/membrane crossflow coefficient; shared by glide and flap.
-      sideCd = 0.10 + 0.12 * forceSeparation
+      sideCd = 0.04 + 0.12 * forceSeparation
       area = chord * dr
       q = 0.5 * airDensity * planarSpeed * planarSpeed
       lift = q * area * cl * (1 + groundEffectLiftGain * ge)
@@ -442,10 +460,28 @@ stepStrip implicitLoads _phaseRate _flapping side stroke input incidenceRad wp i
       normalForce = scaleVec (-drag * flowZ + lift * flowX) normal
       spanDrag = scaleVec (-0.5 * airDensity * area * sideCd * abs spanVelocity * spanVelocity) spanAxis
       -- Signed normal-pressure reaction, shared by roll, flap and glide.
-      -- Replace (do not add to) the old separated lift/drag pressure polar.
-      -- F dot V = -0.5*rho*A*Cp*abs(Vn)^3 <= 0. Its direction follows
-      -- incidence and elastic twist; it can propel only through wing motion.
-      pressureForce = scaleVec (surfacePressure area normalVelocity) normal
+      -- Attached flow: a thin membrane edge-on presents almost no broadside
+      -- (sail term, Cp·sin²α). Separated/reversed flow: circulation lift
+      -- collapses but the section becomes a flat plate whose normal force
+      -- follows sin α (linear), so a stalled wing still presents real pressure
+      -- resistance at moderate angles instead of falling through the air, and
+      -- that pressure acts at the spanwise lever arm (roll axis). Both terms
+      -- oppose the surface normal motion: F·V ≤ 0 always.
+      attachedPressure = -0.5 * airDensity * area * attachedPressureCp
+                            * normalVelocity * safeSpeed
+      separatedPressure = -0.5 * airDensity * area * platePressureCp
+                            * normalVelocity * safeSpeed
+      -- Surface pressure is a passive, instantaneous reaction (the wing
+      -- displaces air) — it must switch to the full flat-plate law the moment
+      -- the flow separates, not one step (or one separation time-constant)
+      -- later. Blend on the current stall onset (target), not the lagged,
+      -- hysteretic separation state (forceSeparation), so a briefly-stalled
+      -- or reversed wing presents full broadside resistance instead of
+      -- collapsing back to the near-zero sin^2 sail term and appearing
+      -- transparent to the air.
+      normalPressure = (1 - target) * attachedPressure
+                         + target * separatedPressure
+      pressureForce = scaleVec normalPressure normal
       force = addVec pressureForce (addVec chordForce (addVec normalForce spanDrag))
       -- Explicit differencing of BODY acceleration as an added-mass force
       -- creates a delayed feedback loop at contacts. Omit this term until an

@@ -124,10 +124,12 @@ const FWorldDef Worlds[] = {
       TEXT("A broad pale beach arcing around a sheltered bay of dark, glassy water. Salt-cured rock, wind-bent grass and a low tide-walk of basalt stretch inland toward hazy, sunlit hills. Quiet enough that you notice what the sky is doing.") },
     { TEXT("Training"), TEXT("TRAINING"),
       TEXT("A flat grass course marked with floating sky-gates. The field where every pilot learns to fold the wing, hold the line and thread the gates against the clock.") },
+    { TEXT("Yunsha"), TEXT("Yúnshā"),
+      TEXT("The Cloud-Sand Gorge. A crescent jade spring beneath a mile of singing grottoes. Ride the rising air to cloud-forest pillars and the flight-only sun-temples. Read the shimmer, earn the ridge, and come back to the Wind-Harp at dusk.") },
     { TEXT("NeonAbyss"), TEXT("NEON ABYSS"),
       TEXT("A primordial, eternal sanctuary floating outside time — soft nebulae, ringed planets and a circle of ancient bronzes whose gold seams brighten as you draw near. There is no ground and no horizon: a baby turtle swims the aether, netting neon jellyfish before the festival timer ends.") },
 };
-constexpr int32 WorldCount = 4;
+constexpr int32 WorldCount = 5;
 
 // Available locales for the language switch. Names are the languages' native
 // endonyms (always shown in their own language regardless of the active locale);
@@ -262,6 +264,7 @@ float ABorn2FlapMenu::TuningValue(ETuningField Field) const
 void ABorn2FlapMenu::SetTuningValue(ETuningField Field, float Value)
 {
     born2flap::MenuSettingsSetTuning(Settings, Field, Value);
+    born2flap::MenuSettingsSave(Settings);
 }
 
 int32 ABorn2FlapMenu::CurBirdModel() const
@@ -288,7 +291,7 @@ void ABorn2FlapMenu::BeginPlay()
     // Apply the persisted language before the first Build() so every localized
     // string (nav rail, pane titles, HUD/status via the shared locale) is right.
     Born2Flap::I18n::SetLocale(Settings.Language);
-    for(const FString Level:{FString(TEXT("Ravenstonefield")),FString(TEXT("Shiomori")),FString(TEXT("Training")),FString(TEXT("NeonAbyss"))})
+    for(const FString Level:{FString(TEXT("Ravenstonefield")),FString(TEXT("Shiomori")),FString(TEXT("Training")),FString(TEXT("NeonAbyss")),FString(TEXT("Yunsha"))})
         LevelConditions.Add(Level,Born2FlapWeather::Load(Level));
     Build();
     if(FParse::Param(FCommandLine::Get(),TEXT("B2FWeatherMenuTest")))
@@ -380,7 +383,7 @@ void ABorn2FlapMenu::Build()
         // one selection at a time, equal-width cells on a shared track.
         PaneChildren.push_back(Nd("Segment",P({{"options",Pages},{"value",N(SelectedPage)},{"action",S("menu.page")},{"tooltip",S("Choose a location, set flight conditions, then select your starting point.")}})));
         const int32 LocationStart=PaneChildren.size();
-        const FString Preview = Level == TEXT("Shiomori") ? TEXT("Coast") : Level == TEXT("Ravenstonefield") ? TEXT("Valley") : Level == TEXT("NeonAbyss") ? TEXT("Abyss") : TEXT("Islands");
+        const FString Preview = Level == TEXT("Yunsha") ? TEXT("Desert") : Level == TEXT("Shiomori") ? TEXT("Coast") : Level == TEXT("Ravenstonefield") ? TEXT("Valley") : Level == TEXT("NeonAbyss") ? TEXT("Abyss") : TEXT("Islands");
         PaneChildren.push_back(Nd("HorizontalBox", P({{"spacing",N(18)}}), {
             Nd("SizeBox",P({{"width",N(234)},{"height",N(128)}}),{
                 Nd("Image",P({{"texture",S(TEXT("/Game/UI/Elements/")+Preview+TEXT(".")+Preview)}}))}),
@@ -630,7 +633,7 @@ void ABorn2FlapMenu::BuildFlightDesk(std::vector<FNode>& Out)
     Push(Nd("TextBlock", P({ {"text", S("CHOOSE YOUR SILHOUETTE")}, {"tone", S("accent")}, {"size", S("l")} })), 0);
     {
         FValue Silhouettes; Silhouettes.kind = FValue::Kind::Array;
-        for (const TCHAR* Name : { TEXT("RAVENCROW"), TEXT("PROTOTYPE"), TEXT("COMMON KESTREL"), TEXT("NEON TURTLE"), TEXT("KESTREL LIGHT") }) Silhouettes.arr.push_back(S(FString(Name)));
+        for (const TCHAR* Name : { TEXT("RAVENCROW"), TEXT("PROTOTYPE"), TEXT("COMMON KESTREL"), TEXT("NEON TURTLE"), TEXT("KESTREL LIGHT"), TEXT("PTEROSAUR") }) Silhouettes.arr.push_back(S(FString(Name)));
         Push(Nd("Segment", P({
             {"options", std::move(Silhouettes)},
             {"value", N(CurModel)},
@@ -997,7 +1000,30 @@ void ABorn2FlapMenu::BuildPreferences(std::vector<FNode>& Out)
                 Props["value"] = N(Born2FlapGraphics::LoadQuality());
                 Rows.push_back(Nd("Dropdown", std::move(Props)));
             }
-
+            {
+                // MOTION BLUR — camera strength across flight, chase and FPV.
+                FProps Props;
+                Props["action"] = S("graphics.motionblur");
+                Props["label"] = S("MOTION BLUR");
+                Props["tooltip"] = S("Camera motion blur strength. 0 = off (sharpest, lowest cost); 1 = strong. Applies to flight, chase and FPV cameras.");
+                Props["value"] = N(Born2FlapGraphics::LoadMotionBlur());
+                Props["min"] = N(0);
+                Props["max"] = N(1);
+                Props["step"] = N(0.05);
+                Props["unit"] = S(FString(TEXT("×")));
+                Rows.push_back(Nd("Slider", std::move(Props)));
+            }
+            {
+                // FPS COUNTER — HUD overlay, on by default; F12 also toggles it live.
+                FProps Props;
+                Props["action"] = S("graphics.fps");
+                Props["label"] = S("FPS COUNTER");
+                Props["tooltip"] = S("Frame-rate readout in the top-right of the flight HUD. F12 toggles it in-game.");
+                Props["on"] = S("ON  /  click to hide");
+                Props["off"] = S("OFF  /  click to show");
+                Props["value"] = B(Born2FlapGraphics::LoadShowFps());
+                Rows.push_back(Nd("Toggle", std::move(Props)));
+            }
             // AUDIO
             Rows.push_back(Nd("TextBlock", P({ {"text", S("AUDIO")}, {"tone", S("accent")}, {"size", S("l")} })));
             Rows.push_back(Nd("TextBlock", P({ {"text", S(FString(TEXT("Raises only the wing-flap voice — wind, surf and music stay untouched.")))}, {"tone", S("dim")}, {"size", S("xs")}, {"wrap", B(true)} })));
@@ -1335,6 +1361,24 @@ void ABorn2FlapMenu::OnAction(const FString& Action, float Value, const FString&
         Born2FlapGraphics::Apply(Born2FlapGraphics::ForQuality(static_cast<Born2FlapGraphics::EQuality>(Q)));
         return;
     }
+    // MOTION BLUR — persisted + applied live to the global pass and, when a
+    // bird is present (in-level), to its three cameras without a re-spawn.
+    if (Action == TEXT("graphics.motionblur"))
+    {
+        const float Amount = FMath::Clamp(Value, 0.f, 1.f);
+        Born2FlapGraphics::SaveMotionBlur(Amount);
+        Born2FlapGraphics::ApplyMotionBlur(Amount);
+        if (ABorn2FlapFlightPawn* P = Bird.Get())
+            P->SetMotionBlurAmount(Amount);
+        return;
+    }
+    if (Action == TEXT("graphics.fps"))
+    {
+        // Toggle nodes fire with no meaningful Value; flip the persisted state.
+        const bool bOn = !Born2FlapGraphics::LoadShowFps();
+        Born2FlapGraphics::SaveShowFps(bOn);
+        return;
+    }
     // OPEN WORLDS sub-page: LOCATION / WEATHER & TIME / ROUTE (segmented).
     if (Action == TEXT("menu.page"))         { SelectedPage = FMath::Clamp(FMath::RoundToInt(Value), 0, 2); Build(); return; }
 
@@ -1450,6 +1494,7 @@ void ABorn2FlapMenu::OnAction(const FString& Action, float Value, const FString&
         { TEXT("menu.harvestwatch"), TEXT("/Game/Shiomori/Maps/SHIOMORI"), TEXT("Shiomori") },
         { TEXT("menu.shiomori"),        TEXT("/Game/Shiomori/Maps/SHIOMORI"),               TEXT("Shiomori") },
         { TEXT("menu.training"),        TEXT("/Engine/Maps/Entry"),                         TEXT("Training") },
+        { TEXT("menu.yunsha"), TEXT("/Game/Yunsha/Maps/YUNSHA"), TEXT("Yunsha") },
         { TEXT("menu.neonabyss"),       TEXT("/Game/NeonAbyss/Maps/NEONABYSS"),             TEXT("NeonAbyss") },
     };
     for (const FEntry& E : Entries)
@@ -1488,7 +1533,7 @@ void ABorn2FlapMenu::OnAction(const FString& Action, float Value, const FString&
     }
     if (Action == TEXT("bird.model"))
     {
-        Settings.BirdModel = FMath::Clamp(FMath::RoundToInt(Value), 0, 4);
+        Settings.BirdModel = FMath::Clamp(FMath::RoundToInt(Value), 0, 5);
         Settings.CgOffsetMm = FMath::Clamp(Settings.CgOffsetMm, -CgRangeMm(), CgRangeMm());
         if (Bird.IsValid()) Bird->SelectBirdModel(Settings.BirdModel);
         Build();   // CG slider min/max scale with the new craft's length

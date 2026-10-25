@@ -49,4 +49,18 @@ namespace Born2FlapGraphics
     // Load the saved tier and apply it (startup hook).
     BORN2FLAP_API void ApplySavedOrDefault();
     BORN2FLAP_API const TCHAR* QualityName(EQuality Q);
+
+    // Motion blur: a user preference independent of the hardware tier. Stored
+    // in [Graphics] MotionBlur as a 0..1 amount; the flight pawn scales its
+    // per-camera strength by it (0 = fully disabled).
+    BORN2FLAP_API float LoadMotionBlur();
+    BORN2FLAP_API void  SaveMotionBlur(float Amount);
+    // Reflect the setting in the global motion-blur pass immediately (on/off at
+    // the console level) so the menu applies it without a re-spawn.
+    BORN2FLAP_API void  ApplyMotionBlur(float Amount);
+
+    // FPS counter: a HUD overlay toggle, persisted in [Graphics] ShowFps.
+    // Defaults to ON so the frame-rate readout is visible out of the box.
+    BORN2FLAP_API bool LoadShowFps();
+    BORN2FLAP_API void SaveShowFps(bool bOn);
 }

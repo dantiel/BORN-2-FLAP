@@ -151,6 +151,9 @@ void ABorn2FlapFlightSettings::BuildTree()
         TEXT("RAVENCROW  /  folded obsidian & comb pinions"),
         TEXT("PROTOTYPE  /  elliptical feathers"),
         TEXT("COMMON KESTREL  /  falcon"),
+        TEXT("NEON TURTLE  /  aether swimmer"),
+        TEXT("KESTREL LIGHT  /  light membrane"),
+        TEXT("PTEROSAUR  /  desert membrane"),
     };
     static const TCHAR* MouseNames[] =
     {
@@ -171,7 +174,7 @@ void ABorn2FlapFlightSettings::BuildTree()
 
     const int32 CraftStart=Rows.size();
     // Bird model — three full-width buttons with a ●/○ selection marker.
-    for (int32 M = 0; M < 3; ++M)
+    for (int32 M = 0; M < 6; ++M)
     {
         FString Label;
         Label += ModelNames[M];
@@ -430,9 +433,12 @@ void ABorn2FlapFlightSettings::RefreshModelButtons()
         TEXT("RAVENCROW  /  folded obsidian & comb pinions"),
         TEXT("PROTOTYPE  /  elliptical feathers"),
         TEXT("COMMON KESTREL  /  falcon"),
+        TEXT("NEON TURTLE  /  aether swimmer"),
+        TEXT("KESTREL LIGHT  /  light membrane"),
+        TEXT("PTEROSAUR  /  desert membrane"),
     };
     const int32 Cur = Bird->GetBirdModel();
-    for (int32 M = 0; M < 3 && M < ModelButtons.Num(); ++M)
+    for (int32 M = 0; M < 6 && M < ModelButtons.Num(); ++M)
     {
         FString Label;
         Label += ModelNames[M];

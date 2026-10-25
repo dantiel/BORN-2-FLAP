@@ -1,7 +1,8 @@
-﻿#include "World/Born2FlapWeather.h"
+#include "World/Born2FlapWeather.h"
 #include "World/Born2FlapWind.h"
 #include "World/Born2FlapBayTerrain.h"
 #include "World/Born2FlapValley.h"
+#include "World/Born2FlapYunsha.h"
 #include "Misc/ConfigCacheIni.h"
 
 namespace Born2FlapWeather
@@ -44,11 +45,15 @@ const TArray<FBorn2FlapSeason>& Seasons()
         { TEXT("summer"), TEXT("Summer"),   8.f, 12.f, 1.20f, FLinearColor(1.00f,.91f,.76f), 1.20f,  .000f,  .30f, 1.65f, 1.00f,  .40f, FLinearColor(.18f,.62f,.22f), TEXT("sunny"),  0.00f, TEXT("summer") },
         { TEXT("autumn"), TEXT("Autumn"),  15.f, -8.f,  .85f, FLinearColor(1.00f,.76f,.52f),  .95f,  .006f, -.10f,  .80f, 1.85f, 1.60f, FLinearColor(.78f,.45f,.15f), TEXT("mist"),   0.00f, TEXT("autumn") },
         { TEXT("winter"), TEXT("Winter"), -20.f,-16.f,  .60f, FLinearColor(.72f,.83f,1.00f),  .80f,  .004f, -.25f,  .22f,  .18f,  .10f, FLinearColor(.62f,.60f,.58f), TEXT("snow"),   1.00f, TEXT("winter") },
+        { TEXT("dry"), TEXT("Dry"), 0.f, 6.f, 1.15f, FLinearColor(1.f,.91f,.76f), .9f, .001f, .1f, 0.f, 0.f, 0.f, FLinearColor(.7f,.6f,.3f), TEXT("sunny"), 0.f, TEXT("dry") },
+        { TEXT("monsoon"), TEXT("Monsoon"), 0.f, -3.f, .6f, FLinearColor(.72f,.79f,1.f), .8f, .009f, -.2f, .1f, .1f, 0.f, FLinearColor(.4f,.6f,.2f), TEXT("rain"), 0.f, TEXT("monsoon") },
+        { TEXT("cool"), TEXT("Cool"), -12.f, -12.f, .75f, FLinearColor(.83f,.9f,1.f), 1.f, -.001f, 0.f, 0.f, 0.f, 0.f, FLinearColor(.5f,.6f,.3f), TEXT("sunny"), 0.f, TEXT("cool") },
     };
     return Values;
 }
 TArray<FString> WeatherOptions(const FString& Level)
 {
+    if(Level==TEXT("Yunsha")) return {TEXT("sunny"),TEXT("cloudy"),TEXT("rain"),TEXT("mist")};
     if(Level==TEXT("Training")) return {TEXT("sunny"),TEXT("cloudy"),TEXT("rain")};
         if(Level==TEXT("Shiomori")) return {TEXT("sunny"),TEXT("cloudy"),TEXT("rain"),TEXT("mist"),TEXT("snow"),TEXT("parhelion")};
     // Parhelion is a Shiomori-Bay-only phenomenon (the ice-halo weather). The
@@ -66,11 +71,13 @@ TArray<FString> TimeOptions(const FString& Level,const FString& Weather)
 // offer the full four-season cycle.
 TArray<FString> SeasonOptions(const FString& Level)
 {
+    if(Level==TEXT("Yunsha")) return {TEXT("dry"),TEXT("monsoon"),TEXT("cool")};
     if(Level==TEXT("Training")) return {TEXT("spring")};
     return {TEXT("spring"),TEXT("summer"),TEXT("autumn"),TEXT("winter")};
 }
 FString DefaultSeason(const FString& Level)
 {
+    if(Level==TEXT("Yunsha")) return TEXT("dry");
     if(Level==TEXT("Shiomori")) return TEXT("summer");
     if(Level==TEXT("Training")) return TEXT("spring");
     return TEXT("autumn"); // Ravenstonefield â€” its register is "quiet autumn nature"
@@ -192,6 +199,10 @@ FVector Wind(const FString& Level,const FBorn2FlapConditions& C,const FVector& P
         // Wind piles against the sea wall, headlands and hinterland slopes: the
         // upwash is derived from actual obstacle height (direction-aware).
         Result.Z=Born2FlapWind::WindwardLift(P,Result,&Born2FlapBay::TopHeight);
+    }
+    else if(Level==TEXT("Yunsha"))
+    {
+        Result=ABorn2FlapYunsha::SoaringWind(P,Time,C,Result);
     }
     else if(Level!=TEXT("Training"))
     {

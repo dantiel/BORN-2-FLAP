@@ -41,10 +41,41 @@ data ServoSpec = ServoSpec
 
 defaultServoSpec :: ServoSpec
 defaultServoSpec = ServoSpec
-  { servoNoLoadSpeedDegPerSec = 1500  -- strong HV servo (40 ms/60°)
-  , servoStallTorqueNm = 1.332       -- strong metal-gear stall torque
+  { servoNoLoadSpeedDegPerSec = 857   -- PTK 7465 Plus @ 7.4 V (0.070 s/60°)
+  , servoStallTorqueNm = 0.735        -- PTK 7465 Plus @ 7.4 V (7.5 kg·cm)
   , servoBackdriveDegPerSecNm = 20
   }
+
+-- | PTK 7465 Plus voltage response, normalised to the 2S nominal point (7.4 V).
+-- A DC servo's no-load speed and stall torque both rise with pack voltage, but
+-- on *different* curves: torque falls off faster at low voltage than speed
+-- (the motor's torque constant is more voltage-sensitive than its back-EMF
+-- speed limit). 'ServoSpec' therefore carries the 7.4 V datasheet numbers, and
+-- these factors map any terminal voltage onto them.
+--
+--   speed  (deg/s): 5 V→566, 6 V→682, 7.4 V→857, 8.4 V→984
+--   torque (N·m):  5 V→0.392, 6 V→0.510, 7.4 V→0.735, 8.4 V→0.912
+ptkServoSpeedFactor, ptkServoTorqueFactor :: Double -> Double
+ptkServoSpeedFactor v
+  | v <= 4.0 = 0
+  | otherwise = piecewiseLinear [(5.0,566),(6.0,682),(7.4,857),(8.4,984)] v / 857
+ptkServoTorqueFactor v
+  | v <= 4.0 = 0
+  | otherwise = piecewiseLinear [(5.0,0.392),(6.0,0.510),(7.4,0.735),(8.4,0.912)] v / 0.735
+
+-- | Piecewise-linear interpolation with flat extrapolation past the endpoints.
+piecewiseLinear :: [(Double, Double)] -> Double -> Double
+piecewiseLinear points v
+  | null points = 0
+  | v <= fst (head points) = snd (head points)
+  | v >= fst (last points) = snd (last points)
+  | otherwise = go points
+  where
+    go [_] = snd (last points)
+    go ((x1,y1):rest@((x2,y2):_))
+      | v <= x2 = y1 + (y2 - y1) * (v - x1) / (x2 - x1)
+      | otherwise = go rest
+    go [] = 0
 
 -- ── Battery specification ──────────────────────────────────────────
 
@@ -112,13 +143,14 @@ reflectedDriveInertia = 0.0016
 -- joint acceleration independently of the moving fuselage.
 servoDriveTorque :: ServoSpec -> BatterySpec -> Double -> Double -> Double -> Double -> Double -> ServoState -> Double -> Double
 servoDriveTorque servo battery voltage dt target load wingInertia old rate =
-  let vf = clampRate 0 1 (voltage / max 0.01 (batteryNominalVoltage battery))
-      stall = max 0 (servoStallTorqueNm servo * vf)
+  let tf = ptkServoTorqueFactor voltage
+      sf = ptkServoSpeedFactor voltage
+      stall = max 0 (servoStallTorqueNm servo * tf)
       (_, reference) = stepServo servo battery target load wingInertia voltage dt old
       acceleration = ((2*servoRateDegPerSec reference-servoRateDegPerSec old)*pi/180-rate)/dt
       demand = (wingInertia+reflectedDriveInertia)*acceleration-load
       -- DC drive envelope: stall torque and no-load speed cannot coexist.
-      freeRate = max 1e-6 (servoNoLoadSpeedDegPerSec servo * vf * pi/180)
+      freeRate = max 1e-6 (servoNoLoadSpeedDegPerSec servo * sf * pi/180)
       positiveLimit = stall * clampRate 0 1 (1-rate/freeRate)
       negativeLimit = -stall * clampRate 0 1 (1+rate/freeRate)
   in clampRate negativeLimit positiveLimit demand
@@ -128,8 +160,8 @@ servoDriveTorque servo battery voltage dt target load wingInertia old rate =
 -- motion. This torque always dissipates energy and cannot power a dead servo.
 servoBackdriveTorque :: ServoSpec -> BatterySpec -> Double -> Double -> Double -> Double
 servoBackdriveTorque servo battery voltage load rate =
-  let vf = clampRate 0 1 (voltage / max 0.01 (batteryNominalVoltage battery))
-      stall = max 0 (servoStallTorqueNm servo * vf)
+  let tf = ptkServoTorqueFactor voltage
+      stall = max 0 (servoStallTorqueNm servo * tf)
       engaged = clampRate 0 1 ((abs load-stall) / max 0.05 (0.2*stall))
       compliance = max 0.001 (servoBackdriveDegPerSecNm servo) * pi/180
   in -engaged * signum load * max 0 (rate*signum load) / compliance
@@ -155,9 +187,10 @@ stepServo :: ServoSpec -> BatterySpec -> Double -> Double -> Double -> Double ->
 stepServo servo battery targetDeg loadTorqueNm wingInertia voltage dt state
   | dt <= 0 = (servoAngleDeg state, state)
   | otherwise =
-      let voltFactor = clampRate 0 1 (voltage / max 0.01 (batteryNominalVoltage battery))
-          stallT = max 1.0e-6 (servoStallTorqueNm servo * voltFactor)
-          maxRate = servoNoLoadSpeedDegPerSec servo * voltFactor
+      let sf = ptkServoSpeedFactor voltage
+          tf = ptkServoTorqueFactor voltage
+          stallT = max 1.0e-6 (servoStallTorqueNm servo * tf)
+          maxRate = servoNoLoadSpeedDegPerSec servo * sf
           err = clampRate (-80) 80 targetDeg - servoAngleDeg state
           -- Unified tracker (NO back-drive branch). The servo ALWAYS tracks the
           -- target; the aerodynamic load only reduces the achievable speed, it

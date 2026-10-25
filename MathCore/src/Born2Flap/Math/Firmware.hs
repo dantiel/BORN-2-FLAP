@@ -33,7 +33,7 @@ module Born2Flap.Math.Firmware
 
 import Born2Flap.Math.Waveform
   ( OscillatorState(..), defaultOscillator, advanceOscillator
-  , limiarFromFerocities, shapeWave, wavePeakDerivativeBound )
+  , limiarFromFerocities, shapeWave )
 
 -- ── CRSF channel set ───────────────────────────────────────────────
 --
@@ -127,6 +127,14 @@ neutralAngleDeg = 100
 rollAuthorityGain :: Double
 rollAuthorityGain = 2.0
 
+-- | Amplitude-differential roll authority. The downstroke (power stroke) is
+-- stronger on the side that must rise, so each downstroke pushes the bird's
+-- roll momentum into the turn. Complements the static flap-centre tilt
+-- (rollAuthorityGain) with a cyclic roll impulse; scales with the same
+-- @profAileronScale@ knob so one authority controls both roll mechanisms.
+rollAmpGain :: Double
+rollAmpGain = 4.0
+
 ampMaxDeg, freqMinHz, servoSpeedMsDefault :: Double
 ampMaxDeg = 55
 freqMinHz = 0.5
@@ -181,7 +189,7 @@ data FlightProfile = FlightProfile
 defaultFlightProfiles :: [FlightProfile]
 defaultFlightProfiles =
   [ FlightProfile 30 50 (-4) 0 40 60 50 40 0 0 0 0 0 0 0 0 0 0
-  , FlightProfile 50 50 (-4) 0 40 60 50 40 0 0 0 0 0 0 0 0 0 0
+  , FlightProfile 62 42 (-4) 0 40 60 50 40 0 0 0 0 0 0 0 0 0 0
   , FlightProfile 70 50   2  0 40 60 50 40 0 0 0 0 0 0 0 0 0 0
   ]
 
@@ -447,9 +455,13 @@ flappingBranch coupled prof aileronNorm elevatorNorm rc params state dt =
       strokeSkewEff = profStrokeSkew prof + thrustCentreShift thrust + throttleRateBoost
       returnSkewEff = profReturnSkew prof + thrustCentreShift thrust + throttleRateBoost
 
-      -- Throttle commands travel. Dwell/ferocity must not silently shrink
-      -- that travel: their peak-rate cost limits cadence below instead.
-      amplitude = clamp 0 ampMaxDeg (ampMaxDeg * throttlePct * speedFactor)
+      -- Throttle commands travel (coupled mode: throttle owns the stroke arc,
+      -- the speed modifier owns frequency only). Dwell/ferocity must not
+      -- silently shrink that travel: their peak-rate cost limits cadence below
+      -- instead. The speedFactor (mouse wheel) must NOT scale amplitude here —
+      -- that made the wheel grow/shrink the stroke in coupled mode, which is
+      -- the throttle's job; the wheel should only fine-tune the cadence.
+      amplitude = clamp 0 ampMaxDeg (ampMaxDeg * throttlePct)
 
       -- Aileron + aileron-rate → opposite stroke/return timing skew. Rudder
       -- owns amplitude differential. Both mechanisms act on the same wings.
@@ -466,16 +478,32 @@ flappingBranch coupled prof aileronNorm elevatorNorm rc params state dt =
       reversalL = clamp (0.2 * 2*pi) (0.8 * 2*pi) (limiarShared * (1 - reversalShift))
       reversalR = clamp (0.2 * 2*pi) (0.8 * 2*pi) (limiarShared * (1 + reversalShift))
       yawAmpDiff = clamp (-0.9) 0.9 rudderAmpDiff
+      -- Aileron also modulates stroke ARC differentially (not just the static
+      -- centre): the wing that must rise gets a stronger downstroke, so the
+      -- power stroke itself rolls the bird into the turn. Clamped ±0.4 so it
+      -- stays a steering term, never swallowing the commanded stroke.
+      aileronAmpDiff = clamp (-0.4) 0.4 (aileronNorm * profAileronScale prof * 0.01 * rollAmpGain)
       centreL = clamp (-80) 80 (-aileronCmd - elevatorCmd - flapCentreTrim)
       centreR = clamp (-80) 80 (aileronCmd - elevatorCmd - flapCentreTrim)
-      amplitudeL = min (80-abs centreL) (amplitude * (1 + yawAmpDiff))
-      amplitudeR = min (80-abs centreR) (amplitude * (1 - yawAmpDiff))
-      peakL = wavePeakDerivativeBound strokeFerL returnFerL reversalL
-                (profFerocityShapeMix prof) (strokeSkewEff+rollSkew) (returnSkewEff-rollSkew)
-      peakR = wavePeakDerivativeBound strokeFerR returnFerR reversalR
-                (profFerocityShapeMix prof) (strokeSkewEff-rollSkew) (returnSkewEff+rollSkew)
-      shapedSpeedPerHz = 2*pi*max (amplitudeL*peakL) (amplitudeR*peakR)
-      freqHz = min requestedHz (servoSpeedMargin*servoSpeedDegS / max 1e-6 shapedSpeedPerHz)
+      amplitudeL = min (80-abs centreL) (amplitude * (1 + yawAmpDiff + aileronAmpDiff))
+      amplitudeR = min (80-abs centreR) (amplitude * (1 - yawAmpDiff - aileronAmpDiff))
+      -- Servo-honest frequency ceiling: the peak rate of a full sinusoidal
+      -- stroke at this amplitude must not exceed the no-load servo rate.
+      -- Ferocity (dwell/shape) deliberately does NOT enter this ceiling — a
+      -- snapped stroke simply makes the servo lag on the transition (rounding
+      -- the dwell), which is the correct physical inefficiency; it must not
+      -- collapse the commanded cadence. The old wavePeakDerivativeBound blew up
+      -- as dwell→1 at 100% ferocity (1/(1-d) → ∞) and starved the servo to a
+      -- near-stop — the "servo becomes unable to drive the wing" bug.
+      --
+      -- The ceiling uses the BASE commanded amplitude, NOT max(L,R): aileron/
+      -- rudder amplitude differentials (±0.4) otherwise inflated one wing and
+      -- dragged the SHARED oscillator cadence down every time the pilot
+      -- steered (the "flap slows down when turning" artefact). A differential
+      -- wing may briefly saturate its own servo at the peak — the physically
+      -- correct, local consequence — but must not slow the whole stroke.
+      peakRatePerHz = 2*pi * amplitude   -- deg/s per Hz (sine peak, base stroke)
+      freqHz = min requestedHz (servoSpeedMargin*servoSpeedDegS / max 1e-6 peakRatePerHz)
 
       -- Oscillator advance → phase, then shaped wave pulse.
       (phase, nextOsc) = advanceOscillator cadenceTarget (fwKGainMod state) (fwAnchorGain params) dt

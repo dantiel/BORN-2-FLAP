@@ -35,9 +35,9 @@ class Output(c.Structure):
 class Tuning(c.Structure):
     _fields_ = [(n, c.c_double) for n in (
         'ServoSpeed', 'StallTorque', 'Backdrive', 'BatteryVoltage',
-        'BatteryResistance', 'BatteryCapacity', 'FlapBaseFreq',
+        'BatteryResistance', 'BatteryCapacity', 'BatteryCRating', 'BatteryBurstCRating', 'FlapBaseFreq',
         'TailElevatorAngle', 'GlideAngle', 'StrokeFerocity', 'AileronScale',
-        'ElevatorScale', 'MountAngle', 'BodyMassKg')]
+        'ElevatorScale', 'FlapCentre', 'BodyMassKg', 'VerticalMountAngle', 'ReturnFerocity')]
 
 
 def main():
@@ -46,7 +46,7 @@ def main():
     parser.add_argument('--preferences', type=Path, help='Read-only saved aircraft tuning reproduction')
     args = parser.parse_args()
     lib = c.CDLL(str(args.dll.resolve()))
-    assert lib.b2f_math_abi_version() == 13
+    assert lib.b2f_math_abi_version() == 14
     assert lib.b2f_math_runtime_init() == 1
     create = lib.b2f_math_create_firmware_vehicle
     create.argtypes, create.restype = [c.c_void_p], c.c_void_p

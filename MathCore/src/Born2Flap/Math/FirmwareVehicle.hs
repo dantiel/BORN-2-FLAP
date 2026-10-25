@@ -53,6 +53,7 @@ data FirmwareVehicleState = FirmwareVehicleState
   , fvBatteryBoost    :: !Double     -- ^ 0..1, LiPo burst reservoir (C-rating headroom)
   , fvPhaseEnvelope   :: !PhaseEnvelopeState  -- ^ ONDAS A-layer
   , fvResponsePhase   :: !ResponsePhaseState  -- ^ read-only response-phase diagnostic (no controller output)
+  , fvFlapHz          :: !Double              -- ^ commanded flap cadence [Hz] from the mixer (servo-capped), 0 in glide
   } deriving stock (Eq, Show)
 
 defaultFirmwareVehicleState :: FirmwareVehicleState
@@ -71,6 +72,7 @@ defaultFirmwareVehicleState = FirmwareVehicleState
   , fvBatteryBoost = 1.0
   , fvPhaseEnvelope = defaultPhaseEnvelope
   , fvResponsePhase = defaultResponsePhase
+  , fvFlapHz = 0
   }
 
 -- | One closed-loop timestep.
@@ -381,6 +383,7 @@ advanceFirmwareVehicle hostInertia coupled rc params servo battery model dt body
             , fvBatteryBoost = boostNext
             , fvPhaseEnvelope = peNext
             , fvResponsePhase = nextResponsePhase
+            , fvFlapHz = mixFlapHz mix
             }
 
           output = VehicleOutput force moment power maximumSeparation (-1) 0

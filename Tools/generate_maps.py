@@ -120,6 +120,32 @@ def editor_command(engine, project, bootstrap, log, request):
             '-abslog='+str(log)]
 
 
+def generation_environment(project_dir):
+    env = os.environ.copy()
+    # Keep generation's legacy audio cache beside its other disposable outputs.
+    # This also avoids exhausting a small system drive on Windows.
+    if 'UE-LocalDataCachePath' not in env:
+        env['UE-LocalDataCachePath'] = str(project_dir/'Saved/DerivedDataCache')
+        # Moving the legacy cache must not override an explicitly configured
+        # Zen store. Ignore paths belonging to another host (e.g. V: on macOS).
+        config = project_dir/'Config/DefaultEngine.ini'
+        section = ''
+        if config.is_file():
+            for line in config.read_text(encoding='utf-8-sig').splitlines():
+                line = line.strip()
+                if line.startswith('['):
+                    section = line
+                elif section == '[Zen.AutoLaunch]' and line.startswith('DataPath='):
+                    configured = Path(line.split('=', 1)[1].strip())
+                    if configured.is_absolute() and configured.is_dir():
+                        env.setdefault('UE-ZenDataPath', str(configured))
+    if platform.system() == 'Windows':
+        temporary = project_dir/'Saved/GenerationTemp'
+        temporary.mkdir(parents=True, exist_ok=True)
+        env['TEMP'] = env['TMP'] = str(temporary)
+    return env
+
+
 def build_command(engine, project, system=None):
     _, build, target = engine_paths(engine, system)
     args = [str(build), 'Born2FlapEditor', target, 'Development', '-Project='+str(project),
@@ -186,7 +212,7 @@ def main(argv=None):
             write_json(state_path, state)  # A failed attempt must never retain a valid stamp.
             start = time.monotonic()
             subprocess.run(editor_command(engine, project, bootstrap, log, request), cwd=REPO,
-                           check=True, timeout=args.timeout)
+                           env=generation_environment(project_dir), check=True, timeout=args.timeout)
             result = read_json(report) if report.exists() else {}
             if result.get('token') != token or not result.get('success'):
                 raise RuntimeError('Map generation failed; see '+str(log))

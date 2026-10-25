@@ -160,8 +160,8 @@ kestrelSpars = SparInventory
     -- Effective stressed-skin calibration. Bending is modestly stiffer than
     -- the prior wing; torsion is retuned for the inertial mode model instead
     -- of relying on the old 15-degree deflection clamp to hide compliance.
-    , siBendScale     = 325.0
-    , siTwistScale    = 12.5
+    , siBendScale     = 700.0
+    , siTwistScale    = 28.0
     , siMembraneGJ    = 1.0e-2
     , siBraceScale    = 0.4
   , siSpars         = kestrelSparList
