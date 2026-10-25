@@ -12,7 +12,7 @@ import Born2Flap.Math.Model
 import Born2Flap.Math.Simulation
 import Born2Flap.Math.Waveform
   ( OscillatorState(..), defaultOscillator, advanceOscillator
-  , limiarFromFerocities, shapeWave, shapeWaveWithDerivative )
+  , limiarFromFerocities, shapeWave, shapeWaveWithDerivative, wavePeakDerivativeBound )
 import Born2Flap.Math.Firmware
 import Born2Flap.Math.Servo
 import Born2Flap.Math.RollDynamics
@@ -23,6 +23,35 @@ import Born2Flap.Math.ResponsePhase
 
 main :: IO ()
 main = do
+  -- Structural ringing stores real kinetic/elastic energy, not waveform phase.
+  let energy (q,v)=0.5*0.02*v*v+0.5*8*q*q
+      ring damping = take 1000 (iterate (\(q,v) -> stepElasticMode (1/240) 0.02 8 damping 0 q v) (0.01,0))
+      undamped=map energy (ring 0)
+      damped=map energy (ring 0.08)
+  if all (\e -> abs(e-head undamped)<1e-12) undamped &&
+     and (zipWith (>=) damped (drop 1 damped)) && last damped < head damped*0.001
+    then pure () else fail "structural mode must conserve free energy or dissipate with damping"
+  let response frequency =
+        let tick (q,v,peak) i =
+              let force=0.01*sin(2*pi*frequency*fromIntegral i/240)
+                  (q1,v1)=stepElasticMode (1/240) 0.02 8 0.04 force q v
+              in (q1,v1,if i>1200 then max peak (abs q1) else peak)
+            (_,_,peak)=foldl tick (0,0,0) [1..2400::Int]
+        in peak
+      naturalHz=sqrt(8/0.02)/(2*pi)
+  if response naturalHz > 3*max (response (naturalHz/2)) (response (naturalHz*2))
+    then pure () else fail "elastic resonance must follow sqrt(stiffness/inertia), not flap phase"
+  let coupledEnergy ((b,t),(v,w))=0.5*(0.02*v*v-0.002*v*w+0.001*w*w+8*b*b+0.2*t*t)
+      coupledRing=take 1000 (iterate (\(q,v) -> stepCoupledElasticModes (1/240)
+                   (0.02,-0.001,0.001) (8,0.2) (0,0) (0,0) q v) ((0.01,0.1),(0,0)))
+  if all (\s -> abs(coupledEnergy s-coupledEnergy(head coupledRing))<1e-12) coupledRing
+    then pure () else fail "coupled bend/twist inertia must conserve free modal energy"
+  let tailPassive (u,w,a)=let (fx,fz)=tailSurface 0.0242 a u w in fx*u+fz*w<=1e-10
+      (_,broadsideTail)=tailSurface 0.0242 0 0 3
+      expectedPressure=surfacePressure 0.0242 3-0.5*airDensity*0.0242*surfaceSkinCd*9
+  if abs (broadsideTail-expectedPressure)<1e-12 &&
+     all tailPassive [(u,w,a) | u<-[-8,0,8],w<-[-5,0,5],a<-[-0.5,0,0.5]]
+    then pure () else fail "tail must share passive wing pressure and skin constants"
   let (bodyMass,wingMass,tailMass)=airframeMasses 0.05
       (ix,iy,iz)=airframeInertia kestrelModel 0.05 0
       wingDry=shapeFlapInertia wingMass 0 defaultBirdWing
@@ -35,9 +64,7 @@ main = do
       summed=foldr (addVec . resultForce) zeroVec
       still=summed (loads 0)
       beating=summed (loads (-3))
-  -- Flap thrust is EMERGENT: it comes from the stroke motion (the ∝ flapSpeed²
-  -- momentum jet), not from a mode flag. A still wing at the same state sheds
-  -- none of it; only a beating wing pumps the spanwise jet forward.
+  -- Stroke motion tilts the aerodynamic resultant; no independent jet.
   if vx beating > vx still
     then pure () else fail "flap thrust must emerge from stroke motion, not a flag"
   -- Coupled inertia: internal motor impulses conserve angular momentum;
@@ -86,15 +113,13 @@ main = do
       wingI = shapeFlapInertia referenceWingMassKg airDensity defaultBirdWing
   if leftTorque == 2 && rightTorque == 2 then pure ()
     else fail "mirrored flap hinges must project signed X torque, ignoring pitch torque"
-  -- An unloaded spar spring eases the servo hinge load (the wing yields
-  -- elastically), while a forward-twisted spring loads "for free" in the
-  -- thrust direction and eases further still.
+  -- Internal compliance cannot erase the external moment at the hinge.
   let unloadedStrip = emptyStrip { stripSpringLoad = 0 }
       easedTorque = hingeTorque (-1) [StripResult unloadedStrip (Vec3 0 0 1) (Vec3 (-2) 90 0) 0 0]
       twistedStrip = emptyStrip { stripSpringLoad = 0, stripTwistAero = -0.2 }
       twistedTorque = hingeTorque (-1) [StripResult twistedStrip (Vec3 0 0 1) (Vec3 (-2) 90 0) 0 0]
-  if easedTorque > 0 && easedTorque < 2 && twistedTorque < easedTorque then pure ()
-    else fail "unloaded and forward-twisted spar springs must ease the servo hinge load"
+  if easedTorque == 2 && twistedTorque == 2 then pure ()
+    else fail "elastic geometry must not discount an unchanged external hinge moment"
   let fwStep dt vel s = stepFirmwareVehicle True defaultRcChannels defaultFirmwareParams
                         defaultServoSpec defaultBatterySpec kestrelModel dt vel (Vec3 0 0 0) 1000 s
       badCases = [(0, Vec3 5 0 0), (0/0, Vec3 5 0 0), (0.01, Vec3 (1/0) 0 0)]
@@ -106,7 +131,7 @@ main = do
                                battery kestrelModel (1/240) (Vec3 5 0 0) (Vec3 0 0 0) 1000 s
       (_, full) = batteryStep defaultBatterySpec defaultFirmwareVehicleState
       (_, empty) = batteryStep defaultBatterySpec (defaultFirmwareVehicleState {fvBatterySoc = 0})
-      loaded = defaultFirmwareVehicleState {fvLeftHingeTorqueNm = 0.5, fvRightHingeTorqueNm = 0.5}
+      loaded = defaultFirmwareVehicleState {fvLeftHingeTorqueNm = 0.5, fvRightHingeTorqueNm = 0.5, fvMotorCurrentA = 10}
       (_, lowR) = batteryStep (defaultBatterySpec {batteryInternalResistanceOhm = 0}) loaded
       (_, highR) = batteryStep (defaultBatterySpec {batteryInternalResistanceOhm = 0.8}) loaded
       (mixCmd, _) = computeServoMixer True flap defaultFirmwareParams defaultFirmwareState (1 / 240)
@@ -296,13 +321,16 @@ main = do
   if a2 > a1 && a2 <= 120
     then pure ()
     else fail "unloaded servo must slew toward its target"
-  -- Servo: load exceeding stall torque back-drives it (the wing wins).
-  -- A strong NEGATIVE load pushes the servo away from a positive target.
+  -- Servo: an overpowering load saturates the tracker's commanded rate to ZERO
+  -- (the servo can no longer track the target). The unified tracker never
+  -- actively back-drives the shaft in the load's direction — that assist is
+  -- what flung the wing into extreme-up flutter. The wing wins through the
+  -- passive 'servoBackdriveTorque' in the joint solve, not through the motor.
   let stall = servoStallTorqueNm servo
       (back, _) = stepServo servo battery 120 (negate stall * 2) wingI voltage (1 / 240) defaultServoState
-  if back < 0
+  if back == 0
     then pure ()
-    else fail "overloaded servo must be back-driven by the aerodynamic load"
+    else fail "overloaded servo tracker must saturate to zero commanded rate"
   -- Closed loop: full throttle flaps the wings (servo tracks, lift appears).
   let flapRcClosed = defaultRcChannels { rcThrottle = 1811 }
       dtClosed = 1 / 240
@@ -433,6 +461,101 @@ main = do
       kNominal = fwKGainMod (fvFirmware steady)
   if kNominal == 1.0
     then pure () else fail "oscillator gain must stay nominal (no phase-lock controller)"
+  let flatStation st = st {ssLeadX=0,ssTwistDeg=0,ssDihedDeg=0,
+                              ssSection=(ssSection st) {spRestCamber=0}}
+      flatWing=defaultBirdWing {wsStations=map flatStation (wsStations defaultBirdWing)}
+      flatModel=kestrelModel {wmWing=flatWing}
+      flatState=replicate stripCount emptyStrip
+      dotV a b=x a*x b+y a*y b+z a*z b
+      checkAero (angle,rate,incidence,vzAir) =
+        let input=flow {bodyVelocityMS=Vec3 8 0 vzAir, groundClearanceM=1000}
+            loads=wingLoadsWithStroke True 1 angle rate rate input flatModel incidence flatState
+            mirror=wingLoadsWithStroke True 1 (-angle) (-rate) (-rate)
+                      (input {bodyVelocityMS=Vec3 8 0 (-vzAir)}) flatModel (-incidence) flatState
+            checkStrip (i,r) =
+              let f=(fromIntegral i+0.5)/fromIntegral stripCount
+                  radius=wsShoulderM flatWing+wsSpanM flatWing*f
+                  chord=shapeChord flatWing f
+                  c=Vec3 (cos incidence) (-sin incidence*sin angle) (sin incidence*cos angle)
+                  p=addVec (Vec3 0 (radius*cos angle) (radius*sin angle)) (scaleVec (-0.25*chord) c)
+                  velocity=addVec (bodyVelocityMS input) (crossVec (Vec3 rate 0 0) p)
+              in dotV (resultForce r) velocity <= 1e-8
+            f=summed loads; g=summed mirror
+        in all checkStrip (zip [0::Int ..] loads)
+           && magnitude (addVec f (Vec3 (-x g) (-y g) (z g))) < 1e-7
+  if all checkAero [(a,r,i,v) | a<-[-0.6,0,0.6],r<-[-8,0,8],i<-[-0.25,0,0.25],v<-[-2,0,2]]
+    then pure () else fail "surface forces must dissipate relative-flow energy and reflect for inverted geometry"
+  let speedLimit=servoNoLoadSpeedDegPerSec defaultServoSpec*pi/180
+      stallLimit=servoStallTorqueNm defaultServoSpec
+      voltage=batteryNominalVoltage defaultBatterySpec
+      torqueAt rate target=servoDriveTorque defaultServoSpec defaultBatterySpec voltage (1/240)
+                            target 0 0.002 defaultServoState rate
+  if all (\r -> all (\target -> torqueAt r target*r <= stallLimit*speedLimit/4+1e-9) [-80,0,80])
+         (map (*speedLimit) [-2,-1,-0.75,-0.5,0,0.5,0.75,1,2])
+    then pure () else fail "servo mechanical power must respect torque-speed envelope"
+  let mirroredStep (left,right,err) i =
+        let t=fromIntegral i/240; a=0.4*cos (4*pi*t); rate= -1.6*pi*sin (4*pi*t)
+            v=flow {bodyVelocityMS=Vec3 6 0 (-0.5),groundClearanceM=1000}
+            (ls,ln)=stepCoupledWing True 1 a rate rate v flatModel 0.1 left
+            (rs,rn)=stepCoupledWing True 1 (-a) (-rate) (-rate)
+                      (v {bodyVelocityMS=Vec3 6 0 0.5}) flatModel (-0.1) right
+            f=summed ls; g=summed rs
+        in (ln,rn,max err (magnitude (addVec f (Vec3 (-x g) (-y g) (z g)))))
+      (_,_,reflectionError)=foldl mirroredStep (flatState,flatState,0) [1..480::Int]
+  if reflectionError < 1e-7 then pure ()
+    else fail ("unsteady stall and structural history break inverted reflection: "++show reflectionError)
+  if all (\(scale,f) -> abs (sparTwistGJSpanwise (scaleSpars scale kestrelSpars) f
+                         / sparTwistGJSpanwise kestrelSpars f-scale**4)<1e-8)
+         [(scale,f) | scale<-[0.5,2],f<-[0.2,0.7]]
+    then pure () else fail "distributed torsional stiffness must scale as length to the fourth power"
+  -- Broadside pressure must exist immediately, before separation memory grows.
+  -- Both wings at zero forward speed: analytic Cp=1.2 resisting roll moment.
+  let rollPressure separated =
+        let omega=2
+            input=flow {bodyVelocityMS=zero,bodyRatesRadS=Vec3 omega 0 0,groundClearanceM=1000}
+            states=replicate stripCount (emptyStrip {stripSeparation=separated})
+            rs=concat [wingLoadsWithStroke False side 0 0 0 input flatModel 0 states | side<-[-1,1]]
+            moment=sum(map (x . resultMoment) rs)
+            dr=wsSpanM flatWing/fromIntegral stripCount
+            integral=sum [shapeChord flatWing f*dr*(wsShoulderM flatWing+wsSpanM flatWing*f)**3
+                         | i<-[0..stripCount-1],let f=(fromIntegral i+0.5)/fromIntegral stripCount]
+        in moment <= -airDensity*1.2*omega*omega*integral+1e-9
+  if all rollPressure [0,1] then pure ()
+    else fail "broadside roll pressure cannot wait for stall memory or a mode switch"
+  -- A separated membrane must deform from its actual pressure, not the
+  -- hypothetical attached lift that stall removed.
+  let stalled=replicate stripCount (emptyStrip {stripSeparation=1})
+      mount=0.1
+      input=flow {bodyVelocityMS=Vec3 8 0 0,groundClearanceM=1000}
+      (stalledLoads,stalledNext)=stepCoupledWing True 1 0 0 0 input flatModel mount stalled
+      checkMembrane (i,r,next) =
+        let f=(fromIntegral i+0.5)/fromIntegral stripCount
+            normal=Vec3 (-sin mount) 0 (cos mount)
+            qArea=0.5*airDensity*64*shapeChord flatWing f*wsSpanM flatWing/fromIntegral stripCount
+            profile=shapeSection flatWing f
+            actualCn=dotV (resultForce r) normal/qArea
+            expected=relaxCamber (stepSeconds input) (spMembraneTau profile) 0
+                       (membraneCamberTarget profile actualCn)
+        in abs (stripCamber next-expected)<1e-10
+  if all checkMembrane (zip3 [0::Int ..] stalledLoads stalledNext)
+    then pure () else fail "stalled membrane must follow solved pressure instead of unattained attached lift"
+  let boundCases=[(f,g,m,k) | f<-[0,4,8],g<-[0,4,8],m<-[0,50,100],k<-[-80,0,80]]
+      boundHolds (f,g,m,k)=
+        let bound=wavePeakDerivativeBound f g (-1) m k (-k)
+        in all (\i -> abs (snd (shapeWaveWithDerivative (2*pi*fromIntegral i/500)
+                            f g (-1) m k (-k)))<=bound+1e-9) [0..499::Int]
+  if all boundHolds boundCases then pure () else fail "waveform cadence bound underestimates peak shaft speed"
+  let commandedTravel fer =
+        let p=defaultFirmwareParams {fwProfile=(fwProfile defaultFirmwareParams)
+                    {profStrokeFerocity=fer,profReturnFerocity=fer,profTailElevatorAngleDeg=0}}
+            at i =
+              let phase=2*pi*fromIntegral i/500
+                  state=defaultFirmwareState {fwOscillator=defaultOscillator {oscBasePhase=phase,oscPhase=phase}}
+              in mixLeftFlapDevDeg (fst (computeServoMixer True flapRc p state 1e-6))
+            values=map at [0..499::Int]
+        in maximum values-minimum values
+  if all (\fer -> commandedTravel fer>109) [0,50,100]
+    then pure () else fail "full-throttle dwell must retain full 110 degree travel rather than shrink the arc"
   putStrLn "MathCore properties passed"
 
 zeroVehicleOutput :: VehicleOutput

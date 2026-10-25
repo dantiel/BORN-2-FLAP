@@ -16,6 +16,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "UI/Born2FlapFlightHUD.h"
 #include "UI/Born2FlapI18n.h"
+#include "Rendering/Born2FlapGraphics.h"
 
 namespace
 {
@@ -28,6 +29,12 @@ UTexture2D* BrandLogo()
     return Logo.Get();
 }
 }  // namespace
+
+void ABorn2FlapHUD::BeginPlay()
+{
+    Super::BeginPlay();
+    bShowFps = Born2FlapGraphics::LoadShowFps();
+}
 
 void ABorn2FlapHUD::DrawHUD()
 {
@@ -70,6 +77,22 @@ void ABorn2FlapHUD::DrawHUD()
             DrawRcSticks(*Bird, *Rc);
         else
             DrawMouseIndicator(*Bird);
+    }
+    // FPS counter (F12): independent of the Brain path and F7 hide-UI, so the
+    // frame-rate readout stays available while debugging the flight core.
+    // Persisted so the menu/graphics option and the live key stay in sync.
+    if (auto* FpsPC = GetOwningPlayerController())
+        if (FpsPC->WasInputKeyJustPressed(born2flap::keybinds::Get(TEXT("ToggleFps"))))
+        {
+            bShowFps = !bShowFps;
+            Born2FlapGraphics::SaveShowFps(bShowFps);
+        }
+    if (bShowFps)
+    {
+        const float Dt = GetWorld() ? FMath::Max(GetWorld()->GetDeltaSeconds(), 1e-3f) : 1.f / 60.f;
+        SmoothedFps = FMath::Lerp(SmoothedFps, 1.f / Dt, 1.f - FMath::Exp(-Dt * 8.f));
+        DrawText(FString::Printf(TEXT("FPS %4.0f"), SmoothedFps), FLinearColor(.72f, .95f, .72f),
+                 Canvas->SizeX - 130.f, 20.f, GEngine->GetMediumFont(), 1.f);
     }
     // Brain path: the Ruby Brain authors every panel (cockpit / RC / channels /
     // radio / menu / poi / splash) — the imperative canvas stays dormant.
@@ -131,7 +154,7 @@ void ABorn2FlapHUD::DrawHUD()
         }
         DrawRect(FLinearColor(.015f, .035f, .045f, .82f), 20, 20, 360, 72);
         DrawText(TEXT("BLINDFLUG — NUR KLANG"), Gold, 38, 30, GEngine->GetLargeFont(), 1.5f);
-        DrawText(TEXT("F5: Vogel zeigen    R: Reset    SPACE: Start"), Muted, 40, 68, GEngine->GetSmallFont(), 1.f);
+        DrawText(TEXT("F1: Vogel zeigen    R: Reset    SPACE: Start"), Muted, 40, 68, GEngine->GetSmallFont(), 1.f);
         return;
     }
     if (!bSemanticHUD)
@@ -169,6 +192,11 @@ void ABorn2FlapHUD::DrawHUD()
         DrawText(FString::Printf(TEXT("RC  YAW %+.2f    ROLL %+.2f    PITCH %+.2f"), Sticks.Z, Sticks.X, Sticks.Y), Gold,
                  40, 227, GEngine->GetSmallFont(), 1.f);
         DrawText(FString::Printf(TEXT("WINGS  L %+.1f deg    R %+.1f deg"), Wings.X, Wings.Y), Muted, 40, 255,
+                 GEngine->GetSmallFont(), 1.f);
+        // Commanded cadence (throttle + mouse wheel), the setpoint the pilot
+        // actually controls — distinct from the measured servo rate so the
+        // mouse-wheel flap-frequency setting has direct on-screen feedback.
+        DrawText(FString::Printf(TEXT("FLAP %4.1f Hz"), Bird->GetFlapHz()), Gold, 330, 255,
                  GEngine->GetSmallFont(), 1.f);
     }
     if (auto *Mode = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode()))

@@ -43,6 +43,11 @@ namespace Born2FlapPoi
                 FBorn2FlapPoi P; P.Key = K; Out.Add(P);
             }
         }
+        else if (Level.Equals(TEXT("Yunsha"), ESearchCase::IgnoreCase))
+        {
+            for(const TCHAR* Key:{TEXT("Lunya - the Jade Palace"),TEXT("Canyon Mouth - read the shimmer"),TEXT("The Wind-Harp - come back at dusk"),TEXT("The Narrows"),TEXT("Cloud-Forest - begin the climb"),TEXT("The Dune Sea")})
+            { FBorn2FlapPoi P;P.Key=Key;Out.Add(P); }
+        }
         else if (Level.Equals(TEXT("Training"), ESearchCase::IgnoreCase))
         {
             { FBorn2FlapPoi P; P.Key = TEXT("poi.start_line"); Out.Add(P); }

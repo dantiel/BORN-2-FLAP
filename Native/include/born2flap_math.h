@@ -13,7 +13,7 @@
 extern "C" {
 #endif
 
-#define B2F_MATH_ABI_VERSION 14u
+#define B2F_MATH_ABI_VERSION 16u
 
 typedef struct B2F_MathContext B2F_MathContext;
 
@@ -100,6 +100,7 @@ typedef struct B2F_FirmwareOutput {
     double phase_coverage;   /* ONDAS phase-bin coverage 0..1 */
     double phase_error;      /* ONDAS phase-lock error δ [rad] (resonance) */
     double k_gain_mod;       /* ONDAS phase-advance demand (1.0 = nominal) */
+    double flap_hz;          /* commanded flap cadence [Hz] (servo-capped), 0 in glide */
     uint32_t flags;          /* bit 0 = is_flapping */
 } B2F_FirmwareOutput;
 
@@ -139,6 +140,7 @@ typedef struct B2F_TuningConfig {
     double flap_centre_deg;      /* flap stroke centre trim (dihedral), like tail elevator, -15..+15 (ABI v7, renamed) */
     double body_mass_kg;         /* airframe mass, scales the wing planform (ABI v8) */
     double vertical_mount_angle_deg; /* real wing mount incidence (nose-up +), -15..+15 (ABI v14) */
+    double return_ferocity;      /* upstroke/return ferocity, 0..100 (ABI v15) */
 } B2F_TuningConfig;
 
 B2F_API int32_t b2f_math_reconfigure_firmware_vehicle(

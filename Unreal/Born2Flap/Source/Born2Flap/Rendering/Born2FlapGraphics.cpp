@@ -100,6 +100,58 @@ void SaveQuality(int32 Q)
     Config.Write(Path);
 }
 
+float LoadMotionBlur()
+{
+    const FString Path = PreferencesPath();
+    FConfigFile Config;
+    Config.Read(Path);
+    float Amount = 0.5f;
+    Config.GetFloat(TEXT("Graphics"), TEXT("MotionBlur"), Amount);
+    return FMath::IsFinite(Amount) ? FMath::Clamp(Amount, 0.f, 1.f) : 0.5f;
+}
+
+void SaveMotionBlur(float Amount)
+{
+    const FString Path = PreferencesPath();
+    FConfigFile Config;
+    Config.Read(Path);
+    Config.bCanSaveAllSections = true;
+    IFileManager::Get().MakeDirectory(*FPaths::GetPath(Path), true);
+    Config.SetFloat(TEXT("Graphics"), TEXT("MotionBlur"),
+        FMath::Clamp(Amount, 0.f, 1.f));
+    Config.Write(Path);
+}
+
+void ApplyMotionBlur(float Amount)
+{
+    // 0 disables the whole pass (cheapest), otherwise full quality. The flight
+    // pawn also scales its per-camera post-process amount by this value; the
+    // global r.MotionBlur.Amount scalar is left at its engine default so the
+    // per-camera override keeps its familiar 1:1 look.
+    SetCVar(TEXT("r.MotionBlurQuality"), Amount <= 0.f ? 0 : 4);
+}
+
+bool LoadShowFps()
+{
+    const FString Path = PreferencesPath();
+    FConfigFile Config;
+    Config.Read(Path);
+    bool bOn = true;
+    Config.GetBool(TEXT("Graphics"), TEXT("ShowFps"), bOn);
+    return bOn;
+}
+
+void SaveShowFps(bool bOn)
+{
+    const FString Path = PreferencesPath();
+    FConfigFile Config;
+    Config.Read(Path);
+    Config.bCanSaveAllSections = true;
+    IFileManager::Get().MakeDirectory(*FPaths::GetPath(Path), true);
+    Config.SetBool(TEXT("Graphics"), TEXT("ShowFps"), bOn);
+    Config.Write(Path);
+}
+
 void ApplySavedOrDefault()
 {
     Apply(ForQuality(static_cast<EQuality>(LoadQuality())));

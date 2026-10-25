@@ -28,12 +28,12 @@ module Born2Flap.Math.Firmware
   , crsfToFloat
   , normToRaw
   , computeServoMixer
+  , ampMaxDeg
   ) where
 
 import Born2Flap.Math.Waveform
   ( OscillatorState(..), defaultOscillator, advanceOscillator
   , limiarFromFerocities, shapeWave )
-import Born2Flap.Math.FerocityPrice (dwellFromFerocity, ferocityThrustPrice)
 
 -- ── CRSF channel set ───────────────────────────────────────────────
 --
@@ -127,6 +127,14 @@ neutralAngleDeg = 100
 rollAuthorityGain :: Double
 rollAuthorityGain = 2.0
 
+-- | Amplitude-differential roll authority. The downstroke (power stroke) is
+-- stronger on the side that must rise, so each downstroke pushes the bird's
+-- roll momentum into the turn. Complements the static flap-centre tilt
+-- (rollAuthorityGain) with a cyclic roll impulse; scales with the same
+-- @profAileronScale@ knob so one authority controls both roll mechanisms.
+rollAmpGain :: Double
+rollAmpGain = 4.0
+
 ampMaxDeg, freqMinHz, servoSpeedMsDefault :: Double
 ampMaxDeg = 55
 freqMinHz = 0.5
@@ -181,7 +189,7 @@ data FlightProfile = FlightProfile
 defaultFlightProfiles :: [FlightProfile]
 defaultFlightProfiles =
   [ FlightProfile 30 50 (-4) 0 40 60 50 40 0 0 0 0 0 0 0 0 0 0
-  , FlightProfile 50 50 (-4) 0 40 60 50 40 0 0 0 0 0 0 0 0 0 0
+  , FlightProfile 62 42 (-4) 0 40 60 50 40 0 0 0 0 0 0 0 0 0 0
   , FlightProfile 70 50   2  0 40 60 50 40 0 0 0 0 0 0 0 0 0 0
   ]
 
@@ -376,32 +384,23 @@ flappingBranch coupled prof aileronNorm elevatorNorm rc params state dt =
       speedMod01 = clamp 0 1 (crsfToNorm (rcFreq rc) * 0.5 + 0.5)
       throttlePct = clamp 0 1 ((throttleUsF - flapThresholdUs) / (crsfRawMax - flapThresholdUs))
       coupling = if coupled then 100 else 0
-      -- The throttle→frequency contribution saturates: a bird spools its flap
-      -- up to the natural cadence quickly, then the stick mostly grows the ARC.
-      -- This keeps thrust healthy at partial throttle (42% still flies) while
-      -- the frequency ceiling (freqServoCapHz below) guarantees the full stroke
-      -- stays deliverable — never a stroke that outgrows the servo. In normal
-      -- (independent) mode the blend ignores this and frequency stays on the
-      -- speed modifier, so only the arc grows with the stick.
+      -- Coupled throttle spools cadence up early, then primarily grows travel.
+      -- Independent mode takes the frequency command from the speed modifier.
       freqThrottle = let u = 1 - throttlePct in 1 - u * u * u * u
       freq01 = orniThrottleFrequencyCommand speedMod01 freqThrottle coupling
       speedFactor = 0.5 + speedMod01  -- 0.5x..1.5x base frequency
-      -- Servo no-load speed bounds the flapping FREQUENCY: the full geometric
-      -- stroke (ampMaxDeg) must stay deliverable at the frequency ceiling.
-      -- Coupling the arc cap to the (throttle-driven) cadence made the stroke
-      -- non-monotonic — it grew, then SHRANK as the servo saturated — which is
-      -- the "out of range / scaling off" failure. Capping the CEILING instead
-      -- keeps the stroke honest and monotonic: a faster servo earns a faster
-      -- flap, never a stroke the servo cannot deliver.
+      -- Keep commanded travel independent of actuator speed. The complete
+      -- waveform below determines the speed-limited cadence instead.
       servoSpeedDegS = 60000 / max 1 (fwServoSpeedMs params)
       -- The servo is never commanded to run at its no-load speed (where it has
       -- zero torque to spare): a fraction of the no-load rate is reserved so the
       -- full geometric stroke stays TRACKABLE under aerodynamic load instead of
       -- back-driving the servo every downstroke.
-      servoSpeedMargin = 0.75
-      freqServoCapHz = servoSpeedMargin * servoSpeedDegS / (2 * pi * ampMaxDeg)
-      freqMax = min (fwFlapBaseFreqDh params * 0.1 * speedFactor) freqServoCapHz
-      freqHz = freqMinHz + freq01 * (freqMax - freqMinHz)
+      servoSpeedMargin = 0.82
+      -- Apply the actuator ceiling once, to the actual shaped arc below.
+      -- A full-travel ceiling here would waste speed at partial throttle.
+      freqMax = fwFlapBaseFreqDh params * 0.1 * speedFactor
+      requestedHz = freqMinHz + freq01 * (freqMax - freqMinHz)
       cadenceTarget = freqHz * 6.283185307
 
       -- Steering commands (deg).
@@ -417,10 +416,8 @@ flappingBranch coupled prof aileronNorm elevatorNorm rc params state dt =
       aileronCmd = aileronNorm
                    * profAileronScale prof * 0.01 * steerMaxDeg * rollAuthorityGain
       elevatorCmd = elevatorNorm * profElevatorScale prof * 0.01 * steerMaxDeg
-      -- Mount angle and tail elevator angle are aerodynamically identical in the
-      -- current coarse model: both shift the common-mode flap-stroke centre. They
-      -- stay separate fields because a future fine-grained model will treat a
-      -- physical wing-mount tilt differently from a tail-elevator trim.
+      -- This legacy tail-elevator control trims the stroke centre. Wing
+      -- mount incidence is separate and rotates the aerodynamic section frame.
       flapCentreTrim = profTailElevatorAngleDeg prof + fwFlapCentreDeg params
 
       -- Elevator → ferocity asymmetry.
@@ -458,23 +455,13 @@ flappingBranch coupled prof aileronNorm elevatorNorm rc params state dt =
       strokeSkewEff = profStrokeSkew prof + thrustCentreShift thrust + throttleRateBoost
       returnSkewEff = profReturnSkew prof + thrustCentreShift thrust + throttleRateBoost
 
-      -- Amplitude scales WITH throttle in BOTH modes: the stick is the arc
-      -- command (low throttle = small gentle sweep, full throttle = full
-      -- geometric stroke). The FREQUENCY (speed) modifier ALSO scales the arc in
-      -- BOTH modes (via speedFactor), so the two commands move together and the
-      -- stroke only reaches its full meaningful size at full throttle + full
-      -- frequency. The servo-speed limit lives in the frequency ceiling
-      -- (freqServoCapHz) above, so the arc never outgrows what the servo can
-      -- deliver and stays monotonic. Torque back-drive in stepServo still limits
-      -- the ACHIEVED stroke under load.
-      dwell = max (dwellFromFerocity strokeFer) (dwellFromFerocity returnFer)
-      -- Ferocity cost on the ARC: a snapped stroke's peak rate is 1/(1-d) times
-      -- a pure sine's, so it earns a proportionally smaller arc for the same
-      -- servo speed — low ferocity = larger stroke. The 1/(1-d) pole explodes
-      -- as d→1, so bound it at 1.6 (a snapped stroke still costs arc, never
-      -- zeroes it).
-      peakRate = min 1.6 (ferocityThrustPrice dwell)
-      amplitude = clamp 0 ampMaxDeg (ampMaxDeg * throttlePct * speedFactor / peakRate)
+      -- Throttle commands travel (coupled mode: throttle owns the stroke arc,
+      -- the speed modifier owns frequency only). Dwell/ferocity must not
+      -- silently shrink that travel: their peak-rate cost limits cadence below
+      -- instead. The speedFactor (mouse wheel) must NOT scale amplitude here —
+      -- that made the wheel grow/shrink the stroke in coupled mode, which is
+      -- the throttle's job; the wheel should only fine-tune the cadence.
+      amplitude = clamp 0 ampMaxDeg (ampMaxDeg * throttlePct)
 
       -- Aileron + aileron-rate → opposite stroke/return timing skew. Rudder
       -- owns amplitude differential. Both mechanisms act on the same wings.
@@ -491,8 +478,32 @@ flappingBranch coupled prof aileronNorm elevatorNorm rc params state dt =
       reversalL = clamp (0.2 * 2*pi) (0.8 * 2*pi) (limiarShared * (1 - reversalShift))
       reversalR = clamp (0.2 * 2*pi) (0.8 * 2*pi) (limiarShared * (1 + reversalShift))
       yawAmpDiff = clamp (-0.9) 0.9 rudderAmpDiff
-      amplitudeL = amplitude * (1 + yawAmpDiff)
-      amplitudeR = amplitude * (1 - yawAmpDiff)
+      -- Aileron also modulates stroke ARC differentially (not just the static
+      -- centre): the wing that must rise gets a stronger downstroke, so the
+      -- power stroke itself rolls the bird into the turn. Clamped ±0.4 so it
+      -- stays a steering term, never swallowing the commanded stroke.
+      aileronAmpDiff = clamp (-0.4) 0.4 (aileronNorm * profAileronScale prof * 0.01 * rollAmpGain)
+      centreL = clamp (-80) 80 (-aileronCmd - elevatorCmd - flapCentreTrim)
+      centreR = clamp (-80) 80 (aileronCmd - elevatorCmd - flapCentreTrim)
+      amplitudeL = min (80-abs centreL) (amplitude * (1 + yawAmpDiff + aileronAmpDiff))
+      amplitudeR = min (80-abs centreR) (amplitude * (1 - yawAmpDiff - aileronAmpDiff))
+      -- Servo-honest frequency ceiling: the peak rate of a full sinusoidal
+      -- stroke at this amplitude must not exceed the no-load servo rate.
+      -- Ferocity (dwell/shape) deliberately does NOT enter this ceiling — a
+      -- snapped stroke simply makes the servo lag on the transition (rounding
+      -- the dwell), which is the correct physical inefficiency; it must not
+      -- collapse the commanded cadence. The old wavePeakDerivativeBound blew up
+      -- as dwell→1 at 100% ferocity (1/(1-d) → ∞) and starved the servo to a
+      -- near-stop — the "servo becomes unable to drive the wing" bug.
+      --
+      -- The ceiling uses the BASE commanded amplitude, NOT max(L,R): aileron/
+      -- rudder amplitude differentials (±0.4) otherwise inflated one wing and
+      -- dragged the SHARED oscillator cadence down every time the pilot
+      -- steered (the "flap slows down when turning" artefact). A differential
+      -- wing may briefly saturate its own servo at the peak — the physically
+      -- correct, local consequence — but must not slow the whole stroke.
+      peakRatePerHz = 2*pi * amplitude   -- deg/s per Hz (sine peak, base stroke)
+      freqHz = min requestedHz (servoSpeedMargin*servoSpeedDegS / max 1e-6 peakRatePerHz)
 
       -- Oscillator advance → phase, then shaped wave pulse.
       (phase, nextOsc) = advanceOscillator cadenceTarget (fwKGainMod state) (fwAnchorGain params) dt
@@ -507,8 +518,8 @@ flappingBranch coupled prof aileronNorm elevatorNorm rc params state dt =
 
       -- Convert the COMPLETE mixed shaft command into mirrored physical flap
       -- coordinates. The old ABI path discarded every centre/position term.
-      left = clamp (-80) 80 (degL - aileronCmd - elevatorCmd - flapCentreTrim)
-      right = clamp (-80) 80 (degR + aileronCmd - elevatorCmd - flapCentreTrim)
+      left = clamp (-80) 80 (degL + centreL)
+      right = clamp (-80) 80 (degR + centreR)
       angleLeft = neutralAngleDeg - left * angularMultiplier
       angleRight = neutralAngleDeg + right * angularMultiplier
 

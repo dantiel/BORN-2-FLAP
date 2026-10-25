@@ -29,7 +29,7 @@ enum class ETuningField : uint8
     ServoSpeed, StallTorque, Backdrive, BatteryVoltage, BatteryResistance, BatteryCapacity,
     BatteryCRating, BatteryBurstCRating,
     FlapBaseFreq, TailElevatorAngle, GlideAngle, StrokeFerocity, AileronScale, ElevatorScale,
-    FlapCentre, VerticalMountAngle, Count
+    FlapCentre, VerticalMountAngle, ReturnFerocity, Count
 };
 // RC channels drive the native actuators. All forces and moments are aerodynamic.
 UCLASS()
@@ -54,6 +54,8 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     float GetTuning(ETuningField Field) const;
     void SetTuning(ETuningField Field, float Value);
     int32 DefaultBirdModel() const;
+    int32 PhysicsBirdModel() const { return BirdModel==5 ? 2 : BirdModel; }
+    bool IsPterosaur() const { return BirdModel==5; }
     UFUNCTION(BlueprintCallable, Category="Wing")
     void SetWingPaint(UTexture2D* Texture);
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Wing")
@@ -93,6 +95,12 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     float GetEffort() const { return Throttle; }
     float GetBattery() const { return BatterySoc; }
     float GetClimbRate() const;
+    // Actual flap frequency measured from the servo reversal (Hz; 0 while gliding).
+    float GetWingbeatHz() const { return (float)MeasuredWingbeatHz; }
+    // Commanded flap cadence from the mixer (Hz; servo-capped, 0 while gliding).
+    // This is the SET frequency the pilot controls with throttle + the mouse
+    // wheel, so the HUD shows the real setpoint rather than only the measured rate.
+    float GetFlapHz() const { return (float)FlapHz; }
     // The atmospheric wind (m/s, Unreal world axes) the bird currently feels —
     // the unsheltered field, so the cockpit reads the true wind even at rest.
     FVector GetWind() const { return CurrentWind; }
@@ -111,6 +119,10 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     void SetSpeedModifier(float Value) { if (FMath::IsFinite(Value)) Desktop.speedModifier = FMath::Clamp((double)Value, 0.0, 1.0); }
     float GetFpvCameraAngle() const { return FpvCameraAngleDeg; }
     void SetFpvCameraAngle(float Deg) { if (FMath::IsFinite(Deg)) FpvCameraAngleDeg = FMath::Clamp(Deg, -45.f, 45.f); }
+    // Camera motion-blur amount (0..1); 0 disables the pass. Applied to the
+    // flight, chase and FPV cameras with their fixed per-view strength ratios.
+    void  SetMotionBlurAmount(float Amount);
+    float GetMotionBlurAmount() const { return MotionBlurAmount; }
     bool GetFreeLookInvert() const { return bFreeLookInvert; }
     void SetFreeLookInvert(bool bOn) { bFreeLookInvert = bOn; }
     // Mobile twin-stick layout (see UpdateTouchGestures' virtual-stick block).
@@ -134,6 +146,7 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
         case 2:  return 106.f;   // common kestrel (falcon): nose +28.5 -> tail -77.5
         case 4:  return 106.f;   // kestrel light: same silhouette as the common kestrel
         case 1:  return 144.f;   // prototype: beak +59 -> tail plate -85
+        case 5:  return 150.f;  // pterosaur: extended crest and counterweighted bill
         case 3:  return 90.f;    // neon turtle: nose +43 -> hind-fin tip -46
         default: return 182.f;   // ravencrow: beak +70 -> tail tip -112
         }
@@ -183,6 +196,10 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     // Tail fans pivot here so the tail-elevator trim is visible in the bird.
     UPROPERTY() TObjectPtr<USceneComponent> RavenTailPivot;
     UPROPERTY() TObjectPtr<USceneComponent> MembraneTailPivot;
+    UPROPERTY() TObjectPtr<USceneComponent> PterosaurRoot;
+    UPROPERTY() TObjectPtr<USceneComponent> PterosaurLeftShoulder;
+    UPROPERTY() TObjectPtr<USceneComponent> PterosaurRightShoulder;
+    UPROPERTY() TObjectPtr<USceneComponent> PterosaurTailPivot;
     UPROPERTY() TObjectPtr<USceneComponent> TurtleRoot;
     UPROPERTY() TObjectPtr<USceneComponent> TurtleLeftShoulder;
     UPROPERTY() TObjectPtr<USceneComponent> TurtleRightShoulder;
@@ -252,6 +269,9 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     // Fixed FPV camera angle (degrees, pitch offset from the body). Adjustable
     // in flight (Q/E) and persisted; the FPV lens stays at this fixed tilt.
     float FpvCameraAngleDeg = 0.f;
+    // Motion-blur amount (0..1) applied to all cameras at spawn. Persisted via
+    // [Graphics] MotionBlur; the settings menu drives SetMotionBlurAmount live.
+    float MotionBlurAmount = 0.5f;
     void RememberLanding(FVector Position);
     void UpdateLandingCamera(float Dt);
     // Move the ground observer (pilot) across the terrain, blocked by geometry.
@@ -265,6 +285,7 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     bool bFlapRising = false;        // flap velocity sign for top-of-stroke detection
     double LastStrokeTopTime = -1.0; // world-time of last flap top (period measurement)
     double MeasuredWingbeatHz = 0.0; // actual flap frequency measured from the servo
+    double FlapHz = 0.0;             // commanded flap cadence from the mixer (servo-capped)
     double WingForceLp = 0.0;        // low-passed total |strip force| for force-driven audio
     born2flap::DesktopInput Desktop;
     float ControlExpo=.65f;
@@ -299,6 +320,8 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     TMap<UBorn2FlapWingMesh*, FVector> WingSweepPrev;
     double LastWingTouchTime = -1e30;
     bool bWingTouching = false;
+    bool bLoadingFlightPreferences = false;
+    void SaveTuningPreference(ETuningField Field);
     void LoadFlightPreferences();
     float Throttle = 0, RollInput = 0, YawInput = 0, PitchInput = 0, LeftFlap = 0, RightFlap = 0, BatterySoc = 1;
     bool bFlying = false, bHealthy = false, bVectors = false, bReturning = false, bBlind = false;

@@ -375,3 +375,162 @@ Follows the established generator pattern (`create_shiomori_map.py`,
 Record assets and provenance in this doc's appendix when geometry lands (Poly
 Haven CC0 sand/rock, etc.), per the contribution checklist in
 `world-design.md`.
+
+## Procedural implementation - revised 24 October 2026
+
+`create_yunsha_map.py` builds `/Game/Yunsha/Maps/YUNSHA` from seed **221022**.
+The 2.4 x 2.8 km gorge contains Lunya's excavated crescent spring, the Jade
+Palace precinct, an 860 m Wind-Harp mountain with 60 recessed mouths and wing
+reliefs, the Narrows, five freestanding temple summits at 230-610 m, and a
+cloud-forest canopy with local volumetric mist. Distant dunes extend the sand-sea
+beyond the playable gorge. The summit launch shortcut is deliberately absent: the
+Cloud-Forest launch starts below the first peak so reaching the perch remains
+a flight challenge. There are no rice terraces or routes up the pillars.
+
+The native `ABorn2FlapYunsha` height sampler supplies the generator's terrain
+vertices and flight ground fallback. Saved mesh collision includes roofs,
+grotto floors and summit perches. The runtime director supplies rising dust
+streamers, five widening thermal cores with surrounding sink, direction-aware
+ridge lift, a Narrows venturi, proximity/speed-dependent Wind-Harp sound and
+summit bells. Dry, monsoon and cool seasons derive atmospheric differences;
+mirror-wadis appear only during monsoon. Dawn/sunset reveal the sun-glass wings,
+noon fades them and sunset/night add an afterglow. These are authored artistic
+responses, not a spectral-material simulation.
+
+The pterosaur is model 5: a distinct crested body, long bill and articulated
+membrane silhouette. It reuses model 2's existing membrane-wing aerodynamics;
+this is not a newly validated reconstruction of prehistoric flight. Its model
+selection and native/Ruby menus are wired alongside the existing birds.
+
+### Generate and check
+
+Windows:
+
+```powershell
+$env:UE_ROOT = "V:/UE_5.8" # Adjust to your Unreal installation.
+./Tools/generate-maps.ps1 -Maps yunsha
+& "$env:UE_ROOT/Engine/Binaries/ThirdParty/Python3/Win64/python.exe" Tools/test_yunsha.py --time sunset
+```
+
+macOS (native UE 5.8 and its supported Xcode toolchain required):
+
+```bash
+UE_ROOT="/Users/Shared/Epic Games/UE_5.8" bash Tools/generate-maps.sh --maps yunsha
+UE_ROOT="/Users/Shared/Epic Games/UE_5.8" python3 Tools/test_yunsha.py --time sunset
+```
+
+The generated map, meshes, materials and WAV imports are ignored by Git and
+listed in `Tools/generated-content.json`; release scripts generate them before
+cooking. The generator uses only Unreal's Python plus the standard library.
+No NumPy, Windows imaging tools, personal Downloads folder or remote asset
+fetch is required. `--no-render` runs native collision and wind checks without
+a GPU. Rendered checks capture eight views under `Saved/Screenshots`.
+
+### Assets and provenance
+
+Yunsha now uses retained, reusable architecture under
+`Content/WorldAssets/Yunsha` (Git LFS): a scanned temple hall by 3Dystopia,
+a detailed Chinese Buddhist pagoda by Aaron Huo, and a weathered gateway by
+mervemacit, all CC BY 4.0. A Poly Haven rock-face scan supplies broken cliff
+shoulders and exposed bedrock (CC0). Exact source URLs, attribution, license,
+download hashes and modifications are in `Content/ThirdParty/Yunsha-assets.json`.
+The hall's photographed road context and the pagoda's separate ground plane
+were removed. Original UVs and materials remain intact. These are architectural
+references adapted to a fictional landscape, not reconstructions of their real sites.
+
+The imported packages are source inputs; generated world placements, terrain,
+materials, reliefs and audio remain excluded from Git. Retained source art is
+shared across instances rather than duplicated per building.
+Normal Windows/macOS generation needs no downloads or extra Python packages.
+For art maintenance only: `fetch_yunsha_sources.py` verifies pinned downloads,
+`prepare_yunsha_sources.py` uses NumPy to bake transforms and trim scan context,
+and `import_yunsha_assets.py` imports the resulting models in Unreal.
+
+Terrain, wing reliefs and pterosaur geometry remain original procedural work.
+Wind, harp and bell audio remain original deterministic PCM synthesis. Sand,
+rock-face and concrete textures and Nature vegetation reuse retained CC0 inputs.
+Keep the third-party credits with release bundles.
+
+### Composition revision (24 October 2026)
+
+The earlier arcade and cube-built pavilions were rejected visually. Their
+technical checks below describe an obsolete art pass, not visual acceptance.
+
+- Jade: a fourfold-area crescent lagoon beside the Moon Jade Palace: three
+  progressively larger halls, open paifang gateways, and four winding scholar
+  gardens with bonsai collections. The palace axis is on the eastern dry bank;
+  the lake promenade follows the crescent rather than a square foundation.
+- Iron: low dunes and a long open flight across the basin. Outer sand ridges
+  rise roughly 15?35 m instead of the old 165 m wall, keeping the main sites lit.
+- Bronze: sixty irregular excavated grottoes in five clusters within one
+  860 m long mountain, with broad uncarved ribs and a deep western mass.
+  The former 256-cell arcade, block plinths and repeated crown columns are gone.
+- Silver: the riverbed opens again after the cliff; seasonal pools draw the
+  eye toward the narrow passage and the ascent beyond.
+- Gold: fewer intervening spires leave air between the five high sanctuaries.
+  Full timber pagodas, forest margins and scanned rock shoulders replace the
+  small two-roof placeholders. The summit approaches remain flight-only.
+- Source: mist and the empty sky finish the ascent. Do not fill every gap with
+  another monument; distances and changing elevation carry the narrative.
+
+The concept's future vocal Grotto Choir station remains future work; the world
+currently has its own non-radio environmental wind, harp and bell soundscape.
+Mac command construction is portable, but a native Mac run is not available on
+this Windows machine.
+
+The generation and validation tools keep their legacy derived-data cache under
+`Saved/DerivedDataCache` (unless `UE-LocalDataCachePath` is explicitly set),
+while preserving an existing, valid Zen data path from project configuration. On
+Windows, shader temporary files use `Saved/GenerationTemp`, avoiding reliance
+on free space in the system drive's temporary directory.
+
+
+### Earlier technical validation (22?23 October 2026; superseded art)
+
+- Native Unreal 5.8 editor build: passed.
+- Isolated checkout with no Yunsha content: generated, saved, reloaded and exited
+  successfully (278.4 seconds, including cold asset compilation).
+- Main checkout regeneration: saved and reloaded 444 actors, 256 wing reliefs
+  and five flight-only summit perches; clean editor exit (313.7 seconds with
+  the relocated cold cache). A subsequent input/output-hash check reused the
+  cache without launching Unreal. After preserving the configured Zen store,
+  the final full regeneration completed in 83.3 seconds.
+- Dry sunset game run: passed terrain, grotto mouth/rear wall/floor, spring
+  boundary, summit collision, thermal core/off, venturi, seasonal visibility,
+  mural time response and pterosaur selection checks; six screenshots saved.
+- Final noon/monsoon game run: all world checks passed, including the five
+  seasonal mirrors and subdued noon pigments; six new captures saved.
+- Final dry/morning run on 23 October: all world checks passed; six captures
+  inspected, including the softened mist and distant sand-sea.
+- Native macOS generation and packaged-release validation remain unexecuted.
+
+### Moon Jade Palace expansion (24 October 2026)
+
+The crescent is twice as wide and twice as long: outer radii 156/96 m,
+with the inner cutout and its offset scaled identically about the old centre.
+That makes the analytic water area exactly four times the previous area.
+Terrain excavation, water mesh and runtime water queries share this mask.
+
+The Hall of Arrival, Hall of Still Water and Moon Jade Great Hall have roof
+heights of 45, 60 and 90 m. They use V?rldskulturmuseerna's detailed CC0
+Wan fa Gui yi Hall model, adapted to this fictional palace. A continuous
+axial opening is cut through actual door/wall triangles while preserving
+UVs, floors, columns and ceilings. The resulting portals are approximately
+7.1, 9.4 and 14.1 m wide. Three ornate paifang use Leo.Leung's CC BY model;
+36 bonsai displays use zacharyfrs's CC BY bonsai, across four scholar gardens.
+All additional credits and source hashes are in the same asset manifest.
+
+Runtime verification sweeps a 4.4 m wide flight corridor through every hall
+and paifang and probes each hall's real floor and ceiling. These checks prove
+clear geometric passages; they are not an autonomous ornithopter piloting test.
+Eight cameras include the great hall interior and the garden.
+
+Expansion validation: the native Unreal build passed; the final map generation
+saved and reloaded 405 actors in 71.2 seconds. Dry-morning and noon-monsoon
+world runs passed the six passage checks (18 sphere sweeps), three actual
+interior floors and vaulted ceilings, and the existing landscape/season tests.
+The final interior exposure change was additionally verified in a fresh rendered
+monsoon run: all three bounded exposure volumes passed, and the hall image
+showed readable columns, floor and exit. Eight views were captured per run.
+The source download hashes were verified. Native macOS and packaged release
+execution remain untested on this Windows workstation.

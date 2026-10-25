@@ -10,11 +10,14 @@ class BORN2FLAP_API ABorn2FlapHUD : public AHUD
 {
     GENERATED_BODY()
   public:
+    virtual void BeginPlay() override;
     virtual void DrawHUD() override;
 
   private:
     bool bShowChannels = true;
     bool bShowMouseIndicator = false;
+    bool bShowFps = true;
+    float SmoothedFps = 60.f;
     // Frame-rate independent display damping for the channel bars (THR/PIT/
     // YAW/ROLL) so the F2 window reads steadily instead of vibrating.
     float ChannelDisplay[4] = { 0.f, 0.f, 0.f, 0.f };

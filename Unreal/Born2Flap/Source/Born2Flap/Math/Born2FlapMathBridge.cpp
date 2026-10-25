@@ -65,10 +65,10 @@ bool FBorn2FlapMathBridge::Load()
         GetModelMassKgHook = &::b2f_math_get_model_mass_kg;
 
         B2F_FirmwareConfig FlightConfig{};
-        FlightConfig.servo_no_load_speed_deg_s = 1200;
-        FlightConfig.servo_stall_torque_nm = 20;
+        FlightConfig.servo_no_load_speed_deg_s = 857;
+        FlightConfig.servo_stall_torque_nm = 0.735;
         FlightConfig.servo_backdrive_deg_s_nm = 20;
-        FlightConfig.battery_voltage = 11.1;
+        FlightConfig.battery_voltage = 7.4;
         FlightConfig.battery_resistance_ohm = .08;
         FlightConfig.battery_capacity_ah = 1.3;
         Context = ::b2f_math_create_firmware_vehicle(&FlightConfig);
@@ -159,10 +159,10 @@ bool FBorn2FlapMathBridge::Load()
     // stalled under the 1.44 m wing's load. This is a provisional vehicle setup,
     // not a force multiplier. The firmware still feels every aerodynamic load.
     B2F_FirmwareConfig FlightConfig{};
-    FlightConfig.servo_no_load_speed_deg_s = 1200;
-    FlightConfig.servo_stall_torque_nm = 20;
+    FlightConfig.servo_no_load_speed_deg_s = 857;
+    FlightConfig.servo_stall_torque_nm = 0.735;
     FlightConfig.servo_backdrive_deg_s_nm = 20;
-    FlightConfig.battery_voltage = 11.1;
+    FlightConfig.battery_voltage = 7.4;
     FlightConfig.battery_resistance_ohm = .08;
     FlightConfig.battery_capacity_ah = 1.3;
     Context = CreateFirmwareVehicle(&FlightConfig);
