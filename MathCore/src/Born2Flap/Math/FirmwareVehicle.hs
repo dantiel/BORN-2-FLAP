@@ -17,6 +17,7 @@ module Born2Flap.Math.FirmwareVehicle
   , stepFirmwareVehicle
   , stepFirmwareVehicleWithInertia
   , hingeTorque
+  , tailSurface
   ) where
 
 import Born2Flap.Math.Types (Vec3(..))
@@ -33,8 +34,8 @@ import Born2Flap.Math.ResponsePhase
 import Born2Flap.Math.Vehicle
   ( VehicleInput(..), VehicleOutput(..)
   , StripState(..), StripResult(..), initialStrips
-  , stepCoupledWing, prepareWingLoads, wingRootHeight, airDensity
-  , springEaseFactor
+  , stepCoupledWing, prepareWingLoads, wingRootHeight, airDensity, surfaceSkinCd, surfacePressure
+  , finiteWingLiftSlope, inducedDragCoefficient
   , addVec, crossVec, scaleVec, magnitude, zeroVec, radians )
 
 data FirmwareVehicleState = FirmwareVehicleState
@@ -47,10 +48,12 @@ data FirmwareVehicleState = FirmwareVehicleState
   , fvRightStripForceMag :: ![Double]
   , fvLeftHingeTorqueNm  :: !Double   -- ^ aero load fed to the servo next step
   , fvRightHingeTorqueNm :: !Double
+  , fvMotorCurrentA   :: !Double     -- ^ previous solved motor current, for supply sag
   , fvBatterySoc      :: !Double     -- ^ 0..1, drains under servo current
   , fvBatteryBoost    :: !Double     -- ^ 0..1, LiPo burst reservoir (C-rating headroom)
   , fvPhaseEnvelope   :: !PhaseEnvelopeState  -- ^ ONDAS A-layer
   , fvResponsePhase   :: !ResponsePhaseState  -- ^ read-only response-phase diagnostic (no controller output)
+  , fvFlapHz          :: !Double              -- ^ commanded flap cadence [Hz] from the mixer (servo-capped), 0 in glide
   } deriving stock (Eq, Show)
 
 defaultFirmwareVehicleState :: FirmwareVehicleState
@@ -64,10 +67,12 @@ defaultFirmwareVehicleState = FirmwareVehicleState
   , fvRightStripForceMag = []
   , fvLeftHingeTorqueNm = 0
   , fvRightHingeTorqueNm = 0
+  , fvMotorCurrentA = 0
   , fvBatterySoc = 1.0
   , fvBatteryBoost = 1.0
   , fvPhaseEnvelope = defaultPhaseEnvelope
   , fvResponsePhase = defaultResponsePhase
+  , fvFlapHz = 0
   }
 
 -- | One closed-loop timestep.
@@ -126,12 +131,16 @@ stepFirmwareVehicleWithInertia hostInertia coupled rc params servo battery model
       old <- getState
       let (output, next) = advanceFirmwareVehicle hostInertia coupled rc params servo battery model dt bodyVel bodyRates groundClearance old
           values = components (totalForceN output) ++ components (totalMomentNm output) ++
-            [totalMechanicalPowerW output, maxSeparation output, fvBatterySoc next,
+            [totalMechanicalPowerW output, maxSeparation output, fvBatterySoc next, fvMotorCurrentA next,
              fvBatteryBoost next,
              fvLeftHingeTorqueNm next, fvRightHingeTorqueNm next,
              servoAngleDeg (fvServoLeft next), servoAngleDeg (fvServoRight next),
              servoRateDegPerSec (fvServoLeft next), servoRateDegPerSec (fvServoRight next),
-             phaseEnvelope (fvPhaseEnvelope next), phaseCoverage (fvPhaseEnvelope next)]
+             phaseEnvelope (fvPhaseEnvelope next), phaseCoverage (fvPhaseEnvelope next)] ++
+            concatMap (\s -> [stripSeparation s,stripPreviousAlpha s,stripCamber s,
+                    stripBendM s,stripBendSlope s,stripTwistAero s,
+                    stripBendRateMS s,stripTwistRateRadS s])
+              (fvLeftStrips next ++ fvRightStrips next)
       if all finite values then putState next >> pure output else abort 2
 
 finite :: Double -> Bool
@@ -141,13 +150,12 @@ components :: Vec3 -> [Double]
 components (Vec3 a b c) = [a,b,c]
 
 -- Both positive stroke coordinates raise the wing. The left hinge axis is -X.
--- Aeroelastic spring easing: while the spar spring is still deflecting it
--- absorbs part of the aero hinge load, so the servo sees less torque until the
--- spring is fully loaded. The easing is twist-dependent (see 'springEaseFactor'):
--- a forward (nose-down) twist loads the spar in the thrust direction, which the
--- servo carries virtually for free.
+-- Elastic deformation changes the surface geometry. It cannot discount the
+-- external moment transmitted to the hinge; a dynamic spring would need its
+-- own inertia and stored-energy state to account for that exchange.
 hingeTorque :: Double -> [StripResult] -> Double
-hingeTorque side = (* side) . sum . map (\r -> springEaseFactor (resultState r) * (x (resultMoment r) + wingRootHeight * y (resultForce r)))
+hingeTorque side = (* side) . sum . map (\r -> (x (resultMoment r) + wingRootHeight * y (resultForce r)))
+
 
 advanceFirmwareVehicle
   :: Double -> Bool -> RcChannels -> FirmwareParams -> ServoSpec -> BatterySpec -> WingModel
@@ -170,8 +178,7 @@ advanceFirmwareVehicle hostInertia coupled rc params servo battery model dt body
      
           dryWingInertia = shapeFlapInertia wingMass 0 (wmWing model)
           lockedInertia = hostInertia + 2 * (wingInertia - dryWingInertia)
-          currentA = min 10 ((abs (fvLeftHingeTorqueNm state) + abs (fvRightHingeTorqueNm state))
-                       / max 0.01 (servoStallTorqueNm servo / 5))
+          currentA = fvMotorCurrentA state
           -- LiPo burst reservoir: the servo may exceed the continuous C-rating
           -- only momentarily; each pause between strokes refills the burst a bit.
           contA = batteryCRating battery * batteryCapacityAh battery
@@ -204,14 +211,17 @@ advanceFirmwareVehicle hostInertia coupled rc params servo battery model dt body
           aeroAt rates =
             let ls = leftLoads (x rates) (y rates)
                 rs = rightLoads (x rates) (z rates)
-            in Vec3 (sum (zipWith (\l r -> x (resultMoment l) + x (resultMoment r)) ls rs) + x tailMoment)
+                candidateBodyRates = Vec3 (x rates) (y bodyRates) (z bodyRates)
+            in Vec3 (sum (zipWith (\l r -> x (resultMoment l) + x (resultMoment r)) ls rs)
+                     + x (tailMomentAt candidateBodyRates))
                     (hingeTorque (-1) ls) (hingeTorque 1 rs)
           aero0 = aeroAt oldRates
           loads rates =
             let aero = aeroAt rates
                 drag load rate = servoBackdriveTorque servo battery voltage load rate
-            in addVec aero (Vec3 0 (motorL (y rates) + drag (y aero0) (y rates))
-                                   (motorR (z rates) + drag (z aero0) (z rates)))
+            in addVec aero
+                      (Vec3 0 (motorL (y rates) + drag (y aero0) (y rates))
+                              (motorR (z rates) + drag (z aero0) (z rates)))
           solved = stepRoll dt lockedInertia wingInertia reflectedDriveInertia oldRates (angleL,angleR) loads
           -- NaN triggers transactional rollback if Newton cannot converge.
           ratesNext = case solved of Just rates -> rates; Nothing -> Vec3 (0/0) (0/0) (0/0)
@@ -304,14 +314,17 @@ advanceFirmwareVehicle hostInertia coupled rc params servo battery model dt body
           -- A direct flap-power/ruddervator mix balances the wing drive's changing
           -- pitching moment. Glide returns to its shallow incidence; no attitude,
           -- altitude or speed target is involved.
-          tailTrim = -4.6 - 2.2 * mixThrottlePct mix * mixThrottlePct mix
-          tailPanel side =
+          -- Re-trim for the shared finite-wing lift slope. Keeping the old
+          -- incidence after correcting the tail's weak lift slope doubled
+          -- the nose-up trim moment and drove repeated climb/stall cycles.
+          tailTrim = -2.3 - 1.1 * mixThrottlePct mix * mixThrottlePct mix
+          tailPanel panelBodyRates side =
             let -- Tail geometry is the reference kestrel's fixed arm and panel
                 -- area (0.85 m arm, 0.0242 m² panel); it is part of the bird,
                 -- not scaled per planform.
                 arm = Vec3 (-0.85) (side * 0.12) (-0.12 * tan cant)
                 normal = Vec3 0 (side * sin cant) (cos cant)
-                flow = addVec bodyVel (crossVec bodyRates arm)
+                flow = addVec bodyVel (crossVec panelBodyRates arm)
                 normalFlow = y flow * y normal + z flow * z normal
                 -- Ruddervator deflection is a rotation about the spanwise hinge,
                 -- i.e. a *direct* change of panel incidence (no sin/cos here).
@@ -323,7 +336,12 @@ advanceFirmwareVehicle hostInertia coupled rc params servo battery model dt body
                 (fx, fn) = tailSurface 0.0242 incidence (x flow) normalFlow
                 panelForce = addVec (Vec3 fx 0 0) (scaleVec fn normal)
             in (panelForce, crossVec arm panelForce)
-          panels = map tailPanel [-1,1]
+          panelsAt rates = map (tailPanel rates) [-1,1]
+          tailMomentAt rates = foldr (addVec . snd) zeroVec (panelsAt rates)
+          -- Include the tail in the same implicit roll solve as the wings.
+          -- Holding its damping at the old rate can reverse roll too far when
+          -- the small fuselage inertia is exposed during a wing transition.
+          panels = panelsAt (Vec3 (x ratesNext) (y bodyRates) (z bodyRates))
           tailForce = foldr (addVec . fst) zeroVec panels
           tailMoment = foldr (addVec . snd) zeroVec panels
           force = addVec wingForce (addVec bodyDrag (addVec bodySideForce (addVec bodyTopForce tailForce)))
@@ -338,8 +356,16 @@ advanceFirmwareVehicle hostInertia coupled rc params servo battery model dt body
           maximumSeparation = maximum (0 : separations)
           power = sum (map resultPower wingResults)
 
-          -- 6. Battery drain: servo current ∝ torque magnitude.
-          socDrop = batterySocDrop servo battery (abs leftHinge + abs rightHinge) dt
+          -- Charge the actual motor torque, including acceleration and reversal,
+          -- rather than only the aerodynamic hinge load. The 5 A stall-current
+          -- assumption remains provisional until measured servo data is supplied.
+          torqueL = motorL (y ratesNext)
+          torqueR = motorR (z ratesNext)
+          motorPower = max 0 (torqueL*y ratesNext) + max 0 (torqueR*z ratesNext)
+          torqueCurrent = (abs torqueL + abs torqueR) / max 0.01 (servoStallTorqueNm servo / 5)
+          motorCurrent = if voltage <= 0 then 0
+                         else max torqueCurrent (motorPower / (0.70 * voltage))
+          socDrop = motorCurrent * dt / (3600 * max 0.01 (batteryCapacityAh battery))
           nextSoc = max 0 (fvBatterySoc state - socDrop)
 
           nextState = state
@@ -352,24 +378,16 @@ advanceFirmwareVehicle hostInertia coupled rc params servo battery model dt body
             , fvRightStripForceMag = map (magnitude . resultForce) rightResults
             , fvLeftHingeTorqueNm = leftHinge
             , fvRightHingeTorqueNm = rightHinge
+            , fvMotorCurrentA = motorCurrent
             , fvBatterySoc = nextSoc
             , fvBatteryBoost = boostNext
             , fvPhaseEnvelope = peNext
             , fvResponsePhase = nextResponsePhase
+            , fvFlapHz = mixFlapHz mix
             }
 
           output = VehicleOutput force moment power maximumSeparation (-1) 0
       in (output, nextState)
-
--- | Battery state-of-charge drain per step, from servo torque. Current is
--- approximated as torque ∕ (voltage · torque-per-amp), capacity in Ah.
-batterySocDrop :: ServoSpec -> BatterySpec -> Double -> Double -> Double
-batterySocDrop servo battery torqueNm dt =
-  let -- torque-per-amp: assume stall torque draws ~ 5 A at nominal voltage.
-      torquePerAmp = servoStallTorqueNm servo / 5.0
-      currentA = min 10 (torqueNm / max 0.01 torquePerAmp)
-      ampHours = currentA * (dt / 3600)
-  in ampHours / max 0.01 (batteryCapacityAh battery)
 
 zeroOutput :: Int -> VehicleOutput
 zeroOutput flags = VehicleOutput zeroVec zeroVec 0 0 (-1) flags
@@ -406,17 +424,28 @@ panelSurface polar area incidence chordVelocity normalVelocity =
       w = normalVelocity / max 1.0e-9 speed
   in (q * (-cd * u - cl * w), q * (-cd * w + cl * u))
 
--- | Flat-plate V-tail polar (the reference ruddervator). The ruddervator is a
--- RIGID plate (it cannot deflect/feather), so it carries the high-pressure-drag
--- side of the aeroelastic drag trade: its parasitic drag rises from the
--- crossflow pressure term (∝ sin²α), not from a thin-edge profile figure. That
--- is the speed governor + weathervane the bird needs — the wing sheds its own
--- pressure drag aeroelastically, the tail does not.
-tailPolar :: PanelPolar
-tailPolar = PanelPolar 1.1 0.045 0.14 3.5
-
 tailSurface :: Double -> Double -> Double -> Double -> (Double, Double)
-tailSurface = panelSurface tailPolar
+tailSurface area incidence chordVelocity normalVelocity =
+  let speed = sqrt (chordVelocity*chordVelocity + normalVelocity*normalVelocity)
+      alpha = atan2 (sin (incidence + atan2 (-normalVelocity) chordVelocity))
+                    (cos (incidence + atan2 (-normalVelocity) chordVelocity))
+      -- Static separation of a rigid panel. The wing additionally carries
+      -- unsteady separation, elastic twist and camber states.
+      t = max 0 (min 1 ((abs alpha-radians 13)/radians 7))
+      separation = t*t*(3-2*t)
+      -- Panel centres are +/-0.12 m: each half spans 0.24 m. Use the
+      -- full pair's aspect ratio, just as the wing uses its full span/area.
+      aspect = 0.48*0.48/(2*area)
+      attached = max (-1.9) (min 1.9 (finiteWingLiftSlope aspect*alpha))
+      cl = (1-separation)*attached
+      cd = surfaceSkinCd + inducedDragCoefficient aspect cl
+      q = 0.5*airDensity*area*speed*speed
+      u = chordVelocity/max 1e-9 speed
+      w = normalVelocity/max 1e-9 speed
+      nx = -sin incidence
+      nz = cos incidence
+      pressure = surfacePressure area (nx*chordVelocity+nz*normalVelocity)
+  in (q*(-cd*u-cl*w)+pressure*nx, q*(-cd*w+cl*u)+pressure*nz)
 
 -- | Round lifting-body polar. A streamlined body has a much weaker circulation
 -- lift than a flat plate (its sides/top are curved, so the Kutta condition is

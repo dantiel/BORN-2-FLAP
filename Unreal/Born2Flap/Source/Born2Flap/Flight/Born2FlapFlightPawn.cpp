@@ -40,9 +40,13 @@
 #include "Kismet/GameplayStatics.h"
 #include "Audio/Born2FlapAudioSynth.h"
 #include "Audio/Born2FlapAeroAudio.h"
+#include "Rendering/Born2FlapGraphics.h"
 namespace
 {
-constexpr double MathDt = 1.0 / 240.0;
+// Pitch/yaw and the elastic surface velocities feed back explicitly between
+// backend evaluations. Resolve their aerodynamic damping time scale rather
+// than weakening pressure to keep a coarse integration step stable.
+constexpr double MathDt = 1.0 / 960.0;
 bool Finite(const FVector &V)
 {
     return FMath::IsFinite(V.X) && FMath::IsFinite(V.Y) && FMath::IsFinite(V.Z);
@@ -172,10 +176,10 @@ ABorn2FlapFlightPawn::ABorn2FlapFlightPawn()
     // Default hangar tuning = the reference kestrel hardware (VOTIK PTK 7465
     // Plus flap servo, 3S 1.3 Ah) plus the simulator's controller base.
     // LoadFlightPreferences may override these before the first ApplyTuning.
-    Tuning.servo_no_load_speed_deg_s = 1500;
-    Tuning.servo_stall_torque_nm = 1.332f;
+    Tuning.servo_no_load_speed_deg_s = 857;
+    Tuning.servo_stall_torque_nm = 0.735f;
     Tuning.servo_backdrive_deg_s_nm = 20;
-    Tuning.battery_voltage = 11.1;
+    Tuning.battery_voltage = 7.4;
     Tuning.battery_resistance_ohm = 0.08;
     Tuning.battery_capacity_ah = 1.3;
     Tuning.battery_c_rating = 30;
@@ -188,6 +192,7 @@ ABorn2FlapFlightPawn::ABorn2FlapFlightPawn()
     Tuning.elevator_scale = 55;
     Tuning.flap_centre_deg = 0;
     Tuning.vertical_mount_angle_deg = 0;
+    Tuning.return_ferocity = 50;
 }
 ABorn2FlapFlightPawn::~ABorn2FlapFlightPawn() = default;
 namespace
@@ -212,6 +217,7 @@ float TuningClamp(ETuningField Field, float Value)
     case ETuningField::ElevatorScale:     return FMath::Clamp(Value, 0.f, 100.f);
     case ETuningField::FlapCentre:        return FMath::Clamp(Value, -15.f, 15.f);
     case ETuningField::VerticalMountAngle: return FMath::Clamp(Value, -15.f, 15.f);
+    case ETuningField::ReturnFerocity:    return FMath::Clamp(Value, 0.f, 100.f);
     default: return 0.f;
     }
 }
@@ -236,11 +242,13 @@ float ABorn2FlapFlightPawn::GetTuning(ETuningField Field) const
     case ETuningField::ElevatorScale:     return float(Tuning.elevator_scale);
     case ETuningField::FlapCentre:        return float(Tuning.flap_centre_deg);
     case ETuningField::VerticalMountAngle: return float(Tuning.vertical_mount_angle_deg);
+    case ETuningField::ReturnFerocity:    return float(Tuning.return_ferocity);
     default: return 0.f;
     }
 }
 void ABorn2FlapFlightPawn::SetTuning(ETuningField Field, float Value)
 {
+    if (!FMath::IsFinite(Value)) return;
     Value = TuningClamp(Field, Value);
     switch (Field)
     {
@@ -260,9 +268,11 @@ void ABorn2FlapFlightPawn::SetTuning(ETuningField Field, float Value)
     case ETuningField::ElevatorScale:     Tuning.elevator_scale = Value; break;
     case ETuningField::FlapCentre:        Tuning.flap_centre_deg = Value; break;
     case ETuningField::VerticalMountAngle: Tuning.vertical_mount_angle_deg = Value; break;
+    case ETuningField::ReturnFerocity:    Tuning.return_ferocity = Value; break;
     default: return;
     }
     ApplyTuning();
+    SaveTuningPreference(Field);
 }
 void ABorn2FlapFlightPawn::ApplyTuning()
 {
@@ -354,6 +364,7 @@ int32 ABorn2FlapFlightPawn::DefaultBirdModel() const
     // the RavenCrow rules the nature valley, and the Prototype trains in the
     // indoor arena. Loading a map therefore swaps the bird automatically.
     const auto* GameMode = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode());
+    if (GameMode && GameMode->IsDesertLevel())return 5;
     if (GameMode && GameMode->IsVoidLevel())
         return 3;                       // Neon Abyss -> the neon turtle
     if (GameMode && GameMode->IsCoastLevel())
@@ -391,16 +402,17 @@ void ABorn2FlapFlightPawn::BeginPlay()
     Camera->PostProcessSettings.bOverride_AutoExposureBias = false;
     if (SkyDome) SkyDome->SetVisibility(false);
     Camera->PostProcessSettings.AutoExposureBias = 0;
+    MotionBlurAmount = Born2FlapGraphics::LoadMotionBlur();
     Camera->PostProcessSettings.bOverride_MotionBlurAmount = true;
-    Camera->PostProcessSettings.MotionBlurAmount = 0;
+    Camera->PostProcessSettings.MotionBlurAmount = MotionBlurAmount;
     GroundCamera->PostProcessSettings = Camera->PostProcessSettings;
-    GroundCamera->PostProcessSettings.MotionBlurAmount = .6f;
+    GroundCamera->PostProcessSettings.MotionBlurAmount = MotionBlurAmount * 1.2f;
     GroundCamera->PostProcessSettings.bOverride_MotionBlurMax = true;
     GroundCamera->PostProcessSettings.MotionBlurMax = 5.f;
     GroundCamera->PostProcessSettings.bOverride_MotionBlurTargetFPS = true;
     GroundCamera->PostProcessSettings.MotionBlurTargetFPS = 60;
     FpvCamera->PostProcessSettings = GroundCamera->PostProcessSettings;
-    FpvCamera->PostProcessSettings.MotionBlurAmount = .2f;
+    FpvCamera->PostProcessSettings.MotionBlurAmount = MotionBlurAmount * 0.4f;
     // Fisheye barrel-distortion lens for the onboard camera (created by the map
     // generator as /Game/UI/M_FpvFisheye). Absent asset -> fall back to a plain
     // perspective lens without breaking the FPV view.
@@ -459,6 +471,12 @@ void ABorn2FlapFlightPawn::BeginPlay()
         BirdModel=2;
     if (BirdModel < 0)
         BirdModel = DefaultBirdModel();   // no explicit menu choice yet → level default
+    if (bFlightTest)
+    {
+        int32 TestBirdModel = BirdModel;
+        if (FParse::Value(FCommandLine::Get(), TEXT("B2FTestBirdModel="), TestBirdModel))
+            BirdModel = FMath::Clamp(TestBirdModel, 0, 4);
+    }
     SelectBirdModel(BirdModel);   // applies the loaded mass + CG for this model
     // Sparse wind motes: a few tiny specks advected by the atmospheric field so
     // the invisible current becomes perceivable. World-space instanced spheres,
@@ -562,6 +580,27 @@ void ABorn2FlapFlightPawn::SetWingPaint(UTexture2D* Texture)
     for(auto* Wing : Wings) Wing->SetPaintTexture(Texture);
 }
 
+void ABorn2FlapFlightPawn::SetMotionBlurAmount(float Amount)
+{
+    if (!FMath::IsFinite(Amount)) return;
+    MotionBlurAmount = FMath::Clamp(Amount, 0.f, 1.f);
+    if (Camera)
+    {
+        Camera->PostProcessSettings.bOverride_MotionBlurAmount = true;
+        Camera->PostProcessSettings.MotionBlurAmount = MotionBlurAmount;
+    }
+    if (GroundCamera)
+    {
+        GroundCamera->PostProcessSettings.bOverride_MotionBlurAmount = true;
+        GroundCamera->PostProcessSettings.MotionBlurAmount = MotionBlurAmount * 1.2f;
+    }
+    if (FpvCamera)
+    {
+        FpvCamera->PostProcessSettings.bOverride_MotionBlurAmount = true;
+        FpvCamera->PostProcessSettings.MotionBlurAmount = MotionBlurAmount * 0.4f;
+    }
+}
+
 void ABorn2FlapFlightPawn::ResetFlight(bool bSafety)
 {
     if (bSafety)
@@ -580,7 +619,7 @@ void ABorn2FlapFlightPawn::ResetFlight(bool bSafety)
         // A fresh context starts on the kestrel reference; select the bird's
         // own wing planform + carbon-rod inventory before the mass properties
         // and first wing loads are read.
-        MathBridge->SetWingModel((uint32_t)BirdModel);
+        MathBridge->SetWingModel((uint32_t)PhysicsBirdModel());
         ApplyTuning();
     }
     bFlying = bReturning = false;
@@ -946,7 +985,12 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
     // Consume exactly this frame's physical time, including fractional steps.
     // Reusing the last force when no fixed step ran applied an impulse without
     // advancing the hinges; averaging a different duration did the converse.
-    const int32 StepCount = FMath::Max(1, FMath::CeilToInt(PhysicsDt / MathDt - 1.e-6));
+    double TargetMathDt = MathDt;
+    double TestHz = 960;
+    if (bFlightTest && FParse::Value(FCommandLine::Get(), TEXT("B2FPhysicsHz="), TestHz) &&
+        FMath::IsFinite(TestHz) && TestHz >= 240 && TestHz <= 3840)
+        TargetMathDt = 1.0 / TestHz;
+    const int32 StepCount = FMath::Max(1, FMath::CeilToInt(PhysicsDt / TargetMathDt - 1.e-6));
     const double StepDt = PhysicsDt / StepCount;
     if (StepDt <= 0) return false;
     State.delta_time_s = StepDt;
@@ -997,6 +1041,7 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
         LastMechanicalPower = O.mechanical_power_w;
         LastPhaseError = O.phase_error;
         LastKGainMod = O.k_gain_mod;
+        FlapHz = O.flap_hz;
         // Predict BOTH linear and rotational feedback between wing evaluations.
         // Holding angular velocity for a whole 30 Hz frame made aerodynamic
         // roll damping overshoot. Chaos receives the mean loads once and stays
@@ -1347,7 +1392,11 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
                 (PC->IsInputKeyDown(Get(TEXT("RollRight"))) ? 1.f : 0.f) - (PC->IsInputKeyDown(Get(TEXT("RollLeft"))) ? 1.f : 0.f),
                 -1.f, 1.f);
             const float LookSens = 0.22f;   // degrees per raw mouse count
-            const float WalkSpeed = 220.f;  // cm/s
+            // Walk vs run: holding Shift (sprint) roughly doubles the ground
+            // observer's pace so the pilot can cover ground when scouting.
+            const bool bRun = PC->IsInputKeyDown(EKeys::LeftShift) ||
+                              PC->IsInputKeyDown(EKeys::RightShift);
+            const float WalkSpeed = bRun ? 440.f : 220.f;  // cm/s
             if (bGroundView)
             {
                 // Ground perspective: free-look (can turn away from the bird).
@@ -1603,7 +1652,7 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     else if (GetAltitude() > .5f && GetSpeed() > 1.f)
         bFlying = true;
     UpdateLandingCamera(Dt);
-    const double FieldRadius = Mode && Mode->IsVoidLevel() ? 20000. : (Mode && Mode->IsNatureLevel() ? 190000. : 30000.);
+    const double FieldRadius = Mode && Mode->IsDesertLevel() ? 185000. : Mode && Mode->IsVoidLevel() ? 20000. : (Mode && Mode->IsNatureLevel() ? 190000. : 30000.);
     if (bFlying && !bReturning && P.Size2D() > FieldRadius)
     {
         bReturning = true;
@@ -1683,23 +1732,26 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     float FlapL = LeftFlap, FlapR = RightFlap;
     if (!bFlying && Throttle < 0.05f)
     {
-        // At rest, hold the wings near the +16° neutral dihedral so a residual
-        // flap cannot dip the tips below the body plane and into the sand. When
-        // throttling on the ground (repositioning), let the full stroke show.
+        // At rest, hold the wings level (no artificial dihedral offset) so the
+        // rendered wing matches the physics stroke angle exactly. When throttling
+        // on the ground (repositioning), let the full stroke show.
         FlapL = FMath::Clamp(LeftFlap, -12.f, 12.f);
         FlapR = FMath::Clamp(RightFlap, -12.f, 12.f);
     }
-    if (RavenLeftShoulder) RavenLeftShoulder->SetRelativeRotation(FRotator(MountPitch, 0, FlapL + 16));
-    if (RavenRightShoulder) RavenRightShoulder->SetRelativeRotation(FRotator(MountPitch, 0, -FlapR - 16));
-    LeftShoulder->SetRelativeRotation(FRotator(MountPitch, 0, FlapL + 16));
-    RightShoulder->SetRelativeRotation(FRotator(MountPitch, 0, -FlapR - 16));
+    if (RavenLeftShoulder) RavenLeftShoulder->SetRelativeRotation(FRotator(MountPitch, 0, FlapL));
+    if (RavenRightShoulder) RavenRightShoulder->SetRelativeRotation(FRotator(MountPitch, 0, -FlapR));
+    LeftShoulder->SetRelativeRotation(FRotator(MountPitch, 0, FlapL));
+    RightShoulder->SetRelativeRotation(FRotator(MountPitch, 0, -FlapR));
     if(MembraneLeftShoulder) MembraneLeftShoulder->SetRelativeRotation(LeftShoulder->GetRelativeRotation());
     if(MembraneRightShoulder) MembraneRightShoulder->SetRelativeRotation(RightShoulder->GetRelativeRotation());
+    if(PterosaurLeftShoulder) PterosaurLeftShoulder->SetRelativeRotation(LeftShoulder->GetRelativeRotation());
+    if(PterosaurRightShoulder) PterosaurRightShoulder->SetRelativeRotation(RightShoulder->GetRelativeRotation());
     if(TurtleLeftShoulder) TurtleLeftShoulder->SetRelativeRotation(LeftShoulder->GetRelativeRotation());
     if(TurtleRightShoulder) TurtleRightShoulder->SetRelativeRotation(RightShoulder->GetRelativeRotation());
     // Tail-elevator trim, visible in the rendered bird: pitch the tail fan.
     const float TailPitch = Tuning.tail_elevator_angle_deg;
     if (RavenTailPivot) RavenTailPivot->SetRelativeRotation(FRotator(TailPitch, 0, 0));
+    if (PterosaurTailPivot) PterosaurTailPivot->SetRelativeRotation(FRotator(TailPitch, 0, 0));
     if (MembraneTailPivot) MembraneTailPivot->SetRelativeRotation(FRotator(TailPitch, 0, 0));
     if (TurtleTailPivot) TurtleTailPivot->SetRelativeRotation(FRotator(TailPitch, 0, 0));
     B2F_WingSection LeftShape[B2F_WING_STATIONS], RightShape[B2F_WING_STATIONS];
@@ -1717,9 +1769,27 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     UpdateWaterRipples(Dt);
     if (bVectors)
     {
-        DrawDebugDirectionalArrow(GetWorld(), P, P + AeroForce * 25, 15, FColor::Cyan, false, 0, 0, 2);
-        DrawDebugDirectionalArrow(GetWorld(), P, P + FVector(0, 0, -Body->GetMass() * 9.81) * 25, 15, FColor::Red,
-                                  false, 0, 0, 2);
+        const FRotator R = Body->GetComponentRotation();
+        const FVector Fwd   = R.Vector();                        // body +X = thrust
+        const FVector Right = R.RotateVector(FVector(0, 1, 0));  // body +Y = side
+        const FVector Up    = R.RotateVector(FVector(0, 0, 1));  // body +Z = lift
+        const float K = 25.f;
+        // Draw from a point lifted clear of the fuselage, at FOREGROUND depth
+        // (1 = SDPG_Foreground) so the arrows are never hidden inside the bird
+        // mesh or the ground — F5 must be readable in flight.
+        const FVector VOrigin = Body->GetComponentLocation() + FVector(0, 0, 40);
+        // Total aerodynamic force (world space).
+        DrawDebugDirectionalArrow(GetWorld(), VOrigin, VOrigin + AeroForce * K, 15, FColor::Cyan, false, 0, 1, 3);
+        // Body-axis decomposition so the thrust/side/lift split is visible live.
+        const FVector Thrust = Fwd   * (AeroForce | Fwd);
+        const FVector Side   = Right * (AeroForce | Right);
+        const FVector Lift   = Up    * (AeroForce | Up);
+        DrawDebugDirectionalArrow(GetWorld(), VOrigin, VOrigin + Thrust * K, 15, FColor::Green,  false, 0, 1, 3);
+        DrawDebugDirectionalArrow(GetWorld(), VOrigin, VOrigin + Side   * K, 15, FColor::Yellow, false, 0, 1, 3);
+        DrawDebugDirectionalArrow(GetWorld(), VOrigin, VOrigin + Lift   * K, 15, FColor::Blue,   false, 0, 1, 3);
+        // Gravity reference.
+        DrawDebugDirectionalArrow(GetWorld(), VOrigin, VOrigin + FVector(0, 0, -Body->GetMass() * 9.81) * K, 15, FColor::Red,
+                                  false, 0, 1, 3);
     }
     LogTime += DeltaSeconds;
     if (LogTime >= 1)

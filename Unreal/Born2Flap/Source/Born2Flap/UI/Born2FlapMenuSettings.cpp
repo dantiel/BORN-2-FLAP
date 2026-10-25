@@ -69,6 +69,7 @@ float MenuSettingsGetTuning(const FMenuSettings& S, ETuningField Field)
 
 void MenuSettingsSetTuning(FMenuSettings& S, ETuningField Field, float Value)
 {
+    if (!FMath::IsFinite(Value)) return;
     Value = MenuSettingsTuningClamp(Field, Value);
     switch (Field)
     {
@@ -157,7 +158,7 @@ void MenuSettingsLoad(FMenuSettings& Out)
     // Bird model: only persist an explicit choice. -1 means "level default".
     int32 Model = -1;
     Config.GetInt(TEXT("Flight"), TEXT("BirdModel"), Model);
-    Out.BirdModel = (Model >= 0 && Model <= 2) ? Model : -1;
+    Out.BirdModel = (Model >= 0 && Model <= 5) ? Model : -1;
 
     FString Lang = Out.Language;
     Config.GetString(TEXT("General"), TEXT("Language"), Lang);
@@ -198,7 +199,7 @@ void MenuSettingsSave(const FMenuSettings& In)
         const ETuningField Field = ETuningField(I);
         Config.SetFloat(TEXT("Tuning"), born2flap::tuning::Key(Field), MenuSettingsGetTuning(In, Field));
     }
-    if (In.BirdModel >= 0 && In.BirdModel <= 2)
+    if (In.BirdModel >= 0 && In.BirdModel <= 5)
         Config.SetInt64(TEXT("Flight"), TEXT("BirdModel"), In.BirdModel);
     Config.SetString(TEXT("General"), TEXT("Language"), *In.Language);
     Config.SetFloat(TEXT("General"), TEXT("UIScale"), In.UIScale);
@@ -238,7 +239,7 @@ void MenuSettingsToPawn(const FMenuSettings& In, ABorn2FlapFlightPawn* Pawn)
         Pawn->SetTuning(ETuningField(I), MenuSettingsGetTuning(In, ETuningField(I)));
     // Select the model first so the CG offset is clamped to the correct
     // length-derived range (a larger craft allows a wider CG travel).
-    if (In.BirdModel >= 0 && In.BirdModel <= 2)
+    if (In.BirdModel >= 0 && In.BirdModel <= 5)
         Pawn->SelectBirdModel(In.BirdModel);
     Pawn->SetBodyMassKg(In.BodyMassKg);
     Pawn->SetCgOffsetMm(In.CgOffsetMm);

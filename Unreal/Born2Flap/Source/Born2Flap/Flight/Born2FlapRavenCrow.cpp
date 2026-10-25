@@ -329,6 +329,37 @@ USceneComponent* Born2FlapRaven::Build(AActor* Owner, USceneComponent* Parent,
     const float TailRootX = (Design == 2) ? KestrelTailRootX : (Design == 3) ? TurtleTailRootX : RavenTailRootX;
     auto* TailPivot = Node(TEXT("TailPivot"), RavenRoot, FVector(TailRootX, 0.f, 0.f));
     OutTailPivot = TailPivot;
+    if(Design==5)
+    {
+        // A distinct membrane silhouette on the existing tested membrane-wing
+        // aerodynamic model. The world supplies a new soaring lesson, not an
+        // unvalidated claim of reconstructed prehistoric aerodynamics.
+        const FLinearColor Bone(.78f,.59f,.34f), Ochre(.46f,.22f,.075f);
+        FShardMesh Body;Body.MaterialPath=TEXT("/Game/Yunsha/Materials/M_Pterosaur");
+        Body.Fold({42,0,8},{5,9,0},{-45,0,-5},{5,-9,0},9,Ochre);
+        Body.Fold({65,0,12},{38,7,13},{20,0,20},{38,-7,13},7,Bone);
+        Body.Fold({100,0,9},{48,5,10},{42,0,3},{48,-5,10},3,Bone);
+        Body.Tri({45,0,17},{13,0,49},{22,0,15},Ochre);
+        for(int Side:{-1,1})
+        {
+            Body.Tri({50,Side*5.1,15},{45,Side*7.1,16},{47,Side*6.8,12},FLinearColor(.015f,.012f,.008f));
+            auto* Shoulder=Node(*FString::Printf(TEXT("PterosaurShoulder%d"),Side),RavenRoot,FVector(3,Side*1.,4));
+            if(Side<0)OutLeftShoulder=Shoulder;else OutRightShoulder=Shoulder;
+            FShardMesh Wing;Wing.MaterialPath=TEXT("/Game/Yunsha/Materials/M_Pterosaur");
+            auto P=[Side](double X,double Y,double Z){return FVector(X,Side*Y,Z);};
+            // The long wing finger and scalloped trailing membrane are modeled,
+            // rather than a feather texture applied to a bird's fan.
+            Wing.Fold(P(14,0,0),P(17,28,4),P(-6,73,0),P(-23,25,-2),2,Ochre);
+            Wing.Tri(P(17,28,4),P(5,52,3),P(-6,73,0),Bone);
+            Wing.Tri(P(-23,25,-2),P(-6,73,0),P(-24,48,-1),Ochre*.8f);
+            Wing.Tri(P(-23,25,-2),P(-24,48,-1),P(-41,8,-3),Ochre*.9f);
+            Wing.Tri(P(17,28,4),P(15,28,4.5),P(-6,73,.5),FLinearColor(.9f,.43f,.08f));
+            Wing.Install(Owner,Shoulder,*FString::Printf(TEXT("PterosaurMembrane%d"),Side));
+            Body.Tri({-35,Side*4.,-4},{-48,Side*14.,-10},{-40,Side*2.,-9},Bone);
+        }
+        Body.Install(Owner,RavenRoot,TEXT("PterosaurBody"));
+        return RavenRoot;
+    }
     if (Design == 3)
     {
         // --- Neon Turtle (the Aether Nursery's baby sea-turtle) --------------
@@ -429,15 +460,17 @@ void ABorn2FlapFlightPawn::BuildRavenCrow()
 {
     RavenRoot = Born2FlapRaven::Build(this, VisualRoot, RavenLeftShoulder, RavenRightShoulder, RavenTailPivot);
     MembraneRoot = Born2FlapRaven::Build(this, VisualRoot, MembraneLeftShoulder, MembraneRightShoulder, MembraneTailPivot,2);
+    PterosaurRoot = Born2FlapRaven::Build(this, VisualRoot, PterosaurLeftShoulder, PterosaurRightShoulder, PterosaurTailPivot, 5);
     TurtleRoot = Born2FlapRaven::Build(this, VisualRoot, TurtleLeftShoulder, TurtleRightShoulder, TurtleTailPivot, 3);
 }
 
 void ABorn2FlapFlightPawn::SelectBirdModel(int32 Index)
 {
-    BirdModel = FMath::Clamp(Index, 0, 4);
+    BirdModel = FMath::Clamp(Index, 0, 5);
     if (PrototypeRoot) PrototypeRoot->SetVisibility(!bBlind && BirdModel == 1, true);
     if (RavenRoot) RavenRoot->SetVisibility(!bBlind && BirdModel == 0, true);
     if (MembraneRoot) MembraneRoot->SetVisibility(!bBlind && (BirdModel == 2 || BirdModel == 4), true);
+    if (PterosaurRoot) PterosaurRoot->SetVisibility(!bBlind && BirdModel == 5, true);
     if (TurtleRoot) TurtleRoot->SetVisibility(!bBlind && BirdModel == 3, true);
     // Each silhouette is a distinct bird: its own dry mass (fed to Chaos) and
     // its own wing planform + carbon-rod inventory (fed to the Haskell solver
@@ -449,10 +482,10 @@ void ABorn2FlapFlightPawn::SelectBirdModel(int32 Index)
     BodyMassKg = 0.050f;  // fallback: kestrel reference
     if (MathBridge && MathBridge->IsReady())
     {
-        const double ModelMass = MathBridge->GetModelMassKg((uint32_t)BirdModel);
+        const double ModelMass = MathBridge->GetModelMassKg((uint32_t)PhysicsBirdModel());
         if (ModelMass > 0.0)
             BodyMassKg = (float)ModelMass;
-        MathBridge->SetWingModel((uint32_t)BirdModel);
+        MathBridge->SetWingModel((uint32_t)PhysicsBirdModel());
     }
     // The CG travel is length-dependent, so switching silhouettes must re-clamp
     // the centre of mass and re-apply the body mass (idempotent).

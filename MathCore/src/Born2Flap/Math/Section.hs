@@ -52,7 +52,7 @@ defaultBirdArmSection :: SectionProfile
 defaultBirdArmSection = SectionProfile
   { spRestCamber = 0.020
   , spReflex = 0.15
-  , spMembraneK = 0.07
+  , spMembraneK = 0.06
   , spMembraneTau = 0.025
   }
 
@@ -63,7 +63,7 @@ defaultBirdHandSection :: SectionProfile
 defaultBirdHandSection = SectionProfile
   { spRestCamber = 0.020
   , spReflex = 0.40
-  , spMembraneK = 0.16
+  , spMembraneK = 0.14
   , spMembraneTau = 0.018
   }
 

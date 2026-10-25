@@ -1,4 +1,4 @@
-param([string]$EngineRoot = 'V:\UE_5.8', [ValidateSet('Menu','Ravenstonefield','Nature','Training','Shiomori')][string]$Level = 'Menu')
+param([string]$EngineRoot = 'V:\UE_5.8', [ValidateSet('Menu','Ravenstonefield','Nature','Training','Shiomori','Yunsha','NeonAbyss')][string]$Level = 'Menu')
 $ErrorActionPreference = 'Stop'
 & (Join-Path $PSScriptRoot 'build.ps1') -EngineRoot $EngineRoot
 $project = (Resolve-Path (Join-Path $PSScriptRoot '../Born2Flap.uproject')).Path
@@ -9,6 +9,8 @@ $log = Join-Path (Split-Path $project) ('Saved/Logs/play-'+$Level+'.log')
 $map = '/Engine/Maps/Entry'
 $levelFlag = $null
 switch ($Level) {
+    'Yunsha' { $map = '/Game/Yunsha/Maps/YUNSHA'; $levelFlag = 'Yunsha' }
+    'NeonAbyss' { $map = '/Game/NeonAbyss/Maps/NEONABYSS'; $levelFlag = 'NeonAbyss' }
     'Shiomori'        { $map = '/Game/Shiomori/Maps/SHIOMORI'; $levelFlag = 'Shiomori' }
     'Ravenstonefield' { $map = '/Game/Ravenstonefield/Maps/RAVENSTONEFIELD'; $levelFlag = 'Ravenstonefield' }
     'Nature'          { $map = '/Game/Ravenstonefield/Maps/RAVENSTONEFIELD'; $levelFlag = 'Ravenstonefield' }

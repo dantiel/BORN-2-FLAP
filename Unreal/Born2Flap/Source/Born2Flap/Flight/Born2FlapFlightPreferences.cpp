@@ -20,6 +20,10 @@ namespace
 {
 FString PreferencesPath()
 {
+    FString TestPreferences;
+    if (FParse::Param(FCommandLine::Get(), TEXT("B2FUseSavedFlightSettings")) &&
+        FParse::Value(FCommandLine::Get(), TEXT("B2FFlightPreferences="), TestPreferences))
+        return TestPreferences;
     return FPaths::ProjectSavedDir()/(FParse::Param(FCommandLine::Get(),TEXT("B2FDesktopInputTest"))
         ? TEXT("Automation/FlightPreferences.ini") : TEXT("Config/FlightPreferences.ini"));
 }
@@ -30,6 +34,7 @@ void ABorn2FlapFlightPawn::LoadFlightPreferences()
     // Automated channel tests use known gains, independently of personal settings.
     if ((bFlightTest && !FParse::Param(FCommandLine::Get(), TEXT("B2FUseSavedFlightSettings"))) || bDesktopInputTest)
     { MouseGains=FVector(1); return; }
+    TGuardValue<bool> LoadingGuard(bLoadingFlightPreferences, true);
     const FString Path=PreferencesPath();
     FConfigFile Config; Config.Read(Path); Config.bCanSaveAllSections=true;
     Config.GetFloat(TEXT("Controls"),TEXT("Expo"),ControlExpo);
@@ -77,8 +82,18 @@ void ABorn2FlapFlightPawn::LoadFlightPreferences()
     // level's default silhouette" (BeginPlay falls back on DefaultBirdModel()).
     int32 SavedModel = -1;
     Config.GetInt(TEXT("Flight"),TEXT("BirdModel"),SavedModel);
-    BirdModel = (SavedModel >= 0 && SavedModel <= 3) ? SavedModel : -1;
+    BirdModel = (SavedModel >= 0 && SavedModel <= 5) ? SavedModel : -1;
 }
+void ABorn2FlapFlightPawn::SaveTuningPreference(ETuningField Field)
+{
+    if (bLoadingFlightPreferences || bFlightTest || !HasActorBegunPlay()) return;
+    const FString Path = PreferencesPath();
+    FConfigFile Config; Config.Read(Path); Config.bCanSaveAllSections = true;
+    IFileManager::Get().MakeDirectory(*FPaths::GetPath(Path), true);
+    Config.SetFloat(TEXT("Tuning"), born2flap::tuning::Key(Field), GetTuning(Field));
+    Config.Write(Path);
+}
+
 void ABorn2FlapFlightPawn::SaveFlightPreferences()
 {
     if (bFlightTest) return; // Saved-settings diagnostics are read-only.

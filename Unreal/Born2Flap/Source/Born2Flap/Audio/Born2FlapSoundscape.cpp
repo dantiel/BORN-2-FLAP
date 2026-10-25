@@ -38,6 +38,7 @@ void ABorn2FlapSoundscape::BeginPlay()
     Surf->SetSound(Wave(TEXT("Surf")));
     DayCall=Wave(Level==TEXT("Shiomori") ? TEXT("Seagull") : (Level==TEXT("Training") ? TEXT("Songbird") : TEXT("Raven")));
     NightCall=Wave(TEXT("Crickets"));
+    if(Level==TEXT("Yunsha"))Bed->SetSound(LoadObject<USoundWave>(nullptr,TEXT("/Game/Yunsha/Audio/DesertWind")));
     Bed->Play();Rain->Play();
     if(Level==TEXT("Shiomori")) Surf->Play();
     bStarted=true;
@@ -70,6 +71,7 @@ void ABorn2FlapSoundscape::Tick(float Dt)
         const float Wash=Born2FlapSurf::Wash(P.X,GetWorld()->GetTimeSeconds());
         Surf->SetVolumeMultiplier(Near*(.22f+.38f*Wash)*(1-Shelter*.7f));
     }
+    if(Level==TEXT("Yunsha"))return; // No valley ravens or crickets in the desert.
     NextCall-=Dt;
     if(NextCall<=0 && !Wildlife->IsPlaying())
     {

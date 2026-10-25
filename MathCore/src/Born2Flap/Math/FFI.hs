@@ -90,7 +90,7 @@ b2f_math_get_wing_forces contextPointer capacity leftPointer rightPointer
     failure :: SomeException -> IO Int32
     failure _ = pure 0
 b2f_math_abi_version :: IO Word32
-b2f_math_abi_version = pure 14
+b2f_math_abi_version = pure 16
 
 b2f_math_runtime_init :: IO Int32
 b2f_math_runtime_init = pure 1
@@ -195,6 +195,7 @@ data TuningConfig = TuningConfig
   , tgFlapCentreDeg     :: !Double  -- ^ flap stroke centre trim (dihedral), like tail elevator [deg]
   , tgBodyMassKg        :: !Double  -- ^ airframe mass [kg], scales the wing planform
   , tgVerticalMountAngleDeg :: !Double  -- ^ real wing mount incidence (nose-up +) [deg]
+  , tgReturnFerocity     :: !Double  -- ^ upstroke/return ferocity [0..100] (ABI v15)
   }
 
 b2f_math_create_firmware_vehicle :: Ptr () -> IO (Ptr ())
@@ -301,10 +302,10 @@ b2f_math_reconfigure_firmware_vehicle contextPointer tuningPointer
 
 peekTuning :: Ptr () -> IO TuningConfig
 peekTuning pointer = do
-  values <- mapM (peekElemOff (castPtr pointer :: Ptr CDouble)) [0 .. 16]
+  values <- mapM (peekElemOff (castPtr pointer :: Ptr CDouble)) [0 .. 17]
   case map (\(CDouble value) -> value) values of
-    [speed, stall, backdrive, voltage, resistance, capacity, cRating, burstRating, freq, tailElev, glide, ferocity, aileron, elevator, flapCentre, mass, verticalMount] ->
-      pure (TuningConfig speed stall backdrive voltage resistance capacity cRating burstRating freq tailElev glide ferocity aileron elevator flapCentre mass verticalMount)
+    [speed, stall, backdrive, voltage, resistance, capacity, cRating, burstRating, freq, tailElev, glide, ferocity, aileron, elevator, flapCentre, mass, verticalMount, returnFerocity] ->
+      pure (TuningConfig speed stall backdrive voltage resistance capacity cRating burstRating freq tailElev glide ferocity aileron elevator flapCentre mass verticalMount returnFerocity)
     _ -> error "unreachable tuning layout"
 
 applyTuning :: TuningConfig -> FwContext -> FwContext
@@ -326,23 +327,15 @@ applyTuning t ctx =
         { profTailElevatorAngleDeg = clampRange (-15) 15 (tgTailElevatorAngleDeg t)
         , profGlideAngleDeg = clampRange (-15) 15 (tgGlideAngleDeg t)
         , profStrokeFerocity = clampRange 0 100 (tgStrokeFerocity t)
+        , profReturnFerocity = clampRange 0 100 (tgReturnFerocity t)
         , profAileronScale = clampRange 0 100 (tgAileronScale t)
         , profElevatorScale = clampRange 0 100 (tgElevatorScale t)
         }
-      -- The wing geometry is fixed by the selected model (fwcModel) — changing
-      -- battery/body mass must not shrink the same physical wings. Flapping
-      -- frequency must be CAPPED by the servo's no-load speed: a servo sweeping
-      -- at ω₀ can only flap a stroke of amplitude A at cadence f ≤ ω₀/(2π·A).
-      -- The mixer's flappingBranch caps the cadence to the FULL geometric stroke
-      -- (ampMaxDeg, 55°), so the commanded arc is always deliverable and
-      -- monotonic in throttle. This stored ceiling mirrors that same limit, so a
-      -- faster servo earns a faster flap, never a stroke it cannot deliver.
-      freqScale = 1
+      -- Preserve the requested frequency. The mixer limits cadence using the
+      -- actual arc and waveform derivative, once all control mixes are known.
+      -- Adding body mass does not change the requested motion or wing geometry.
       servoSpeedDegS = max 1 (servoNoLoadSpeedDegPerSec servo)
-      usefulStrokeDeg = 55
-      freqCapHz = servoSpeedDegS / (2 * pi * usefulStrokeDeg)
-      flapBaseFreqDh = clampRange 10 200 (min (tgFlapBaseFreqDh t * freqScale)
-                                             (freqCapHz * 10))
+      flapBaseFreqDh = clampRange 10 200 (tgFlapBaseFreqDh t)
       params = (fwcParams ctx)
         { fwServoSpeedMs = 60000 / servoSpeedDegS
         , fwFlapBaseFreqDh = flapBaseFreqDh
@@ -429,11 +422,12 @@ pokeFwOutput pointer output state = do
       doubles = [fx, fy, fz, mx, my, mz, totalMechanicalPowerW output
                 , maxSeparation output, leftFlap, rightFlap, soc
                 , phaseEnvelope pe, phaseCoverage pe
-                , rpPhaseError rp, fwKGainMod (fvFirmware state)]
+                , rpPhaseError rp, fwKGainMod (fvFirmware state)
+                , fvFlapHz state]
       doublePointer = castPtr pointer :: Ptr CDouble
   sequence_ [pokeElemOff doublePointer index (CDouble value) | (index, value) <- zip [0 ..] doubles]
   let flags = if isFlapping then 1 else 0 :: Word32
-  pokeByteOff pointer 120 (CUInt flags)
+  pokeByteOff pointer 128 (CUInt flags)
 
 posOr :: Double -> Double -> Double
 posOr fallback value = if value > 0 then value else fallback

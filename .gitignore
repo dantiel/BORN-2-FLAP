@@ -102,3 +102,28 @@ $null
 
 # Local debug artifacts emitted by Brain export scripts
 /Brain/tmp_*.json
+
+# Yunsha is authored entirely by create_yunsha_map.py.
+/Unreal/Born2Flap/Content/Yunsha/Maps/
+/Unreal/Born2Flap/Content/Yunsha/Meshes/
+/Unreal/Born2Flap/Content/Yunsha/Materials/
+/Unreal/Born2Flap/Content/Yunsha/Audio/
+
+# Reproducible world outputs (Tools/generated-content.json).
+/Unreal/Born2Flap/Content/Ravenstonefield/Maps/RAVENSTONEFIELD.umap
+/Unreal/Born2Flap/Content/NeonAbyss/Maps/NEONABYSS.umap
+/Unreal/Born2Flap/Content/Shiomori/Maps/SHIOMORI.umap
+/Unreal/Born2Flap/Content/Shiomori/Meshes/SM_MountainsBehind.uasset
+/Unreal/Born2Flap/Content/Shiomori/Meshes/SM_MountainsEast.uasset
+/Unreal/Born2Flap/Content/Shiomori/Meshes/SM_MountainsWest.uasset
+/Unreal/Born2Flap/Content/Shiomori/Meshes/SM_SweetPotatoPlant.uasset
+/Unreal/Born2Flap/Content/Shiomori/Meshes/SM_SweetPotatoRidge.uasset
+/Unreal/Born2Flap/Content/Yunsha/Maps/YUNSHA.umap
+/Unreal/Born2Flap/Content/Yunsha/Meshes/*.uasset
+/Unreal/Born2Flap/Content/Yunsha/Materials/*.uasset
+/Unreal/Born2Flap/Content/Yunsha/Audio/*.uasset
+
+# Local debug/scratch debris (probes, build locks, diff dumps)
+/.build-tmp/
+/scratch/
+/scratch_mathcore.diff
