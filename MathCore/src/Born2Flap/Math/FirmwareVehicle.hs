@@ -15,6 +15,7 @@ module Born2Flap.Math.FirmwareVehicle
   ( FirmwareVehicleState(..)
   , defaultFirmwareVehicleState
   , stepFirmwareVehicle
+  , stepFirmwareVehicleWithMassInertia
   , stepFirmwareVehicleWithInertia
   , hingeTorque
   , tailSurface
@@ -23,17 +24,17 @@ module Born2Flap.Math.FirmwareVehicle
 import Born2Flap.Math.Types (Vec3(..))
 import Born2Flap.Math.Firmware
 import Born2Flap.Math.Servo
-import Born2Flap.Math.RollDynamics (stepRoll)
+import Born2Flap.Math.RollDynamics (stepRollWithMass, supportedRollSystem)
 import Born2Flap.Math.Model (WingModel(..))
 import Born2Flap.Math.Planform
-  ( shapeFlapInertia, referenceWingMassKg )
+  ( shapeFlapInertia, referenceWingMassKg, shapeChord, WingShape(..) )
 import Born2Flap.Math.Simulation
 import Born2Flap.Math.Waveform (OscillatorState(..), limiarFromFerocities)
 import Born2Flap.Math.PhaseEnvelope
 import Born2Flap.Math.ResponsePhase
 import Born2Flap.Math.Vehicle
   ( VehicleInput(..), VehicleOutput(..)
-  , StripState(..), StripResult(..), initialStrips
+  , StripState(..), StripResult(..), initialStrips, stripCount
   , stepCoupledWing, prepareWingLoads, wingRootHeight, airDensity, surfaceSkinCd, surfacePressure
   , finiteWingLiftSlope, inducedDragCoefficient
   , addVec, crossVec, scaleVec, magnitude, zeroVec, radians )
@@ -53,7 +54,7 @@ data FirmwareVehicleState = FirmwareVehicleState
   , fvBatteryBoost    :: !Double     -- ^ 0..1, LiPo burst reservoir (C-rating headroom)
   , fvPhaseEnvelope   :: !PhaseEnvelopeState  -- ^ ONDAS A-layer
   , fvResponsePhase   :: !ResponsePhaseState  -- ^ read-only response-phase diagnostic (no controller output)
-  , fvFlapHz          :: !Double              -- ^ commanded flap cadence [Hz] from the mixer (servo-capped), 0 in glide
+  , fvFlapHz          :: !Double              -- ^ commanded flap cadence [Hz] from the mixer (servo-capped); glide reports the soar-pump Hz
   } deriving stock (Eq, Show)
 
 defaultFirmwareVehicleState :: FirmwareVehicleState
@@ -101,8 +102,14 @@ stepFirmwareVehicleWithInertia
   :: Double -> Bool -> RcChannels -> FirmwareParams -> ServoSpec -> BatterySpec -> WingModel
   -> Double -> Vec3 -> Vec3 -> Double -> FirmwareVehicleState
   -> (VehicleOutput, FirmwareVehicleState)
-stepFirmwareVehicleWithInertia hostInertia coupled rc params servo battery model dt bodyVel bodyRates groundClearance state
-  | not (finite hostInertia) || hostInertia <= 0 = (zeroOutput 2, state)
+stepFirmwareVehicleWithInertia = stepFirmwareVehicleWithMassInertia 0.05
+
+stepFirmwareVehicleWithMassInertia
+  :: Double -> Double -> Bool -> RcChannels -> FirmwareParams -> ServoSpec -> BatterySpec -> WingModel
+  -> Double -> Vec3 -> Vec3 -> Double -> FirmwareVehicleState
+  -> (VehicleOutput, FirmwareVehicleState)
+stepFirmwareVehicleWithMassInertia totalMass hostInertia coupled rc params servo battery model dt bodyVel bodyRates groundClearance state
+  | not (finite totalMass) || totalMass <= 2*referenceWingMassKg || not (finite hostInertia) || hostInertia <= 0 = (zeroOutput 2, state)
   | not (finite dt) || dt <= 0 || dt > 0.05 = (zeroOutput 1, state)
   | not (all finite (components bodyVel ++ components bodyRates ++
       [rcAileron rc, rcElevator rc, rcThrottle rc, rcRudder rc, rcArm rc, rcFreq rc, rcProfile rc])) =
@@ -117,7 +124,7 @@ stepFirmwareVehicleWithInertia hostInertia coupled rc params servo battery model
     -- silently accept an unconverged solve or commit only half of a step.
     subdivide flag =
       let half = dt/2
-          run = stepFirmwareVehicleWithInertia hostInertia coupled rc params servo battery model half bodyVel
+          run = stepFirmwareVehicleWithMassInertia totalMass hostInertia coupled rc params servo battery model half bodyVel
           (a, middle) = run bodyRates groundClearance state
           middleRates = Vec3 (x bodyRates + half*x (totalMomentNm a)/hostInertia) (y bodyRates) (z bodyRates)
           (b, final) = run middleRates groundClearance middle
@@ -129,7 +136,7 @@ stepFirmwareVehicleWithInertia hostInertia coupled rc params servo battery model
                  , maxSeparation = max (maxSeparation a) (maxSeparation b) }, final)
     transaction = do
       old <- getState
-      let (output, next) = advanceFirmwareVehicle hostInertia coupled rc params servo battery model dt bodyVel bodyRates groundClearance old
+      let (output, next) = advanceFirmwareVehicle totalMass hostInertia coupled rc params servo battery model dt bodyVel bodyRates groundClearance old
           values = components (totalForceN output) ++ components (totalMomentNm output) ++
             [totalMechanicalPowerW output, maxSeparation output, fvBatterySoc next, fvMotorCurrentA next,
              fvBatteryBoost next,
@@ -149,6 +156,13 @@ finite value = not (isNaN value || isInfinite value)
 components :: Vec3 -> [Double]
 components (Vec3 a b c) = [a,b,c]
 
+-- Physical entrained-air added mass (rho*pi*c^2/4 per unit span). The air
+-- attachment comes from the LIFT field -- static weight support, position-
+-- based lift modulation and the pressure floor -- not from an amplified air
+-- slug: the servo must be able to drive the wing as the firmware commands.
+addedAirGain :: Double
+addedAirGain = 1.0
+
 -- Both positive stroke coordinates raise the wing. The left hinge axis is -X.
 -- Elastic deformation changes the surface geometry. It cannot discount the
 -- external moment transmitted to the hinge; a dynamic spring would need its
@@ -158,9 +172,9 @@ hingeTorque side = (* side) . sum . map (\r -> (x (resultMoment r) + wingRootHei
 
 
 advanceFirmwareVehicle
-  :: Double -> Bool -> RcChannels -> FirmwareParams -> ServoSpec -> BatterySpec -> WingModel
+  :: Double -> Double -> Bool -> RcChannels -> FirmwareParams -> ServoSpec -> BatterySpec -> WingModel
   -> Double -> Vec3 -> Vec3 -> Double -> FirmwareVehicleState -> (VehicleOutput, FirmwareVehicleState)
-advanceFirmwareVehicle hostInertia coupled rc params servo battery model dt bodyVel bodyRates groundClearance state
+advanceFirmwareVehicle totalMass hostInertia coupled rc params servo battery model dt bodyVel bodyRates groundClearance state
   | otherwise =
       let -- 1. Firmware mixer: RC → wing servo commands (flap deviation deg).
           (mix, nextFw) = computeServoMixer coupled rc params (fvFirmware state) dt
@@ -168,15 +182,17 @@ advanceFirmwareVehicle hostInertia coupled rc params servo battery model dt body
           -- the span axis, applied to every strip's geometric twist. Distinct from
           -- the flap-stroke-centre (dihedral) trim that shifts the stroke centre.
           mountIncidence = radians (fwVerticalMountIncidenceDeg params)
-     
           -- Wing rotational inertia about the flap hinge, derived from the
           -- model's actual planform: structural mass + entrained-air added mass
           -- (∝ ρ·chord²). Shared by the servo (rate acceleration) and the
           -- inertial body recoil (Newton's 3rd law).
           wingMass = referenceWingMassKg
-          wingInertia = shapeFlapInertia wingMass airDensity (wmWing model)
+          wingInertia = shapeFlapInertia wingMass (airDensity * addedAirGain) (wmWing model)
      
           dryWingInertia = shapeFlapInertia wingMass 0 (wmWing model)
+          -- Relative hinge coordinates require full locked inertia on the body
+          -- diagonal: E = Ib*p^2/2 + Iw*((l-p)^2+(r+p)^2)/2 (plus rotor energy).
+          -- Off-diagonal recoil terms do not replace the wing diagonal terms.
           lockedInertia = hostInertia + 2 * (wingInertia - dryWingInertia)
           currentA = fvMotorCurrentA state
           -- LiPo burst reservoir: the servo may exceed the continuous C-rating
@@ -200,29 +216,72 @@ advanceFirmwareVehicle hostInertia coupled rc params servo battery model dt body
                      (fvLeftHingeTorqueNm state) wingInertia oldL
           motorR = servoDriveTorque servo battery voltage dt (mixRightFlapDevDeg mix)
                      (fvRightHingeTorqueNm state) wingInertia oldR
+          -- Common flap-stroke centre [rad]: the lift modulation is
+          -- DIFFERENTIAL — each wing's deviation from the shared centre
+          -- (stroke − centre), so a raised wing loses lift and a lowered
+          -- wing gains it while the common pitch trim stays neutral.
+          centreStroke = 0.5 * (angleL + angleR)
           evaluate rates =
             let p = x rates; l = y rates; r = z rates
                 wingInput = input { bodyRatesRadS = Vec3 p (y bodyRates) (z bodyRates) }
-                left = stepCoupledWing (mixIsFlapping mix) (-1) angleL l (y oldRates) wingInput model mountIncidence (fvLeftStrips state)
-                right = stepCoupledWing (mixIsFlapping mix) 1 angleR r (z oldRates) wingInput model mountIncidence (fvRightStrips state)
+                left = stepCoupledWing (mixIsFlapping mix) (-1) angleL l (y oldRates) wingInput model mountIncidence (fvLeftStrips state) supportShares centreStroke
+                right = stepCoupledWing (mixIsFlapping mix) 1 angleR r (z oldRates) wingInput model mountIncidence (fvRightStrips state) supportShares centreStroke
             in (left,right)
-          leftLoads = prepareWingLoads (mixIsFlapping mix) (-1) angleL (y oldRates) input model mountIncidence (fvLeftStrips state)
-          rightLoads = prepareWingLoads (mixIsFlapping mix) 1 angleR (z oldRates) input model mountIncidence (fvRightStrips state)
+          leftLoads = prepareWingLoads (mixIsFlapping mix) (-1) angleL (y oldRates) input model mountIncidence (fvLeftStrips state) supportShares centreStroke
+          rightLoads = prepareWingLoads (mixIsFlapping mix) 1 angleR (z oldRates) input model mountIncidence (fvRightStrips state) supportShares centreStroke
+          -- Static weight support per strip [N]: the body weight PLUS the
+          -- entrained-air added mass (the compressed-air field carries its
+          -- own air as well as the bird) distributed across BOTH wings by
+          -- chord area. The host integrates translation with its dry mass
+          -- and scales the output force by massRatio, so the field must
+          -- carry the combined (mass + 2·addedMass)·g — the shielded output
+          -- then balances the host's own m·g exactly at rest (support
+          -- ratio 1.0, no sink). stepStrip applies the share VERTICALLY and
+          -- modulates it by the flap position (liftMod), so a held
+          -- differential stroke produces a rate-independent roll couple;
+          -- circulation lift takes the load over at cruise instead of
+          -- double-carrying it.
+          supportShares =
+            let chords = map (shapeChord wp . (\i -> (fromIntegral i + 0.5) / fromIntegral stripCount)) [0 .. stripCount - 1]
+                totalChord = 2 * sum chords
+                weightN = (totalMass + 2 * addedMass) * 9.81
+            in map (\c -> weightN * c / totalChord) chords
+          -- Dry-wing first mass moment from the same planform as hinge inertia.
+          wp = wmWing model
+          massSamples = [(wsShoulderM wp+wsSpanM wp*f,shapeChord wp f)
+                        | i<-[0..127::Int],let f=(fromIntegral i+0.5)/128]
+          firstMoment = wingMass * sum [r*c | (r,c)<-massSamples] / sum (map snd massSamples)
+          -- Translational added air (rho*pi*c^2/4 per unit span) and its first
+          -- moment about the body centreline (c^2 weighting pushes the centroid
+          -- outboard where the chord is deeper). This is the fluid inertia the
+          -- wing must accelerate when it translates normally through the air;
+          -- rotational added air is already inside wingInertia/lockedInertia.
+          dfrac = 1/128
+          addedMass = airDensity * addedAirGain * (pi/4) * (wsSpanM wp) * sum [c*c*dfrac | (_,c)<-massSamples]
+          addedFirstMoment = airDensity * addedAirGain * (pi/4) * (wsSpanM wp) * sum [r*c*c*dfrac | (r,c)<-massSamples]
+          (supportMass,supportLoad,supportRecoil,massRatio) = supportedRollSystem totalMass addedMass lockedInertia
+            dryWingInertia wingInertia reflectedDriveInertia firstMoment addedFirstMoment wingRootHeight (angleL,angleR) oldRates
           aeroAt rates =
             let ls = leftLoads (x rates) (y rates)
                 rs = rightLoads (x rates) (z rates)
                 candidateBodyRates = Vec3 (x rates) (y bodyRates) (z bodyRates)
-            in Vec3 (sum (zipWith (\l r -> x (resultMoment l) + x (resultMoment r)) ls rs)
-                     + x (tailMomentAt candidateBodyRates))
-                    (hingeTorque (-1) ls) (hingeTorque 1 rs)
-          aero0 = aeroAt oldRates
+                tailPanels = panelsAt candidateBodyRates
+                tailF = foldr (addVec . fst) zeroVec tailPanels
+                tailM = foldr (addVec . snd) zeroVec tailPanels
+                forceAt = foldr (addVec . resultForce)
+                  (addVec bodyDrag (addVec bodySideForce (addVec bodyTopForce tailF))) (ls++rs)
+                torqueAt = Vec3 (sum (zipWith (\l r -> x (resultMoment l) + x (resultMoment r)) ls rs)
+                                + x tailM + x bodySideMoment + x bodyTopMoment)
+                            (hingeTorque (-1) ls) (hingeTorque 1 rs)
+            in (addVec torqueAt (supportLoad forceAt),forceAt)
+          aero0 = fst (aeroAt oldRates)
           loads rates =
-            let aero = aeroAt rates
+            let aero = fst (aeroAt rates)
                 drag load rate = servoBackdriveTorque servo battery voltage load rate
             in addVec aero
                       (Vec3 0 (motorL (y rates) + drag (y aero0) (y rates))
                               (motorR (z rates) + drag (z aero0) (z rates)))
-          solved = stepRoll dt lockedInertia wingInertia reflectedDriveInertia oldRates (angleL,angleR) loads
+          solved = stepRollWithMass supportMass dt oldRates (angleL,angleR) loads
           -- NaN triggers transactional rollback if Newton cannot converge.
           ratesNext = case solved of Just rates -> rates; Nothing -> Vec3 (0/0) (0/0) (0/0)
           makeServo angle rate = ServoState ((angle+dt*rate)*180/pi) (rate*180/pi)
@@ -344,7 +403,17 @@ advanceFirmwareVehicle hostInertia coupled rc params servo battery model dt body
           panels = panelsAt (Vec3 (x ratesNext) (y bodyRates) (z bodyRates))
           tailForce = foldr (addVec . fst) zeroVec panels
           tailMoment = foldr (addVec . snd) zeroVec panels
-          force = addVec wingForce (addVec bodyDrag (addVec bodySideForce (addVec bodyTopForce tailForce)))
+          externalForce = addVec wingForce (addVec bodyDrag (addVec bodySideForce (addVec bodyTopForce tailForce)))
+          acceleration = scaleVec (1/dt) (addVec ratesNext (scaleVec (-1) oldRates))
+          recoilForce = supportRecoil acceleration
+          -- The host integrates translation with its own dry mass, which does
+          -- not include translational added air. Scale the lateral/heave force
+          -- by massRatio and add the added-air inertial recoil so the host's
+          -- dry-mass integration reproduces the correct fluid-inertia response.
+          -- Forward (streamwise) force is unaffected: the wing is edge-on in X.
+          force = Vec3 (x externalForce)
+                       (massRatio * y externalForce + y recoilForce)
+                       (massRatio * z externalForce + z recoilForce)
           aeroMoment = addVec wingMoment (addVec bodySideMoment (addVec bodyTopMoment tailMoment))
           -- Equivalent host torque reproduces the solved roll impulse in
           -- Chaos. Recoil and added-air inertia are already in the solve;
@@ -376,8 +445,8 @@ advanceFirmwareVehicle hostInertia coupled rc params servo battery model dt body
             , fvRightStrips = rightNext
             , fvLeftStripForceMag = map (magnitude . resultForce) leftResults
             , fvRightStripForceMag = map (magnitude . resultForce) rightResults
-            , fvLeftHingeTorqueNm = leftHinge
-            , fvRightHingeTorqueNm = rightHinge
+            , fvLeftHingeTorqueNm = leftHinge + y (supportLoad externalForce)
+            , fvRightHingeTorqueNm = rightHinge + z (supportLoad externalForce)
             , fvMotorCurrentA = motorCurrent
             , fvBatterySoc = nextSoc
             , fvBatteryBoost = boostNext

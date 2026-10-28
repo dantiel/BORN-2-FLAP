@@ -57,6 +57,7 @@ airframeInertia model total cgX = (ix,iy,iz)
   bodyX=(total*cgX-2*sum [m*x | (m,x,_,_) <- wings]-sum [m*x | (m,x,_) <- ts])/body
   bodyZ= -2*wing*wingZ/body
   (len,width,height)=fuselageDimensions
+  -- All inertias use the same centre of mass, including the vertical offset.
   bx=body*(width*width+height*height)/20 + body*bodyZ*bodyZ
   by=body*(len*len+height*height)/20 + body*((bodyX-cgX)^2+bodyZ*bodyZ)
   bz=body*(len*len+width*width)/20 + body*(bodyX-cgX)^2

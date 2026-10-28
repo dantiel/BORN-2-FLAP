@@ -46,13 +46,16 @@ data SectionProfile = SectionProfile
   , spMembraneTau :: !Double  -- ^ membrane relaxation time constant [s]
   } deriving stock (Eq, Show)
 
+-- The attached-flow camber feedback is approximately 2*a*K. Keep this
+-- below unity for a stable static equilibrium (relaxation alone cannot cure
+-- divergence). These compliance values are provisional material calibration.
 -- | Bird armwing: moderate camber, mild reflex, a stiffer feathered surface and
 -- only modest membrane billow.
 defaultBirdArmSection :: SectionProfile
 defaultBirdArmSection = SectionProfile
   { spRestCamber = 0.020
   , spReflex = 0.15
-  , spMembraneK = 0.06
+  , spMembraneK = 0.015
   , spMembraneTau = 0.025
   }
 
@@ -63,7 +66,7 @@ defaultBirdHandSection :: SectionProfile
 defaultBirdHandSection = SectionProfile
   { spRestCamber = 0.020
   , spReflex = 0.40
-  , spMembraneK = 0.14
+  , spMembraneK = 0.025
   , spMembraneTau = 0.018
   }
 

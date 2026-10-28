@@ -27,9 +27,11 @@ module Born2Flap.Math.Firmware
   , crsfToNorm
   , crsfToFloat
   , normToRaw
-  , computeServoMixer
-  , ampMaxDeg
-  ) where
+    , computeServoMixer
+    , ampMaxDeg
+    , glideAileronMaxDeg
+    , glideRudderMaxDeg
+    ) where
 
 import Born2Flap.Math.Waveform
   ( OscillatorState(..), defaultOscillator, advanceOscillator
@@ -116,24 +118,45 @@ steerMaxDeg = 60
 angularMultiplier = 2
 neutralAngleDeg = 100
 
--- | Differential-dihedral roll authority. The wings are the ONLY surface with
--- aerodynamic authority, and in roll they have COMPLETE authority: a symmetric
--- stroke produces no net roll (left/right lateral forces cancel), while ANY
--- flap-centre asymmetry tilts the left and right lift vectors oppositely and the
--- resulting lateral force at the spanwise arm rolls the fuselage immediately.
--- The raw 2-servo dihedral tilt is a little gentle, so this gain amplifies the
--- flap-centre deviation into a strong, immediate game-feel roll — it is NOT a
--- new actuator, it is the wing's own asymmetry doing the work.
 rollAuthorityGain :: Double
 rollAuthorityGain = 2.0
 
+-- | Differential-dihedral roll authority (flapping branch only). This is kept
+-- SMALL on purpose: a static flap-centre tilt lifts one wing's lift inward and
+-- the other's outward, so the LEFT/RIGHT LATERAL FORCES ADD (a sideslip), not
+-- cancel into a roll couple. The roll couple that remains is only the weak
+-- cos(dihedral) vertical lift difference. A large gain here makes the roll
+-- stick mostly sideslip and yaw the bird instead of banking it (measured:
+-- full aileron gave Fy=-3 N, Mz=+0.7 N·m against a roll Mx of only +0.09 N·m).
+-- (Roll authority is physical: a differential stroke bounded by the servo's
+--  own travel — see `rollBudgetDeg` in flappingBranch below. No arbitrary gain.)
+
+-- | Static glide control limits. The glide branch holds its stroke POSITION:
+-- no pump, no flap cadence (mixFlapHz = 0). The held differential geometry
+-- reaches the body through three coupled channels, all independent of the
+-- flap rate once the servo has arrived:
+--   1. the weight-support reaction (the wing is the structural surface the
+--      fuselage lies on; each strip carries the weight component normal to it),
+--   2. the low-speed normal-pressure floor (a slowly drifting or rolling wing
+--      still grips the air instead of slipping through it),
+--   3. the implicit body-roll coupling in the Newton solve (roll rate and the
+--      two flap rates are one coupled system).
+glideAileronMaxDeg :: Double
+glideAileronMaxDeg = 18
+
+glideRudderMaxDeg :: Double
+glideRudderMaxDeg = 8
+
 -- | Amplitude-differential roll authority. The downstroke (power stroke) is
 -- stronger on the side that must rise, so each downstroke pushes the bird's
--- roll momentum into the turn. Complements the static flap-centre tilt
--- (rollAuthorityGain) with a cyclic roll impulse; scales with the same
--- @profAileronScale@ knob so one authority controls both roll mechanisms.
-rollAmpGain :: Double
-rollAmpGain = 4.0
+-- roll momentum into the turn — the downgoing wing produces more lift (and,
+-- below stall, less separation) while the upgoing wing stalls slightly more,
+-- and the resulting induced-drag asymmetry yaws the nose INTO the turn
+-- (proverse yaw). This is the PRIMARY roll mechanism: differential lift at the
+-- spanwise arm rolls the fuselage, and it does not sideslip like a static
+-- dihedral tilt. Scales with @profAileronScale@.
+-- (No arbitrary amplitude-differential gain: the aileron differential spends
+--  the servo's physical travel budget, not a hand-tuned multiplier.)
 
 ampMaxDeg, freqMinHz, servoSpeedMsDefault :: Double
 ampMaxDeg = 55
@@ -255,7 +278,7 @@ defaultFirmwareState = FirmwareState
 
 data MixerOutput = MixerOutput
   { mixIsFlapping      :: !Bool
-  , mixFlapHz          :: !Double   -- 0 in glide
+    , mixFlapHz          :: !Double   -- glide: 0 (static stroke, no cadence)
   , mixThrottlePct     :: !Double   -- 0 in glide
   , mixLeftWingDeg     :: !Double   -- left wing servo command (deg)
   , mixRightWingDeg    :: !Double   -- right wing servo command (deg)
@@ -321,50 +344,63 @@ orniAileronRollRateShift aileronRatePerSec rateMixPercent =
 
 computeServoMixer :: Bool -> RcChannels -> FirmwareParams -> FirmwareState -> Double
                   -> (MixerOutput, FirmwareState)
-computeServoMixer coupled rc params state dt
-  | dt <= 0 = (glideOutput, state)
-  | otherwise =
-      let aileronNorm = crsfToNorm (rcAileron rc)
-          elevatorNorm = crsfToNorm (rcElevator rc)
-          throttleUsF = rcThrottle rc
-          armed = rcArm rc > 992
-          wasFlapping = fwWasFlapping state
-          threshold = if wasFlapping then flapThresholdUs - flapHysteresisUs
-                                     else flapThresholdUs
-          isFlapping = armed && throttleUsF > threshold
-      in if isFlapping
-           then flappingBranch coupled prof aileronNorm elevatorNorm rc params state dt
-           else (glideOutput, glideTransition state)
+computeServoMixer coupled rc params state dt =
+  let aileronNorm = crsfToNorm (rcAileron rc)
+      elevatorNorm = crsfToNorm (rcElevator rc)
+      throttleUsF = rcThrottle rc
+      armed = rcArm rc > 992
+      wasFlapping = fwWasFlapping state
+      threshold = if wasFlapping then flapThresholdUs - flapHysteresisUs
+                                 else flapThresholdUs
+      isFlapping = armed && throttleUsF > threshold
+  in if isFlapping
+       then flappingBranch coupled (fwProfile params) aileronNorm elevatorNorm rc params state dt
+       else glideBranch (fwProfile params) aileronNorm elevatorNorm rc params state dt
 
-  where
-    prof = fwProfile params
-    aileron = crsfToNorm (rcAileron rc)
-    elevator = crsfToNorm (rcElevator rc)
-    rudder = crsfToNorm (rcRudder rc)
-    -- These are shared actuators, not independent yaw/roll surfaces. The
-    -- differential requests add before the physical travel limits.
-    -- Raising a wing (positive flap deviation = more dihedral) tilts its lift
-    -- inward AND lowers its sink-induced angle of attack, so the raised wing
-    -- produces LESS vertical lift and DROPS. To roll right (right wing down)
-    -- the right wing must therefore be RAISED and the left LOWERED, i.e. a
-    -- positive aileron must increase the RIGHT flap deviation.
-    common = negate (profGlideAngleDeg prof + elevator * profElevatorScale prof * 0.01 * steerMaxDeg)
-    differential = (aileron + rudder * fwRudderYawWeight params * 0.01)
-                   * profAileronScale prof * 0.01 * steerMaxDeg * rollAuthorityGain
-    left = clamp (-80) 80 (common - differential)
-    right = clamp (-80) 80 (common + differential)
-    rudderMix = clamp (-1) 1 (rudder * fwRudderYawWeight params * 0.01
-                              + aileron * fwRudderRollWeight params * 0.01)
-    glideOutput = MixerOutput
-      { mixIsFlapping = False, mixFlapHz = 0, mixThrottlePct = 0
-      , mixLeftWingDeg = neutralAngleDeg - left * angularMultiplier
-      , mixRightWingDeg = neutralAngleDeg + right * angularMultiplier
-      , mixLeftFlapDevDeg = left, mixRightFlapDevDeg = right
-      , mixRudderUs = 1500 + rudderMix * 500
-      , mixStrokeFerL = 0, mixReturnFerL = 0, mixPhase = 0
-      }
+-- | Glide: STATIC stroke positions — the wings hold their commanded angle and
+-- do not flap. The common centre trims pitch (glide angle + elevator, a
+-- position is the right mechanism for a static trim). Aileron commands a
+-- static differential stroke: positive aileron RAISES the RIGHT wing and
+-- lowers the left (stick-right, like a real aileron). The wing's lift is
+-- modulated by its held position — a raised wing LOSES lift, a lowered wing
+-- GAINS it — so the fuselage counter-rotates the wing movement: the raised
+-- side drops and the bird banks right. The held geometry keeps acting after
+-- the servo has arrived and the flap rate is exactly zero (position-based,
+-- not rate-based). Rudder adds a small static differential (drag rudder);
+-- the tail ruddervators carry the rest of the yaw authority.
+glideBranch :: FlightProfile -> Double -> Double -> RcChannels
+            -> FirmwareParams -> FirmwareState -> Double
+            -> (MixerOutput, FirmwareState)
+glideBranch prof aileronNorm elevatorNorm rc params state _dt =
+  let rudderNorm = crsfToNorm (rcRudder rc)
+      -- Pitch trim: the common stroke centre carries the glide angle + elevator.
+      common = negate (profGlideAngleDeg prof + elevatorNorm * profElevatorScale prof * 0.01 * steerMaxDeg)
+      -- Roll: static differential stroke POSITION. Positive aileron raises
+      -- the RIGHT wing: that wing loses part of its lift (its counter-force
+      -- against gravity) while the lowered left wing gains lift — the body
+      -- counter-rotates the wing movement and banks right. Position-based,
+      -- so the HELD differential keeps acting after the servo stops.
+      aileronDiff = aileronNorm * profAileronScale prof * 0.01 * glideAileronMaxDeg
+      -- Yaw: small static differential (drag rudder, positive rudder raises
+      -- the left wing a touch).
+      rudderDiff = rudderNorm * profRudderAmplitudeDiff prof * 0.01 * glideRudderMaxDeg
+      left = clamp (-80) 80 (common - aileronDiff + rudderDiff)
+      right = clamp (-80) 80 (common + aileronDiff - rudderDiff)
+      rudderMix = clamp (-1) 1 (rudderNorm * fwRudderYawWeight params * 0.01
+                                + aileronNorm * fwRudderRollWeight params * 0.01)
+      output = MixerOutput
+        { mixIsFlapping = False, mixFlapHz = 0, mixThrottlePct = 0
+        , mixLeftWingDeg = neutralAngleDeg - left * angularMultiplier
+        , mixRightWingDeg = neutralAngleDeg + right * angularMultiplier
+        , mixLeftFlapDevDeg = left, mixRightFlapDevDeg = right
+        , mixRudderUs = 1500 + rudderMix * 500
+        , mixStrokeFerL = 0, mixReturnFerL = 0
+        , mixPhase = oscPhase (fwOscillator state)
+        }
+  in (output, glideTransition state)
 
--- | Glide: decay oscillator, reset slew sentinels (firmware else-branch).
+-- | Glide: reset slew sentinels (firmware else-branch). The oscillator idles —
+-- the glide stroke is static and needs no cadence.
 glideTransition :: FirmwareState -> FirmwareState
 glideTransition state = state
   { fwWasFlapping = False
@@ -403,18 +439,19 @@ flappingBranch coupled prof aileronNorm elevatorNorm rc params state dt =
       requestedHz = freqMinHz + freq01 * (freqMax - freqMinHz)
       cadenceTarget = freqHz * 6.283185307
 
-      -- Steering commands (deg).
-      -- Roll comes from an asymmetric flap-CENTRE deviation (differential
-      -- dihedral), identical to the glide branch: positive aileron raises the
-      -- right wing stroke centre and lowers the left, tilting the lift to
-      -- roll right. The timing/skew terms below add a further dynamic roll
-      -- term (gated by profAileronSkewMix, 0 by default) on top of this static
-      -- centre shift. YAW (rudder) deliberately does NOT shift the flap centre
-      -- while flapping — it owns stroke AMPLITUDE (profRudderAmplitudeDiff) and
+            -- Steering commands (deg).
+            -- Roll comes from an asymmetric flap-CENTRE deviation (differential
+            -- dihedral), identical to the glide branch: positive aileron raises
+            -- the RIGHT wing stroke centre and lowers the left. The raised wing
+            -- LOSES part of its lift (position-based lift modulation) so its
+            -- side drops and the bird banks right — the same geometry and the
+            -- same sense as the glide static differential. The timing/skew
+            -- terms below add a further dynamic roll term (gated by
+            -- profAileronSkewMix, 0 by default) on top of this static centre
+            -- shift. YAW (rudder) deliberately does NOT shift the flap
+            -- centre while flapping — it owns stroke AMPLITUDE (profRudderAmplitudeDiff) and
       -- ferocity (profRudderFerocityRange) instead, so the stroke centres stay
       -- balanced and only the thrust asymmetry steers.
-      aileronCmd = aileronNorm
-                   * profAileronScale prof * 0.01 * steerMaxDeg * rollAuthorityGain
       elevatorCmd = elevatorNorm * profElevatorScale prof * 0.01 * steerMaxDeg
       -- This legacy tail-elevator control trims the stroke centre. Wing
       -- mount incidence is separate and rotates the aerodynamic section frame.
@@ -478,15 +515,14 @@ flappingBranch coupled prof aileronNorm elevatorNorm rc params state dt =
       reversalL = clamp (0.2 * 2*pi) (0.8 * 2*pi) (limiarShared * (1 - reversalShift))
       reversalR = clamp (0.2 * 2*pi) (0.8 * 2*pi) (limiarShared * (1 + reversalShift))
       yawAmpDiff = clamp (-0.9) 0.9 rudderAmpDiff
-      -- Aileron also modulates stroke ARC differentially (not just the static
-      -- centre): the wing that must rise gets a stronger downstroke, so the
-      -- power stroke itself rolls the bird into the turn. Clamped ±0.4 so it
-      -- stays a steering term, never swallowing the commanded stroke.
-      aileronAmpDiff = clamp (-0.4) 0.4 (aileronNorm * profAileronScale prof * 0.01 * rollAmpGain)
+      -- Aileron commands the real flap hinge position in glide and powered
+      -- flight. Reserve travel for its centre shift; there is no incidence servo.
+      aileronCmd = aileronNorm
+                   * profAileronScale prof * 0.01 * steerMaxDeg * rollAuthorityGain
       centreL = clamp (-80) 80 (-aileronCmd - elevatorCmd - flapCentreTrim)
-      centreR = clamp (-80) 80 (aileronCmd - elevatorCmd - flapCentreTrim)
-      amplitudeL = min (80-abs centreL) (amplitude * (1 + yawAmpDiff + aileronAmpDiff))
-      amplitudeR = min (80-abs centreR) (amplitude * (1 - yawAmpDiff - aileronAmpDiff))
+      centreR = clamp (-80) 80 ( aileronCmd - elevatorCmd - flapCentreTrim)
+      amplitudeL = min (80-abs centreL) (clamp 0 ampMaxDeg (amplitude * (1 + yawAmpDiff)))
+      amplitudeR = min (80-abs centreR) (clamp 0 ampMaxDeg (amplitude * (1 - yawAmpDiff)))
       -- Servo-honest frequency ceiling: the peak rate of a full sinusoidal
       -- stroke at this amplitude must not exceed the no-load servo rate.
       -- Ferocity (dwell/shape) deliberately does NOT enter this ceiling — a
