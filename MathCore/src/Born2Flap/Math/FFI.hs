@@ -363,7 +363,7 @@ b2f_math_step_firmware_vehicle contextPointer pilotPointer bodyPointer outputPoi
            [piThrottle pilot, piRoll pilot, piPitch pilot, piYaw pilot]
         then pure () else ioError (userError "nonfinite pilot input")
       let rc = pilotToRc pilot
-          (output, nextState) = stepFirmwareVehicleWithInertia (bodyRollInertia body) (piCoupled pilot) rc (fwcParams context)
+          (output, nextState) = stepFirmwareVehicleWithMassInertia (fwcMass context) (bodyRollInertia body) (piCoupled pilot) rc (fwcParams context)
                                   (fwcServo context) (fwcBattery context) (fwcModel context)
                                   (bodyDelta body) (bodyVel body) (bodyRates body)
                                   (bodyGroundClearance body) (fwcState context)
