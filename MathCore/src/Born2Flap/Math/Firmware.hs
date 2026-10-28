@@ -432,7 +432,7 @@ flappingBranch coupled prof aileronNorm elevatorNorm rc params state dt =
       -- zero torque to spare): a fraction of the no-load rate is reserved so the
       -- full geometric stroke stays TRACKABLE under aerodynamic load instead of
       -- back-driving the servo every downstroke.
-      servoSpeedMargin = 0.82
+      servoSpeedMargin = 0.55
       -- Apply the actuator ceiling once, to the actual shaped arc below.
       -- A full-travel ceiling here would waste speed at partial throttle.
       freqMax = fwFlapBaseFreqDh params * 0.1 * speedFactor
