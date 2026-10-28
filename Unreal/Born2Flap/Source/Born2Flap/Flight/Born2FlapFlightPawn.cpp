@@ -1,5 +1,6 @@
 #include "Flight/Born2FlapFlightPawn.h"
 #include "Flight/Born2FlapWingMesh.h"
+#include "Avatar/Born2FlapAvatar.h"
 #include "Camera/CameraComponent.h"
 #include "Components/BoxComponent.h"
 #include "Components/SphereComponent.h"
@@ -188,7 +189,7 @@ ABorn2FlapFlightPawn::ABorn2FlapFlightPawn()
     Tuning.tail_elevator_angle_deg = 0;
     Tuning.glide_angle_deg = -4;
     Tuning.stroke_ferocity = 50;
-    Tuning.aileron_scale = 10;
+    Tuning.aileron_scale = 40;
     Tuning.elevator_scale = 55;
     Tuning.flap_centre_deg = 0;
     Tuning.vertical_mount_angle_deg = 0;
@@ -467,6 +468,8 @@ void ABorn2FlapFlightPawn::BeginPlay()
                 Wing->SetPaintTexture(Membrane);
     }
     LoadFlightPreferences();
+    if (!bFlightTest && !bDesktopInputTest)
+        SpawnAvatar();
     if(const auto* Mode=Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode());Mode && Mode->IsHarvestWatch())
         BirdModel=2;
     if (BirdModel < 0)
@@ -870,6 +873,14 @@ void ABorn2FlapFlightPawn::SweepWingColliders(float Dt)
 }
 void ABorn2FlapFlightPawn::RequestHandLaunch()
 {
+    // With a visible avatar present, play the throw animation and release the
+    // bird at the natural release moment (30% of the throw), instead of an
+    // instantaneous teleport. OnThrowRelease is bound to LaunchFlight.
+    if (Avatar && bCameraGrounded && !Avatar->IsThrowing())
+    {
+        Avatar->BeginThrow();
+        return;
+    }
     LaunchFlight();
 }
 void ABorn2FlapFlightPawn::LaunchFlight()
@@ -905,6 +916,19 @@ void ABorn2FlapFlightPawn::LaunchFlight()
     const float LaunchVertical = 220.f + FMath::Clamp(LaunchPitch, -45.f, 45.f) * 6.f;
     Body->SetPhysicsLinearVelocity(Heading.Vector() * 850 + FVector(0, 0, LaunchVertical));
     Body->SetPhysicsAngularVelocityInRadians(FVector::ZeroVector);
+    // Fresh aeroelastic/servo/battery history for the throw: the resting bird
+    // equilibrates its strips nose-down on the ground (pitch ≈ −85°), and
+    // those stale camber/bend/twist states pitched the launch straight into
+    // the ground. The pinned RTS stays; only the firmware context is recreated.
+    if (MathBridge)
+    {
+        bHealthy = MathBridge->Load();
+        if (bHealthy)
+        {
+            MathBridge->SetWingModel((uint32_t)PhysicsBirdModel());
+            ApplyTuning();
+        }
+    }
     bCameraGrounded = false;
     bThrown = true;   // awaiting a genuine landing for the observer teleport
     GroundSettleTime = 0;
@@ -914,6 +938,40 @@ void ABorn2FlapFlightPawn::LaunchFlight()
     Desktop.mouseRoll = Desktop.mousePitch = Desktop.mouseYaw = 0;
     RememberLanding(Body->GetComponentLocation());
     UE_LOG(LogTemp, Display, TEXT("FlightHandLaunch fromPilot=%d speed=8.5m/s vertical=%.1fm/s pitch=%.0f"), bFromPilot, LaunchVertical / 100.f, LaunchPitch);
+}
+void ABorn2FlapFlightPawn::SpawnAvatar()
+{
+    FActorSpawnParameters Params;
+    Params.Owner = this;
+    Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+    Avatar = GetWorld()->SpawnActor<ABorn2FlapAvatar>(FVector::ZeroVector, FRotator::ZeroRotator, Params);
+    if (!Avatar)
+        return;
+    Avatar->SetPerson(AvatarPerson);
+    Avatar->OnThrowRelease.BindUObject(this, &ABorn2FlapFlightPawn::LaunchFlight);
+    PrevAvatarFeet = GroundAnchor - FVector(0.f, 0.f, 180.f);
+    Avatar->SetPlacement(PrevAvatarFeet, 0.f);
+}
+void ABorn2FlapFlightPawn::SetAvatarPerson(int32 Index)
+{
+    AvatarPerson = FMath::Clamp(Index, 0, ABorn2FlapAvatar::GetPersonCount() - 1);
+    if (Avatar)
+        Avatar->SetPerson(AvatarPerson);
+    // Persistence is handled by SaveFlightPreferences() on settings close,
+    // matching the other live setters (model, camera, mass, …).
+}
+void ABorn2FlapFlightPawn::UpdateAvatarState(float Dt)
+{
+    if (!Avatar)
+        return;
+    // The pilot's feet sit one eye-height below the ground camera anchor.
+    const FVector Feet = GroundAnchor - FVector(0.f, 0.f, 180.f);
+    const float Speed = Dt > 0.f ? (Feet - PrevAvatarFeet).Size2D() / Dt : 0.f;
+    PrevAvatarFeet = Feet;
+    Avatar->SetWalkSpeed(Speed);
+    Avatar->SetPlacement(Feet, float(GroundGaze.Yaw + GroundLookYaw));
+    // First-person ground view = the pilot IS the avatar: hide the own body.
+    Avatar->SetFirstPerson(bGroundView);
 }
 FString ABorn2FlapFlightPawn::GetFlightStatus() const
 {
@@ -1400,7 +1458,9 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
                 const float Inv = bFreeLookInvert ? -1.f : 1.f;
                 GroundLookYaw -= Inv * MouseX * LookSens;
                 GroundLookPitch -= Inv * MouseY * LookSens;
-                GroundLookPitch = FMath::Clamp(GroundLookPitch, -80.f, 80.f);
+                // Allow looking straight up (~90°); 89° keeps a hair of margin so
+                // the yaw/pitch Euler basis never degenerates at exactly +90.
+                GroundLookPitch = FMath::Clamp(GroundLookPitch, -80.f, 89.f);
                 const float FwdYaw = float(GroundGaze.Yaw + GroundLookYaw);
                 FVector Dir = FRotator(0.f, FwdYaw, 0.f).Vector() * WalkFwd +
                               FRotator(0.f, FwdYaw + 90.f, 0.f).Vector() * WalkStr;
@@ -1499,7 +1559,7 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
                 const float Inv = bFreeLookInvert ? -1.f : 1.f;
                 GroundLookYaw -= Inv * GestureViewYaw;
                 GroundLookPitch -= Inv * GestureViewPitch;
-                GroundLookPitch = FMath::Clamp(GroundLookPitch, -80.f, 80.f);
+                GroundLookPitch = FMath::Clamp(GroundLookPitch, -80.f, 89.f);
             }
             else if (!bFpvAirView)
             {
@@ -1518,6 +1578,7 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         }
     }
 #endif
+    UpdateAvatarState(DeltaSeconds);
     if (bFlightTest)
     {
         MouseX = MouseY = Wheel = 0;
