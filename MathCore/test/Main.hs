@@ -63,8 +63,8 @@ main = do
   let camberLoop profile = 2*finiteWingLiftSlope (shapeAspectRatio defaultBirdWing)*spMembraneK profile
   if all ((<0.5) . camberLoop) [defaultBirdArmSection,defaultBirdHandSection]
     then pure () else fail "reference membrane compliance must stay below static aeroelastic divergence"
-  let flow=VehicleInput (1/240) (Vec3 8 0 (-1)) (Vec3 0 0 0) 0 0 0 0 5
-      loads rate=wingLoadsWithStroke True 1 0.1 rate 0 flow kestrelModel 0 initialStrips (replicate stripCount 0) 0
+  let flow=VehicleInput (1/240) (Vec3 8 0 (-1)) (Vec3 0 0 0) 0 0 0 0 5 (Vec3 0 0 1)
+      loads rate=wingLoadsWithStroke True 1 0.1 rate 0 flow kestrelModel 0 initialStrips (replicate stripCount 0) 0 0
       summed=foldr (addVec . resultForce) zeroVec
       still=summed (loads 0)
       beating=summed (loads (-3))
@@ -161,14 +161,14 @@ main = do
     then pure () else fail "empty battery must supply no motor torque"
   -- If roll and hinge motion cancel in world space, the wing sees the same
   -- air velocity (including compensation for translation of the high root).
-  let wingInput=VehicleInput dt (Vec3 8 0 0) zero 0 0 0 0 1000
+  let wingInput=VehicleInput dt (Vec3 8 0 0) zero 0 0 0 0 1000 (Vec3 0 0 1)
       sumForce=foldr (addVec . resultForce) zero
-      steady=sumForce (wingLoadsWithStroke False 1 0 0 0 wingInput kestrelModel 0 initialStrips (replicate stripCount 0) 0)
+      steady=sumForce (wingLoadsWithStroke False 1 0 0 0 wingInput kestrelModel 0 initialStrips (replicate stripCount 0) 0 0)
       counter=sumForce (wingLoadsWithStroke False 1 0 (-1) 0
-                 (wingInput {bodyRatesRadS=Vec3 1 0 0,bodyVelocityMS=Vec3 8 wingRootHeight 0}) kestrelModel 0 initialStrips (replicate stripCount 0) 0)
+                 (wingInput {bodyRatesRadS=Vec3 1 0 0,bodyVelocityMS=Vec3 8 wingRootHeight 0}) kestrelModel 0 initialStrips (replicate stripCount 0) 0 0)
       falling=wingInput {bodyVelocityMS=Vec3 8 0 (-1)}
-      before=sumForce (wingLoadsWithStroke True 1 0 (-1e-8) (-0.1) falling kestrelModel 0 initialStrips (replicate stripCount 0) 0)
-      after=sumForce (wingLoadsWithStroke True 1 0 1e-8 (-0.1) falling kestrelModel 0 initialStrips (replicate stripCount 0) 0)
+      before=sumForce (wingLoadsWithStroke True 1 0 (-1e-8) (-0.1) falling kestrelModel 0 initialStrips (replicate stripCount 0) 0 0)
+      after=sumForce (wingLoadsWithStroke True 1 0 1e-8 (-0.1) falling kestrelModel 0 initialStrips (replicate stripCount 0) 0 0)
   if magnitude (addVec steady (scaleVec (-1) counter)) < 1e-8
      && magnitude (addVec before (scaleVec (-1) after)) < 1e-6
     then pure () else fail "world-stationary wing flow and continuous implicit reversal loads must hold"
@@ -281,7 +281,7 @@ main = do
      && last twistDefl < 0 && and (zipWith (<=) bendDefl (tail bendDefl))
     then pure ()
     else fail "cantilever beam must bend tip-up under up-load and twist nose-down under nose-down moment"
-  let input = VehicleInput (1 / 240) (Vec3 5 0 0) (Vec3 0 0 0) 0.7 0 0 0 1000
+  let input = VehicleInput (1 / 240) (Vec3 5 0 0) (Vec3 0 0 0) 0.7 0 0 0 1000 (Vec3 0 0 1)
       samples = take 1200 (tail (iterate (\(_, state) -> stepVehicle input state)
                                    (zeroVehicleOutput, defaultVehicle)))
       outputs = map fst samples
@@ -444,7 +444,7 @@ main = do
     else fail "firmware-vehicle closed loop must produce finite loads"
   -- Ground effect: proximity to the surface (normalised by wingspan) boosts
   -- flapping lift AND forward thrust, while a distant wing feels neither.
-  let geInput h = VehicleInput (1 / 240) (Vec3 5 0 0) (Vec3 0 0 0) 0 0 0 0 h
+  let geInput h = VehicleInput (1 / 240) (Vec3 5 0 0) (Vec3 0 0 0) 0 0 0 0 h (Vec3 0 0 1)
       strokeRateDown = -3.0
       (highGe, _) = stepWingWithStroke True (-1) 0 strokeRateDown (geInput 1000) kestrelModel 0 (replicate stripCount 0) 0 initialStrips
       (lowGe, _)  = stepWingWithStroke True (-1) 0 strokeRateDown (geInput 0.05) kestrelModel 0 (replicate stripCount 0) 0 initialStrips
@@ -566,9 +566,9 @@ main = do
       dotV a b=x a*x b+y a*y b+z a*z b
       checkAero (angle,rate,incidence,vzAir) =
         let input=flow {bodyVelocityMS=Vec3 8 0 vzAir, groundClearanceM=1000}
-            loads=wingLoadsWithStroke True 1 angle rate rate input flatModel incidence flatState (replicate stripCount 0) angle
+            loads=wingLoadsWithStroke True 1 angle rate rate input flatModel incidence flatState (replicate stripCount 0) angle 0
             mirror=wingLoadsWithStroke True 1 (-angle) (-rate) (-rate)
-                      (input {bodyVelocityMS=Vec3 8 0 (-vzAir)}) flatModel (-incidence) flatState (replicate stripCount 0) (-angle)
+                      (input {bodyVelocityMS=Vec3 8 0 (-vzAir)}) flatModel (-incidence) flatState (replicate stripCount 0) (-angle) 0
             checkStrip (i,r) =
               let f=(fromIntegral i+0.5)/fromIntegral stripCount
                   radius=wsShoulderM flatWing+wsSpanM flatWing*f
@@ -588,7 +588,7 @@ main = do
   let modLift dev =
         let input=flow {bodyVelocityMS=Vec3 8 0 (-1),groundClearanceM=1000}
         in sum (map (z . resultForce)
-                 (wingLoadsWithStroke False 1 dev 0 0 input flatModel 0 flatState (replicate stripCount 0) 0))
+                 (wingLoadsWithStroke False 1 dev 0 0 input flatModel 0 flatState (replicate stripCount 0) 0 0))
   if modLift 0.3 < modLift 0 && modLift (-0.3) > modLift 0
     then pure ()
     else fail "a held wing-up must lose lift and a held wing-down must gain it (position-based counter-rotation)"
@@ -603,9 +603,9 @@ main = do
   let mirroredStep (left,right,err) i =
         let t=fromIntegral i/240; a=0.4*cos (4*pi*t); rate= -1.6*pi*sin (4*pi*t)
             v=flow {bodyVelocityMS=Vec3 6 0 (-0.5),groundClearanceM=1000}
-            (ls,ln)=stepCoupledWing True 1 a rate rate 0 v flatModel 0.1 left (replicate stripCount 0) a
+            (ls,ln)=stepCoupledWing True 1 a rate rate 0 v flatModel 0.1 left (replicate stripCount 0) a 0
             (rs,rn)=stepCoupledWing True 1 (-a) (-rate) (-rate) 0
-                      (v {bodyVelocityMS=Vec3 6 0 0.5}) flatModel (-0.1) right (replicate stripCount 0) (-a)
+                      (v {bodyVelocityMS=Vec3 6 0 0.5}) flatModel (-0.1) right (replicate stripCount 0) (-a) 0
             f=summed ls; g=summed rs
         in (ln,rn,max err (magnitude (addVec f (Vec3 (-x g) (-y g) (z g)))))
       (_,_,reflectionError)=foldl mirroredStep (flatState,flatState,0) [1..480::Int]
@@ -621,7 +621,7 @@ main = do
         let omega=2
             input=flow {bodyVelocityMS=zero,bodyRatesRadS=Vec3 omega 0 0,groundClearanceM=1000}
             states=replicate stripCount (emptyStrip {stripSeparation=separated})
-            rs=concat [wingLoadsWithStroke False side 0 0 0 input flatModel 0 states (replicate stripCount 0) 0 | side<-[-1,1]]
+            rs=concat [wingLoadsWithStroke False side 0 0 0 input flatModel 0 states (replicate stripCount 0) 0 0 | side<-[-1,1]]
             moment=sum(map (x . resultMoment) rs)
             dr=wsSpanM flatWing/fromIntegral stripCount
             integral=sum [shapeChord flatWing f*dr*(wsShoulderM flatWing+wsSpanM flatWing*f)**3
@@ -634,7 +634,7 @@ main = do
   let stalled=replicate stripCount (emptyStrip {stripSeparation=1})
       mount=0.1
       input=flow {bodyVelocityMS=Vec3 8 0 0,groundClearanceM=1000}
-      (stalledLoads,stalledNext)=stepCoupledWing True 1 0 0 0 0 input flatModel mount stalled (replicate stripCount 0) 0
+      (stalledLoads,stalledNext)=stepCoupledWing True 1 0 0 0 0 input flatModel mount stalled (replicate stripCount 0) 0 0
       checkMembrane (i,r,next) =
         let f=(fromIntegral i+0.5)/fromIntegral stripCount
             normal=Vec3 (-sin mount) 0 (cos mount)

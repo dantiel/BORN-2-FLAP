@@ -29,7 +29,7 @@ class Pilot(c.Structure):
 
 class Body(c.Structure):
     _fields_ = [('dt', c.c_double), ('v', c.c_double * 3), ('w', c.c_double * 3),
-                ('height', c.c_double), ('inertia', c.c_double)]
+                ('height', c.c_double), ('inertia', c.c_double), ('up', c.c_double * 3)]
 
 
 class Output(c.Structure):
@@ -57,7 +57,7 @@ def main():
     parser.add_argument('--hz', type=int, default=960)
     parser.add_argument('--ramp-seconds', type=float, default=3.0)
     parser.add_argument('--hold-seconds', type=float, default=2.0)
-    parser.add_argument('--scales', type=float, nargs='+', default=[40, 200])
+    parser.add_argument('--scales', type=float, nargs='+', default=[40])
     args = parser.parse_args()
 
     lib = c.CDLL(str(args.dll.resolve()))
@@ -96,7 +96,7 @@ def main():
         assert ctx
         try:
             assert reconfigure(ctx, c.byref(tuning)) == 1
-            body = Body(1 / args.hz, (0, 0, 0), (0, 0, 0), 1000, inertia)
+            body = Body(1 / args.hz, (0, 0, 0), (0, 0, 0), 1000, inertia, (0, 0, 1))
             pilot, out = Pilot(0, 0, 0, 0, .5, 1), Output()
             settle = 0.5
             sweep = args.ramp_seconds
@@ -121,6 +121,7 @@ def main():
                 assert all(math.isfinite(v) for v in (*out.force, *out.moment, out.left, out.right))
                 body.w[0] += out.moment[0] / inertia / args.hz
                 angle += body.w[0] / args.hz
+                body.up[0], body.up[1], body.up[2] = 0, math.sin(angle), math.cos(angle)
                 max_body_rate = max(max_body_rate, abs(body.w[0]))
                 if i == round(settle * args.hz) - 1:
                     initial = (angle, out.left, out.right)

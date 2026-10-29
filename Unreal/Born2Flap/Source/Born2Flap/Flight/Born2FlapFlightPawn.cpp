@@ -1064,6 +1064,13 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
             State.linear_velocity_m_s[I] = V[I];
             State.angular_velocity_rad_s[I] = W[I];
         }
+        // World-up in the body frame: the math core hangs the body weight on
+        // the wing lift field through this vector — the pendulum that makes
+        // the fuselage counter-rotate when the wings tilt relative to the air.
+        const FVector UpB = Rotation.UnrotateVector(FVector(0.0, 0.0, 1.0));
+        State.body_up_body_frame[0] = UpB.X;
+        State.body_up_body_frame[1] = UpB.Y;
+        State.body_up_body_frame[2] = UpB.Z;
         B2F_FirmwareOutput O{};
         bool Valid = MathBridge->Step(Pilot, State, O);
         const bool BackendValid = Valid;
@@ -1620,35 +1627,44 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         }
         if (Previous < 18 && TestTime >= 18 && FParse::Param(FCommandLine::Get(), TEXT("B2FCapture")))
             FScreenshotRequest::RequestScreenshot(TEXT("AerodynamicFlight.png"), true, false);
+        if (Previous < 60 && TestTime >= 60 && FParse::Param(FCommandLine::Get(), TEXT("B2FCapture")))
+            FScreenshotRequest::RequestScreenshot(TEXT("MurexApproach.png"), true, false);
         if (FParse::Param(FCommandLine::Get(), TEXT("B2FRollResponseTest")))
         {
-            // Compare actual Chaos body and visible wing transforms. The DLL
-            // wind-tunnel fixture cannot detect host timing or attachment bugs.
+            // The user's glued-wing law, in-engine: at ZERO airspeed the full
+            // aileron sweep must leave the wings world-horizontal while the
+            // fuselage counter-rotates the commanded differential — the
+            // compressed-air pressure field holds the wings in place and the
+            // body, hanging below on the field, rotates beneath them. (A rigid
+            // tracking servo makes the old 8 m/s "wings lag the body" check
+            // mathematically unsatisfiable: wingWorld = body + command.)
             const auto* Settings = UPhysicsSettings::Get();
             const double Limit = Settings->bSubstepping
                 ? Settings->MaxSubsteps * Settings->MaxSubstepDeltaTime : Settings->MaxPhysicsDeltaTime;
             TestTime = Previous + (Limit > 0 ? FMath::Min(double(DeltaSeconds), Limit) : DeltaSeconds);
             Effort = Steer = Pitch = 0; Launch = Reset = false;
-            Roll = TestTime >= 1 ? .1f : 0;
+            // SLOW sweep — the user's in-game gesture: ramp to full stick over
+            // 1.5 s so the body can track the sweep 1:1 through the field.
+            Roll = TestTime >= 1 ? FMath::Min(1.0, (TestTime - 1.0) / 1.5) : 0;
             if (Previous < 1 && TestTime >= 1)
             {
                 Body->SetWorldLocationAndRotation(FVector(0,0,3000), FRotator::ZeroRotator, false, nullptr, ETeleportType::TeleportPhysics);
-                Body->SetPhysicsLinearVelocity(FVector(800,0,0));
+                Body->SetPhysicsLinearVelocity(FVector::ZeroVector);
                 Body->SetPhysicsAngularVelocityInRadians(FVector::ZeroVector);
                 bFlying = true; bCameraGrounded = false;
                 RollTestBaseline = FVector(Body->GetComponentRotation().Roll,
                     MembraneLeftShoulder->GetComponentRotation().Roll,
                     MembraneRightShoulder->GetComponentRotation().Roll);
             }
-            if (TestTime >= 1.3 && !bTestFinished)
+            if (TestTime >= 3.0 && !bTestFinished)
             {
                 bTestFinished = true;
                 const double BodyRoll = FMath::FindDeltaAngleDegrees(RollTestBaseline.X, Body->GetComponentRotation().Roll);
                 const double LeftWorld = FMath::FindDeltaAngleDegrees(RollTestBaseline.Y, MembraneLeftShoulder->GetComponentRotation().Roll);
                 const double RightWorld = FMath::FindDeltaAngleDegrees(RollTestBaseline.Z, MembraneRightShoulder->GetComponentRotation().Roll);
                 const double TailRoll = MembraneTailPivot->GetComponentRotation().Roll;
-                const bool Pass = bHealthy && MathFailures == 0 && FMath::Abs(BodyRoll) > 1 &&
-                    FMath::Max(FMath::Abs(LeftWorld), FMath::Abs(RightWorld)) < FMath::Abs(BodyRoll) &&
+                const bool Pass = bHealthy && MathFailures == 0 && FMath::Abs(BodyRoll) > 3 &&
+                    FMath::Max(FMath::Abs(LeftWorld), FMath::Abs(RightWorld)) < 0.5 * FMath::Abs(BodyRoll) &&
                     FMath::Abs(FMath::FindDeltaAngleDegrees(Body->GetComponentRotation().Roll, TailRoll)) < 1;
                 UE_LOG(LogTemp, Display, TEXT("RollResponseTest %s body=%.3f leftWorld=%.3f rightWorld=%.3f tail=%.3f mass=%.4f"),
                     Pass ? TEXT("PASS") : TEXT("FAIL"), BodyRoll, LeftWorld, RightWorld, TailRoll, Body->GetMass());
