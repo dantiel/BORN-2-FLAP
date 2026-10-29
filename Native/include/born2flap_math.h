@@ -77,6 +77,8 @@ typedef struct B2F_BodyState {
     double angular_velocity_rad_s[3];
     double ground_clearance_m;   /* body-origin height above the surface below [m] (ABI v11) */
     double roll_inertia_kg_m2;  /* positive dry locked-wing host inertia (ABI v12); required */
+    double body_up_body_frame[3]; /* world-up unit vector in the BODY frame (ABI v13): the
+                                   * pendulum hangs the body weight on the wings */
 } B2F_BodyState;
 
 typedef struct B2F_FirmwareConfig {

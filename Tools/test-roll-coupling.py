@@ -23,7 +23,7 @@ class Pilot(c.Structure):
 
 class Body(c.Structure):
     _fields_ = [('dt', c.c_double), ('v', c.c_double * 3), ('w', c.c_double * 3),
-                ('height', c.c_double), ('inertia', c.c_double)]
+                ('height', c.c_double), ('inertia', c.c_double), ('up', c.c_double * 3)]
 
 
 class Output(c.Structure):
@@ -47,7 +47,8 @@ def main():
     parser.add_argument('--dll', type=Path, default=DLL)
     parser.add_argument('--preferences', type=Path, help='Read-only saved aircraft tuning reproduction')
     parser.add_argument('--hz', type=int, default=960, help='Actual flight solver rate')
-    parser.add_argument('--ramp-seconds', type=float, default=0, help='Ramp roll input before holding it')
+    parser.add_argument('--ramp-seconds', type=float, default=1.5,
+                        help='Ramp roll input before holding it (the slow in-game gesture; the field-inertia glue reacts with a lag, so an instant step excites the flap transient)')
     parser.add_argument('--roll', type=float, default=.5, help='Roll stick magnitude')
     parser.add_argument('--speeds', type=float, nargs='+', default=[0,8,15])
     parser.add_argument('--free-translation', action='store_true', help='Free lateral/heave motion under gravity; forward speed is towed')
@@ -81,7 +82,7 @@ def main():
         assert ctx
         if tuning is not None:
             assert reconfigure(ctx, c.byref(tuning)) == 1
-        body = Body(1/hz, (speed, 0, 0), (0, 0, 0), 1000, inertia)
+        body = Body(1/hz, (speed, 0, 0), (0, 0, 0), 1000, inertia, (0, 0, 1))
         pilot, out = Pilot(throttle, 0, 0, 0, .5, 1), Output()
         angle = 0.0
         vy_world = vz_world = 0.0
@@ -126,6 +127,7 @@ def main():
                     vz_world += (fz_world/mass-9.81)/hz
                 body.w[0] += out.moment[0] / inertia / hz
                 angle += body.w[0] / hz
+                body.up[0], body.up[1], body.up[2] = 0, math.sin(angle), math.cos(angle)
                 if i == round(settle*hz) - 1:
                     initial_left, initial_right = out.left, out.right
                     initial_angle = angle
@@ -240,7 +242,7 @@ def main():
         assert ctx
         if tuning is not None:
             assert reconfigure(ctx, c.byref(tuning)) == 1
-        body = Body(1/args.hz, (speed, 0, 0), (0, 0, 0), 1000, reference_inertia)
+        body = Body(1/args.hz, (speed, 0, 0), (0, 0, 0), 1000, reference_inertia, (0, 0, 1))
         pilot, out = Pilot(0.72, 0, 0, 0, .5, 1), Output()
         peak, valley = -999.0, 999.0
         fz_sum = fz_count = 0.0
@@ -286,7 +288,7 @@ def main():
         assert ctx
         if tuning is not None:
             assert reconfigure(ctx, c.byref(tuning)) == 1
-        body = Body(1/args.hz, (speed, 0, 0), (0, 0, 0), 1000, reference_inertia)
+        body = Body(1/args.hz, (speed, 0, 0), (0, 0, 0), 1000, reference_inertia, (0, 0, 1))
         pilot, out = Pilot(0, 0, 0, 0, .5, 1), Output()
         fz_sum = fz_count = 0.0
         start = time.perf_counter()

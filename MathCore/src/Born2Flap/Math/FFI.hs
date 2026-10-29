@@ -138,6 +138,7 @@ peekInput pointer = do
         , pitchCommand = pitch
         , yawCommand = yaw
         , groundClearanceM = 1e9  -- legacy path carries no ground info
+        , bodyUpB = Vec3 0 0 1    -- legacy path carries no attitude info
         }
     _ -> error "unreachable input layout"
 
@@ -366,7 +367,7 @@ b2f_math_step_firmware_vehicle contextPointer pilotPointer bodyPointer outputPoi
           (output, nextState) = stepFirmwareVehicleWithMassInertia (fwcMass context) (bodyRollInertia body) (piCoupled pilot) rc (fwcParams context)
                                   (fwcServo context) (fwcBattery context) (fwcModel context)
                                   (bodyDelta body) (bodyVel body) (bodyRates body)
-                                  (bodyGroundClearance body) (fwcState context)
+                                  (bodyGroundClearance body) (bodyUp body) (fwcState context)
       if outputFlags output /= 0
         then pure 0
         else do
@@ -399,15 +400,16 @@ data BodyState = BodyState
   , bodyRates :: !Vec3
   , bodyRollInertia :: !Double
   , bodyGroundClearance :: !Double  -- ^ body-origin height above the surface below [m] (ABI v11)
+  , bodyUp :: !Vec3                 -- ^ world-up in the body frame (ABI v13): the pendulum hangs the body on the wings
   }
 
 peekBody :: Ptr () -> IO BodyState
 peekBody pointer = do
-  values <- mapM (peekElemOff (castPtr pointer :: Ptr CDouble)) [0 .. 8]
+  values <- mapM (peekElemOff (castPtr pointer :: Ptr CDouble)) [0 .. 11]
   case map (\(CDouble value) -> value) values of
-    [dt, lvx, lvy, lvz, avx, avy, avz, ground, inertia] ->
-      pure (BodyState dt (Vec3 lvx lvy lvz) (Vec3 avx avy avz) inertia ground)
-    _ -> pure (BodyState 0 zeroVec zeroVec 0 0)
+    [dt, lvx, lvy, lvz, avx, avy, avz, ground, inertia, upx, upy, upz] ->
+      pure (BodyState dt (Vec3 lvx lvy lvz) (Vec3 avx avy avz) inertia ground (Vec3 upx upy upz))
+    _ -> pure (BodyState 0 zeroVec zeroVec 0 0 (Vec3 0 0 1))
 
 pokeFwOutput :: Ptr () -> VehicleOutput -> FirmwareVehicleState -> IO ()
 pokeFwOutput pointer output state = do
