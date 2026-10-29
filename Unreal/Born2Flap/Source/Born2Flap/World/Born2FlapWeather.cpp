@@ -44,6 +44,14 @@ ABorn2FlapWeather::ABorn2FlapWeather()
     PrecipitationFX->SetupAttachment(RootComponent);
     PrecipitationFX->SetAutoActivate(false);
     PrecipitationFX->SetVisibility(false);
+    for(int32 I=0;I<5;++I)
+    {
+        auto* Bank=CreateDefaultSubobject<UNiagaraComponent>(*FString::Printf(TEXT("MorningMist%d"),I));
+        Bank->SetupAttachment(RootComponent);
+        Bank->SetAutoActivate(false);
+        Bank->SetVisibility(false);
+        MistBanks.Add(Bank);
+    }
     Splashes=CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("RainSplashes"));
     Splashes->SetupAttachment(RootComponent);
     Splashes->SetCollisionEnabled(ECollisionEnabled::NoCollision);
@@ -171,6 +179,8 @@ void ABorn2FlapWeather::Apply()
             PrecipitationFX->Deactivate();
         }
     }
+    if(auto* MistSystem=LoadObject<UNiagaraSystem>(nullptr,TEXT("/Game/Weather/NS_MorningMist")))
+        for(auto& Entry:MistBanks) if(UNiagaraComponent* Bank=Entry.Get()) Bank->SetAsset(MistSystem);
     SurfaceCollection=LoadObject<UMaterialParameterCollection>(nullptr,TEXT("/Game/Weather/MPC_Weather"));
     Wetness=W.Rain ? .45f : 0;
     // Winter snow settles deeper and lingers; summer/spring snow is a light dust.
@@ -254,6 +264,7 @@ void ABorn2FlapWeather::Tick(float DeltaSeconds)
     if(auto* Camera=UGameplayStatics::GetPlayerCameraManager(this,0))
     {
         const FVector Center=Camera->GetCameraLocation();
+        UpdateMist(Center,DeltaSeconds);
         if(bNiagara && PrecipitationFX && PrecipitationFX->GetAsset())
         {
             // Local-space system follows the camera; wind in cm/s to match the
@@ -283,6 +294,89 @@ void ABorn2FlapWeather::Tick(float DeltaSeconds)
     }
     if(FParse::Param(FCommandLine::Get(),TEXT("B2FWeatherTest"))) CheckTest();
     if(FParse::Param(FCommandLine::Get(),TEXT("B2FWeatherExperienceTest"))) CheckExperienceTest();
+}
+float ABorn2FlapWeather::MorningMistAmount() const
+{
+    const auto& D=Born2FlapWeather::DayTime(Conditions.Time);
+    const auto& Ssn=Born2FlapWeather::Season(Conditions.Season);
+    const auto& W=Born2FlapWeather::Profile(Conditions.Weather);
+    float TimeGate=0.f;
+    if(D.Id==TEXT("dawn")) TimeGate=.95f;
+    else if(D.Id==TEXT("morning")) TimeGate=.65f;
+    else if(D.Id==TEXT("sunset")) TimeGate=.30f;
+    else if(D.Id==TEXT("night")) TimeGate=.20f;
+    else TimeGate=.05f; // noon: burnt off
+    const float WeatherGate=(W.Id==TEXT("mist"))?1.f:(W.Id==TEXT("rain"))?.55f:(W.Id==TEXT("cloudy"))?.35f:.15f;
+    return FMath::Clamp(TimeGate*Ssn.MorningMist*(.35f+.65f*WeatherGate),0.f,1.f);
+}
+void ABorn2FlapWeather::CollectMistAnchors(const FVector& Camera,TArray<FVector>& Out,int32 MaxCount)
+{
+    auto* GM=Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode());
+    if(!GM) return;
+    struct FCandidate{FVector Pos;float Score;};
+    TArray<FCandidate> Cand;
+    const float Extent=14000.f,Step=2800.f;
+    for(float X=-Extent;X<=Extent;X+=Step)
+    for(float Y=-Extent;Y<=Extent;Y+=Step)
+    {
+        const double PX=Camera.X+X,PY=Camera.Y+Y;
+        const double G=GM->GroundHeight(PX,PY);
+        float Score=0.f;
+        if(GM->IsWater(PX,PY)) Score=1000.f;
+        else
+        {
+            const double N=GM->GroundHeight(PX+Step,PY);
+            const double S=GM->GroundHeight(PX-Step,PY);
+            const double E=GM->GroundHeight(PX,PY+Step);
+            const double W=GM->GroundHeight(PX,PY-Step);
+            const double Drop=.25*(N+S+E+W)-G;
+            if(Drop>250.0) Score=(float)Drop;
+        }
+        if(Score>0.f) Cand.Add({FVector((float)PX,(float)PY,(float)G),Score});
+    }
+    Cand.Sort([](const FCandidate& A,const FCandidate& B){return A.Score>B.Score;});
+    for(const FCandidate& C:Cand)
+    {
+        if(Out.Num()>=MaxCount) break;
+        bool bClose=false;
+        for(const FVector& A:Out) if(FVector2D(A-C.Pos).Size()<2500.f){bClose=true;break;}
+        if(!bClose) Out.Add(C.Pos);
+    }
+}
+void ABorn2FlapWeather::UpdateMist(const FVector& Camera,float DeltaSeconds)
+{
+    const bool bMistLevel=Level==TEXT("Shiomori")||Level==TEXT("Ravenstonefield")||Level==TEXT("Yunsha");
+    const float Mist=bMistLevel?MorningMistAmount():0.f;
+    if(SurfaceCollection)
+    {
+        auto* MPC=GetWorld()->GetParameterCollectionInstance(SurfaceCollection);
+        MPC->SetScalarParameterValue(TEXT("MistAmount"),Mist);
+    }
+    const bool bOn=Mist>0.03f;
+    for(auto& Entry:MistBanks)
+    {
+        UNiagaraComponent* Bank=Entry.Get();
+        if(!Bank) continue;
+        if(!bOn){Bank->SetVisibility(false);Bank->Deactivate();continue;}
+        Bank->SetVisibility(true);Bank->Activate(true);
+    }
+    if(!bOn) return;
+    MistAnchorRefresh-=DeltaSeconds;
+    if(MistAnchorRefresh<=0.f)
+    {
+        MistAnchorRefresh=.5f;
+        MistAnchors.Reset();
+        CollectMistAnchors(Camera,MistAnchors,MistBanks.Num());
+    }
+    for(int32 I=0;I<MistBanks.Num();++I)
+    {
+        UNiagaraComponent* Bank=MistBanks[I].Get();
+        if(!Bank) continue;
+        if(MistAnchors.Num()==0){Bank->SetVisibility(false);continue;}
+        const FVector& A=MistAnchors[I%MistAnchors.Num()];
+        const float JitterX=(I%3-1)*500.f,JitterY=((I*7)%5-2)*400.f;
+        Bank->SetWorldLocation(FVector(A.X+JitterX,A.Y+JitterY,A.Z+80.f));
+    }
 }
 void ABorn2FlapWeather::CheckExperienceTest()
 {

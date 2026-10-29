@@ -41,6 +41,10 @@ struct FBorn2FlapSeason
     float SnowBias = 0.f;        // deepens winter snow, warms summer rain
     // (future) radio cue — seasonal soundtrack playlist hint.
     FString RadioCue;
+    // Morning ground-mist affinity (0..1): how readily valley floors, river banks
+    // and oases exhale low-lying mist banks at dawn/morning. Hermetic — the player
+    // only picks the season; this one number sets where morning mist lives.
+    float MorningMist = 0.f;
 };
 struct FBorn2FlapConditions
 {
@@ -110,6 +114,9 @@ private:
     void Respawn(int32 Index, const FVector& Camera);
     float SurfaceHeight(const FVector& Position) const;
     void UpdateSurfaces(float DeltaSeconds);
+    void UpdateMist(const FVector& Camera, float DeltaSeconds);
+    float MorningMistAmount() const;
+    void CollectMistAnchors(const FVector& Camera, TArray<FVector>& Out, int32 MaxCount);
     void CheckTest();
     void CheckExperienceTest();
     FString Level;
@@ -132,6 +139,12 @@ private:
     // above stays as the software fallback for LOW/MEDIUM.
     UPROPERTY() TObjectPtr<UNiagaraComponent> PrecipitationFX;
     bool bNiagara=false;
+    // Localized morning mist banks (valley floors / water bodies). Each bank is a
+    // local-space Niagara system anchored near a depression; opacity fades with
+    // MPC_Weather.MistAmount, gated by day-time + season.
+    UPROPERTY() TArray<TObjectPtr<UNiagaraComponent>> MistBanks;
+    TArray<FVector> MistAnchors;
+    float MistAnchorRefresh=0.f;
     UPROPERTY() TObjectPtr<UVolumetricCloudComponent> Clouds;
     UPROPERTY() TObjectPtr<UPostProcessComponent> PostProcess;
     UPROPERTY() TObjectPtr<UMaterialInstanceDynamic> HaloMaterial;

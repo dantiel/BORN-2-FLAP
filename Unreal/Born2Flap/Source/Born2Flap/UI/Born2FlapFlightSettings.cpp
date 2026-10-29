@@ -198,6 +198,22 @@ void ABorn2FlapFlightSettings::BuildTree()
         Rows.push_back(Nd("Toggle", std::move(Props)));
     }
 
+    // On-foot pilot avatar — distinct realistic persons.
+    Rows.push_back(Nd("TextBlock", P({ {"text", S("PILOT AVATAR")}, {"tone", S("accent")}, {"size", S("l")} })));
+    {
+        static const TCHAR* PersonNames[] = { TEXT("FOUNDER"), TEXT("HUNTER") };
+        const int32 CurPerson = Bird->GetAvatarPerson();
+        for (int32 P = 0; P < 2; ++P)
+        {
+            FProps Props;
+            Props["label"] = Sv(PersonNames[P]);
+            Props["action"] = Sv(FString::Printf(TEXT("avatar.person.%d"), P));
+            Props["tone"] = S(P == CurPerson ? "good" : "normal");
+            Props["tooltip"] = S("Choose your on-foot pilot character.");
+            Rows.push_back(Nd("Button", std::move(Props)));
+        }
+    }
+
     const int32 BirdStart=Rows.size();
     // Further bird tuning (BIRD tab).
     Rows.push_back(Nd("TextBlock", P({ {"text", S("BIRD TUNING")}, {"tone", S("accent")}, {"size", S("l")} })));
@@ -474,6 +490,14 @@ void ABorn2FlapFlightSettings::HandleAction(const FString& Action, float Value, 
         const int32 Model = FCString::Atoi(*Action.RightChop(FCString::Strlen(TEXT("bird.model."))));
         Bird->SelectBirdModel(Model);
         // Rebuild: the CG slider's min/max scale with the new craft's length.
+        BuildTree();
+        return;
+    }
+
+    if (Action.StartsWith(TEXT("avatar.person.")))
+    {
+        const int32 Person = FCString::Atoi(*Action.RightChop(FCString::Strlen(TEXT("avatar.person."))));
+        Bird->SetAvatarPerson(Person);
         BuildTree();
         return;
     }

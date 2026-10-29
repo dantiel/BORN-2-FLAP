@@ -41,13 +41,13 @@ const TArray<FBorn2FlapSeason>& Seasons()
     //   RadioCue is the (future) seasonal soundtrack playlist hint.
     static const TArray<FBorn2FlapSeason> Values={
         // Id, Label,  SunAz, SunElev, SunLux, LightTint,             SkyInt, FogBias, ExpBias, InsectF, LeafF, LeafShed, LeafTint,                NativeWeather, SnowBias, RadioCue
-        { TEXT("spring"), TEXT("Spring"), -12.f,  4.f, 1.05f, FLinearColor(1.00f,.97f,.88f), 1.10f, -.002f,  .15f, 1.35f,  .85f,  .55f, FLinearColor(.55f,.85f,.32f), TEXT("mist"),   0.00f, TEXT("spring") },
-        { TEXT("summer"), TEXT("Summer"),   8.f, 12.f, 1.20f, FLinearColor(1.00f,.91f,.76f), 1.20f,  .000f,  .30f, 1.65f, 1.00f,  .40f, FLinearColor(.18f,.62f,.22f), TEXT("sunny"),  0.00f, TEXT("summer") },
-        { TEXT("autumn"), TEXT("Autumn"),  15.f, -8.f,  .85f, FLinearColor(1.00f,.76f,.52f),  .95f,  .006f, -.10f,  .80f, 1.85f, 1.60f, FLinearColor(.78f,.45f,.15f), TEXT("mist"),   0.00f, TEXT("autumn") },
-        { TEXT("winter"), TEXT("Winter"), -20.f,-16.f,  .60f, FLinearColor(.72f,.83f,1.00f),  .80f,  .004f, -.25f,  .22f,  .18f,  .10f, FLinearColor(.62f,.60f,.58f), TEXT("snow"),   1.00f, TEXT("winter") },
-        { TEXT("dry"), TEXT("Dry"), 0.f, 6.f, 1.15f, FLinearColor(1.f,.91f,.76f), .9f, .001f, .1f, 0.f, 0.f, 0.f, FLinearColor(.7f,.6f,.3f), TEXT("sunny"), 0.f, TEXT("dry") },
-        { TEXT("monsoon"), TEXT("Monsoon"), 0.f, -3.f, .6f, FLinearColor(.72f,.79f,1.f), .8f, .009f, -.2f, .1f, .1f, 0.f, FLinearColor(.4f,.6f,.2f), TEXT("rain"), 0.f, TEXT("monsoon") },
-        { TEXT("cool"), TEXT("Cool"), -12.f, -12.f, .75f, FLinearColor(.83f,.9f,1.f), 1.f, -.001f, 0.f, 0.f, 0.f, 0.f, FLinearColor(.5f,.6f,.3f), TEXT("sunny"), 0.f, TEXT("cool") },
+        { TEXT("spring"), TEXT("Spring"), -12.f,  4.f, 1.05f, FLinearColor(1.00f,.97f,.88f), 1.10f, -.002f,  .15f, 1.35f,  .85f,  .55f, FLinearColor(.55f,.85f,.32f), TEXT("mist"),   0.00f, TEXT("spring"), 0.55f },
+        { TEXT("summer"), TEXT("Summer"),   8.f, 12.f, 1.20f, FLinearColor(1.00f,.91f,.76f), 1.20f,  .000f,  .30f, 1.65f, 1.00f,  .40f, FLinearColor(.18f,.62f,.22f), TEXT("sunny"),  0.00f, TEXT("summer"), 0.15f },
+        { TEXT("autumn"), TEXT("Autumn"),  15.f, -8.f,  .85f, FLinearColor(1.00f,.76f,.52f),  .95f,  .006f, -.10f,  .80f, 1.85f, 1.60f, FLinearColor(.78f,.45f,.15f), TEXT("mist"),   0.00f, TEXT("autumn"), 0.70f },
+        { TEXT("winter"), TEXT("Winter"), -20.f,-16.f,  .60f, FLinearColor(.72f,.83f,1.00f),  .80f,  .004f, -.25f,  .22f,  .18f,  .10f, FLinearColor(.62f,.60f,.58f), TEXT("snow"),   1.00f, TEXT("winter"), 0.40f },
+        { TEXT("dry"), TEXT("Dry"), 0.f, 6.f, 1.15f, FLinearColor(1.f,.91f,.76f), .9f, .001f, .1f, 0.f, 0.f, 0.f, FLinearColor(.7f,.6f,.3f), TEXT("sunny"), 0.f, TEXT("dry"), 0.08f },
+        { TEXT("monsoon"), TEXT("Monsoon"), 0.f, -3.f, .6f, FLinearColor(.72f,.79f,1.f), .8f, .009f, -.2f, .1f, .1f, 0.f, FLinearColor(.4f,.6f,.2f), TEXT("rain"), 0.f, TEXT("monsoon"), 0.85f },
+        { TEXT("cool"), TEXT("Cool"), -12.f, -12.f, .75f, FLinearColor(.83f,.9f,1.f), 1.f, -.001f, 0.f, 0.f, 0.f, 0.f, FLinearColor(.5f,.6f,.3f), TEXT("sunny"), 0.f, TEXT("cool"), 0.60f },
     };
     return Values;
 }

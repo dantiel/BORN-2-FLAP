@@ -33,7 +33,7 @@ def main():
         raise RuntimeError('Yunsha verification failed: '+str(log))
     if not args.no_render:
         shots=project/'Saved/Screenshots'/('WindowsEditor' if sys.platform=='win32' else 'MacEditor')
-        missing=[str(shots/('YUNSHA_%s_%s_%d.png'%(args.time,args.season,i))) for i in range(8)
+        missing=[str(shots/('YUNSHA_%s_%s_%d.png'%(args.time,args.season,i))) for i in range(18)
                  if not (shots/('YUNSHA_%s_%s_%d.png'%(args.time,args.season,i))).is_file()
                  or (shots/('YUNSHA_%s_%s_%d.png'%(args.time,args.season,i))).stat().st_mtime < started]
         if missing:raise RuntimeError('Missing captures: '+', '.join(missing))

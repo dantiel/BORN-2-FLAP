@@ -63,6 +63,12 @@ ABorn2FlapWindLeaves::ABorn2FlapWindLeaves()
     Leaves->SetMobility(EComponentMobility::Movable);
     Leaves->SetCastShadow(false);
 
+    Leaves2 = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("Leaves2"));
+    Leaves2->SetupAttachment(RootComponent);
+    Leaves2->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    Leaves2->SetMobility(EComponentMobility::Movable);
+    Leaves2->SetCastShadow(false);
+
     Blades = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("Blades"));
     Blades->SetupAttachment(RootComponent);
     Blades->SetCollisionEnabled(ECollisionEnabled::NoCollision);
@@ -85,15 +91,37 @@ ABorn2FlapWindLeaves::ABorn2FlapWindLeaves()
     SandBurstFX->SetAutoActivate(false);
     SandBurstFX->SetCollisionEnabled(ECollisionEnabled::NoCollision);
     SandBurstFX->SetCastShadow(false);
+    DuneGustFX = CreateDefaultSubobject<UNiagaraComponent>(TEXT("DuneGustFX"));
+    DuneGustFX->SetupAttachment(RootComponent);
+    DuneGustFX->SetAutoActivate(false);
+    DuneGustFX->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    DuneGustFX->SetCastShadow(false);
 }
 
 void ABorn2FlapWindLeaves::BeginPlay()
 {
     Super::BeginPlay();
-    UStaticMesh* LeafMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Game/Nature/SM_Grass0"));
+
+    // Level-aware foliage: each world sheds its own leaf type. The valley drops
+    // broad autumn leaves; the coast mixes a heart leaf with dried grass; the
+    // desert strips to dried blades; the aether keeps glowing petals aloft.
+    FString LevelId = TEXT("Training");
+    if (const auto* GM = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode()))
+        LevelId = GM->GetLevelId();
+    bDesert = (LevelId == TEXT("Yunsha"));
+
+    const TCHAR* LeafMeshA = TEXT("/Game/Nature/SM_Leaf0");   // broad round leaf
+    const TCHAR* LeafMeshB = TEXT("/Game/Nature/SM_Leaf1");   // heart leaf
+    if (LevelId == TEXT("Shiomori"))      { LeafMeshA = TEXT("/Game/Nature/SM_Leaf1"); LeafMeshB = TEXT("/Game/Nature/SM_Grass0"); }
+    else if (LevelId == TEXT("Yunsha"))   { LeafMeshA = TEXT("/Game/Nature/SM_Grass0"); LeafMeshB = TEXT("/Game/Nature/SM_Grass1"); }
+
+    UStaticMesh* LeafMesh  = LoadObject<UStaticMesh>(nullptr, LeafMeshA);
+    UStaticMesh* LeafMesh2 = LoadObject<UStaticMesh>(nullptr, LeafMeshB);
     UStaticMesh* BladeMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Game/Nature/SM_Grass1"));
     UStaticMesh* SpeckMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Plane"));
+    if (!LeafMesh2) LeafMesh2 = LeafMesh;   // keep a valid second type even on fallback
     Leaves->SetStaticMesh(LeafMesh);
+    Leaves2->SetStaticMesh(LeafMesh2);
     Blades->SetStaticMesh(BladeMesh);
     // Sand/dust motes are soft billboard sprites, not spheres: a camera-facing
     // plane with a radial-alpha material reads as a Niagara-style particle. The
@@ -132,6 +160,17 @@ void ABorn2FlapWindLeaves::BeginPlay()
         Dust->SetVisibility(false);
     }
 
+    // Yunsha desert: occasionally a big rolling sand cloud sweeps over the dunes.
+    if (bDesert)
+    {
+        if (bNiagaraSand)
+        {
+            if (auto* Gust = LoadObject<UNiagaraSystem>(nullptr, TEXT("/Game/Weather/NS_DuneGust")))
+                DuneGustFX->SetAsset(Gust);
+        }
+        NextGustTime = (GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0) + 6.0;
+    }
+
     if (!LeafMesh && !BladeMesh)
     {
         UE_LOG(LogTemp, Warning, TEXT("Born2FlapWindLeaves: no grass meshes found — wind invisible"));
@@ -150,13 +189,16 @@ void ABorn2FlapWindLeaves::BeginPlay()
     const FVector Cam = CameraLocation();
     LastCam = Cam;
 
-    if (LeafMesh)
+    if (LeafMesh && LeafMesh2)
     {
         LeafPool.SetNum(MaxLeaves);
         for (int32 I = 0; I < MaxLeaves; ++I)
         {
             LeafPool[I] = SpawnLeaf(R, Cam);
-            Leaves->AddInstance(FTransform(LeafPool[I].Rot, LeafPool[I].Pos, FVector(LeafPool[I].Scale)));
+            LeafPool[I].MeshIdx = (I & 1);   // alternate the two leaf types for mixed foliage
+            const FTransform T(LeafPool[I].Rot, LeafPool[I].Pos, FVector(LeafPool[I].Scale));
+            LeafPool[I].InstanceIdx = (LeafPool[I].MeshIdx == 0)
+                ? Leaves->AddInstance(T) : Leaves2->AddInstance(T);
         }
     }
     if (BladeMesh)
@@ -234,28 +276,53 @@ void ABorn2FlapWindLeaves::Tick(float DeltaSeconds)
         for (int32 I = 0; I < LeafPool.Num(); ++I)
         {
             FLeaf& L = LeafPool[I];
+            UInstancedStaticMeshComponent* Cmp = (L.MeshIdx == 0) ? Leaves.Get() : Leaves2.Get();
             if (I >= Active)
             {
                 // Parked while the air is calm; respawns near a tree the moment
                 // stronger wind reveals it.
                 L.Life = 0.0f;
-                Leaves->UpdateInstanceTransform(I, FTransform(FRotator::ZeroRotator, Cam + FVector(0, 0, -50000.0), FVector::ZeroVector), true, false, false);
+                Cmp->UpdateInstanceTransform(L.InstanceIdx, FTransform(FRotator::ZeroRotator, Cam + FVector(0, 0, -50000.0), FVector::ZeroVector), true, false, false);
                 continue;
             }
 
             const FVector Wind = WeatherWind(this, L.Pos, Time) * 100.0;  // m/s → cm/s
             L.Vel = FMath::VInterpTo(L.Vel, Wind, DeltaSeconds, 1.5f);
-            L.Pos += (L.Vel + FVector(0, 0, -80.0)) * DeltaSeconds;            // gentle sink
+
+            // Realistic flutter — three coupled motions, each with its own
+            // per-leaf rhythm (Phase/Freq/Amp set at spawn):
+            //   Sway   — lateral zigzag while sinking (the leaf side-slips).
+            //   Glide  — stall-and-drop: it "glides" broadside, then stalls and
+            //            drops edge-on, so the sink speed breathes instead of
+            //            being a constant -80 cm/s.
+            //   Tumble — the leaf flips over its axis with a wandering cadence
+            //            rather than spinning rigidly on one fixed axis.
+            const double W = 2.0 * PI;
+            const double Sway  = FMath::Sin(Time * L.SwayFreq * W + L.Phase) * L.SwayAmp;
+            const double Glide = FMath::Sin(Time * L.GlideFreq * W + L.Phase) * L.GlideAmp;
+            L.Pos += (L.Vel + FVector(Sway, Sway * 0.6, -80.0 + Glide)) * DeltaSeconds;
             L.Rot += L.Spin * DeltaSeconds;
+            L.Rot.Pitch += FMath::Sin(Time * L.TumbleFreq * W + L.Phase) * 120.0f * DeltaSeconds;
+            L.Rot.Roll  += FMath::Cos(Time * L.TumbleFreq * W * 0.8 + L.Phase) * 90.0f * DeltaSeconds;
             L.Life -= DeltaSeconds;
 
             const double Ground = WeatherGround(this, L.Pos.X, L.Pos.Y);
             if (L.Life <= 0.0 || L.Pos.Z < Ground - 200.0 || FVector::Dist(L.Pos, Cam) > 12000.0)
+            {
+                // Respawn into the same component slot — MeshIdx/InstanceIdx are
+                // tied to the instance already allocated in Leaves/Leaves2.
+                const int32 MeshIdx = L.MeshIdx;
+                const int32 InstanceIdx = L.InstanceIdx;
                 L = SpawnLeaf(R, Cam);
+                L.MeshIdx = MeshIdx;
+                L.InstanceIdx = InstanceIdx;
+                Cmp = (L.MeshIdx == 0) ? Leaves.Get() : Leaves2.Get();
+            }
 
-            Leaves->UpdateInstanceTransform(I, FTransform(L.Rot, L.Pos, FVector(L.Scale)), true, false, false);
+            Cmp->UpdateInstanceTransform(L.InstanceIdx, FTransform(L.Rot, L.Pos, FVector(L.Scale)), true, false, false);
         }
         Leaves->MarkRenderStateDirty();
+        Leaves2->MarkRenderStateDirty();
     }
 
     if (CamMoved || BladePool.Num() != MaxBlades)
@@ -355,6 +422,45 @@ void ABorn2FlapWindLeaves::Tick(float DeltaSeconds)
         }
         Dust->MarkRenderStateDirty();
     }
+
+    // Yunsha desert: big sand clouds roll over the dunes on a slow cadence —
+    // sooner when the wind is up. The cloud rides a sluggish mean wind heading
+    // (GustWindDir) that eases toward the live horizontal wind, so gusts follow
+    // the weather's average drift with a natural, heavy air-mass lag instead of
+    // tracking each frame's wobble.
+    if (bDesert)
+    {
+        const FVector WindC = WeatherWind(this, Cam, Time);
+        FVector TargetDir(WindC.X, WindC.Y, 0.0);
+        if (TargetDir.SizeSquared() < 1.0) TargetDir = FVector(1.0, 0.0, 0.0);
+        TargetDir.Normalize();
+        if (!bGustWindSeeded) { GustWindDir = TargetDir; bGustWindSeeded = true; }
+        else GustWindDir = FMath::VInterpTo(GustWindDir, TargetDir, DeltaSeconds, 0.35f);
+        GustWindDir.Normalize();
+    }
+
+    if (bDesert && Time >= NextGustTime)
+    {
+        const FVector WindC = WeatherWind(this, Cam, Time);
+        const float WindMS = FMath::Sqrt(WindC.X * WindC.X + WindC.Y * WindC.Y);
+        const float K = FMath::Clamp((WindMS - 2.0f) / 10.0f, 0.0f, 1.0f);
+        NextGustTime = Time + FMath::Lerp(45.0, 18.0, K);
+
+        const FVector WindDir = GustWindDir;
+        const double G = WeatherGround(this, Cam.X, Cam.Y);
+        const FVector GustPos = FVector(Cam.X - WindDir.X * 2600.0, Cam.Y - WindDir.Y * 2600.0, G);
+
+        if (bNiagaraSand && DuneGustFX && DuneGustFX->GetAsset())
+        {
+            // Align the emitter's local +X with the wind so the baked local-space
+            // velocity rolls downwind; yaw-only keeps the cloud upright.
+            const float Yaw = FMath::RadiansToDegrees(FMath::Atan2(WindDir.Y, WindDir.X));
+            DuneGustFX->SetWorldLocation(GustPos);
+            DuneGustFX->SetWorldRotation(FRotator(0.0f, Yaw, 0.0f));
+            DuneGustFX->Activate(true);   // re-fire the one-shot rolling cloud
+        }
+        EmitDuneGust();   // ISM fallback cluster (visible when Niagara is off)
+    }
     LastCam = Cam;
 }
 
@@ -393,6 +499,16 @@ ABorn2FlapWindLeaves::FLeaf ABorn2FlapWindLeaves::SpawnLeaf(FRandomStream& R, co
     L.Spin = FRotator(R.FRandRange(-120.0, 120.0), R.FRandRange(-180.0, 180.0), R.FRandRange(-120.0, 120.0));
     L.Scale = R.FRandRange(0.22f, 0.55f);
     L.Life = R.FRandRange(8.0, 22.0);
+    // Per-leaf flutter rhythm: a deterministic cadence drawn once at spawn so
+    // no two leaves sway, glide, or flip in lock-step. Frequencies are low
+    // (sub-2 Hz) and amplitudes gentle — the read is a leaf catching air, not a
+    // spasm.
+    L.Phase      = R.FRandRange(0.0, 2.0 * PI);
+    L.SwayFreq   = R.FRandRange(0.8f, 1.8f);
+    L.SwayAmp    = R.FRandRange(15.0f, 45.0f);
+    L.GlideFreq  = R.FRandRange(0.5f, 1.2f);
+    L.GlideAmp   = R.FRandRange(15.0f, 50.0f);
+    L.TumbleFreq = R.FRandRange(0.6f, 2.0f);
     return L;
 }
 
@@ -466,6 +582,45 @@ void ABorn2FlapWindLeaves::RespawnBlades(bool bForce)
         Blades->UpdateInstanceTransform(I, FTransform(BladePool[I].Base, BladePool[I].Anchor, FVector(BladePool[I].Scale)), true, false, false);
     }
     Blades->MarkRenderStateDirty();
+}
+
+void ABorn2FlapWindLeaves::EmitDuneGust()
+{
+    // GPU Niagara path: the rolling cloud is fired by DuneGustFX (NS_DuneGust),
+    // so the ISM cluster below is only the software fallback.
+    if (bNiagaraSand) return;
+    if (!Dust || DustPool.Num() == 0) return;
+
+    const FVector Cam = CameraLocation();
+    // Ride the same sluggish mean heading as the GPU cloud so the two paths
+    // (Niagara + ISM fallback) read as one coherent gust, not two mismatched ones.
+    const FVector WindDir = GustWindDir;
+    const double G = WeatherGround(this, Cam.X, Cam.Y);
+    const FVector Origin = FVector(Cam.X - WindDir.X * 2400.0, Cam.Y - WindDir.Y * 2400.0, G);
+
+    // A dense cluster of large, nearly-weightless dust puffs forms a rolling
+    // cloud that drifts downwind and slowly settles — the desert's big sand gust.
+    FRandomStream R(int32(FMath::Rand()) ^ int32(FPlatformTime::Cycles()));
+    const int32 Count = 64;
+    for (int32 I = 0; I < Count; ++I)
+    {
+        const int32 Idx = (LastBurstIdx + I) % DustPool.Num();
+        FLeaf& D = DustPool[Idx];
+        const double A = R.FRandRange(0.0, 2.0 * PI);
+        const double Rad = R.FRandRange(0.0, 1400.0);
+        D.Pos = Origin + FVector(FMath::Cos(A) * Rad, FMath::Sin(A) * Rad, R.FRandRange(0.0, 260.0));
+        D.bCloud = true;
+        D.bBurst = true;   // lives out its life, never parked by ambient activity
+        D.Scale = R.FRandRange(0.28f, 0.60f);
+        D.Life = R.FRandRange(4.0, 9.0);
+        D.LifeMax = D.Life;
+        const double Drift = R.FRandRange(80.0, 320.0);
+        D.Vel = WindDir * Drift + FVector(0.0, 0.0, R.FRandRange(10.0, 50.0));
+        D.Rot = FRotator(R.FRandRange(0.0, 360.0), R.FRandRange(0.0, 360.0), R.FRandRange(0.0, 360.0));
+        D.Spin = FRotator(R.FRandRange(-40.0, 40.0), R.FRandRange(-40.0, 40.0), R.FRandRange(-40.0, 40.0));
+    }
+    LastBurstIdx = (LastBurstIdx + Count) % DustPool.Num();
+    Dust->MarkRenderStateDirty();
 }
 
 void ABorn2FlapWindLeaves::EmitSandBurst(const FVector& WorldPos, float Strength)

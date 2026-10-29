@@ -45,7 +45,7 @@ namespace Born2FlapPoi
         }
         else if (Level.Equals(TEXT("Yunsha"), ESearchCase::IgnoreCase))
         {
-            for(const TCHAR* Key:{TEXT("Lunya - the Jade Palace"),TEXT("Canyon Mouth - read the shimmer"),TEXT("The Wind-Harp - come back at dusk"),TEXT("The Narrows"),TEXT("Cloud-Forest - begin the climb"),TEXT("The Dune Sea")})
+            for(const TCHAR* Key:{TEXT("Lunya - the Jade Palace"),TEXT("Canyon Mouth - read the shimmer"),TEXT("The Wind-Harp - come back at dusk"),TEXT("The Narrows"),TEXT("Cloud-Forest - begin the climb"),TEXT("The Dune Sea"),TEXT("The Bone Archive")})
             { FBorn2FlapPoi P;P.Key=Key;Out.Add(P); }
         }
         else if (Level.Equals(TEXT("Training"), ESearchCase::IgnoreCase))

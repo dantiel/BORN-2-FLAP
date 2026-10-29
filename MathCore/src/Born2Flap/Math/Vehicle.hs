@@ -96,18 +96,28 @@ supportHandoverMS = 4.0
 fieldCompressionPerRate :: Double
 fieldCompressionPerRate = 0.06
 
--- Speed-agnostic grip of the compressed-air lift field. The field resists
--- any motion of the strip through it — normal compression and tangential
--- shear — with a constant Coulomb-like force proportional to the load the
--- strip carries (supportN share × liftMod × supportGate). The tanh knee
--- makes the grip effectively constant above ~0.3 m/s of relative motion,
--- so the wing is glued to the air at EVERY speed instead of slipping at
--- slow rates. The quadratic pressure law takes over at cruise where the
--- gate hands the load to circulation.
-fieldGripNormalGain, fieldGripShearGain, fieldGripKneeMS :: Double
-fieldGripNormalGain = 1.5
-fieldGripShearGain = 0.35
-fieldGripKneeMS = 0.2
+-- | Reference velocity of the WORLD-translation lift modulation: the wing's
+-- lift counter-force changes with its actual vertical motion through the
+-- air (m/s). The modulation saturates at ±(clamp range) within a few tens
+-- of cm/s, so a slow glued sweep stays near liftMod=1.
+liftModVelRef :: Double
+liftModVelRef = 0.3
+
+-- | Slope of the support-field translation modulation: a wing moving up at
+-- 1 m/s loses 6x the reference share of its field counter-force.
+fieldTranslationSlope :: Double
+fieldTranslationSlope = 6.0
+
+-- Speed-agnostic pressure glue of the compressed-air lift field. The field
+-- resists any motion of the strip through it — normal compression and
+-- tangential shear — with a constant Coulomb-like force from the minimum
+-- dynamic pressure (½ρ·Cp·v0²). The magnitude is independent of the speed
+-- (the field is pre-compressed) and of the load, so the wing is glued to
+-- the air at EVERY speed instead of slipping at slow rates. The quadratic
+-- pressure law adds on top at cruise where the dynamic pressure grows.
+glueFloorMS, glueShearCp :: Double
+glueFloorMS = 4.5
+glueShearCp = 0.5
 
 -- Shared wing/tail normal pressure; circulation supplies forward-flow lift.
 surfacePressure :: Double -> Double -> Double
@@ -290,7 +300,7 @@ stepWingWithStroke :: Bool -> Double -> Double -> Double -> VehicleInput -> Wing
                    -> ([StripResult], [StripState])
 stepWingWithStroke flapping side stroke strokeRate input model incidenceRad supports centre states =
    let wp = wmWing model
-       raw = zipWith3 (\i s sup -> stepStrip False strokeRate flapping side stroke input incidenceRad wp i s sup centre (vx (bodyRatesRadS input)) strokeRate) [0 ..] states supports
+       raw = zipWith3 (\i s sup -> stepStrip False strokeRate flapping side stroke input incidenceRad wp i s sup centre (vx (bodyRatesRadS input)) strokeRate 0) [0 ..] states supports
        transported = transportSeparation side input wp raw
        deformed = applyStructure side stroke (wmSpars model) wp input transported
    in (deformed, map resultState deformed)
@@ -300,24 +310,24 @@ stepWingWithStroke flapping side stroke strokeRate input model incidenceRad supp
 -- solving, rather than doing a full beam solve at every trial velocity.
 wingLoadsWithStroke :: Bool -> Double -> Double -> Double -> Double -> VehicleInput -> WingModel -> Double -> [StripState] -> [Double] -> Double -> [StripResult]
 wingLoadsWithStroke flapping side stroke rate phaseRate input model incidenceRad states supports centre =
-  prepareWingLoads flapping side stroke phaseRate input model incidenceRad states supports centre (vx (bodyRatesRadS input)) rate
+  prepareWingLoads flapping side stroke phaseRate input model incidenceRad states supports centre (vx (bodyRatesRadS input)) rate 0
 
 -- Cache the fixed geometry and aerodynamic history outside Newton's candidate
 -- velocities. Rebuilding every strip for every finite-difference column made
 -- the 240 Hz physics consume most of the game thread on small aircraft.
 prepareWingLoads :: Bool -> Double -> Double -> Double -> VehicleInput -> WingModel -> Double -> [StripState] -> [Double] -> Double
-                 -> Double -> Double -> [StripResult]
+                 -> Double -> Double -> Double -> [StripResult]
 prepareWingLoads flapping side stroke phaseRate input model incidenceRad states supports centre =
   let strips = zipWith3 (\i s sup -> stepStrip True phaseRate flapping side stroke input incidenceRad (wmWing model) i s sup centre) [0..] states supports
-  in \rollRate rate -> map (\strip -> strip rollRate rate) strips
+  in \rollRate rate common -> map (\strip -> strip rollRate rate common) strips
 
 -- Commit aero memory/structure after the implicit solve using the same loads
 -- as its residual. Hysteretic state transitions are not Newton unknowns.
-stepCoupledWing :: Bool -> Double -> Double -> Double -> Double -> VehicleInput -> WingModel -> Double -> [StripState] -> [Double] -> Double
+stepCoupledWing :: Bool -> Double -> Double -> Double -> Double -> Double -> VehicleInput -> WingModel -> Double -> [StripState] -> [Double] -> Double
                 -> ([StripResult], [StripState])
-stepCoupledWing flapping side stroke rate phaseRate input model incidenceRad states supports centre =
+stepCoupledWing flapping side stroke rate phaseRate commonRate input model incidenceRad states supports centre =
   let wp=wmWing model
-      raw=wingLoadsWithStroke flapping side stroke rate phaseRate input model incidenceRad states supports centre
+      raw=prepareWingLoads flapping side stroke phaseRate input model incidenceRad states supports centre (vx (bodyRatesRadS input)) rate commonRate
       results=applyStructure side stroke (wmSpars model) wp input (transportSeparation side input wp raw)
   in (results,map resultState results)
 
@@ -326,7 +336,7 @@ stepCoupledWing flapping side stroke rate phaseRate input model incidenceRad sta
 wingRootHeight :: Double
 wingRootHeight = 0.04
 
-stepStrip :: Bool -> Double -> Bool -> Double -> Double -> VehicleInput -> Double -> WingShape -> Int -> StripState -> Double -> Double -> Double -> Double -> StripResult
+stepStrip :: Bool -> Double -> Bool -> Double -> Double -> VehicleInput -> Double -> WingShape -> Int -> StripState -> Double -> Double -> Double -> Double -> Double -> StripResult
 {-# NOINLINE stepStrip #-}
 stepStrip implicitLoads _phaseRate flapping side stroke input incidenceRad wp index old supportN centre =
   let !dt = stepSeconds input
@@ -402,7 +412,7 @@ stepStrip implicitLoads _phaseRate flapping side stroke input incidenceRad wp in
       -- at the spanwise lever arm (position), is what rolls the fuselage — the
       -- fuselage/tail sit on the centreline and carry no roll lever arm.
       !aspectRatio = shapeAspectRatio wp
-  in \rollRate strokeRate ->
+  in \rollRate strokeRate commonRate ->
   let rates = Vec3 rollRate (vy (bodyRatesRadS input)) (vz (bodyRatesRadS input))
       flapVelocity = crossVec (Vec3 (side * strokeRate) 0 0)
                        (addVec position (Vec3 0 0 (-wingRootHeight)))
@@ -501,7 +511,10 @@ stepStrip implicitLoads _phaseRate flapping side stroke input incidenceRad wp in
       spanDrag = scaleVec (-0.5 * airDensity * area * sideCd * abs spanVelocity * spanVelocity) spanAxis
       normalPressure = surfacePressure area normalVelocity
       pressureForce = scaleVec normalPressure normal
-      aeroForce = addVec pressureForce (addVec chordForce (addVec normalForce spanDrag))
+      -- The speed-agnostic glue is a real surface pressure: it joins the
+      -- aerodynamic force the membrane camber follows, so a stalled wing
+      -- still cups from the pressure the field actually applies.
+      aeroForce = addVec gripForce (addVec pressureForce (addVec chordForce (addVec normalForce spanDrag)))
       -- Static weight support: the "compressed air" lift field — a VERTICAL
       -- cushion under the wing that carries the strip's weight share at any
       -- flap angle or planform dihedral. No normal projection and no
@@ -515,25 +528,18 @@ stepStrip implicitLoads _phaseRate flapping side stroke input incidenceRad wp in
       supportGate = supportHandoverMS * supportHandoverMS
                   / (supportHandoverMS * supportHandoverMS
                      + vx velocity * vx velocity + vy velocity * vy velocity)
-      -- Position-based lift modulation — the fuselage COUNTER-ROTATES the wing
-      -- movement. The wing's lift (its counter-force against gravity) is
-      -- modulated by the wing's flap POSITION relative to the common stroke
-      -- centre: a wing held UP loses part of its lift, a wing pushed DOWN
-      -- carries more (the flap translation adds to its lift force). Because
-      -- the modulation is positional, a HELD differential stroke keeps rolling
-      -- the body at strokeRate ≈ 0 and at any airspeed — the rate-based
-      -- pressure law alone vanishes when the servo has arrived.
-      -- Position-based lift modulation — the fuselage COUNTER-ROTATES the
-      -- wing movement. The wing's lift (its counter-force against gravity)
-      -- is modulated by the wing's flap POSITION relative to the common
-      -- stroke centre: a wing held UP loses part of its lift, a wing pushed
-      -- DOWN carries more (the flap translation adds to its lift force).
-      -- GLIDE uses a steep slope: the held aileron differential must roll
-      -- the body with authority at strokeRate ≈ 0 (the static W·H·sinδ
-      -- hinge term alone is ~10x too weak in the real game). FLAPPING keeps
-      -- the shallow slope so the lift oscillation stays bounded during the
-      -- ±30° stroke.
+      -- Position-based lift modulation on the AERO lift (the counter-rotation
+      -- coupling): a wing held UP loses part of its aero lift, a held-DOWN
+      -- wing gains it — odd in the deviation from the common stroke centre.
       liftMod = clamp 0.3 3.0 (1 - (if flapping then 2.4 else 8.0) * (stroke - centre))
+      -- WORLD-translation modulation on the SUPPORT FIELD only (the user's
+      -- "translated movement adds to the lift force"): a wing moving UP
+      -- through the air loses part of its field counter-force, a wing pushed
+      -- DOWN gains it. Kept off the aero lift so the inverted-geometry
+      -- reflection stays exact; the field carries the weight, so the law
+      -- lives there. When the glue holds the wing (world velocity ~0) no
+      -- phantom couple arises and the roll stops with the sweep.
+      liftModField = clamp 0.3 3.0 (1 - fieldTranslationSlope * z sectionVelocity / liftModVelRef)
       -- The field's rate response is the SYMMETRIC compression only: a
       -- flapping wing squeezes the compressed-air cushion (∝ |strokeRate|)
       -- and that squeeze carries the hover. The compression is EVEN in
@@ -554,51 +560,34 @@ stepStrip implicitLoads _phaseRate flapping side stroke input incidenceRad wp in
                            (scaleVec (-lift * flowZ) chordAxis))
       dragPart = addVec (scaleVec (-drag * flowX) chordAxis)
                         (scaleVec (-drag * flowZ) normal)
-      supportForce = scaleVec (liftMod * supportGate * supportN
+      supportForce = scaleVec (liftModField * supportGate * supportN
                                 * (1 + fieldCompressionPerRate * sqrt (fieldRate * fieldRate + 0.25))) (Vec3 0 0 1)
-      -- Speed-agnostic field grip: the compressed air resists ANY motion of
-      -- the strip through it — normal compression and tangential shear —
-      -- with a constant Coulomb-like force proportional to the load the
-      -- strip carries. The wing is glued to its field at every speed (the
-      -- grip never vanishes at low relative velocity), so the wings cannot
-      -- slip through the air "as if it was nothing". The reaction flows to
-      -- the body through the hinge — the tail counter-rotates every wing
-      -- motion through this grip.
-      -- The NORMAL glue strength is the TOTAL vertical load the strip
-      -- carries — the static support plus the velocity-perpendicular
-      -- circulation lift — so the field grip NEVER hands over to zero at
-      -- cruise. The old supportGate-only load left the wings free-slipping
-      -- exactly when the roll needed the anchor (the gate is ~0.015 at
-      -- 8 m/s), which is why the body spun out of control in forward
-      -- flight. At cruise the normal grip rests at zero (level flow) and
-      -- only bites when the wing moves normally through the air — flap,
-      -- roll, or aileron slew — which is precisely the anchor the field
-      -- gives. |lift| keeps the reflection symmetry: an inverted wing
-      -- exchanges the same load with the air and is glued just as firmly.
-      -- The anchor reacts to the MEAN carried load through a low-pass
-      -- (the compressed-air field has a finite reactance): following the
-      -- instantaneous lift would strangle the flap stroke at cruise (the
-      -- oscillating incidence swings the circulation lift by orders of
-      -- magnitude every half-beat) and collapse the commanded amplitude.
-      -- The SHEAR stickiness stays gate-bound: an un-gated shear would
-      -- oppose the flap stroke's tangential sweep at cruise and strangle
-      -- the stroke-motion thrust.
-      -- The grip load is the strip's carried load WITHOUT the position
-      -- modulation: the anchor must be mirror-symmetric (a held left and
-      -- right differential must glue the wings equally), and the flap's
-      -- LEV lift spikes must not strangle the servo at cruise. The grip
-      -- saturates at the strip's load-carrying limit — the compressed-air
-      -- field's local capacity.
-      gripRaw = min 0.35 (supportGate * supportN + abs lift)
-      gripLoad = stripGripLoad old
-                 + (1 - exp (-dt / 0.12)) * (gripRaw - stripGripLoad old)
-      shearGripLoad = supportN * liftMod * supportGate
-      tangentialSpeed = sqrt (chordVelocity * chordVelocity + spanVelocity * spanVelocity)
-      gripNormalMag = fieldGripNormalGain * gripLoad * tanh (normalVelocity / fieldGripKneeMS)
-      gripShearMag = fieldGripShearGain * shearGripLoad * tanh (tangentialSpeed / fieldGripKneeMS)
+      -- Speed-agnostic DIFFERENTIAL pressure glue: the compressed-air field
+      -- resists the wings' SCISSORING motion (aileron/roll) with a CONSTANT
+      -- Coulomb-like force from the minimum dynamic pressure ½ρ·Cp·v0² —
+      -- speed-agnostic, load-independent pressure drag. The common flap
+      -- stroke (both wings beating together) is EXEMPT: the symmetric beat
+      -- compresses the field (|rate| term) while the differential shears
+      -- it, so the aileron is glued to the air at every speed and cannot
+      -- slip "as if it was nothing", yet the servo can still flap. The
+      -- reaction flows to the body through the hinge: a slow aileron sweep
+      -- leaves the wings horizontal in the world while the fuselage
+      -- counter-rotates the commanded differential, and a spinning body is
+      -- damped hard because its roll rate IS differential wing motion.
+      commonFlapVel = crossVec (Vec3 (side * commonRate) 0 0)
+                       (addVec position (Vec3 0 0 (-wingRootHeight)))
+      glueVel = addVec sectionVelocity (scaleVec (-1) commonFlapVel)
+      glueNormalVel = dot glueVel normal
+      glueChordVel = dot glueVel chordAxis
+      glueSpanVel = dot glueVel spanAxis
+      tangentialSpeed = sqrt (glueChordVel * glueChordVel + glueSpanVel * glueSpanVel)
+      gripLoad = 0.5 * airDensity * area * surfacePressureCp * glueFloorMS * glueFloorMS
+      gripNormalMag = gripLoad * tanh (glueNormalVel / glueFloorMS)
+      gripShearMag = 0.5 * airDensity * area * glueShearCp * glueFloorMS * glueFloorMS
+                     * tanh (tangentialSpeed / glueFloorMS)
       gripForce = addVec (scaleVec (-gripNormalMag) normal)
                    (scaleVec (-gripShearMag / max 1e-9 tangentialSpeed)
-                             (addVec (scaleVec chordVelocity chordAxis) (scaleVec spanVelocity spanAxis)))
+                             (addVec (scaleVec glueChordVel chordAxis) (scaleVec glueSpanVel spanAxis)))
       force = addVec supportForce
                 (addVec gripForce
                   (addVec dragPart (addVec pressureForce (addVec spanDrag liftPart))))

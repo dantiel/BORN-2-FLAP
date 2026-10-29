@@ -85,6 +85,8 @@ return normalize(N+float3(detail.xy*.32,0));''',{
     'T':expr(sand,'TextureObject',texture=u.load_asset('/Game/Shiomori/Textures/T_SandBeach_Normal'))}),'NORMAL')
 sand.set_editor_property('tangent_space_normal',False)
 M.recompile_material(sand);E.save_loaded_asset(sand)
+from yunsha_oasis import ground_material, plant as plant_oasis
+ground_material(sand,expr,custom,out)
 rock=material('RedSandstone',(1.12,.78,.53),'/Game/Shiomori/Cliffs/Textures/T_Cliff_rock_face_03_Diffuse')
 # Photographic mineral variation and relief at two scales break up the smooth
 # generated silhouette. World-space normals work across the carved interiors.
@@ -168,8 +170,10 @@ for row in range(4):
                 x=x0+i*1000;y=y0+j*1000;verts.append((x,y,ground(x,y)))
         for j in range(70):
             for i in range(60):
+                if 24000<=x0+i*1000<70000 and -30000<=y0+j*1000<8000:continue
                 k=j*61+i;tris.extend([(k,k+1,k+61),(k+1,k+62,k+61)])
-        actor('dunes %d %d'%(row,col),mesh('Dunes_%d_%d'%(row,col),verts,tris,sand))
+        terrain=actor('dunes %d %d'%(row,col),mesh('Dunes_%d_%d'%(row,col),verts,tris,sand))
+        terrain.static_mesh_component.set_editor_property('affect_distance_field_lighting',False)
 
 # A distant skirt carries the sand-sea to the horizon, beyond the flight area.
 verts=[];tris=[];segments=192
@@ -219,6 +223,9 @@ def temple(name,x,y,z,size=1.,summit=False):
 # A monumental inhabited oasis, built from retained detailed architecture.
 from yunsha_palace import build as build_palace
 build_palace(imported,place_asset,mesh,actor,material,ground,scan,expr,custom,out)
+plant_oasis(imported,ground)
+from yunsha_excavation import build as build_excavation
+build_excavation(mesh,actor,material,ground,imported,expr,custom,out)
 
 # Sandstone pillars: tapered, fluted and striated, never scaled cylinders.
 def pillar(name,x,y,height,radius,seed,forest=False,base=None):
@@ -273,7 +280,7 @@ for name in ('Tree0','Tree1','Fir0'):
     b=sm.get_bounds()
     locations=[]
     if name=='Tree1':
-        for j in range(85):
+        for j in range(0):
             cx,cy=rng.choice(((1500,-43500),(-18500,-49000),(-2000,-65000),(24500,-46000),(23500,-54000)))
             ang=rng.uniform(0,math.tau);radius=rng.uniform(300,2400)
             x=cx+radius*math.cos(ang);y=cy+radius*math.sin(ang)
@@ -331,7 +338,17 @@ views=[((33000,-85000,33000),(3000,-50000,1800)),((-22000,-70000,10000),(-43000,
        ((24000,18000,17000),(4500,14000,7000)),((45000,17000,48000),(-16000,39000,23000)),
        ((-16000,116000,65000),(-6500,126000,63000)),((17000,-69000,2000),(13000,-49000,1800)),
        ((13000,-39700,1220),(13000,-35500,1600)),
-       ((-3500,-56100,1400),(1800,-50500,600))]
+       ((-3500,-56100,1400),(1800,-50500,600)),
+       ((74000,-40000,30000),(46000,-11000,-600)),
+       ((46500,-12800,-1000),(46000,-12000,-1650)),
+       ((36680,-10830,ground(36500,-10500)+240),(36500,-10500,ground(36500,-10500)+12)),
+       ((36680,-10435,ground(36660,-10400)+30),(36660,-10400,ground(36660,-10400)+.5)),
+       ((41000,-13820,ground(40900,-13700)+75),(40900,-13700,ground(40900,-13700)+20)),
+       ((40055,-13065,ground(40000,-13000)+60),(40000,-13000,ground(40000,-13000)+1)),
+       ((40840,-13750,ground(40820,-13720)+35),(40820,-13720,ground(40820,-13720)+1)),
+       ((36770,-10640,ground(36740,-10600)+40),(36740,-10600,ground(36740,-10600)+3)),
+       ((57000,-27500,4200),(52000,-22500,100)),
+       ((48800,-23800,650),(48200,-21900,210))]
 for i,(p,target) in enumerate(views):
     a=u.EditorLevelLibrary.spawn_actor_from_class(u.CameraActor,u.Vector(*p),u.MathLibrary.find_look_at_rotation(u.Vector(*p),u.Vector(*target)))
     a.tags=['YunshaView%d'%i];a.set_actor_label('Yunsha view %d'%i)

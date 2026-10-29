@@ -59,6 +59,40 @@ from the configuration surface. See `seasons.md` for the full model.
 
 ---
 
+## The radio-album principle
+
+A world's music is an **album, not a track**. Like an album, the songs of one
+level may be **mixed styles** — genres can shift from track to track — but they
+must be **coherent in the world they create**: every song has to sound like it
+belongs to the *same place*, the same sky, the same emotional register as the
+world it plays in. The one-sky principle applies to music too: the album is the
+world's *one sky*, heard through a speaker.
+
+- **The radio is the only portal.** All level music enters the world through
+  the field radio. Music never comes from nowhere — the radio makes the album
+  part of the fiction, and keeps the seasonal `RadioCue` model the single
+  switch (see `seasons.md`).
+- **One album per world, one world per album.** A track that belongs to
+  Shiomori Bay should feel wrong over Ravenstonefield, and vice versa. This
+  coherence is the filter for every new song, exactly as the lesson/mood pair
+  is the filter for every new world.
+- **Canonical prompt format.** Each track's identity is stored as its
+  generation prompt — haiku(s) + musical style tags — in the level's document
+  under `## MUSIC` (established by `shiomori-bay.md`). New songs enter the
+  album **only after approval**; the level doc stays the source of truth.
+- **Music vs. voice.** The album is *stage art* — the world's atmosphere,
+  curated per level. The procedural aero-audio (`ui-audio.md`) is the *bird's
+  voice* — simulation, generated from flight physics. They coexist: the radio
+  sings the world, the wings sing the bird.
+
+**Current albums.** Ravenstonefield: **TURBORAVEN** (user-supplied field-radio
+track, see `ravenstonefield.md`). Shiomori Bay: the canonical three-haiku
+prompt (seaside analog toy piano, 16-bit peregrine, lonely trumpet — see
+`shiomori-bay.md` ## MUSIC), two generated versions so far; further songs are
+proposed and await approval.
+
+---
+
 ## Existing worlds
 
 ### 1. Ravenstonefield — "the first breath"

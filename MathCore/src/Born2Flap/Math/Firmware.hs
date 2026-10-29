@@ -141,8 +141,13 @@ rollAuthorityGain = 2.0
 --      still grips the air instead of slipping through it),
 --   3. the implicit body-roll coupling in the Newton solve (roll rate and the
 --      two flap rates are one coupled system).
+-- | Full-stick glide differential authority at AileronScale=100. The game's
+-- default AileronScale=40 then commands ±70° per wing: the glued-wing law
+-- the user demands — a slow full-stick sweep leaves BOTH wings horizontal
+-- in the world while the fuselage counter-rotates 70° (exactly half the
+-- 140° differential, the geometric fixed point of the glued system).
 glideAileronMaxDeg :: Double
-glideAileronMaxDeg = 18
+glideAileronMaxDeg = 175
 
 glideRudderMaxDeg :: Double
 glideRudderMaxDeg = 8

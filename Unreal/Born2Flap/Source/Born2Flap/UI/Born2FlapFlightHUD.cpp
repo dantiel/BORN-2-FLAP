@@ -142,6 +142,7 @@ void ABorn2FlapFlightHUD::BuildCockpit()
                 Nd("Stat", P({ {"label", L("hud.altitude")}, {"value", N(0)}, {"unit", S("m")},   {"format", S("int")}, {"tone", S("good")} })),
                 Nd("Stat", P({ {"label", L("hud.climb")},    {"value", N(0)}, {"unit", S("m/s")}, {"format", S("f1")}, {"signed", B(true)}, {"tone", S("normal")} })),
                 Nd("Stat", P({ {"label", L("hud.speed")},    {"value", N(0)}, {"unit", S("m/s")}, {"format", S("f1")}, {"tone", S("info")} })),
+                Nd("Stat", P({ {"label", S("FLAP")},         {"value", N(0)}, {"unit", S("Hz")},  {"format", S("f1")}, {"tone", S("accent")} })),
             }),
 
             Nd("Panel", P({ {"title", L("hud.energy")}, {"spacing", N(2)} }),
@@ -349,6 +350,16 @@ void ABorn2FlapFlightHUD::Refresh()
     {
         Ops.Add(UpdateProps(Pth({0, 1, 2}), P({ {"value", N(Speed)} })));
         LastSpeed = SpeedTxt;
+    }
+
+    // Flap cadence (commanded, servo-capped): the setpoint the mouse wheel /
+    // throttle dials. Shown so the pilot has feedback on the current beat rate.
+    const float FlapHz = CachedBird->GetFlapHz();
+    const FString FlapTxt = FString::Printf(TEXT("%.1f"), FlapHz);
+    if (FlapTxt != LastFlapHz)
+    {
+        Ops.Add(UpdateProps(Pth({0, 1, 3}), P({ {"value", N(FlapHz)} })));
+        LastFlapHz = FlapTxt;
     }
 
     // Battery: the bar stays a 0..100 % gauge, the readout shows the LiPo

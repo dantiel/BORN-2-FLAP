@@ -212,10 +212,23 @@ advanceFirmwareVehicle totalMass hostInertia coupled rc params servo battery mod
           angleL = radians (servoAngleDeg oldL)
           angleR = radians (servoAngleDeg oldR)
           oldRates = Vec3 (x bodyRates) (radians (servoRateDegPerSec oldL)) (radians (servoRateDegPerSec oldR))
-          motorL = servoDriveTorque servo battery voltage dt (mixLeftFlapDevDeg mix)
-                     (fvLeftHingeTorqueNm state) wingInertia oldL
-          motorR = servoDriveTorque servo battery voltage dt (mixRightFlapDevDeg mix)
-                     (fvRightHingeTorqueNm state) wingInertia oldR
+          -- The servo torque must be a CONSISTENT function of the trial flap
+          -- rate (implicit coupling): the reference tracker sees the trial
+          -- angle at the end of the step, so the Newton solve can converge to
+          -- the equilibrium where the glued wing and the counter-rotating
+          -- body track the command together. The old explicit torque (from
+          -- the previous servo state) lagged one step and slammed the light
+          -- fuselage with stall torque — the runaway roll spin.
+          motorL rate =
+            servoDriveTorque servo battery voltage dt (mixLeftFlapDevDeg mix)
+              (fvLeftHingeTorqueNm state) wingInertia
+              (oldL { servoAngleDeg = angleL * 180 / pi + rate * dt * 180 / pi
+                    , servoRateDegPerSec = rate * 180 / pi }) rate
+          motorR rate =
+            servoDriveTorque servo battery voltage dt (mixRightFlapDevDeg mix)
+              (fvRightHingeTorqueNm state) wingInertia
+              (oldR { servoAngleDeg = angleR * 180 / pi + rate * dt * 180 / pi
+                    , servoRateDegPerSec = rate * 180 / pi }) rate
           -- Common flap-stroke centre [rad]: the lift modulation is
           -- DIFFERENTIAL — each wing's deviation from the shared centre
           -- (stroke − centre), so a raised wing loses lift and a lowered
@@ -224,8 +237,9 @@ advanceFirmwareVehicle totalMass hostInertia coupled rc params servo battery mod
           evaluate rates =
             let p = x rates; l = y rates; r = z rates
                 wingInput = input { bodyRatesRadS = Vec3 p (y bodyRates) (z bodyRates) }
-                left = stepCoupledWing (mixIsFlapping mix) (-1) angleL l (y oldRates) wingInput model mountIncidence (fvLeftStrips state) supportShares centreStroke
-                right = stepCoupledWing (mixIsFlapping mix) 1 angleR r (z oldRates) wingInput model mountIncidence (fvRightStrips state) supportShares centreStroke
+                common = 0.5 * (l + r)
+                left = stepCoupledWing (mixIsFlapping mix) (-1) angleL l (y oldRates) common wingInput model mountIncidence (fvLeftStrips state) supportShares centreStroke
+                right = stepCoupledWing (mixIsFlapping mix) 1 angleR r (z oldRates) common wingInput model mountIncidence (fvRightStrips state) supportShares centreStroke
             in (left,right)
           leftLoads = prepareWingLoads (mixIsFlapping mix) (-1) angleL (y oldRates) input model mountIncidence (fvLeftStrips state) supportShares centreStroke
           rightLoads = prepareWingLoads (mixIsFlapping mix) 1 angleR (z oldRates) input model mountIncidence (fvRightStrips state) supportShares centreStroke
@@ -262,8 +276,9 @@ advanceFirmwareVehicle totalMass hostInertia coupled rc params servo battery mod
           (supportMass,supportLoad,supportRecoil,massRatio) = supportedRollSystem totalMass addedMass lockedInertia
             dryWingInertia wingInertia reflectedDriveInertia firstMoment addedFirstMoment wingRootHeight (angleL,angleR) oldRates
           aeroAt rates =
-            let ls = leftLoads (x rates) (y rates)
-                rs = rightLoads (x rates) (z rates)
+            let common = 0.5 * (y rates + z rates)
+                ls = leftLoads (x rates) (y rates) common
+                rs = rightLoads (x rates) (z rates) common
                 candidateBodyRates = Vec3 (x rates) (y bodyRates) (z bodyRates)
                 tailPanels = panelsAt candidateBodyRates
                 tailF = foldr (addVec . fst) zeroVec tailPanels

@@ -175,6 +175,10 @@ namespace
         FVector3f ConeDirection = FVector3f(0, 0, 1);
         float ConeAngle = 45.0f;
         float ConeSpeed = 500.0f;
+        // Local-space simulation: the baked velocity becomes relative to the
+        // emitter's transform, so rotating the component rotates the drift. Used
+        // by NS_DuneGust so its rolling cloud follows the live wind direction.
+        bool bLocalSpace = false;
     };
 
     UNiagaraSystem* BuildSystem(const FString& PackagePath, const FBuildSpec& S)
@@ -187,6 +191,7 @@ namespace
 
         FVersionedNiagaraEmitterData* Data = Emitter->GetLatestEmitterData();
         const FString EmitterName = Emitter->GetUniqueEmitterName();
+        Data->bLocalSpace = S.bLocalSpace;
 
         if (S.bGPU)
         {
@@ -512,6 +517,60 @@ int32 UBorn2FlapNiagaraBuilderCommandlet::Main(const FString& Params)
         S.bDrag = true;
         S.Drag = 0.3f;
         BuildSystem(TEXT("/Game/Weather/NS_SandBurst"), S);
+    }
+
+    {
+        // Yunsha desert: a big rolling sand cloud that occasionally sweeps over
+        // the dunes. Large soft sprites + high drag + curl noise read as a wind-
+        // blown sand haze, not fine grain. Fired one-shot and repositioned upwind
+        // by Born2FlapWindLeaves so each gust rolls across the camera.
+        FBuildSpec S;
+        S.AssetName = TEXT("NS_DuneGust");
+        S.SpriteMaterialPath = TEXT("/Game/Nature/Insects/M_SandSprite");
+        S.SpriteSize = 42.0f;
+        S.Lifetime = 8.0f;
+        S.SpawnRate = 1400.0f;   // SpawnCount for the one-shot cloud
+        S.bBurst = true;
+        S.bBox = true;
+        S.BoxSize = FVector3f(6000, 6000, 520);
+        S.BoxOffset = FVector3f(0, 0, 220);
+        // Local space: the baked +X velocity becomes the emitter's local +X, which
+        // Born2FlapWindLeaves yaw-rotates to the live wind heading, so the cloud
+        // rolls downwind instead of a fixed baked direction.
+        S.bLocalSpace = true;
+        S.Velocity = FVector3f(900, 0, 40);   // local +X drift; rotated to wind per gust
+        S.bGravity = true;
+        S.Gravity = FVector3f(0, 0, -70);
+        S.bDrag = true;
+        S.Drag = 1.6f;
+        S.bCurlNoise = true;
+        S.NoiseStrength = 260.0f;
+        BuildSystem(TEXT("/Game/Weather/NS_DuneGust"), S);
+    }
+
+    {
+        // Morning ground mist: soft white haze hugging valley floors, river banks
+        // and oases. Local-space flat box so each bank sits where ABorn2FlapWeather
+        // anchors it; opacity fades with MPC_Weather.MistAmount (day-time + season
+        // gate) rather than being baked here.
+        FBuildSpec S;
+        S.AssetName = TEXT("NS_MorningMist");
+        S.SpriteMaterialPath = TEXT("/Game/Weather/M_MorningMist");
+        S.SpriteSize = 140.0f;
+        S.Lifetime = 14.0f;
+        S.SpawnRate = 600.0f;
+        S.bBox = true;
+        S.BoxSize = FVector3f(3600, 3600, 260);
+        S.BoxOffset = FVector3f(0, 0, 120);
+        S.bLocalSpace = true;
+        S.Velocity = FVector3f(60, 0, 20);
+        S.bGravity = true;
+        S.Gravity = FVector3f(0, 0, -25);
+        S.bDrag = true;
+        S.Drag = 1.2f;
+        S.bCurlNoise = true;
+        S.NoiseStrength = 60.0f;
+        BuildSystem(TEXT("/Game/Weather/NS_MorningMist"), S);
     }
 
     UE_LOG(LogTemp, Display, TEXT("[NiagaraBuilder] === DONE ==="));

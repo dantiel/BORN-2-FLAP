@@ -24,6 +24,8 @@
 #include "Framework/Application/IInputProcessor.h"
 #include "Input/Events.h"
 #include "InputCoreTypes.h"
+#include "GameFramework/GameUserSettings.h"
+#include "Engine/GameEngine.h"
 
 using namespace born2flap::ui;
 
@@ -48,6 +50,40 @@ FNode Nd(const char* Type, FProps Props = {}, std::vector<FNode> Children = {})
     N_.props = std::move(Props);
     N_.children = std::move(Children);
     return N_;
+}
+
+// DISPLAY / CAMERA "Resolution" list: native first, then standard 16:9 steps
+// strictly smaller than the panel. Index 0 always means native (borderless).
+void BuildResolutionOptions(FIntPoint& OutNative, TArray<FIntPoint>& OutResolutions, int32& OutCurrentIndex)
+{
+    UGameUserSettings* GUS = GEngine ? GEngine->GetGameUserSettings() : nullptr;
+    OutNative = GUS ? GUS->GetDesktopResolution() : FIntPoint(1920, 1080);
+    if (OutNative.X <= 0 || OutNative.Y <= 0)
+        OutNative = FIntPoint(1920, 1080);
+
+    OutResolutions.Reset();
+    OutResolutions.Add(OutNative);   // 0 = native / borderless
+
+    static const FIntPoint Common[] =
+    {
+        { 3840, 2160 }, { 3200, 1800 }, { 2560, 1440 }, { 2048, 1152 },
+        { 1920, 1080 }, { 1680, 1050 }, { 1600, 900  }, { 1536, 864  },
+        { 1440, 900  }, { 1366, 768  }, { 1280, 720  },
+    };
+    for (const FIntPoint& R : Common)
+    {
+        if (R.X >= OutNative.X || R.Y >= OutNative.Y) continue;
+        if (OutResolutions.Contains(R)) continue;
+        OutResolutions.Add(R);
+    }
+
+    OutCurrentIndex = 0;
+    if (GUS)
+    {
+        const FIntPoint Cur = GUS->GetScreenResolution();
+        for (int32 I = 1; I < OutResolutions.Num(); ++I)
+            if (OutResolutions[I] == Cur) { OutCurrentIndex = I; break; }
+    }
 }
 
 // A scroll page: the ScrollBlur fills the whole content area (top to bottom)
@@ -642,6 +678,19 @@ void ABorn2FlapMenu::BuildFlightDesk(std::vector<FNode>& Out)
         })), 0);
     }
 
+    // ---- CRAFT (0): choose the pilot avatar (distinct realistic persons) ----
+    Push(Nd("TextBlock", P({ {"text", S("CHOOSE YOUR PILOT")}, {"tone", S("accent")}, {"size", S("l")} })), 0);
+    {
+        FValue Persons; Persons.kind = FValue::Kind::Array;
+        for (const TCHAR* Name : { TEXT("FOUNDER"), TEXT("HUNTER") }) Persons.arr.push_back(S(FString(Name)));
+        Push(Nd("Segment", P({
+            {"options", std::move(Persons)},
+            {"value", N(Settings.AvatarPerson)},
+            {"action", S("avatar.person")},
+            {"tooltip", S("Select your on-foot pilot — the thrower seen from the bird's follower view.")}
+        })), 0);
+    }
+
     // ---- BIRD (1): physical body properties ----
     Push(Nd("TextBlock", P({ {"text", S("BODY")}, {"tone", S("accent")}, {"size", S("l")} })), 1);
     {
@@ -948,6 +997,29 @@ void ABorn2FlapMenu::BuildPreferences(std::vector<FNode>& Out)
                 Props["tooltip"] = S("Scales every UI element — fonts, buttons, readouts and spacing — relative to the screen. Small phones read better at 75–90%, tablets or far-seated play at 130–150%.");
                 Props["options"] = std::move(ScaleOptions);
                 Props["value"] = N(CurScale);
+                Rows.push_back(Nd("Dropdown", std::move(Props)));
+            }
+            {
+                // RESOLUTION — native (borderless) or a specific exclusive size.
+                FIntPoint Native;
+                TArray<FIntPoint> Resolutions;
+                int32 CurRes = 0;
+                BuildResolutionOptions(Native, Resolutions, CurRes);
+
+                FValue ResOpts; ResOpts.kind = FValue::Kind::Array;
+                for (int32 I = 0; I < Resolutions.Num(); ++I)
+                {
+                    const FIntPoint& R = Resolutions[I];
+                    ResOpts.arr.push_back(S(I == 0
+                        ? FString::Printf(TEXT("NATIVE  ·  %d × %d"), R.X, R.Y)
+                        : FString::Printf(TEXT("%d × %d"), R.X, R.Y)));
+                }
+                FProps Props;
+                Props["action"] = S("resolution.set");
+                Props["label"] = S("RESOLUTION");
+                Props["tooltip"] = S("Native fills the display borderless at its own size. Picking a specific size switches to exclusive fullscreen at that resolution.");
+                Props["options"] = std::move(ResOpts);
+                Props["value"] = N(CurRes);
                 Rows.push_back(Nd("Dropdown", std::move(Props)));
             }
             {
@@ -1539,6 +1611,13 @@ void ABorn2FlapMenu::OnAction(const FString& Action, float Value, const FString&
         Build();   // CG slider min/max scale with the new craft's length
         return;
     }
+    if (Action == TEXT("avatar.person"))
+    {
+        Settings.AvatarPerson = FMath::Clamp(FMath::RoundToInt(Value), 0, 1);
+        if (Bird.IsValid()) Bird->SetAvatarPerson(Settings.AvatarPerson);
+        Build();
+        return;
+    }
     if (Action == TEXT("camera.fpv")) { Settings.bFpvAirView = !Settings.bFpvAirView; if (Bird.IsValid()) Bird->ToggleFpvView(); return; }
     if (Action == TEXT("camera.angle")) { Settings.FpvCameraAngleDeg = FMath::Clamp(Value, -45.f, 45.f); if (Bird.IsValid()) Bird->SetFpvCameraAngle(Settings.FpvCameraAngleDeg); return; }
     if (Action == TEXT("camera.freelook.invert")) { Settings.bFreeLookInvert = !Settings.bFreeLookInvert; if (Bird.IsValid()) Bird->SetFreeLookInvert(Settings.bFreeLookInvert); return; }
@@ -1593,6 +1672,34 @@ void ABorn2FlapMenu::OnAction(const FString& Action, float Value, const FString&
         born2flap::ui::theme::SetUIScale(Settings.UIScale);
         PersistSettings();
         Build();   // rebuild at the new scale so every token re-resolves
+        return;
+    }
+    if (Action == TEXT("resolution.set"))
+    {
+        FIntPoint Native;
+        TArray<FIntPoint> Resolutions;
+        int32 CurRes = 0;
+        BuildResolutionOptions(Native, Resolutions, CurRes);
+        const int32 Idx = FMath::Clamp(FMath::RoundToInt(Value), 0, Resolutions.Num() - 1);
+
+        UGameUserSettings* GUS = GEngine ? GEngine->GetGameUserSettings() : nullptr;
+        if (GUS)
+        {
+            if (Idx == 0)
+            {
+                // Native → borderless fullscreen (fills the panel at its own size).
+                GUS->SetFullscreenMode(EWindowMode::WindowedFullscreen);
+            }
+            else
+            {
+                // Specific size → exclusive fullscreen so the resolution takes effect.
+                GUS->SetScreenResolution(Resolutions[Idx]);
+                GUS->SetFullscreenMode(EWindowMode::Fullscreen);
+            }
+            GUS->ApplyResolutionSettings(false);
+            GUS->SaveSettings();
+        }
+        Build();
         return;
     }
     if (Action == TEXT("bird.weight")) { Settings.BodyMassKg = FMath::Clamp(Value / 1000.f, 0.01f, 2.0f); if (Bird.IsValid()) Bird->SetBodyMassKg(Settings.BodyMassKg); return; }

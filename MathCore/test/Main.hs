@@ -59,8 +59,12 @@ main = do
      abs (bodyMass+2*wingMass+tailMass-0.05)<1e-12 &&
      ix>2*wingDry && ix<2*wingDry*1.15 && iy>0 && iz>0
     then pure () else fail "component mass budget and narrow-body roll inertia"
+  -- Camber -> lift -> camber must have a stable attached-flow equilibrium.
+  let camberLoop profile = 2*finiteWingLiftSlope (shapeAspectRatio defaultBirdWing)*spMembraneK profile
+  if all ((<0.5) . camberLoop) [defaultBirdArmSection,defaultBirdHandSection]
+    then pure () else fail "reference membrane compliance must stay below static aeroelastic divergence"
   let flow=VehicleInput (1/240) (Vec3 8 0 (-1)) (Vec3 0 0 0) 0 0 0 0 5
-      loads rate=wingLoadsWithStroke True 1 0.1 rate 0 flow kestrelModel 0 initialStrips
+      loads rate=wingLoadsWithStroke True 1 0.1 rate 0 flow kestrelModel 0 initialStrips (replicate stripCount 0) 0
       summed=foldr (addVec . resultForce) zeroVec
       still=summed (loads 0)
       beating=summed (loads (-3))
@@ -80,6 +84,68 @@ main = do
   if abs (rollMomentum locked j moved) < 1e-9
      && abs (y moved + dt*a) < 1e-6 && abs (z moved - dt*a) < 1e-6
     then pure () else fail "free-body motor acceleration must match coupled mass matrix"
+  -- The body diagonal includes locked wing inertia even with free hinges.
+  let kinetic (Vec3 p l r) = 0.5*((locked-2*j)*p*p + j*((l-p)^2+(r+p)^2) + rotor*(l*l+r*r))
+  if all (\v -> abs(rollEnergy locked j rotor v-kinetic v)<1e-12)
+       [Vec3 p l r | p<-[-3,0,2], l<-[-2,0,4], r<-[-1,0,3]]
+    then pure () else fail "roll mass matrix must equal physical component kinetic energy"
+  -- A slowly moving wing retains the load of forward airflow.
+  let slow=summed (loads 1e-6)
+  if magnitude still > 0.01 && magnitude (addVec slow (scaleVec (-1) still)) < 1e-5
+    then pure () else fail "slow hinge motion must retain steady forward-flow loading"
+  -- Loaded support is a conservative mass coupling, not a lift-dependent drag.
+  let total=0.05; mr=0.0012; root=0.04
+      (reduced,support,recoil,_)=supportedRollSystem total 0 locked 0.0004 j rotor mr 0 root (0,0) zero
+      supported=support (Vec3 0 0 (total*9.81))
+      free=support zero
+      recoilUp=recoil (Vec3 0 1 1)
+      full=supportMassMatrix total 0 locked 0.0004 j rotor mr 0 root (0,0,0)
+      rv=[0.4,-0.3,0.7]
+      dotList a b=sum(zipWith (*) a b)
+      translation i= -dotList (drop 2 (full!!i)) rv / total
+      allV=[translation 0,translation 1]++rv
+      fullEnergy=0.5*dotList allV (map (`dotList` allV) full)
+      (r0,r1,r2)=reduced
+      values (Vec3 a b c)=[a,b,c]
+      reducedEnergy=0.5*dotList rv (map ((`dotList` rv) . values) [r0,r1,r2])
+  if magnitude free<1e-12 && abs(y supported+mr*9.81)<1e-12
+     && abs(z supported+mr*9.81)<1e-12 && abs(z recoilUp+2*mr)<1e-12
+     && abs(fullEnergy-reducedEnergy)<1e-12 && fullEnergy>0
+    then pure () else fail "supported mass reduction must preserve energy, free fall and linear recoil"
+  -- An unforced moving linkage must not create first-order kinetic energy.
+  let hstep=1e-5; angles=(0.2,-0.1); initial=Vec3 0.4 (-0.3) 0.7
+      (mm,cc,rr,_)=supportedRollSystem total 0 locked 0.0004 j rotor mr 0 root angles initial
+      next=case stepRollWithMass mm hstep initial angles (const (cc zero)) of
+             Just v -> v
+             Nothing -> error "support conservation solve failed"
+      accel=scaleVec (1/hstep) (addVec next (scaleVec (-1) initial))
+      linear=scaleVec (hstep/total) (rr accel)
+      energyAt q vel=let mat=supportMassMatrix total 0 locked 0.0004 j rotor mr 0 root q
+                     in 0.5*dotList vel (map (`dotList` vel) mat)
+      e0=energyAt (0,fst angles,snd angles) ([0,0]++values initial)
+      e1=energyAt (hstep*x next,fst angles+hstep*y next,snd angles+hstep*z next)
+                    ([y linear,z linear]++values next)
+  if abs(e1-e0)<1e-9 then pure ()
+    else fail "moving support linkage must conserve kinetic energy to integration order"
+  -- Translational added air is a conservative fluid-inertia coupling. With
+  -- added mass and first moment present, the Schur reduction and recoil must
+  -- still conserve kinetic energy and transmit the weight through the joints.
+  let ma=0.02; mar=0.004; mt=total+2*ma
+      (ared,asup,arec,arat)=supportedRollSystem total ma locked 0.0004 j rotor mr mar root (0,0) zero
+      asupported=asup (Vec3 0 0 (total*9.81))
+      afull=supportMassMatrix total ma locked 0.0004 j rotor mr mar root (0,0,0)
+      atranslation i= -dotList (drop 2 (afull!!i)) rv / mt
+      aallV=[atranslation 0,atranslation 1]++rv
+      afullEnergy=0.5*dotList aallV (map (`dotList` aallV) afull)
+      (ar0,ar1,ar2)=ared
+      areducedEnergy=0.5*dotList rv (map ((`dotList` rv) . values) [ar0,ar1,ar2])
+      arecoilUp=arec (Vec3 0 1 1)
+  if abs(y asupported+(mr+mar)*9.81*total/mt)<1e-10
+     && abs(z asupported+(mr+mar)*9.81*total/mt)<1e-10
+     && abs(z arecoilUp+2*(mr+mar)*total/mt)<1e-10
+     && abs(afullEnergy-areducedEnergy)<1e-10 && afullEnergy>0
+     && abs(arat-total/mt)<1e-12
+    then pure () else fail "translational added air must conserve energy, transmit weight and scale recoil"
   let symmetric=solve dt zero (0,0) (const (Vec3 0 1 1))
       damp v=Vec3 (-0.2*x v) (-0.1*y v) (-0.1*z v)
       moving=Vec3 2 (-3) 4
@@ -97,12 +163,12 @@ main = do
   -- air velocity (including compensation for translation of the high root).
   let wingInput=VehicleInput dt (Vec3 8 0 0) zero 0 0 0 0 1000
       sumForce=foldr (addVec . resultForce) zero
-      steady=sumForce (wingLoadsWithStroke False 1 0 0 0 wingInput kestrelModel 0 initialStrips)
+      steady=sumForce (wingLoadsWithStroke False 1 0 0 0 wingInput kestrelModel 0 initialStrips (replicate stripCount 0) 0)
       counter=sumForce (wingLoadsWithStroke False 1 0 (-1) 0
-                 (wingInput {bodyRatesRadS=Vec3 1 0 0,bodyVelocityMS=Vec3 8 wingRootHeight 0}) kestrelModel 0 initialStrips)
+                 (wingInput {bodyRatesRadS=Vec3 1 0 0,bodyVelocityMS=Vec3 8 wingRootHeight 0}) kestrelModel 0 initialStrips (replicate stripCount 0) 0)
       falling=wingInput {bodyVelocityMS=Vec3 8 0 (-1)}
-      before=sumForce (wingLoadsWithStroke True 1 0 (-1e-8) (-0.1) falling kestrelModel 0 initialStrips)
-      after=sumForce (wingLoadsWithStroke True 1 0 1e-8 (-0.1) falling kestrelModel 0 initialStrips)
+      before=sumForce (wingLoadsWithStroke True 1 0 (-1e-8) (-0.1) falling kestrelModel 0 initialStrips (replicate stripCount 0) 0)
+      after=sumForce (wingLoadsWithStroke True 1 0 1e-8 (-0.1) falling kestrelModel 0 initialStrips (replicate stripCount 0) 0)
   if magnitude (addVec steady (scaleVec (-1) counter)) < 1e-8
      && magnitude (addVec before (scaleVec (-1) after)) < 1e-6
     then pure () else fail "world-stationary wing flow and continuous implicit reversal loads must hold"
@@ -132,8 +198,12 @@ main = do
       (_, full) = batteryStep defaultBatterySpec defaultFirmwareVehicleState
       (_, empty) = batteryStep defaultBatterySpec (defaultFirmwareVehicleState {fvBatterySoc = 0})
       loaded = defaultFirmwareVehicleState {fvLeftHingeTorqueNm = 0.5, fvRightHingeTorqueNm = 0.5, fvMotorCurrentA = 10}
-      (_, lowR) = batteryStep (defaultBatterySpec {batteryInternalResistanceOhm = 0}) loaded
-      (_, highR) = batteryStep (defaultBatterySpec {batteryInternalResistanceOhm = 0.8}) loaded
+      stepLo = batteryStep (defaultBatterySpec {batteryInternalResistanceOhm = 0})
+      stepHi = batteryStep (defaultBatterySpec {batteryInternalResistanceOhm = 0.8})
+      -- Steady aero hinge load: integrate a few steps so the voltage-sag
+      -- tracking difference accumulates beyond a single-step numerical jitter.
+      lowR = iterate (snd . stepLo) loaded !! 8
+      highR = iterate (snd . stepHi) loaded !! 8
       (mixCmd, _) = computeServoMixer True flap defaultFirmwareParams defaultFirmwareState (1 / 240)
       flapCmd = mixLeftFlapDevDeg mixCmd
   -- An unpowered wing can now be moved by air; it must not be frozen. Voltage
@@ -184,7 +254,8 @@ main = do
   let camber = 0.05
       plainMoment = sectionPitchMomentCoeff camber 0.0
       reflexedMoment = sectionPitchMomentCoeff camber 0.4
-      cupped = relaxCamber 0.01 0.05 0.05
+      restCamber = spRestCamber defaultBirdHandSection
+      cupped = relaxCamber 0.01 0.05 restCamber
                  (membraneCamberTarget defaultBirdHandSection 1.0)
       twistLoaded = sectionTwistMomentCoeff camber 0.4 0.10 0.8
       twistReversed = sectionTwistMomentCoeff camber 0.4 0.10 (-0.8)
@@ -193,7 +264,7 @@ main = do
   if zeroLiftAngle camber < 0
      && abs (sectionPitchMomentCoeff 0 0.9) < 1.0e-12
      && plainMoment < reflexedMoment && reflexedMoment < 0
-     && cupped > 0.05
+     && cupped > restCamber && cupped < membraneCamberTarget defaultBirdHandSection 1.0
      && twistLoaded < reflexedMoment
      && twistReversed > 0 && twistReversed > twistLoaded
      && leverInboard < leverOutboard && leverInboard > 0 && leverOutboard < 0.25
@@ -275,28 +346,54 @@ main = do
   if oscPhase osc1 >= 0 && oscPhase osc1 < 2 * pi && oscDebtVel osc1 == 0
     then pure ()
     else fail "beat-locked oscillator must stay on-grid at nominal demand"
-  -- Firmware mixer: glide at rest, flapping at full throttle with correct freq.
-  let (glide, _) = computeServoMixer True defaultRcChannels defaultFirmwareParams defaultFirmwareState (1 / 240)
-  if not (mixIsFlapping glide) && mixFlapHz glide == 0
-     && mixLeftFlapDevDeg glide == 4 && mixRightFlapDevDeg glide == 4
+  -- Firmware mixer: glide holds STATIC stroke positions (no pump, no cadence),
+  -- flapping at full throttle with correct freq.
+  let glideMixer pilot phase = fst (computeServoMixer True (pilotToRc pilot)
+                                  defaultFirmwareParams
+                                  (defaultFirmwareState
+                                    { fwOscillator = defaultOscillator
+                                        { oscBasePhase = phase, oscPhase = phase } })
+                                  (1 / 240))
+      centre out = (mixLeftFlapDevDeg out + mixRightFlapDevDeg out) / 2
+      neutral = glideMixer (pilot4 0 0 0 0) 0
+      neutralBot = glideMixer (pilot4 0 0 0 0) pi
+      rollTop = glideMixer (pilot4 0 0.5 0 0) 0
+      rollBot = glideMixer (pilot4 0 0.5 0 0) pi
+      yawTop = glideMixer (pilot4 0 0 0 0.5) 0
+      yawBot = glideMixer (pilot4 0 0 0 0.5) pi
+      pitchTop = glideMixer (pilot4 0 0 0.5 0) 0
+      pitchBot = glideMixer (pilot4 0 0 0.5 0) pi
+  -- The static stroke is phase-independent: the phase-0 and phase-π commands
+  -- must be identical, and the glide cadence is 0 (no flapping in glide).
+  if not (mixIsFlapping neutral) && mixFlapHz neutral == 0
+     && mixLeftFlapDevDeg neutral == mixLeftFlapDevDeg neutralBot
+     && mixRightFlapDevDeg neutral == mixRightFlapDevDeg neutralBot
+     && abs (mixLeftFlapDevDeg neutral - mixRightFlapDevDeg neutral) < 1e-9
     then pure ()
-    else fail "neutral glide must use the configured wing position"
-  let mixer pilot = fst (computeServoMixer True (pilotToRc pilot) defaultFirmwareParams defaultFirmwareState (1/240))
-      glideYaw = mixer (pilot4 0 0 0 0.5)
-      glideRoll = mixer (pilot4 0 0.5 0 0)
-      glidePitch = mixer (pilot4 0 0 0.5 0)
-      -- Positive aileron raises the RIGHT wing (positive right flap deviation);
-      -- a left roll (negative aileron) therefore cancels a right-rudder yaw,
-      -- since both act on the same differential dihedral.
-      cancelled = mixer (pilot4 0 (-0.325) 0 0.5)
-      yawDiff = mixRightFlapDevDeg glideYaw - mixLeftFlapDevDeg glideYaw
-      rollDiff = mixRightFlapDevDeg glideRoll - mixLeftFlapDevDeg glideRoll
-  if yawDiff > 1 && rollDiff > 1 && mixLeftFlapDevDeg glidePitch < 4
-     && abs (mixRightFlapDevDeg cancelled - mixLeftFlapDevDeg cancelled) < 1e-10
-    then pure () else fail "glide RC channels must move the shared wings and allow opposing commands to cancel"
+    else fail "neutral glide must hold a static symmetric stroke, no cadence"
+  -- Positive aileron raises the RIGHT wing (stick-right, like a real aileron):
+  -- the raised wing loses lift, the lowered left wing gains it, so the body
+  -- counter-rotates the wing movement and banks right. Rudder keeps its own
+  -- orientation (positive rudder raises the left wing a touch). Neither may
+  -- shift the common centre — the centre stays the pitch trim (+4° flap
+  -- deviation from the −4° glide angle). Pitch (elevator) shifts the centre.
+  if mixRightFlapDevDeg rollTop > mixLeftFlapDevDeg rollTop
+     && mixLeftFlapDevDeg yawTop > mixRightFlapDevDeg yawTop
+     && abs (centre rollTop - 4) < 1e-9
+     && abs (centre yawTop - 4) < 1e-9
+     && centre pitchTop < 4
+    then pure ()
+    else fail "glide roll/yaw must be a static differential stroke, pitch a common centre trim only"
+   -- Powered roll must still command position at both stroke reversals.
+  let positionParams = defaultFirmwareParams
+        { fwProfile = (fwProfile defaultFirmwareParams) { profAileronSkewMix = 0 } }
+      rollAt phase = fst (computeServoMixer True (pilotToRc (pilot4 0.3 0.1 0 0))
+        positionParams (defaultFirmwareState { fwOscillator = defaultOscillator { oscPhase = phase } }) (1/960))
+  if all (\o -> mixRightFlapDevDeg o > mixLeftFlapDevDeg o) (map rollAt [0,pi/2,pi,3*pi/2])
+    then pure () else fail "powered aileron position authority must persist throughout the stroke"
   let coherent output = abs (mixLeftFlapDevDeg output + (mixLeftWingDeg output-100)/2) < 1e-10
                      && abs (mixRightFlapDevDeg output - (mixRightWingDeg output-100)/2) < 1e-10
-  if all coherent [glideYaw,glideRoll,glidePitch,mixer (pilot4 0.72 0.4 (-0.3) 0.5)]
+  if all coherent [neutral,rollTop,rollBot,yawTop,yawBot,pitchTop,pitchBot]
     then pure () else fail "physical flap angles must include the complete mixed servo command"
   if all (\a -> abs (crsfToNorm (normToRaw a) - a) < 1e-12) [-1,-0.5,0,0.5,1]
     then pure () else fail "RC normalization must preserve exact neutral and endpoint values"
@@ -349,8 +446,8 @@ main = do
   -- flapping lift AND forward thrust, while a distant wing feels neither.
   let geInput h = VehicleInput (1 / 240) (Vec3 5 0 0) (Vec3 0 0 0) 0 0 0 0 h
       strokeRateDown = -3.0
-      (highGe, _) = stepWingWithStroke True (-1) 0 strokeRateDown (geInput 1000) kestrelModel 0 initialStrips
-      (lowGe, _)  = stepWingWithStroke True (-1) 0 strokeRateDown (geInput 0.05) kestrelModel 0 initialStrips
+      (highGe, _) = stepWingWithStroke True (-1) 0 strokeRateDown (geInput 1000) kestrelModel 0 (replicate stripCount 0) 0 initialStrips
+      (lowGe, _)  = stepWingWithStroke True (-1) 0 strokeRateDown (geInput 0.05) kestrelModel 0 (replicate stripCount 0) 0 initialStrips
       liftOf = sum . map (z . resultForce)
       thrustOf = sum . map (x . resultForce)
   if liftOf lowGe > liftOf highGe && thrustOf lowGe > thrustOf highGe
@@ -469,9 +566,9 @@ main = do
       dotV a b=x a*x b+y a*y b+z a*z b
       checkAero (angle,rate,incidence,vzAir) =
         let input=flow {bodyVelocityMS=Vec3 8 0 vzAir, groundClearanceM=1000}
-            loads=wingLoadsWithStroke True 1 angle rate rate input flatModel incidence flatState
+            loads=wingLoadsWithStroke True 1 angle rate rate input flatModel incidence flatState (replicate stripCount 0) angle
             mirror=wingLoadsWithStroke True 1 (-angle) (-rate) (-rate)
-                      (input {bodyVelocityMS=Vec3 8 0 (-vzAir)}) flatModel (-incidence) flatState
+                      (input {bodyVelocityMS=Vec3 8 0 (-vzAir)}) flatModel (-incidence) flatState (replicate stripCount 0) (-angle)
             checkStrip (i,r) =
               let f=(fromIntegral i+0.5)/fromIntegral stripCount
                   radius=wsShoulderM flatWing+wsSpanM flatWing*f
@@ -485,6 +582,16 @@ main = do
            && magnitude (addVec f (Vec3 (-x g) (-y g) (z g))) < 1e-7
   if all checkAero [(a,r,i,v) | a<-[-0.6,0,0.6],r<-[-8,0,8],i<-[-0.25,0,0.25],v<-[-2,0,2]]
     then pure () else fail "surface forces must dissipate relative-flow energy and reflect for inverted geometry"
+  -- Position-based lift modulation (the counter-rotation coupling): a wing
+  -- HELD up must carry less lift, a wing held down more, at any airspeed —
+  -- odd in the held deviation from the common stroke centre.
+  let modLift dev =
+        let input=flow {bodyVelocityMS=Vec3 8 0 (-1),groundClearanceM=1000}
+        in sum (map (z . resultForce)
+                 (wingLoadsWithStroke False 1 dev 0 0 input flatModel 0 flatState (replicate stripCount 0) 0))
+  if modLift 0.3 < modLift 0 && modLift (-0.3) > modLift 0
+    then pure ()
+    else fail "a held wing-up must lose lift and a held wing-down must gain it (position-based counter-rotation)"
   let speedLimit=servoNoLoadSpeedDegPerSec defaultServoSpec*pi/180
       stallLimit=servoStallTorqueNm defaultServoSpec
       voltage=batteryNominalVoltage defaultBatterySpec
@@ -496,9 +603,9 @@ main = do
   let mirroredStep (left,right,err) i =
         let t=fromIntegral i/240; a=0.4*cos (4*pi*t); rate= -1.6*pi*sin (4*pi*t)
             v=flow {bodyVelocityMS=Vec3 6 0 (-0.5),groundClearanceM=1000}
-            (ls,ln)=stepCoupledWing True 1 a rate rate v flatModel 0.1 left
-            (rs,rn)=stepCoupledWing True 1 (-a) (-rate) (-rate)
-                      (v {bodyVelocityMS=Vec3 6 0 0.5}) flatModel (-0.1) right
+            (ls,ln)=stepCoupledWing True 1 a rate rate 0 v flatModel 0.1 left (replicate stripCount 0) a
+            (rs,rn)=stepCoupledWing True 1 (-a) (-rate) (-rate) 0
+                      (v {bodyVelocityMS=Vec3 6 0 0.5}) flatModel (-0.1) right (replicate stripCount 0) (-a)
             f=summed ls; g=summed rs
         in (ln,rn,max err (magnitude (addVec f (Vec3 (-x g) (-y g) (z g)))))
       (_,_,reflectionError)=foldl mirroredStep (flatState,flatState,0) [1..480::Int]
@@ -514,7 +621,7 @@ main = do
         let omega=2
             input=flow {bodyVelocityMS=zero,bodyRatesRadS=Vec3 omega 0 0,groundClearanceM=1000}
             states=replicate stripCount (emptyStrip {stripSeparation=separated})
-            rs=concat [wingLoadsWithStroke False side 0 0 0 input flatModel 0 states | side<-[-1,1]]
+            rs=concat [wingLoadsWithStroke False side 0 0 0 input flatModel 0 states (replicate stripCount 0) 0 | side<-[-1,1]]
             moment=sum(map (x . resultMoment) rs)
             dr=wsSpanM flatWing/fromIntegral stripCount
             integral=sum [shapeChord flatWing f*dr*(wsShoulderM flatWing+wsSpanM flatWing*f)**3
@@ -527,7 +634,7 @@ main = do
   let stalled=replicate stripCount (emptyStrip {stripSeparation=1})
       mount=0.1
       input=flow {bodyVelocityMS=Vec3 8 0 0,groundClearanceM=1000}
-      (stalledLoads,stalledNext)=stepCoupledWing True 1 0 0 0 input flatModel mount stalled
+      (stalledLoads,stalledNext)=stepCoupledWing True 1 0 0 0 0 input flatModel mount stalled (replicate stripCount 0) 0
       checkMembrane (i,r,next) =
         let f=(fromIntegral i+0.5)/fromIntegral stripCount
             normal=Vec3 (-sin mount) 0 (cos mount)

@@ -62,7 +62,33 @@ double ABorn2FlapYunsha::GroundHeight(double X,double Y)
     const double Outer=FMath::Square(X/15600)+FMath::Square((Y+52000)/9600);
     const double Inner=FMath::Square((X-5200)/13600)+FMath::Square((Y+50400)/8400);
     const double Basin=(1-Smooth(.90,1.04,Outer))*Smooth(.93,1.04,Inner);
-    return FMath::Lerp(Height,-220.,Basin);
+    Height=FMath::Lerp(Height,-220.,Basin);
+    // The Bone Archive occupies a dry fossil field east of the pilgrimage
+    // floor. Its excavation is terrain, not a pit mesh covering intact ground.
+    const double Field=FMath::Sqrt(FMath::Square((X-47000)/23000)+FMath::Square((Y+11000)/16500));
+    Height=FMath::Lerp(Height,100.,1-Smooth(.83,1.12,Field));
+    const double DX=(X-47000)/13500,DY=(Y+11000)/9500;
+    const double Angle=FMath::Atan2(DY,DX);
+    const double R=FMath::Pow(FMath::Pow(FMath::Abs(DX),4)+FMath::Pow(FMath::Abs(DY),4),.25)
+        +.045*FMath::Sin(Angle*3)+.025*FMath::Sin(Angle*7+.5);
+    const double Cut=500*(1-Smooth(.92,1.,R))+650*(1-Smooth(.65,.73,R))+650*(1-Smooth(.36,.44,R));
+    // A broad access ramp replaces the eastern bench faces, retaining the
+    // full depth at its foot. Other faces expose the sediment sequence.
+    const double Ramp=1-Smooth(.08,.23,FMath::Abs(Angle));
+    const double RampCut=1800*(1-Smooth(.20,1.,R));
+    Height-=FMath::Lerp(Cut,RampCut,Ramp);
+    // A separate shallow exploratory trench preserves a rib of untouched rock.
+    const double Trench=FMath::Max(FMath::Abs((X-30000)/3600),FMath::Abs((Y+15000)/6000));
+    Height-=600*(1-Smooth(.82,1.,Trench));
+    // Rectangular survey trenches on the southern apron; their floors and
+    // sediment walls are shared by rendering, collision and flight queries.
+    for(const FVector4 Pit:{FVector4(55000,-22000,1800,1200),FVector4(50000,-25000,1400,1000),FVector4(59000,-18000,1000,800)})
+    {
+        const double Rect=FMath::Max(FMath::Abs((X-Pit.X)/Pit.Z),FMath::Abs((Y-Pit.Y)/Pit.W));
+        Height-=(Pit.Z*.2)*(1-Smooth(.80,1.,Rect));
+    }
+
+    return Height;
 }
 FVector ABorn2FlapYunsha::SoaringWind(const FVector& P,double Time,const FBorn2FlapConditions& C,FVector Ambient)
 {
@@ -154,7 +180,7 @@ void ABorn2FlapYunsha::ValidateWorld()
     {
         for(TActorIterator<ADirectionalLight> It(GetWorld());It;++It)
         {
-            const FVector P(-9000,-52000,300);
+            const FVector P(-14000,-52000,300);
             FHitResult Hit;FCollisionQueryParams Q(SCENE_QUERY_STAT(YunshaDaylight),true);
             Check(!GetWorld()->LineTraceSingleByObjectType(Hit,P,P-It->GetActorForwardVector()*400000,
                 FCollisionObjectQueryParams(ECC_WorldStatic),Q),TEXT("oasis-open-sunlight"));
@@ -167,6 +193,23 @@ void ABorn2FlapYunsha::ValidateWorld()
         const bool Found=GetWorld()->LineTraceSingleByObjectType(Hit,P+FVector(0,0,90000),P-FVector(0,0,1000),FCollisionObjectQueryParams(ECC_WorldStatic),Q);
         Check(Found && FMath::Abs(Hit.ImpactPoint.Z-GroundHeight(P.X,P.Y))<120,TEXT("ground-collision"));
     }
+    Check(GroundHeight(47000,-11000)<-1600 && GroundHeight(65000,-11000)>0,TEXT("excavation-depth"));
+    Check(!SpringContains(47000,-11000),TEXT("excavation-dry-below-sea-level"));
+    TArray<AActor*> Fossils;UGameplayStatics::GetAllActorsWithTag(this,TEXT("YunshaFossil"),Fossils);
+    Check(Fossils.Num()==28,TEXT("excavation-fossils"));
+    TArray<AActor*> EggBeds;UGameplayStatics::GetAllActorsWithTag(this,TEXT("YunshaPterosaurEggReconstruction"),EggBeds);
+    Check(EggBeds.Num()==3,TEXT("pterosaur-egg-exposures"));
+    TArray<AActor*> Tents;UGameplayStatics::GetAllActorsWithTag(this,TEXT("YunshaFieldTent"),Tents);
+    Check(Tents.Num()==3,TEXT("excavation-field-camp"));
+    TArray<AActor*> Fences;UGameplayStatics::GetAllActorsWithTag(this,TEXT("YunshaDigFence"),Fences);
+    Check(Fences.Num()==4,TEXT("excavation-open-fence-sections"));
+
+    for(const FVector P:{FVector(48000,-10000,0),FVector(37000,-13000,0),FVector(30000,-14000,0),FVector(65000,-11000,0),FVector(55000,-22000,0),FVector(50000,-25000,0),FVector(59000,-18000,0)})
+    {
+        FHitResult Hit;FCollisionQueryParams Q(SCENE_QUERY_STAT(YunshaDigFloor),true);
+        const bool Found=GetWorld()->LineTraceSingleByObjectType(Hit,P+FVector(0,0,6000),P-FVector(0,0,3000),FCollisionObjectQueryParams(ECC_WorldStatic),Q);
+        Check(Found && FMath::Abs(Hit.ImpactPoint.Z-GroundHeight(P.X,P.Y))<45,TEXT("excavation-floor-collision"));
+    }
     // Probe an actual grotto: open mouth, deep rear wall, usable floor.
     {
         FCollisionQueryParams Q(SCENE_QUERY_STAT(YunshaGrotto),true);FHitResult Hit;
@@ -178,7 +221,7 @@ void ABorn2FlapYunsha::ValidateWorld()
     Check(SpringContains(-12000,-52000) && !SpringContains(0,-52000),TEXT("crescent-water-mask"));
     // Each marker pair spans the visible imported doorway and the full room.
     // Three overlapping 2m-diameter sweeps cover a 4.4m-wide flight corridor.
-    int32 HallPassages=0,GatePassages=0;
+    int32 HallPassages=0,GatePassages=0,PavilionPassages=0;
     for(TActorIterator<AActor> It(GetWorld());It;++It)if(It->ActorHasTag(TEXT("YunshaPassageStart")))
     {
         AActor* End=nullptr;
@@ -203,9 +246,10 @@ void ABorn2FlapYunsha::ValidateWorld()
             Check(Floor && Hit.GetActor() && Hit.GetActor()->ActorHasTag(TEXT("YunshaHallFloor")),TEXT("palace-real-floor"));
             Check(GetWorld()->LineTraceSingleByObjectType(Hit,Centre,Centre+FVector(0,0,FVector::Distance(P,R)),FCollisionObjectQueryParams(ECC_WorldStatic),Q),TEXT("palace-real-ceiling"));
         }
-        else ++GatePassages;
+        else if(It->ActorHasTag(TEXT("YunshaGatePassage")))++GatePassages;
+        else if(It->ActorHasTag(TEXT("YunshaPavilionPassage")))++PavilionPassages;
     }
-    Check(HallPassages==3 && GatePassages==3,TEXT("six-open-palace-passages"));
+    Check(HallPassages==1 && GatePassages==1 && PavilionPassages==1,TEXT("open-jade-palace-pavilion-paifang"));
     auto C=Born2FlapWeather::Defaults(TEXT("Yunsha"));C.Time=TEXT("noon");
     const FVector Core=SoaringWind(FVector(-12000,-42000,4000),0,C,FVector(0,2,0));
     const FVector Outside=SoaringWind(FVector(-22000,-42000,4000),0,C,FVector(0,2,0));
@@ -245,6 +289,17 @@ void ABorn2FlapYunsha::Tick(float Dt)
         Harp->SetVolumeMultiplier(Near*.42);Harp->SetPitchMultiplier(.7+FMath::Clamp(Pawn->GetVelocity().Size()/3000.,0.,.8));
         if(P.Z>22000 && BellCooldown<=0){Bell->SetVolumeMultiplier(.25);Bell->Play();BellCooldown=75;}
     }
+    if(bTest && bCapturePending)
+    {
+        // Camera jumps need actual rendered frames for streaming and temporal
+        // history, especially centimetre-scale fossils viewed at close range.
+        if(++CaptureFrames>=12 && Elapsed>=CaptureReadyAt)
+        {
+            FScreenshotRequest::RequestScreenshot(FString::Printf(TEXT("YUNSHA_%s_%s_%d.png"),*C.Time,*C.Season,CaptureStage),false,false);
+            ++CaptureStage;bCapturePending=false;
+        }
+        return; // Never move to another view on the screenshot request frame.
+    }
     if(bTest && Elapsed>4+CaptureStage*5)
     {
         if(CaptureStage==0)
@@ -267,9 +322,9 @@ void ABorn2FlapYunsha::Tick(float Dt)
         if(Views.Num())
         {
             TestCamera->SetActorTransform(Views[0]->GetActorTransform());TestCamera->GetCameraComponent()->SetFieldOfView(65);
-            // Capture on the next stage tick after this camera has rendered.
-            FScreenshotRequest::RequestScreenshot(FString::Printf(TEXT("YUNSHA_%s_%s_%d.png"),*C.Time,*C.Season,CaptureStage),false,false);
-            ++CaptureStage;
+            auto& PP=TestCamera->GetCameraComponent()->PostProcessSettings;
+            PP.bOverride_MotionBlurAmount=true;PP.MotionBlurAmount=0;
+            CaptureReadyAt=Elapsed+2.5f;CaptureFrames=0;bCapturePending=true;
         }
         else {UE_LOG(LogTemp,Display,TEXT("YunshaTest %s"),bPassed?TEXT("PASS"):TEXT("FAIL"));FPlatformMisc::RequestExitWithStatus(false,bPassed?0:1);bTest=false;}
     }

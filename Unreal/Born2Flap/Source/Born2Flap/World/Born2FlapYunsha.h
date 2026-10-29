@@ -30,8 +30,9 @@ private:
     UPROPERTY() TObjectPtr<UAudioComponent> Bell;
     UPROPERTY() TObjectPtr<ACameraActor> TestCamera;
     float Elapsed=0, BellCooldown=0;
-    int32 CaptureStage=0;
-    bool bTest=false, bPassed=true;
+    int32 CaptureStage=0, CaptureFrames=0;
+    float CaptureReadyAt=0;
+    bool bTest=false, bPassed=true, bCapturePending=false;
     void ValidateWorld();
 };
 
