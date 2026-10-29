@@ -30,6 +30,9 @@ public:
     // speed. Motes are injected into the ambient Dust pool and live out their
     // life regardless of the current gust/wind activity level.
     void EmitSandBurst(const FVector& WorldPos, float Strength);
+    // Yunsha desert: a big rolling sand cloud that occasionally sweeps over the
+    // dunes. Internal — fired by the dune-gust cadence in Tick.
+    void EmitDuneGust();
 
 private:
     struct FLeaf
@@ -43,6 +46,17 @@ private:
         double LifeMax = 0.0;   // initial Life, for end-of-life fade-out
         bool bBurst = false;   // one-shot sand/dust mote (landing, wing-touch)
         bool bCloud = false;   // soft dust puff (larger, lighter, lingers) vs fine grain
+        // Realistic flutter — deterministic per-leaf rhythm, set at spawn, so
+        // each leaf sways, glides-and-drops, and flips with its own cadence
+        // instead of rigidly tumbling on one fixed axis.
+        double Phase = 0.0;        // base phase (radians)
+        float SwayFreq = 1.0f;     // lateral zigzag, cycles/sec
+        float SwayAmp = 30.0f;     // lateral zigzag, cm
+        float GlideFreq = 0.8f;    // stall-and-drop, cycles/sec
+        float GlideAmp = 30.0f;    // sink-speed oscillation, cm/s
+        float TumbleFreq = 1.2f;   // flip rate, cycles/sec
+        int32 MeshIdx = 0;         // 0 → Leaves, 1 → Leaves2 (per-level leaf type)
+        int32 InstanceIdx = 0;     // component-local instance index (fixed at spawn)
     };
     struct FBlade
     {
@@ -60,13 +74,26 @@ private:
     FLeaf SpawnDust(FRandomStream& R, const FVector& Cam, const FVector& Bird, bool bNearBird);
 
     UPROPERTY() TObjectPtr<UInstancedStaticMeshComponent> Leaves;
+    // Second leaf type so the sky holds mixed foliage (two shapes per level)
+    // instead of a single repeated blade.
+    UPROPERTY() TObjectPtr<UInstancedStaticMeshComponent> Leaves2;
     UPROPERTY() TObjectPtr<UInstancedStaticMeshComponent> Blades;
     UPROPERTY() TObjectPtr<UInstancedStaticMeshComponent> Dust;
     // GPU Niagara sand path (High/Epic): DustFX is the looping ambient fine-sand
     // field; SandBurstFX is the one-shot landing/wing-touch projectile burst.
     UPROPERTY() TObjectPtr<UNiagaraComponent> DustFX;
     UPROPERTY() TObjectPtr<UNiagaraComponent> SandBurstFX;
+    // Yunsha desert: one-shot big rolling sand cloud (GPU Niagara path). Fired
+    // on a slow cadence, repositioned upwind so it sweeps across the camera.
+    UPROPERTY() TObjectPtr<UNiagaraComponent> DuneGustFX;
     bool bNiagaraSand = false;   // true when the GPU Niagara path is active
+    bool bDesert = false;        // true in the Yunsha desert (sandy wind)
+    double NextGustTime = 0.0;   // world time of the next dune gust
+    // Sluggish mean wind heading the dune-gust clouds ride: eases toward the
+    // live horizontal wind so each gust follows the weather's average drift
+    // rather than the frame-to-frame wobble (a natural, heavy air-mass lag).
+    FVector GustWindDir = FVector(1.0f, 0.0f, 0.0f);
+    bool bGustWindSeeded = false;
 
     TArray<FLeaf> LeafPool;
     TArray<FBlade> BladePool;

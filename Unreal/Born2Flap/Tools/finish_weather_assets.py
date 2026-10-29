@@ -44,7 +44,7 @@ mpath='/Game/Weather/MPC_Weather'
 mpc=u.load_asset(mpath) if ela.does_asset_exist(mpath) else assets.create_asset('MPC_Weather','/Game/Weather',u.MaterialParameterCollection,u.MaterialParameterCollectionFactoryNew())
 params=[]
 existing={str(p.get_editor_property('parameter_name')):p for p in mpc.get_editor_property('scalar_parameters')}
-for name in ['Wetness','SnowCoverage','RainAmount']:
+for name in ['Wetness','SnowCoverage','RainAmount','MistAmount']:
     p=existing.get(name,u.CollectionScalarParameter());p.set_editor_property('parameter_name',name);p.set_editor_property('default_value',0);params.append(p)
 mpc.set_editor_property('scalar_parameters',params);ela.save_loaded_asset(mpc)
 
@@ -129,6 +129,21 @@ uv=node(m,'TextureCoordinate')
 col=custom(m,'float2 c=UV-.5; float r=length(c)*2.; float d=pow(saturate(1.-r),2.5); return float3(.95,.99,1.05)*d;',{'UV':uv},3)
 output(col,'EMISSIVE_COLOR')
 op=custom(m,'float2 c=UV-.5; float r=length(c)*2.; return pow(saturate(1.-r),2.5);',{'UV':uv})
+output(op,'OPACITY');lib.recompile_material(m);assert ela.save_loaded_asset(m)
+
+# Morning ground mist: soft white feathered sprite for NS_MorningMist. Opacity is
+# gated by the MPC MistAmount (day-time + season) so every bank fades in/out as one.
+# Unlit + pow(1-r)^3 edge so it reads as air, not hard droplet discs.
+m=material('M_MorningMist');m.set_editor_property('blend_mode',u.BlendMode.BLEND_TRANSLUCENT)
+m.set_editor_property('shading_model',u.MaterialShadingModel.MSM_UNLIT)
+m.set_editor_property('used_with_niagara_sprites',True)
+m.set_editor_property('used_with_particle_sprites',True)
+m.set_editor_property('two_sided',False)
+uv=node(m,'TextureCoordinate')
+mist=node(m,'CollectionParameter',collection=mpc,parameter_name='MistAmount')
+col=custom(m,'float2 c=UV-.5; float r=length(c)*2.; float soft=pow(saturate(1.-r),3.); return float3(.84,.88,.92)*soft;',{'UV':uv},3)
+output(col,'EMISSIVE_COLOR')
+op=custom(m,'float2 c=UV-.5; float r=length(c)*2.; float soft=pow(saturate(1.-r),3.); return soft*Mist;',{'UV':uv,'Mist':mist})
 output(op,'OPACITY');lib.recompile_material(m);assert ela.save_loaded_asset(m)
 
 source=Path(__file__).resolve().parents[1]/'Saved/GeneratedSoundscape'

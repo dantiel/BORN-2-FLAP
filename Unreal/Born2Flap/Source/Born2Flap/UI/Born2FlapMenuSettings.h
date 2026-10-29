@@ -38,13 +38,15 @@ struct FMenuSettings
         Tuning.tail_elevator_angle_deg = 0;
         Tuning.glide_angle_deg = -4;
         Tuning.stroke_ferocity = 50;
-        Tuning.aileron_scale = 10;
+        Tuning.aileron_scale = 40;
         Tuning.elevator_scale = 55;
         Tuning.flap_centre_deg = 0;
         Tuning.vertical_mount_angle_deg = 0;
     }
     // -1 = never explicitly chosen → the level's default bird applies.
     int32 BirdModel = -1;
+    // On-foot pilot avatar (0 = Founder, 1 = Hunter).
+    int32 AvatarPerson = 0;
     float BodyMassKg = 0.45f;
     float CgOffsetMm = 0.f;
     bool bCoupledThrottle = true;

@@ -65,7 +65,7 @@
   {
     "name": "GoldenHall",
     "title": "Model of the Golden Temple, Wan fa Gui yi Hall",
-    "author": "Världskulturmuseerna",
+    "author": "V\u00c3\u00a4rldskulturmuseerna",
     "source": "https://sketchfab.com/3d-models/model-of-the-golden-temple-wan-fa-gui-yi-hall-97673d5721d743328022c282b77b33ae",
     "license": "http://creativecommons.org/publicdomain/zero/1.0/",
     "download": "https://huggingface.co/datasets/allenai/objaverse/resolve/main/glbs/000-052/97673d5721d743328022c282b77b33ae.glb",
@@ -91,5 +91,106 @@
     "download": "https://huggingface.co/datasets/allenai/objaverse/resolve/main/glbs/000-083/94eb3b961bf34c3699c1e23172d001b3.glb",
     "sha256": "803b85b9ed0628849d4675cd7e1ce1942c77ed856a876e749ae2894ed4477399",
     "modifications": "Transforms baked and origin centred at base. Golden Hall axial doorways opened in geometry with interpolated UVs; Paifang display plane removed and stone material applied in map. Scaled and placed in fictional Moon Jade Palace and gardens."
+  },
+  {
+    "name": "LakePavilion",
+    "title": "pavilion",
+    "author": "hch1994",
+    "source": "https://sketchfab.com/3d-models/pavilion-938de6e237f046cba675f9ebf062d2eb",
+    "license": "http://creativecommons.org/licenses/by/4.0/",
+    "download": "https://huggingface.co/datasets/allenai/objaverse/resolve/main/glbs/000-129/938de6e237f046cba675f9ebf062d2eb.glb",
+    "sha256": "096e0c74562e6a00afc6f3ed022aed51e5884e7458fa3d61be792172b6a5a5dc",
+    "modifications": "Transforms baked and origin centred. Pavilion given jade and stone finishes; palms placed in procedural oasis groves."
+  },
+  {
+    "name": "OasisPalm",
+    "title": "Palm Tree tall",
+    "author": "pizzaguyty",
+    "source": "https://sketchfab.com/3d-models/palm-tree-tall-557ea8d4527f47e8bbc657e2764b7cab",
+    "license": "http://creativecommons.org/licenses/by/4.0/",
+    "download": "https://huggingface.co/datasets/allenai/objaverse/resolve/main/glbs/000-081/557ea8d4527f47e8bbc657e2764b7cab.glb",
+    "sha256": "3a0e686e996d95e1272fb555613b0ebbe0af135dd2b033a0c5c0467f5c69d284",
+    "modifications": "Transforms baked and origin centred. Pavilion given jade and stone finishes; palms placed in procedural oasis groves. Frond materials converted to masked two-sided foliage with source alpha; instanced in mixed groves."
+  },
+  {
+    "name": "PterosaurSlab",
+    "title": "Pterosauro - Cosmocaixa",
+    "author": "luiscoya",
+    "source": "https://sketchfab.com/3d-models/pterosauro-cosmocaixa-7d330b6bbab54158a3a58edb47de3c47",
+    "license": "http://creativecommons.org/licenses/by/4.0/",
+    "download": "https://huggingface.co/datasets/allenai/objaverse/resolve/main/glbs/000-042/7d330b6bbab54158a3a58edb47de3c47.glb",
+    "sha256": "e54782a090279a96e5c930d45f2bfc534edef7c1add8e11fe3677fa6d7f00ef1",
+    "modifications": "Transforms baked; scan laid flat and partially buried in fictional sediment. Source depicts an Anhanguera museum reconstruction with some original pieces. UVs and photographic textures retained in lit two-sided materials, replacing the source unlit shader."
+  },
+  {
+    "name": "PterosaurJaw",
+    "title": "Bakonydraco galaczi mandibular symphysis",
+    "author": "Hungarian Dinosaur Expedition",
+    "source": "https://sketchfab.com/3d-models/bakonydraco-galaczi-mandibular-symphysis-c465d96f14d3471598314ba63996d403",
+    "license": "http://creativecommons.org/licenses/by/4.0/",
+    "download": "https://huggingface.co/datasets/allenai/objaverse/resolve/main/glbs/000-091/c465d96f14d3471598314ba63996d403.glb",
+    "sha256": "977acb7f2d1f8e2a60ea3389532b9d2624185cce0834cb0e51234d336828a643",
+    "modifications": "Transforms baked; scan laid flat and partially buried in fictional sediment. Geometry and source material retained; instances scaled as small exposed jaw fragments."
+  },
+  {
+    "name": "PteranodonBones",
+    "title": "Fossil Bones Pteranodon",
+    "author": "Gaming Assets",
+    "source": "https://sketchfab.com/3d-models/fossil-bones-pteranodon-84677c4e08004c05b057511ef81846f4",
+    "license": "http://creativecommons.org/licenses/by/4.0/",
+    "download": "https://huggingface.co/datasets/allenai/objaverse/resolve/main/glbs/000-012/84677c4e08004c05b057511ef81846f4.glb",
+    "sha256": "d1e874a7ef04f23bb94a3331bbc944377cfce47384d68ae4d75b391dc68a905c",
+    "modifications": "Transforms baked; scan positioned in fictional excavation sediment. Source geometry and UVs retained; photographic materials adapted to scene lighting."
+  },
+  {
+    "name": "DinosaurEggs",
+    "title": "Dinosaur Eggs",
+    "author": "tubaf.vr",
+    "source": "https://sketchfab.com/3d-models/dinosaur-eggs-4055735f1f12474db8cb8f512445a5ee",
+    "license": "http://creativecommons.org/licenses/by/4.0/",
+    "download": "https://huggingface.co/datasets/allenai/objaverse/resolve/main/glbs/000-082/4055735f1f12474db8cb8f512445a5ee.glb",
+    "sha256": "08579e3175b6fc115dbc560d01ed650dd87a27f9502d200e39b99b6e7cf0ce51",
+    "modifications": "Transforms baked; scan positioned in fictional excavation sediment. Source geometry and UVs retained; photographic materials adapted to scene lighting."
+  },
+  {
+    "name": "FossilFish",
+    "title": "Vertebrate: Fish (PRI 53568)",
+    "author": "Digital Atlas of Ancient Life",
+    "source": "https://sketchfab.com/3d-models/vertebrate-fish-pri-53568-e62fbf61257c462c842ac31354de49a9",
+    "license": "http://creativecommons.org/publicdomain/zero/1.0/",
+    "download": "https://huggingface.co/datasets/allenai/objaverse/resolve/main/glbs/000-066/e62fbf61257c462c842ac31354de49a9.glb",
+    "sha256": "a02a947e11285043339fbb04f826ceb5b1cc569f2ca72bf3d7323d62d33b7b1a",
+    "modifications": "Transforms baked; scan positioned in fictional excavation sediment. Source geometry and UVs retained; photographic materials adapted to scene lighting. Fossil-bearing face oriented upward, with labelled reverse buried beneath the sediment."
+  },
+  {
+    "name": "Ammonite",
+    "title": "Ammonite fossil",
+    "author": "vodzurk",
+    "source": "https://sketchfab.com/3d-models/ammonite-fossil-27f7cc9385f64f29a6fc4e00d3fe0b9e",
+    "license": "http://creativecommons.org/licenses/by/4.0/",
+    "download": "https://huggingface.co/datasets/allenai/objaverse/resolve/main/glbs/000-113/27f7cc9385f64f29a6fc4e00d3fe0b9e.glb",
+    "sha256": "bb84b45402f981d1540b9b59ecfa768c9c41a66201dc6f4280060980ea178d1f",
+    "modifications": "Transforms baked; scan positioned in fictional excavation sediment. Source geometry and UVs retained; photographic materials adapted to scene lighting."
+  },
+  {
+    "name": "Herbstosaurus",
+    "title": "Herbstosaurus pigmaeus holotype CTES-PZ 1711",
+    "author": "Martin D. Ezcurra, Alexandra Fernandes, Marcos Roig, M. Belen von Baczko",
+    "source": "https://doi.org/10.5281/zenodo.13864613",
+    "license": "https://creativecommons.org/licenses/by/4.0/",
+    "download": "https://zenodo.org/api/records/13864613/files/3D%20models.zip/content",
+    "filename": "Herbstosaurus.zip",
+    "sha256": "18dd2396c2d472d23799f724eea016c65722d40c35a738d2a33a3f404e93e18f",
+    "modifications": "Vertex-coloured research PLY converted to GLB; normals computed, colour converted from sRGB to linear, thin axis laid flat. Fossil mould displayed in a fictional composite excavation. No taxonomic reconstruction implied."
+  },
+  {
+    "name": "FieldTent",
+    "title": "Jungle Tent",
+    "author": "SyntheticMN",
+    "source": "https://sketchfab.com/3d-models/jungle-tent-52332b0f55f24c739215342954e49f54",
+    "license": "http://creativecommons.org/licenses/by/4.0/",
+    "download": "https://huggingface.co/datasets/allenai/objaverse/resolve/main/glbs/000-154/52332b0f55f24c739215342954e49f54.glb",
+    "sha256": "74b39055fe560178c3d36e5f3c8028c83c68d12bf8a74acb0cb7717e36e53202",
+    "modifications": "Transforms baked; canvas field tent scaled and positioned in the Bone Archive research camp."
   }
 ]

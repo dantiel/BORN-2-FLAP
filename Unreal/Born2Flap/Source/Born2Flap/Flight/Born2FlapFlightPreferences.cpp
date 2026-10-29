@@ -1,4 +1,5 @@
 #include "Flight/Born2FlapFlightPawn.h"
+#include "Avatar/Born2FlapAvatar.h"
 #include "Flight/Born2FlapTuning.h"
 #include "Game/Born2FlapGameMode.h"
 #include "Racing/Born2FlapRacing.h"
@@ -49,6 +50,9 @@ void ABorn2FlapFlightPawn::LoadFlightPreferences()
     int32 RollStick = MobileRollStick;
     Config.GetInt(TEXT("Mobile"),TEXT("RollStick"),RollStick);
     MobileRollStick = (RollStick == 0 || RollStick == 1) ? RollStick : 1;
+    int32 Person = AvatarPerson;
+    Config.GetInt(TEXT("Avatar"),TEXT("Person"),Person);
+    AvatarPerson = FMath::Clamp(Person, 0, ABorn2FlapAvatar::GetPersonCount() - 1);
     FpvCameraAngleDeg = FMath::IsFinite(FpvCameraAngleDeg) ? FMath::Clamp(FpvCameraAngleDeg,-45.f,45.f) : 0.f;
     Config.GetBool(TEXT("Flight"),TEXT("CoupledThrottle"),bCoupledThrottle);
     Config.GetFloat(TEXT("Flight"),TEXT("BodyMassKg"),BodyMassKg);
@@ -107,6 +111,7 @@ void ABorn2FlapFlightPawn::SaveFlightPreferences()
     Config.SetBool(TEXT("Mobile"),TEXT("InvertPitch"),bMobileInvertPitch);
     Config.SetInt64(TEXT("Mobile"),TEXT("ThrottleStick"),MobileThrottleStick);
     Config.SetInt64(TEXT("Mobile"),TEXT("RollStick"),MobileRollStick);
+    Config.SetInt64(TEXT("Avatar"),TEXT("Person"),AvatarPerson);
     Config.SetBool(TEXT("Flight"),TEXT("CoupledThrottle"),bCoupledThrottle);
     Config.SetFloat(TEXT("Flight"),TEXT("BodyMassKg"),BodyMassKg);
     Config.SetFloat(TEXT("Flight"),TEXT("CgOffsetMm"),CgOffsetMm);

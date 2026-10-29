@@ -37,7 +37,7 @@ def main():
     if args.servo_speed is not None: tuning.ServoSpeed=args.servo_speed
     if args.tail_trim is not None: tuning.TailElevatorAngle=args.tail_trim
     lib = c.CDLL(str(args.dll.resolve()))
-    assert lib.b2f_math_abi_version()==14 and lib.b2f_math_runtime_init()==1
+    assert lib.b2f_math_abi_version()==16 and lib.b2f_math_runtime_init()==1
     create=lib.b2f_math_create_firmware_vehicle
     create.argtypes,create.restype=[c.c_void_p],c.c_void_p
     destroy=lib.b2f_math_destroy_firmware_vehicle

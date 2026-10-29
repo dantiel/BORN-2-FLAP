@@ -18,6 +18,7 @@ class USceneComponent;
 class USpringArmComponent;
 class UCameraComponent;
 class UBorn2FlapAudioSynth;
+class ABorn2FlapAvatar;
 class ABorn2FlapFlightSettings;
 class ABorn2FlapPoiOverlay;
 class ABorn2FlapWindLeaves;
@@ -51,6 +52,8 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     FString GetCameraLabel() const;
     void SelectBirdModel(int32 Index);
     int32 GetBirdModel() const { return BirdModel; }
+    int32 GetAvatarPerson() const { return AvatarPerson; }
+    void SetAvatarPerson(int32 Index);
     float GetTuning(ETuningField Field) const;
     void SetTuning(ETuningField Field, float Value);
     int32 DefaultBirdModel() const;
@@ -227,6 +230,11 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     FVector GroundAnchor = FVector::ZeroVector, LastLanding = FVector::ZeroVector;
     FRotator GroundGaze = FRotator::ZeroRotator;
     bool bGroundView = false, bFpvAirView = false, bCameraGrounded = false, bGroundGazeReady = false;
+    // The visible on-foot pilot. Spawned once; follows the ground anchor, walks
+    // with the observer, hides in first-person ground view, and throws the bird.
+    UPROPERTY() TObjectPtr<ABorn2FlapAvatar> Avatar;
+    int32 AvatarPerson = 0;
+    FVector PrevAvatarFeet = FVector::ZeroVector;
     double CameraTime = 0, GroundSettleTime = 0;
     // True once the pilot has walked away from the auto-anchor beside the bird:
     // a later throw then launches from the pilot's position and gaze instead of
@@ -272,6 +280,8 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     // Move the ground observer (pilot) across the terrain, blocked by geometry.
     void MoveWalker(const FVector& Delta);
     bool CheckFlightCameras();
+    void SpawnAvatar();
+    void UpdateAvatarState(float Dt);
     TUniquePtr<FBorn2FlapMathBridge> MathBridge;
     TUniquePtr<FBorn2FlapRcController> RcController;
     double Accumulator = 0, LogTime = 0, WorldTime = 0;

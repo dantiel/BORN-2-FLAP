@@ -630,6 +630,7 @@ void ABorn2FlapGameMode::PopulatePOIs()
         AddPoi(TEXT("The Narrows"), 4500.,7000.);
         AddPoi(TEXT("Cloud-Forest - begin the climb"), -10000.,30000.);
         AddPoi(TEXT("The Dune Sea"), 18000.,-85000.);
+        AddPoi(TEXT("The Bone Archive"),65000.,-21000.);
         return;
     }
     if (bCoastLevel)

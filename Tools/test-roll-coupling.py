@@ -179,7 +179,7 @@ def main():
             # vehicle overrides AileronScale to 10 (±1.8° full stick); a
             # reconfigured tuning carries its own AileronScale.
             aileron_scale = tuning.AileronScale if tuning is not None else 10.0
-            commanded = 2 * abs(args.roll) * aileron_scale * 0.01 * 18.0
+            commanded = 2 * abs(args.roll) * aileron_scale * 0.01 * 87.5
             for sample in (right, left):
                 achieved = abs(sample['final_right'] - sample['final_left'])
                 if achieved < 0.75 * commanded:

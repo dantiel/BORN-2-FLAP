@@ -12,7 +12,7 @@ def main():
     for record in records:
         name=record['name']
         if 'download' in record:
-            path=root/(name+'.glb')
+            path=root/record.get('filename',name+'.glb')
             if not path.exists() or hashlib.sha256(path.read_bytes()).hexdigest()!=record['sha256']:
                 data=read(record['download']+'?download=true')
                 assert hashlib.sha256(data).hexdigest()==record['sha256'], 'Changed source: '+name

@@ -348,6 +348,8 @@ Per the seasonal-soundtrack direction, Yúnshā will carry a dedicated station:
 - **The Cloud-Forest Pillars** — the mist mountains, one sky-temple per summit;
   the crown POI and precision-landing perch, reachable **only by flight**.
 - **The Dune Sea** — the open sandbox edge for free thermal play.
+- **The Bone Archive 龙骨滩** — the open fossil dig at the gorge's deepest reach:
+  stepped sediment benches exposing pterosaur bone; the Iron Age digging down.
 
 ---
 
@@ -356,20 +358,27 @@ Per the seasonal-soundtrack direction, Yúnshā will carry a dedicated station:
 Follows the established generator pattern (`create_shiomori_map.py`,
 `create_neon_abyss_map.py`):
 
-1. **Terrain + materials.** A gorge heightfield (sand, red sandstone cliff,
-   wind-rippled dune, slot-canyon walls) with a crescent-spring oasis and a
-   band of green around it; world-space triplanar materials, sun-glass emissive
-   pigment for the murals.
-2. **The Wind-Harp.** A procedurally scattered honeycomb of cave-mouths (ISM
+1. **Vast interconnected terrain.** A much larger gorge heightfield (sand, red
+   sandstone cliff, wind-rippled dunes, slot-canyon walls) threaded by **dune
+   corridors and a canyon network** — one main canyon plus several smaller
+   side-canyons — across **multiple height levels**, so the floor reads as one
+   continuous landform rather than a flat plane with attractions perched on it.
+   The dune crests and canyon walls sweep like the wing-strokes of a bird as
+   vast as the aurora: the whole floor is one poem written in flight. The oasis
+   sits alone in a broad basin; every other monument stands far off and reads
+   small from its shore.
+2. **The Bone Archive 龙骨滩.** The low, open fossil dig at the gorge's deepest
+   reach — stepped sediment benches exposing pterosaur bone and mineral strata.
+3. **The Wind-Harp.** A procedurally scattered honeycomb of cave-mouths (ISM
    instancing for coverage over detail) on the cliff face, with sun-glass mural
    quads inside each mouth.
-3. **The Sky-Temples.** Freestanding sandstone pillars + a cloud-forest canopy
+4. **The Sky-Temples.** Freestanding sandstone pillars + a cloud-forest canopy
    on each summit, carved so no ground path exists; a small perch landing zone
    and the Wing Mural interior per temple.
-4. **World actor + GameMode wiring.** New `bDesertLevel` flag, `GetLevelId()`
+5. **World actor + GameMode wiring.** New `bDesertLevel` flag, `GetLevelId()`
    → `"Yunsha"`, `?Level=Yunsha` detection, weather/season defaults,
    `bPterosaur` model flag.
-5. **Menu catalog + artwork.** Menu card, `Desert` artwork key, pterosaur bird
+6. **Menu catalog + artwork.** Menu card, `Desert` artwork key, pterosaur bird
    select, and a POI card teaching *"come back at dusk."*
 
 Record assets and provenance in this doc's appendix when geometry lands (Poly
@@ -456,8 +465,8 @@ Keep the third-party credits with release bundles.
 The earlier arcade and cube-built pavilions were rejected visually. Their
 technical checks below describe an obsolete art pass, not visual acceptance.
 
-- Jade: a fourfold-area crescent lagoon beside the Moon Jade Palace: three
-  progressively larger halls, open paifang gateways, and four winding scholar
+- Jade: a fourfold-area crescent lagoon beside one monumental Moon Jade Palace,
+  a distinct open lakeside pavilion, one ceremonial paifang and winding scholar
   gardens with bonsai collections. The palace axis is on the eastern dry bank;
   the lake promenade follows the crescent rather than a square foundation.
 - Iron: low dunes and a long open flight across the basin. Outer sand ridges
@@ -504,7 +513,7 @@ on free space in the system drive's temporary directory.
   inspected, including the softened mist and distant sand-sea.
 - Native macOS generation and packaged-release validation remain unexecuted.
 
-### Moon Jade Palace expansion (24 October 2026)
+### Earlier Moon Jade Palace expansion (24 October 2026; superseded composition)
 
 The crescent is twice as wide and twice as long: outer radii 156/96 m,
 with the inner cutout and its offset scaled identically about the old centre.
@@ -534,3 +543,128 @@ monsoon run: all three bounded exposure volumes passed, and the hall image
 showed readable columns, floor and exit. Eight views were captured per run.
 The source download hashes were verified. Native macOS and packaged release
 execution remain untested on this Windows workstation.
+
+### Open Jade oasis revision (25 October 2026)
+
+The three repeated halls are removed. One 90 m palace has restrained celadon
+roof finishes and dark nephrite columns, retaining the authored painted brackets
+and interior detail. A distinct imported hexagonal pavilion stands by the lake.
+Only one paifang marks the approach. There are no enclosing walls; approaches
+remain open from every side, with a sandy gap separating the oasis planting
+from the Bronze escarpment and the northern ascent.
+
+Continuous fertile ground spans approximately 540 x 430 m, feathering into the
+desert with irregular grass and earthy soil patches. Mixed groves contain 135
+palms, 150 broadleaf trees, 650 ferns and 3,200 grass clumps, plus the bonsai
+collections. Planting excludes the crescent water, main flight corridor, palace
+and pavilion interiors, and the shoreline promenade. Palm fronds retain their
+source alpha through masked two-sided foliage materials. Source attribution
+and hashes for the new pavilion and palm are in the retained asset manifest.
+
+Validation of the 25 October revision: native editor build passed; generation
+saved and reloaded 389 actors in 82.5 seconds. Dry morning and noon monsoon
+rendered runs passed, including the palace, pavilion and paifang flight sweeps.
+The palm leaf cutouts, jade finishes and continuous planted ground were
+inspected in fresh captures. Pinned source hashes verified successfully.
+
+## The Bone Archive - 26 October excavation
+
+East of the pilgrimage floor, a roughly 460 x 330 metre research field exposes
+three sediment benches descending to 18 metres below the surrounding surface.
+An eastern ramp connects the benches; a separate 72 x 120 metre shallow trench
+extends the survey westward. The native height sampler and a replacement two
+metre collision grid carve the same ground. Below-zero excavation remains dry;
+water is restricted to the existing crescent spring mask.
+
+Four five-to-seven-metre pterosaur exposures and eight smaller jaw fragments
+occupy the surface, benches and deeper floor. The primary retained scan is
+luiscoya's CC BY CosmoCaixa Anhanguera reconstruction (including some original
+pieces), not an untouched fossil skeleton. The jaw is the Hungarian Dinosaur
+Expedition's CC BY Bakonydraco mandibular symphysis. This is a fictional composite
+excavation, not a claim that those animals were excavated together. Source URLs,
+license links, modification notes and SHA-256 hashes are in Yunsha-assets.json.
+The scan geometry, UVs and photographic textures are retained; specimens are
+laid flat and partially buried rather than enlarged to fill the dig.
+
+World-height mineral bands expose chalk, ochre and darker sediment on the cut
+faces. Loose scanned rock forms spoil along the outer rim. The Bone Archive is
+selectable as a destination, and two additional validation cameras show the
+whole dig and the principal skeleton. Ordinary map generation reads retained
+Unreal assets without downloading or preparing scans, on Windows and macOS;
+native macOS execution remains unverified.
+
+### Vast gorge revision (26 October 2026; composition direction)
+
+The current composition reads as a "Disneyland" — a scatter of attractions
+perched on a too-flat floor, unconnected, the oasis entangled by its
+neighbours. The next revision breaks the level open and is recorded here so the
+direction is not lost:
+
+- **Scale.** The gorge grows much larger. Every monument moves farther apart so
+  that from the oasis shore each reads small on the horizon, not crowded beside
+  it.
+- **Connection.** Dunes fill the gaps between sites. The floor stops being flat
+  and becomes a rolling, varied-height desert threaded by **one main canyon plus
+  several smaller side-canyons** — corridors the flight can follow, so the
+  journey between monuments is itself the ride. Multiple distinct height levels
+  replace the single plane.
+- **The poem.** The dune crests and canyon walls are composed to sweep like the
+  wing-strokes of one bird as vast as the aurora: the whole landscape is a
+  single continuous gesture — *a poem written by the wings of a big bird* — and
+  flying the world is reading it.
+- **Naturalism.** The approach is naturalistic, not exhibit-like: sites emerge
+  from the land at real distances, with elevation change doing the work of
+  separation instead of empty gaps.
+- **The Bone Archive 龙骨滩** joins as the Iron Age's own monument — the present
+  digging *down* through the strata toward the same source the flight climbs
+  *up* toward, mirroring the ascent in rock. (Folk name 龙骨 *dragon bones*: the
+  canyon-folk's word for the fossil bones of the winged Pteronauts they have
+  forgotten.)
+Validation: native editor build passed; the final generation saved and reloaded
+422 actors in 94.9 seconds. Dry morning and noon monsoon rendered runs passed,
+including excavation depth, dry below-zero terrain, twelve retained fossil
+placements and four collision-height probes. The final overview and close-up
+captures were inspected in both conditions. Source unlit fossil materials were
+replaced with lit photographic materials after the first render exposed a black
+silhouette. Distance-field lighting is disabled on the open terrain surfaces to
+avoid false rectangular self-shadowing; ordinary mesh collision is preserved.
+
+## Bone Archive specimen diversity - 26 October
+
+The excavation now uses seven distinct retained fossil assets. New additions:
+Pteranodon limb and claw bones (CC BY photogrammetry), the Herbstosaurus pigmaeus
+holotype CTES-PZ 1711 (CC BY research model, Ezcurra et al., Zenodo 13864613),
+Chinese Upper Cretaceous dinosaur egg clusters (CC BY, Freiberg collection),
+a semionotid fish impression PRI 53568 (CC0, Paleontological Research Institution),
+and a CC BY ammonite scan. Two duplicate Anhanguera exposures were replaced by
+Pteranodon bone slabs. The research PLY retains its coloured vertices and full
+surface geometry in a GLB conversion; ordinary map builds still use retained
+Unreal imports, without Python packages or network access.
+
+There are 25 scan placements plus three original reconstructed pterosaur egg
+exposures, each containing 18 small eggs. These 5.0-6.4 cm compressed, wrinkled
+eggs refer to the Hamipterus discoveries described by Wang et al. (2017), DOI
+10.1126/science.aan2329, and the Chinese Academy of Sciences summaries. They are
+explicitly artistic reconstructions, not scanned specimens or hard bird eggs
+in straw nests. The separately scanned dinosaur egg clusters retain their own
+identity. This fictional composite archive juxtaposes taxa from different ages
+and localities; it does not claim a scientifically authentic shared assemblage.
+
+Source records, licenses, modifications, archive filename and hashes are in
+Content/ThirdParty/Yunsha-assets.json. The optional source fetcher understands
+the pinned research ZIP, and convert_yunsha_research.py prepares its coloured
+PLY before the usual transform/flattening step. Import maintenance can select
+individual assets using B2F_YUNSHA_IMPORT_ONLY to bound peak memory use.
+Six additional close-up validation cameras inspect the new bone slab, small
+Herbstosaurus mould, dinosaur eggs, reconstructed pterosaur egg bed, fish and
+ammonite. Captures wait for rendered frames after each camera move, with test
+motion blur disabled, so close-range images can actually be assessed.
+
+
+### Rectangular trenches and field camp
+
+Three additional rectangular terrain cuts occupy the Bone Archive southern apron: 36 x 24 m / 3.6 m deep, 28 x 20 m / 2.8 m deep, and 20 x 16 m / 2 m deep. Their sediment walls and floors share native height queries and collision. The earlier 72 x 120 m satellite trench remains.
+
+Three modest canvas tents form a spaced research camp. The retained CC BY Jungle Tent by SyntheticMN supplies authored fabric folds and textures; attribution and the pinned source hash live in `Yunsha-assets.json`. Four short weathered-post and slack-rope sections mark selected edges, leaving broad access gaps and the main ramp open. Views 16 and 17 show the cuts and camp. These portable recipes support macOS generation; native macOS execution has not been verified here.
+
+Validation (2026-10-26): Editor build passed; procedural generation saved and reloaded 457 actors. Morning/dry runtime checks passed, including seven excavation-floor collision probes, three tents and four fence sections. All 18 fresh captures were produced; the rectangular-pit overview and camp close-up were visually inspected. The expanded fossil set also passed a noon/monsoon rendered run before the camp addition.

@@ -75,18 +75,10 @@ double SampleStationField(const B2F_WingSection* Shape, int32 Count, double Stat
     const double H11 =        T3 -       T2;
     return H00 * P0 + H10 * M0 + H01 * P1 + H11 * M1;
 }
-// Visual exaggeration of the solver's aeroelastic deformation. The solver
-// already yields a physical quasi-static cantilever bend + washout twist; these
-// gains scale only the *rendered* flex (solver state and the aero feedback loop
-// are untouched). AeroBendVisualGain scales the carbon-spar bend; AeroTwistVisualGain
-// scales ONLY the load-driven elastic torsion (the reactive part), NOT the static
-// geometric washout — so the wing rests nearly flat and flexes with load.
-// NOTE: the 0.55 m kestrel planform bends ~4 mm at the tip under strong
-// flapping (tip ≈ 0.8 mm at rest → 4.4 mm at 7 m/s; siBendScale 130), so the
-// millimetre-scale 44×/9× gains are restored to keep the real load-driven flex
-// readable without stretching it into a multi-span flag.
-constexpr double AeroBendVisualGain  = 44.0;
-constexpr double AeroTwistVisualGain = 9.0;
+// Render physical deformation at its actual scale. Exaggeration produces
+// folds that do not exist in the aerodynamic surface.
+constexpr double AeroBendVisualGain  = 1.0;
+constexpr double AeroTwistVisualGain = 1.0;
 // Neon turtle flipper planform (Design 3), shared by the rest-mesh builder and
 // ApplyShape so the chord bounds never drift apart.
 constexpr double TurtleFlipperSpan      = 72.0;

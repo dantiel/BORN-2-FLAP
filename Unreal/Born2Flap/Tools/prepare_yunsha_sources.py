@@ -14,6 +14,9 @@ ROOT = Path(__file__).resolve().parents[1] / 'Saved/YunshaSource'
 
 
 def prepare(name):
+    if name=='Herbstosaurus':
+        from convert_yunsha_research import convert
+        convert(ROOT)
     raw = (ROOT / (name + '.glb')).read_bytes()
     length = struct.unpack_from('<I', raw, 12)[0]
     doc = json.loads(raw[20:20 + length])
@@ -94,7 +97,28 @@ def prepare(name):
         for child in n.get('children',[]): visit(child,matrix)
 
     for root in doc['scenes'][doc.get('scene',0)]['nodes']: visit(root,np.eye(4))
-    combined=np.concatenate([p for _,p in positions]);low=combined.min(axis=0);high=combined.max(axis=0)
+    combined=np.concatenate([p for _,p in positions])
+    if name in ('PterosaurSlab','PterosaurJaw','PteranodonBones','Herbstosaurus','FossilFish','Ammonite'):
+        # Lay the scan's thin axis onto the sediment bed, with its detailed
+        # front facing upward. Preserve UVs and transform normals with geometry.
+        _,axes=np.linalg.eigh(np.cov(combined.T));up=axes[:,0];long=axes[:,2]
+        normal_ids={p['attributes']['NORMAL'] for p in primitives if 'NORMAL' in p['attributes']}
+        normals=[]
+        for i in normal_ids:
+            a=accessors[i];v=views[a['bufferView']]
+            normals.append((i,np.frombuffer(output,dtype='<f4',count=a['count']*3,offset=v['byteOffset']).reshape(-1,3).copy()))
+        average=sum((n.sum(axis=0) for _,n in normals),np.zeros(3))
+        if np.dot(up,average)<0:up=-up
+        # PRI 53568 has a labelled reverse with more outward-facing vertices.
+        # Show the fossil-bearing face, burying the museum labels underneath.
+        if name=='FossilFish':up=-up
+        rotation=np.array([long,up,np.cross(long,up)])
+        positions=[(i,p@rotation.T) for i,p in positions]
+        for i,n in normals:
+            v=views[accessors[i]['bufferView']];values=n@rotation.T
+            output[v['byteOffset']:v['byteOffset']+v['byteLength']]=values.astype('<f4').tobytes()
+        combined=np.concatenate([p for _,p in positions])
+    low=combined.min(axis=0);high=combined.max(axis=0)
     centre=(low+high)/2;centre[1]=low[1]
     for index,pos in positions:
         values=pos-centre;a=accessors[index];v=views[a['bufferView']]
@@ -118,4 +142,4 @@ def prepare(name):
 
 if __name__ == '__main__':
     import sys
-    for name in (sys.argv[1:] or ('TempleHalls','Pagoda','Gate','GoldenHall','Paifang','Bonsai')): prepare(name)
+    for name in (sys.argv[1:] or ('TempleHalls','Pagoda','Gate','GoldenHall','Paifang','Bonsai','LakePavilion','OasisPalm','PterosaurSlab','PterosaurJaw','PteranodonBones','Herbstosaurus','DinosaurEggs','FossilFish','Ammonite','FieldTent')): prepare(name)

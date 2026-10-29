@@ -40,15 +40,30 @@ def inspect_world(request):
         architecture=[a for a in actors if 'YunshaArchitecture' in tags(a)]
         mountains=[a for a in actors if 'YunshaEscarpment' in tags(a)]
         assert len(perches)==5 and len(murals)==60, 'Incomplete Yunsha landmarks'
-        assert len(architecture)==11 and len(mountains)==1, 'Missing imported architecture or carved mountain'
+        assert len(architecture)==8 and len(mountains)==1, 'Missing imported architecture or carved mountain'
         for a in architecture:
             assert a.static_mesh_component.static_mesh.get_path_name().startswith('/Game/WorldAssets/Yunsha/'), 'Placeholder architecture returned'
         for a in perches:
             p=a.get_actor_location()
             assert p.z-u.Born2FlapYunsha.ground_height(p.x,p.y)>12000, 'Summit has a ground approach'
-        assert sum('YunshaPalaceHall' in tags(a) for a in actors)==3
+        assert sum('YunshaPalaceHall' in tags(a) for a in actors)==1
+        assert sum('YunshaLakePavilion' in tags(a) for a in actors)==1
+        assert sum('YunshaPaifang' in tags(a) for a in actors)==1
+        assert sum('YunshaOasisPlanting' in tags(a) for a in actors)==5
         assert sum('YunshaBonsai' in tags(a) for a in actors)==36
         assert sum('YunshaGarden' in tags(a) for a in actors)==4
+        assert sum('YunshaExcavation' in tags(a) for a in actors)==1
+        fossils=[a for a in actors if 'YunshaFossil' in tags(a)]
+        assert len(fossils)==28
+        scans=[a for a in fossils if 'YunshaFossilScan' in tags(a)]
+        assert len(scans)==25
+        assert len({a.static_mesh_component.static_mesh.get_path_name() for a in scans})==7
+        assert all(a.static_mesh_component.static_mesh.get_path_name().startswith('/Game/WorldAssets/Yunsha/') for a in scans)
+        assert sum('YunshaPterosaurEggReconstruction' in tags(a) for a in fossils)==3
+        assert sum('YunshaFieldTent' in tags(a) for a in actors)==3
+        assert sum('YunshaDigFence' in tags(a) for a in actors)==4
+        details.update(field_tents=3,open_fence_sections=4)
+        details.update(fossil_scans=len(scans),fossil_types=7,reconstructed_egg_beds=3)
         details.update(sky_temples=len(perches),grotto_murals=len(murals),imported_buildings=len(architecture),carved_mountains=len(mountains),seed=221022)
     return details
 

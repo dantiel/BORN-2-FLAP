@@ -3,6 +3,32 @@
 > **Design intent & narrative:** see [world-design.md](world-design.md) — what
 > this world *is*, why it exists, and what could be developed next.
 
+## MUSIC
+
+The level's music was generated from the following prompt — keep it as the
+canonical musical identity of Shiomori Bay:
+
+```text
+[Haiku 1: Shiomori Bay]
+Quiet seaside bay
+Sea breeze turns the analog
+Toy piano keys
+
+[Haiku 2: Peregrine Falcon]
+Wings of servo steel
+Gliding through the 16-bit
+Nostalgic blue sky
+
+[Haiku 3: The Lonely Trumpet]
+Sparse and sudden brass
+Flipping truth upside down now
+Quiet handheld themes
+
+[Musical Style Tags]
+pokemon town theme, breezy accordion, lofi chillhop, seaside marimba,
+bright nostalgic synths, upbeat 110 bpm, instrumental
+```
+
 ## CAMPUS LOCATION AND ORIENTATION
 
 The university occupies a repurposed late-1980s seaside hotel on the WEST side of Shiomori Bay, appearing on the RIGHT when viewing the beach from the sea. The iconic volcanic island and sheltered bathing lagoon are also on this same west/right side.

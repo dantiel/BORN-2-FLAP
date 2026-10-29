@@ -14,6 +14,14 @@ def build(imported, place, mesh, actor, material, ground, rock, expr, custom, ou
     paving=material('GardenLimestone',(.74,.72,.62),'/Game/Shiomori/Textures/T_ConcreteWorn_Diffuse')
     moss=material('GardenMoss',(.50,.62,.37),'/Game/Nature/T_CampusGrass_Diffuse')
     rng=random.Random(241024)
+    jade=material('CeladonGlaze',(.035,.34,.21),metal=.12)
+    deep=material('CarvedNephrite',(.025,.16,.10),'/Game/Nature/T_CampusMossStone_Diffuse',metal=.08)
+    # Mineral veins and a waxy polish distinguish jade from gold or green paint.
+    out(custom(jade,'''float v=Texture2DSample(T,TSampler,P.xy/90).r;
+float mineral=Texture2DSample(T,TSampler,P.yz/230).g;
+return lerp(float3(.025,.19,.11),float3(.055,.29,.18),v*.65+mineral*.35);''',
+        {'P':expr(jade,'WorldPosition'),'T':expr(jade,'TextureObject',texture=u.load_asset('/Game/Nature/T_CampusMossStone_Diffuse'))}),'BASE_COLOR')
+    u.MaterialEditingLibrary.recompile_material(jade);u.EditorAssetLibrary.save_loaded_asset(jade)
 
     def passage(name,x,y,z,halfdepth,kind):
         for end,dy in [('Start',-halfdepth),('End',halfdepth)]:
@@ -22,10 +30,14 @@ def build(imported, place, mesh, actor, material, ground, rock, expr, custom, ou
 
     # Hall roof heights 45/60/90m, with progressively larger entrance openings
     # beneath much higher vaulted ceilings. Authored columns remain intact.
-    halls=[('Hall of Arrival',-58000,4500),('Hall of Still Water',-49500,6000),('Moon Jade Great Hall',-38000,9000)]
+    halls=[('Moon Jade Great Hall',-38000,9000)]
     for name,y,h in halls:
         base=240
-        place(name,hall,13000,y,base,h,tags=['YunshaArchitecture','YunshaPalaceHall'])
+        building=place(name,hall,13000,y,base,h,tags=['YunshaArchitecture','YunshaPalaceHall'])
+        for slot,item in enumerate(hall.static_materials):
+            original=item.material_interface.get_name() if item.material_interface else ''
+            if 'TempleGold' in original or original=='TempleRoof_MAT':building.static_mesh_component.set_material(slot,jade)
+            elif 'Columns' in original or 'RedGold' in original:building.static_mesh_component.set_material(slot,deep)
         passage(name,13000,y,base+25/229.254*h,h*.56,'YunshaHallPassage')
         # The museum model is open underneath for viewing its interior. Fit a
         # limestone floor inside the existing plinth, with its own real collision.
@@ -45,10 +57,15 @@ def build(imported, place, mesh, actor, material, ground, rock, expr, custom, ou
                 c.set_intensity(80000*(h/4500)**2);c.set_attenuation_radius(h*.7)
                 c.set_editor_property('source_width',h*.08);c.set_editor_property('source_height',h*.08)
                 c.set_editor_property('use_temperature',True);c.set_temperature(4300)
-    for i,(y,h) in enumerate([(-65000,2400),(-53800,2700),(-43900,3200)]):
+    for i,(y,h) in enumerate([(-65000,2800)]):
         a=place('Moon Jade paifang %d'%i,gate,13000,y,145,h,tags=['YunshaArchitecture','YunshaPaifang'])
         for slot in range(a.static_mesh_component.get_num_materials()):a.static_mesh_component.set_material(slot,stone)
         passage('Paifang%d'%i,13000,y,145+h*.32,h*.25,'YunshaGatePassage')
+
+    pavilion=imported('LakePavilion')
+    a=place('Lunya jade lake pavilion',pavilion,2500,-48500,145,1800,0,tags=['YunshaArchitecture','YunshaLakePavilion'])
+    for slot in range(a.static_mesh_component.get_num_materials()):a.static_mesh_component.set_material(slot,jade)
+    passage('Jade lake pavilion',2500,-48500,850,1500,'YunshaPavilionPassage')
 
     def ribbon(name,points,width,mat):
         verts=[];tris=[]
@@ -63,27 +80,15 @@ def build(imported, place, mesh, actor, material, ground, rock, expr, custom, ou
 
     # A calm court between each pair of halls; ground contours remain visible
     # outside the precinct rather than being buried under a square foundation.
-    for i,(a,b) in enumerate([(-68000,-60500),(-55500,-52700),(-46300,-42800)]):
-        ribbon('Processional court %d'%i,[(13000,a+(b-a)*j/32) for j in range(33)],2500,paving)
+    for i,(a,b) in enumerate([(-68000,-42500)]):
+        ribbon('Processional court %d'%i,[(13000,a+(b-a)*j/32) for j in range(33)],900,paving)
 
     # Broad, irregular garden islands: lake contemplation, bonsai collection,
     # rock-and-pine retreat, and the eastern arrival garden.
     gardens=[(-3500,-50000,2300,2600),(1800,-55100,2600,2300),
              (4000,-46400,2900,2800),(22000,-48000,4100,5700)]
-    # Feather planted ground back into the same sand texture as the terrain.
-    # The irregular mesh boundary is entirely sandy, avoiding cut-out lawn pads.
-    code='float d=100;\n'
-    for cx,cy,rx,ry in gardens:
-        code+='d=min(d,length((P.xy-float2(%s,%s))/float2(%s,%s)));\n'%(cx,cy,rx,ry)
-    code+='''float noise=.035*sin(P.x*.014)*sin(P.y*.011)+.025*sin(P.x*.003+P.y*.004);
-float mask=1-smoothstep(.50,.84,d+noise);
-float3 sand=Texture2DSample(S,SSampler,P.xy/400).rgb*float3(1,.77,.48);
-float3 grass=Texture2DSample(G,GSampler,P.xy/400).rgb*float3(.65,.8,.45);
-return lerp(sand,grass,mask);'''
-    out(custom(moss,code,{'P':expr(moss,'WorldPosition'),
-        'S':expr(moss,'TextureObject',texture=u.load_asset('/Game/Shiomori/Textures/T_SandBeach_Diffuse')),
-        'G':expr(moss,'TextureObject',texture=u.load_asset('/Game/Nature/T_CampusGrass_Diffuse'))}),'BASE_COLOR')
-    u.MaterialEditingLibrary.recompile_material(moss);u.EditorAssetLibrary.save_loaded_asset(moss)
+    from yunsha_oasis import ground_material
+    ground_material(moss,expr,custom,out)
     for g,(cx,cy,rx,ry) in enumerate(gardens):
         verts=[(cx,cy,ground(cx,cy)+4)];tris=[];n=96
         for j in range(n):

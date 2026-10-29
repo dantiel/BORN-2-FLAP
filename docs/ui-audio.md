@@ -86,6 +86,17 @@ Die RMS-Kurve **ist** die Geschichte:
   t=9-10s  -55.2 dBFS   Abflug — Distanz + Luftabsorption
 ```
 
+## Stimme vs. Album
+
+Dieses Dokument beschreibt die **Stimme des Vogels** — die prozedurale
+Aero-Audio-Synthese, die aus der Flugphysik atmet. Die **Musik der Welten**
+ist etwas anderes: jede Welt trägt ihr eigenes **Radio-Album** (kuratierte
+Stücke, immer über das Feldradio gehört, ein Album pro Welt, kohärent im
+erschaffenen Weltgefühl). Deren Designregeln — Radio als einziges Portal,
+Album-Kohärenz, kanonisches Prompt-Format (Haiku + Style-Tags im
+`## MUSIC`-Abschnitt des Level-Dokuments) — stehen in `world-design.md`
+unter „The radio-album principle".
+
 ## Offen
 
 - **Echtzeit-Wiedergabe in Unreal**: `FAudioEngine` hält die Params; ein

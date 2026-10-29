@@ -16,14 +16,12 @@ switch ($Level) {
     'Nature'          { $map = '/Game/Ravenstonefield/Maps/RAVENSTONEFIELD'; $levelFlag = 'Ravenstonefield' }
     'Training'        { $map = '/Engine/Maps/Entry'; $levelFlag = 'Training' }
 }
-# Fit the windowed window to the primary monitor's work area rather than a fixed
-# 1600x900, which is larger than some displays (e.g. 1536x864 at 125% scaling)
-# and would open the game window partly off-screen — pressing F11 re-fitted it.
-Add-Type -AssemblyName System.Windows.Forms
-$work = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
-$resX = [Math]::Max(1024, $work.Width - 16)
-$resY = [Math]::Max(576, $work.Height - 48)
-$arguments = @(('\"'+$project+'\"'),$map,'-game','-windowed',('-ResX=' + $resX),('-ResY=' + $resY))
+# Launch borderless fullscreen at the display's native resolution. The engine
+# reads FullscreenMode=1 (WindowedFullscreen) from DefaultGameUserSettings.ini,
+# which fills the primary monitor without a mode switch — UE's native default.
+# Do NOT pass -windowed/-ResX/-ResY here: that forces a windowed game (and a
+# smaller-than-native window + loading screen).
+$arguments = @(('\"'+$project+'\"'),$map,'-game')
 if ($levelFlag) { $arguments += ('-B2FLevel='+$levelFlag) }
 $arguments += ('-abslog=\"'+$log+'\"')
 # NOTE: Do NOT pass -WindowStyle Hidden here. That sets STARTF_USESHOWWINDOW
