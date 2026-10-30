@@ -168,13 +168,15 @@ def main():
             mirror_tol = .35 if speed == 0 else (.5 if args.free_translation else .4)
             if abs(right['body_degrees'] + left['body_degrees']) >= mirror_tol:
                 failures.append(dict(check='mirror', right=right, left=left))
-            # Static equilibrium only at ZERO airspeed: at cruise the support
-            # gate hands the load to circulation and the support ratio alone
-            # is not a meaningful equilibrium contract.
+            # The compressed-air support field exists only while the wing BEATS.
+            # A static glide at ZERO airspeed pushes no air, so the bird must be
+            # UNSUPPORTED here (it falls and builds speed) — not neutrally
+            # buoyant. The old "supported equilibrium" contract encoded the
+            # hang bug: the bird could never shed its weight in glide.
             if speed == 0:
                 for sample in (right,left):
-                    if abs(sample['initial_support_weight_ratio']-1) > .05:
-                        failures.append(dict(check='supported_equilibrium', sample=sample))
+                    if abs(sample['initial_support_weight_ratio']) > .05:
+                        failures.append(dict(check='glide_unsupported', sample=sample))
             # Wing-tracking contract: the servo must REACH the commanded
             # differential — a stuck differential is the "magic roll" bug
             # (the body rolls while the wings barely move). The FFI default

@@ -602,8 +602,16 @@ stepStrip implicitLoads _phaseRate flapping side stroke input incidenceRad wp in
       -- it. Odd in the differential stroke, so the total carried weight is
       -- preserved while the body receives a rate-independent roll couple.
       supportLiftMod = clamp 0.3 3.0 (1 - supportPositionSlope * supportPosDev)
-      supportForce = scaleVec (supportLiftMod * liftModField * supportGate * supportN
-                                * (1 + fieldCompressionPerRate * sqrt (fieldRate * fieldRate + 0.25))) (bodyUpB input)
+      -- The compressed-air support field exists only while the wing BEATS: a
+      -- static (non-flapping) wing pushes no air, so it must not ride a magic
+      -- vertical cushion. Gating the field by the flap flag lets the bird FALL
+      -- in glide/dive (it then builds speed and circulation lift takes over)
+      -- instead of hanging neutrally buoyant forever. The position-based lift
+      -- modulation (supportLiftMod) and the glue still anchor roll in both
+      -- regimes; only the STATIC weight-carry is flap-gated.
+      flapGate = if flapping then 1.0 else 0.0
+      supportForce = scaleVec (flapGate * supportLiftMod * liftModField * supportGate * supportN
+                                * (1 + fieldCompressionPerRate * sqrt (fieldRate * fieldRate + 0.25))) normal0
       -- The body hangs BELOW the field's pressure point: the support acting
       -- at the extra hang height turns a body roll into a restoring weight
       -- torque (the hang-glider pendulum) that balances the aileron couple.
@@ -611,18 +619,22 @@ stepStrip implicitLoads _phaseRate flapping side stroke input incidenceRad wp in
       -- Speed-agnostic DIFFERENTIAL pressure glue: the compressed-air field
       -- resists the wings' SCISSORING motion (aileron/roll) with a CONSTANT
       -- Coulomb-like force from the minimum dynamic pressure ½ρ·Cp·v0² —
-      -- speed-agnostic, load-independent pressure drag. The common flap
-      -- stroke (both wings beating together) is EXEMPT: the symmetric beat
-      -- compresses the field (|rate| term) while the differential shears
-      -- it, so the aileron is glued to the air at every speed and cannot
-      -- slip "as if it was nothing", yet the servo can still flap. The
-      -- reaction flows to the body through the hinge: a slow aileron sweep
-      -- leaves the wings horizontal in the world while the fuselage
-      -- counter-rotates the commanded differential, and a spinning body is
-      -- damped hard because its roll rate IS differential wing motion.
+      -- speed-agnostic, load-independent pressure drag. Only the DIFFERENTIAL
+      -- is glued: the roll rate and the flap-rate deviation from the common
+      -- beat both rotate about the shoulder root, and the aeroelastic
+      -- deformation is differential too. The COMMON body translation, the
+      -- pitch/yaw rotation and the symmetric beat are all exempt — otherwise
+      -- the grip resists forward flight and descent and the bird hangs.
+      -- The differential is Galilean-invariant (a world-stationary wing sees
+      -- zero glue velocity), so a slow aileron sweep leaves the wings
+      -- horizontal in the world while the fuselage counter-rotates the
+      -- commanded differential, yet the servo can still flap and the body
+      -- can still translate through the air.
       commonFlapVel = crossVec (Vec3 (side * commonRate) 0 0)
                        (addVec position (Vec3 0 0 (-wingRootHeight)))
-      rawGlueVel = addVec sectionVelocity (scaleVec (-1) commonFlapVel)
+      rollDiffVel = crossVec (Vec3 (x rates) 0 0) (addVec position (Vec3 0 0 (-wingRootHeight)))
+      diffFlapVel = addVec flapVelocity (scaleVec (-1) commonFlapVel)
+      rawGlueVel = addVec elasticVelocity (addVec rollDiffVel diffFlapVel)
       -- The compressed-air field has INERTIA: its reaction builds with a lag
       -- (τ ≈ 0.25 s). Fast flap-asymmetry chatter (the two servos' 2 Hz rate
       -- residual) is filtered before it can saturate the servo against the
