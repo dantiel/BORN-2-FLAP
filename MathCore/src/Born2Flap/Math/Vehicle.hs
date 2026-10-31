@@ -570,13 +570,16 @@ stepStrip implicitLoads _phaseRate flapping side stroke input incidenceRad wp in
       -- wing gains it — odd in the deviation from the common stroke centre.
       liftMod = clamp 0.3 3.0 (1 - (if flapping then 2.4 else 24.0) * (stroke - centre))
       -- WORLD-translation modulation on the SUPPORT FIELD only (the user's
-      -- "translated movement adds to the lift force"): a wing moving UP
-      -- through the air loses part of its field counter-force, a wing pushed
-      -- DOWN gains it. Kept off the aero lift so the inverted-geometry
-      -- reflection stays exact; the field carries the weight, so the law
-      -- lives there. When the glue holds the wing (world velocity ~0) no
-      -- phantom couple arises and the roll stops with the sweep.
-      liftModField = clamp 0.3 3.0 (1 - fieldTranslationSlope * dot (bodyUpB input) sectionVelocity / liftModVelRef)
+      -- "translated movement adds to the lift force"): a body moving UP through
+      -- the air loses part of its field counter-force, a body pushed DOWN gains
+      -- it. Kept off the aero lift so the inverted-geometry reflection stays
+      -- exact; the field carries the weight, so the law lives there. This must
+      -- follow the BODY's own translation (velocity), NOT the full section
+      -- velocity: the flap sweep (~1 m/s at 2 Hz) and the roll rotation are
+      -- not translation, and feeding them here saturated the clamp at 0.3/3.0
+      -- every beat — the 2 Hz support pumping that made one wing track the
+      -- aileron while the other stayed stuck (the hover-roll asymmetry).
+      liftModField = clamp 0.3 3.0 (1 - fieldTranslationSlope * dot (bodyUpB input) velocity / liftModVelRef)
       -- The field's rate response is the SYMMETRIC compression only: a
       -- flapping wing squeezes the compressed-air cushion (∝ |strokeRate|)
       -- and that squeeze carries the hover. The compression is EVEN in
