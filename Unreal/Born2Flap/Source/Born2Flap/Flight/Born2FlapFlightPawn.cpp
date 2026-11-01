@@ -44,10 +44,9 @@
 #include "Rendering/Born2FlapGraphics.h"
 namespace
 {
-// Pitch/yaw and the elastic surface velocities feed back explicitly between
-// backend evaluations. Resolve their aerodynamic damping time scale rather
-// than weakening pressure to keep a coarse integration step stable.
-constexpr double MathDt = 1.0 / 960.0;
+// Roll, hinges and elastic modes share one implicit solve. Pitch/yaw feed back
+// through this host predictor; 240 Hz resolves their aerodynamic damping.
+constexpr double MathDt = 1.0 / 240.0;
 bool Finite(const FVector &V)
 {
     return FMath::IsFinite(V.X) && FMath::IsFinite(V.Y) && FMath::IsFinite(V.Z);
@@ -614,6 +613,7 @@ void ABorn2FlapFlightPawn::ResetFlight(bool bSafety)
     // stuck "core stopped" status in the HUD once the loader has dropped.
     if (Born2Flap::Loading::State().IsActive())
         Born2Flap::Loading::Report(0.70f, TEXT("LOADING FLIGHT CORE"));
+    bHaveMathRotation = false;
     bHealthy = MathBridge && MathBridge->Load();
     if (Born2Flap::Loading::State().IsActive())
         Born2Flap::Loading::Report(0.80f, TEXT("FLIGHT CORE READY"));
@@ -922,6 +922,7 @@ void ABorn2FlapFlightPawn::LaunchFlight()
     // the ground. The pinned RTS stays; only the firmware context is recreated.
     if (MathBridge)
     {
+        bHaveMathRotation = false;
         bHealthy = MathBridge->Load();
         if (bHealthy)
         {
@@ -1002,6 +1003,20 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
     if (!bHealthy)
         return false;
     FQuat Rotation = Body->GetComponentQuat();
+    if (bHaveMathRotation)
+    {
+        FQuat Correction = (Rotation.Inverse() * LastMathRotation).GetNormalized();
+        if (Correction.W < 0) Correction = Correction * -1.0;
+        FVector Axis;
+        double Angle;
+        Correction.ToAxisAndAngle(Axis, Angle);
+        if (!MathBridge->TransportAirfields(Axis * Angle))
+        {
+            ++MathFailures;
+            bHealthy = false;
+            return false;
+        }
+    }
     FVector Velocity = Body->GetPhysicsLinearVelocity() / 100.0;
     FVector Omega = Body->GetPhysicsAngularVelocityInRadians();
     const FVector Inertia = Body->GetInertiaTensor() / 10000.0;
@@ -1014,6 +1029,22 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
     const auto* WindMode=Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode());
     CurrentWind = bFlightTest ? FVector::ZeroVector : (WindMode?WindMode->WindAt(BodyPos,WorldTime):Born2FlapWind::Sample(BodyPos,WorldTime));
     const FVector Wind = CurrentWind * Shelter;
+    // Sample the atmospheric field at each deformed force application point.
+    // The body input already subtracts origin wind; only the spatial increment
+    // goes through the strip extension. Re-express it for every solver step.
+    FVector StripWindWorld[2][B2F_WING_STATIONS]{};
+    B2F_WingField WindFields[2][B2F_WING_STATIONS]{};
+    if (!bFlightTest && MathBridge->ReadWingFields(WindFields[0], WindFields[1]))
+    {
+        for (int Side = 0; Side < 2; ++Side)
+            for (uint32 I = 0; I < B2F_WING_STATIONS; ++I)
+            {
+                const double* P = WindFields[Side][I].position_m;
+                const FVector Position = BodyPos + Rotation.RotateVector(FVector(P[0], P[1], P[2])) * 100.0;
+                const FVector LocalWind = WindMode ? WindMode->WindAt(Position, WorldTime) : Born2FlapWind::Sample(Position, WorldTime);
+                StripWindWorld[Side][I] = (LocalWind - CurrentWind) * Shelter;
+            }
+    }
     MathBridge->InjectWindPhaseNoise(bFlightTest ? 0.0 : FMath::Clamp(CurrentWind.Size()*.15+FMath::Abs(CurrentWind.Z)*.25,0.,4.)*Shelter);
     B2F_PilotInput Pilot{};
     Pilot.throttle = Throttle;
@@ -1043,7 +1074,7 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
     // Reusing the last force when no fixed step ran applied an impulse without
     // advancing the hinges; averaging a different duration did the converse.
     double TargetMathDt = MathDt;
-    double TestHz = 960;
+    double TestHz = 240;
     if (bFlightTest && FParse::Value(FCommandLine::Get(), TEXT("B2FPhysicsHz="), TestHz) &&
         FMath::IsFinite(TestHz) && TestHz >= 240 && TestHz <= 3840)
         TargetMathDt = 1.0 / TestHz;
@@ -1057,6 +1088,21 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
     const FVector Gravity = bVoid ? FVector::ZeroVector : FVector(0, 0, -9.81);
     while (Steps < StepCount)
     {
+        double StripWindBody[2][B2F_WING_STATIONS * 3]{};
+        for (int Side = 0; Side < 2; ++Side)
+            for (uint32 I = 0; I < B2F_WING_STATIONS; ++I)
+            {
+                const FVector Local = Rotation.UnrotateVector(StripWindWorld[Side][I]);
+                for (int Axis = 0; Axis < 3; ++Axis)
+                    StripWindBody[Side][I * 3 + Axis] = Local[Axis];
+            }
+        if (!MathBridge->SetStripWind(StripWindBody[0], StripWindBody[1]))
+        {
+            ++MathFailures;
+            bHealthy = bFlying = false;
+            AeroForce = AeroMoment = FVector::ZeroVector;
+            return false;
+        }
         const FVector V = Rotation.UnrotateVector(Velocity - Wind);
         const FVector W = Rotation.UnrotateVector(Omega);
         for (int I = 0; I < 3; ++I)
@@ -1064,9 +1110,8 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
             State.linear_velocity_m_s[I] = V[I];
             State.angular_velocity_rad_s[I] = W[I];
         }
-        // World-up in the body frame: the math core hangs the body weight on
-        // the wing lift field through this vector — the pendulum that makes
-        // the fuselage counter-rotate when the wings tilt relative to the air.
+        // Gravity/ground reference only. Strip force directions come from
+        // their deformed geometry, airflow and convected pressure history.
         const FVector UpB = Rotation.UnrotateVector(FVector(0.0, 0.0, 1.0));
         State.body_up_body_frame[0] = UpB.X;
         State.body_up_body_frame[1] = UpB.Y;
@@ -1122,6 +1167,8 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
         AeroForce = ForceSum / Steps;
         AeroMoment = MomentSum / Steps;
     }
+    LastMathRotation = Rotation;
+    bHaveMathRotation = true;
     MathProfileSeconds += FPlatformTime::Seconds() - ProfileStart;
     MathProfileSteps += Steps;
     if (++MathProfileFrames >= 120)
@@ -1631,46 +1678,63 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
             FScreenshotRequest::RequestScreenshot(TEXT("MurexApproach.png"), true, false);
         if (FParse::Param(FCommandLine::Get(), TEXT("B2FRollResponseTest")))
         {
-            // The user's glued-wing law, in-engine: at ZERO airspeed the full
-            // aileron sweep must leave the wings world-horizontal while the
-            // fuselage counter-rotates the commanded differential — the
-            // compressed-air pressure field holds the wings in place and the
-            // body, hanging below on the field, rotates beneath them. (A rigid
-            // tracking servo makes the old 8 m/s "wings lag the body" check
-            // mathematically unsatisfiable: wingWorld = body + command.)
-            const auto* Settings = UPhysicsSettings::Get();
-            const double Limit = Settings->bSubstepping
-                ? Settings->MaxSubsteps * Settings->MaxSubstepDeltaTime : Settings->MaxPhysicsDeltaTime;
-            TestTime = Previous + (Limit > 0 ? FMath::Min(double(DeltaSeconds), Limit) : DeltaSeconds);
+            // Loaded tow fixture: constrain forward speed, pitch and yaw while
+            // Chaos integrates heave, lateral motion and roll. Measure the actual
+            // bent surfaces as well as body/tail; unloaded shoulder angles alone
+            // cannot establish pressure-supported roll.
             Effort = Steer = Pitch = 0; Launch = Reset = false;
-            // SLOW sweep — the user's in-game gesture: ramp to full stick over
-            // 1.5 s so the body can track the sweep 1:1 through the field.
-            Roll = TestTime >= 1 ? FMath::Min(1.0, (TestTime - 1.0) / 1.5) : 0;
+            Roll = .25 * FMath::Clamp((TestTime - 3.0) / 8.0, 0.0, 1.0);
             if (Previous < 1 && TestTime >= 1)
             {
+                ResetFlight();
                 Body->SetWorldLocationAndRotation(FVector(0,0,3000), FRotator::ZeroRotator, false, nullptr, ETeleportType::TeleportPhysics);
-                Body->SetPhysicsLinearVelocity(FVector::ZeroVector);
-                Body->SetPhysicsAngularVelocityInRadians(FVector::ZeroVector);
+                Body->SetPhysicsLinearVelocity(FVector(800,0,0));
                 bFlying = true; bCameraGrounded = false;
-                RollTestBaseline = FVector(Body->GetComponentRotation().Roll,
-                    MembraneLeftShoulder->GetComponentRotation().Roll,
-                    MembraneRightShoulder->GetComponentRotation().Roll);
+                RollTestPeakRate = 0;
             }
-            if (TestTime >= 3.0 && !bTestFinished)
+            if (TestTime >= 1)
+            {
+                FRotator Attitude = Body->GetComponentRotation();
+                Attitude.Pitch = Attitude.Yaw = 0;
+                Body->SetWorldRotation(Attitude, false, nullptr, ETeleportType::TeleportPhysics);
+                FVector Velocity = Body->GetPhysicsLinearVelocity();
+                Velocity.X = 800;
+                Body->SetPhysicsLinearVelocity(Velocity);
+                FVector Rates = Body->GetPhysicsAngularVelocityInRadians();
+                Rates.Y = Rates.Z = 0;
+                Body->SetPhysicsAngularVelocityInRadians(Rates);
+                if (TestTime >= 3) RollTestPeakRate = FMath::Max(RollTestPeakRate, FMath::Abs(Rates.X));
+            }
+            B2F_WingField FieldsL[B2F_WING_STATIONS], FieldsR[B2F_WING_STATIONS];
+            const bool HaveFields = MathBridge && MathBridge->ReadWingFields(FieldsL, FieldsR);
+            auto SurfaceBank = [&](const B2F_WingField* Fields)
+            {
+                double Bank = 0;
+                for (uint32 I = 0; I < B2F_WING_STATIONS; ++I)
+                {
+                    const auto& N = Fields[I].normal;
+                    const FVector WorldNormal = Body->GetComponentQuat().RotateVector(FVector(N[0], N[1], N[2]));
+                    Bank += FMath::RadiansToDegrees(FMath::Atan2(-WorldNormal.Y, WorldNormal.Z));
+                }
+                return Bank / B2F_WING_STATIONS;
+            };
+            if (Previous < 3 && TestTime >= 3 && HaveFields)
+                RollTestBaseline = FVector(Body->GetComponentRotation().Roll, SurfaceBank(FieldsL), SurfaceBank(FieldsR));
+            if (TestTime >= 13.0 && !bTestFinished)
             {
                 bTestFinished = true;
                 const double BodyRoll = FMath::FindDeltaAngleDegrees(RollTestBaseline.X, Body->GetComponentRotation().Roll);
-                const double LeftWorld = FMath::FindDeltaAngleDegrees(RollTestBaseline.Y, MembraneLeftShoulder->GetComponentRotation().Roll);
-                const double RightWorld = FMath::FindDeltaAngleDegrees(RollTestBaseline.Z, MembraneRightShoulder->GetComponentRotation().Roll);
+                const double LeftWorld = HaveFields ? FMath::FindDeltaAngleDegrees(RollTestBaseline.Y, SurfaceBank(FieldsL)) : 999;
+                const double RightWorld = HaveFields ? FMath::FindDeltaAngleDegrees(RollTestBaseline.Z, SurfaceBank(FieldsR)) : 999;
                 const double TailRoll = MembraneTailPivot->GetComponentRotation().Roll;
-                const bool Pass = bHealthy && MathFailures == 0 && FMath::Abs(BodyRoll) > 3 &&
-                    FMath::Max(FMath::Abs(LeftWorld), FMath::Abs(RightWorld)) < 0.5 * FMath::Abs(BodyRoll) &&
+                const bool Pass = bHealthy && HaveFields && MathFailures == 0 && FMath::Abs(BodyRoll) > 3 &&
+                    FMath::Max(FMath::Abs(LeftWorld), FMath::Abs(RightWorld)) < 3 && RollTestPeakRate < 1 &&
                     FMath::Abs(FMath::FindDeltaAngleDegrees(Body->GetComponentRotation().Roll, TailRoll)) < 1;
-                UE_LOG(LogTemp, Display, TEXT("RollResponseTest %s body=%.3f leftWorld=%.3f rightWorld=%.3f tail=%.3f mass=%.4f"),
-                    Pass ? TEXT("PASS") : TEXT("FAIL"), BodyRoll, LeftWorld, RightWorld, TailRoll, Body->GetMass());
+                UE_LOG(LogTemp, Display, TEXT("RollResponseTest %s body=%.3f leftSurfaceWorld=%.3f rightSurfaceWorld=%.3f tail=%.3f peakRate=%.3f mass=%.4f"),
+                    Pass ? TEXT("PASS") : TEXT("FAIL"), BodyRoll, LeftWorld, RightWorld, TailRoll, RollTestPeakRate, Body->GetMass());
                 FPlatformMisc::RequestExitWithStatus(false, Pass ? 0 : 1);
             }
-            if (Previous < 1.25 && TestTime >= 1.25 && FParse::Param(FCommandLine::Get(), TEXT("B2FCapture")))
+            if (Previous < 11.5 && TestTime >= 11.5 && FParse::Param(FCommandLine::Get(), TEXT("B2FCapture")))
                 FScreenshotRequest::RequestScreenshot(TEXT("RollResponse.png"), true, false);
         }
     }
@@ -1820,8 +1884,10 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     if(PterosaurRightShoulder) PterosaurRightShoulder->SetRelativeRotation(RightShoulder->GetRelativeRotation());
     if(TurtleLeftShoulder) TurtleLeftShoulder->SetRelativeRotation(LeftShoulder->GetRelativeRotation());
     if(TurtleRightShoulder) TurtleRightShoulder->SetRelativeRotation(RightShoulder->GetRelativeRotation());
-    // Tail-elevator trim, visible in the rendered bird: pitch the tail fan.
-    const float TailPitch = Tuning.tail_elevator_angle_deg;
+    // Show the actual aerodynamic tail incidence, including pitch/throttle
+    // trim. A roll command leaves the tail fixed relative to the fuselage.
+    double TailPitch = 0;
+    if (MathBridge) MathBridge->ReadTailIncidence(TailPitch);
     if (RavenTailPivot) RavenTailPivot->SetRelativeRotation(FRotator(TailPitch, 0, 0));
     if (PterosaurTailPivot) PterosaurTailPivot->SetRelativeRotation(FRotator(TailPitch, 0, 0));
     if (MembraneTailPivot) MembraneTailPivot->SetRelativeRotation(FRotator(TailPitch, 0, 0));
@@ -1862,6 +1928,21 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         // Gravity reference.
         DrawDebugDirectionalArrow(GetWorld(), VOrigin, VOrigin + FVector(0, 0, -Body->GetMass() * 9.81) * K, 15, FColor::Red,
                                   false, 0, 1, 3);
+        B2F_WingField Fields[2][B2F_WING_STATIONS]{};
+        if (MathBridge && MathBridge->ReadWingFields(Fields[0], Fields[1]))
+        {
+            const FQuat Q = Body->GetComponentQuat();
+            const FVector Origin = Body->GetComponentLocation();
+            for (const auto& Wing : Fields)
+                for (const auto& Strip : Wing)
+                {
+                    const auto Vector = [&Q](const double* V) { return Q.RotateVector(FVector(V[0], V[1], V[2])); };
+                    const FVector StripOrigin = Origin + Vector(Strip.position_m) * 100.0;
+                    DrawDebugDirectionalArrow(GetWorld(), StripOrigin, StripOrigin + Vector(Strip.lift_n) * 250.0, 3, FColor::Blue, false, 0, 1, 1);
+                    DrawDebugDirectionalArrow(GetWorld(), StripOrigin, StripOrigin + Vector(Strip.pressure_n) * 250.0, 3, FColor::Cyan, false, 0, 1, 1);
+                    DrawDebugLine(GetWorld(), StripOrigin, StripOrigin + Vector(Strip.normal) * 6.0, FColor::White, false, 0, 1, .5f);
+                }
+        }
     }
     LogTime += DeltaSeconds;
     if (LogTime >= 1)

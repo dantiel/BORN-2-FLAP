@@ -38,7 +38,7 @@ class _Pilot(c.Structure):
 
 class _Body(c.Structure):
     _fields_ = [("dt", c.c_double), ("v", c.c_double * 3), ("w", c.c_double * 3),
-                ("height", c.c_double), ("inertia", c.c_double)]
+                ("height", c.c_double), ("inertia", c.c_double), ("up", c.c_double * 3)]
 
 
 class _Output(c.Structure):
@@ -180,7 +180,7 @@ def thrust_curve(b2f: B2F, servo: Servo, *, airspeed: float = 0.0,
     ctx = b2f.new(cfg)
     try:
         dt = 1.0 / hz
-        body = _Body(dt, (airspeed, 0.0, 0.0), (0.0, 0.0, 0.0), 1000.0, 0.008)
+        body = _Body(dt, (airspeed, 0.0, 0.0), (0.0, 0.0, 0.0), 1000.0, 0.008, (0.0, 0.0, 1.0))
         pilot = _Pilot(1.0, 0.0, 0.0, 0.0, 1.0, 1.0)
         fx = fy = fz = power = sep = 0.0
         lmin = lmax = rmin = rmax = 0.0
@@ -330,7 +330,7 @@ def free_flight(b2f: B2F, servo: Servo, *, throttle: float = 1.0,
         power_sum = 0.0
         lmin = lmax = rmin = rmax = 0.0
         for i in range(steps):
-            body = _Body(dt, vel, omega, max(alt, 0.0), I[0])
+            body = _Body(dt, vel, omega, max(alt, 0.0), I[0], (0.0, 0.0, 1.0))
             out = b2f.step(ctx, pilot, body)
             F = (out.force[0], out.force[1], out.force[2])
             M = (out.moment[0], out.moment[1], out.moment[2])

@@ -1,8 +1,66 @@
 -- | Implicit parallel-hinge roll dynamics. Coordinates are body roll and
 -- left/right flap deviation; positive deviation raises either wing.
-module Born2Flap.Math.RollDynamics (stepRoll, rollMomentum, rollEnergy, stepRollWithMass, supportMassMatrix, supportedRollSystem) where
+module Born2Flap.Math.RollDynamics (stepRoll, rollMomentum, rollEnergy, stepRollWithMass, supportMassMatrix, supportedRollSystem, solveImplicitSystem, solveImplicitSystemCached) where
 
 import Born2Flap.Math.Types (Vec3(..))
+import Data.List (maximumBy, transpose)
+import Data.Ord (comparing)
+
+-- | Small coupled nonlinear system, with pivoted elimination and a bounded
+-- line search. Used for roll, both hinges, and all four elastic velocities.
+-- It avoids solving elasticity again for every trial column of a nested solve.
+solveImplicitSystem :: ([Double] -> [Double]) -> [Double] -> Maybe [Double]
+solveImplicitSystem residual initial = fmap fst (solveImplicitSystemCached Nothing residual initial)
+
+-- A previous tangent is only a convergence accelerator. Every accepted result
+-- still satisfies the current complete residual; a stale tangent is rebuilt.
+solveImplicitSystemCached :: Maybe [[Double]] -> ([Double] -> [Double]) -> [Double] -> Maybe ([Double],Maybe [[Double]])
+solveImplicitSystemCached previous residual initial = go (0::Int) initial (residual initial) previous
+ where
+  size = length initial
+  norm xs = maximum (0:map abs xs)
+  finite v = not (isNaN v || isInfinite v)
+  go n v f cached
+    | not (all finite (v++f)) = Nothing
+    | norm f < 1e-7 = Just (v,cached)
+    | n >= 20 = Nothing
+    | otherwise =
+      let h=1e-4
+          shifted i amount = residual [x+(if j==i then amount else 0) | (j,x)<-zip [0..] v]
+          column i = zipWith (\a b -> (a-b)/(2*h)) (shifted i h) (shifted i (-h))
+          fresh=transpose [column i | i<-[0..size-1]]
+          jac=case cached of Just m -> m; _ -> fresh
+      in case eliminate (zipWith (\row rhs -> row++[rhs]) jac f) of
+           Nothing -> case cached of Just _ -> go (n+1) v f Nothing; _ -> Nothing
+           Just delta ->
+             let trials=[let next=zipWith (\x d -> x-g*d) v delta in (next,residual next)
+                         | g<-[1,0.5,0.25,0.125,0.0625,0.03125]]
+             in case filter (\(_,r) -> all finite r && norm r<norm f) trials of
+                  (next,r):_ ->
+                    -- Broyden's secant update reuses the force evaluations we
+                    -- already made. Rebuilding seven central-difference columns
+                    -- every third iteration dominated the frame time. The full
+                    -- residual tolerance and fresh-tangent fallback stay intact.
+                    let step=zipWith (-) next v
+                        change=zipWith (-) r f
+                        square=sum(map (\s -> s*s) step)
+                        updated=if square<1e-20 then jac else
+                          zipWith (\row y ->
+                            let error=y-sum(zipWith (*) row step)
+                            in zipWith (\a s -> a+error*s/square) row step) jac change
+                        usable=if all (all finite) updated then Just updated else Nothing
+                    in go (n+1) next r usable
+                  [] -> case cached of Just _ -> go (n+1) v f Nothing; _ -> Nothing
+  eliminate [] = Just []
+  eliminate rows =
+    let (index,pivot)=maximumBy (comparing (abs.head.snd)) (zip [0::Int ..] rows)
+        a=head pivot
+        rest=[row | (i,row)<-zip [0..] rows,i/=index]
+        reduce row=tail(zipWith (\x p -> x-head row/a*p) row pivot)
+    in if abs a<1e-12 || not(finite a) then Nothing else do
+         xs <- eliminate(map reduce rest)
+         let first=(last pivot-sum(zipWith (*) (tail(init pivot)) xs))/a
+         if finite first then Just(first:xs) else Nothing
 
 dot :: Vec3 -> Vec3 -> Double
 dot (Vec3 a b c) (Vec3 d e f) = a*d+b*e+c*f
@@ -135,10 +193,11 @@ supportedRollSystem mass ma locked dry wing rotor mr mar h (l,r) (Vec3 p vl vr) 
       v = [0,0,p,vl,vr]
       coriolis i = sum [(ds!!k!!i!!j-0.5*ds!!i!!j!!k)*v!!j*v!!k | j<-[2..4],k<-[2..4]]
       cy = coriolis 0; cz = coriolis 1
+      cp = coriolis 2; cl = coriolis 3; cr = coriolis 4
       reduced i j = m!!i!!j-(m!!0!!i*m!!0!!j+m!!1!!i*m!!1!!j)/mt
       row i = Vec3 (reduced i 2) (reduced i 3) (reduced i 4)
-      correction (Vec3 _ fy fz) = let f i = -coriolis i-(m!!0!!i*(fy-cy)+m!!1!!i*(fz-cz))/mt
-                                  in Vec3 (f 2) (f 3) (f 4)
+      correction (Vec3 _ fy fz) = let f i c = -c-(m!!0!!i*(fy-cy)+m!!1!!i*(fz-cz))/mt
+                                  in Vec3 (f 2 cp) (f 3 cl) (f 4 cr)
       reaction (Vec3 ap al ar) = let a = [ap,al,ar]
                                      f i c = -c-sum (zipWith (*) (drop 2 (m!!i)) a)
                                  in Vec3 0 (ratio * f 0 cy) (ratio * f 1 cz)

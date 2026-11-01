@@ -166,7 +166,7 @@ B2F_API double b2f_math_get_model_mass_kg(uint32_t model_id);
 typedef struct B2F_WingSection {
     double span_fraction;
     double chord_m;
-    double bend_m;            /* solver's body-Z displacement, not flap-normal */
+    double bend_m;            /* displacement along the undeformed flap normal */
     double twist_geo_rad;     /* geometric incidence (washout), nose-up + */
     double twist_elastic_rad; /* load-driven aeroelastic torsion, nose-up + */
     double camber;            /* signed membrane height / local chord */
@@ -180,6 +180,29 @@ B2F_API int32_t b2f_math_get_wing_shape(B2F_MathContext* context,
  * of a flapping wing is the force each strip exerts on the air, not a clock. */
 B2F_API int32_t b2f_math_get_wing_forces(B2F_MathContext* context,
     uint32_t capacity, double* left, double* right);
+/* Additive ABI-16 extension. SI/body coordinates. The first five vectors are
+ * from the last force evaluation; patch vectors use the next body basis.
+ * No world-up/attitude target exists. */
+typedef struct B2F_WingField {
+    double position_m[3];
+    double normal[3];
+    double lift_n[3];
+    double pressure_n[3];
+    double air_velocity_m_s[3];
+    double field_displacement_m[3];
+    double field_direction[3];
+} B2F_WingField;
+B2F_API int32_t b2f_math_get_wing_fields(B2F_MathContext* context,
+    uint32_t capacity, B2F_WingField* left, B2F_WingField* right);
+/* Actual common tail incidence, degrees nose-up. Read-only ABI-16 extension. */
+B2F_API int32_t b2f_math_get_tail_incidence(B2F_MathContext* context, double* degrees);
+/* Axis-angle vector mapping the predicted body basis to the actual host
+ * basis, radians. Rotates air-field memory without changing wing coordinates. */
+B2F_API int32_t b2f_math_transport_airfields(B2F_MathContext* context, const double rotation[3]);
+/* 16 xyz increments per wing: local wind minus body-origin wind, body frame.
+ * Returns 1, or 0 without mutation. */
+B2F_API int32_t b2f_math_set_strip_wind(B2F_MathContext* context,
+    uint32_t count, const double* left_xyz, const double* right_xyz);
 #ifdef __cplusplus
 }
 #endif

@@ -61,6 +61,10 @@ bool FBorn2FlapMathBridge::Load()
         SetWindPhaseNoise = &::b2f_math_set_wind_phase_noise;
         ReconfigureFirmwareVehicle = &::b2f_math_reconfigure_firmware_vehicle;
         GetWingShape = &::b2f_math_get_wing_shape;
+        GetWingFields = &::b2f_math_get_wing_fields;
+        GetTailIncidence = &::b2f_math_get_tail_incidence;
+        SetStripWindHook = &::b2f_math_set_strip_wind;
+        TransportAirfieldsHook = &::b2f_math_transport_airfields;
         SetWingModelHook = &::b2f_math_set_wing_model;
         GetModelMassKgHook = &::b2f_math_get_model_mass_kg;
 
@@ -121,6 +125,10 @@ bool FBorn2FlapMathBridge::Load()
         LoadExport<ReconfigureFn>(LibraryHandle, TEXT("b2f_math_reconfigure_firmware_vehicle"));
     GetWingShape = LoadExport<GetWingShapeFn>(LibraryHandle, TEXT("b2f_math_get_wing_shape"));
     GetWingForces = LoadExport<GetWingForcesFn>(LibraryHandle, TEXT("b2f_math_get_wing_forces"));
+    GetWingFields = LoadExport<GetWingFieldsFn>(LibraryHandle, TEXT("b2f_math_get_wing_fields"));
+    GetTailIncidence = LoadExport<GetTailIncidenceFn>(LibraryHandle, TEXT("b2f_math_get_tail_incidence"));
+    TransportAirfieldsHook = LoadExport<TransportAirfieldsFn>(LibraryHandle, TEXT("b2f_math_transport_airfields"));
+    SetStripWindHook = LoadExport<SetStripWindFn>(LibraryHandle, TEXT("b2f_math_set_strip_wind"));
     SetWingModelHook = LoadExport<SetWingModelFn>(LibraryHandle, TEXT("b2f_math_set_wing_model"));
     GetModelMassKgHook = LoadExport<GetModelMassKgFn>(LibraryHandle, TEXT("b2f_math_get_model_mass_kg"));
     GetMassProperties = LoadExport<MassPropertiesFn>(LibraryHandle, TEXT("b2f_math_get_mass_properties"));
@@ -129,7 +137,8 @@ bool FBorn2FlapMathBridge::Load()
     if (!GetWingForces)
         UE_LOG(LogTemp, Warning, TEXT("Per-strip wing forces unavailable: rebuild the Haskell backend for force-driven audio."));
     if (!AbiVersion || !RuntimeInit || !RuntimeShutdown || !CreateFirmwareVehicle ||
-        !DestroyFirmwareVehicle || !StepFirmwareVehicle || !ReconfigureFirmwareVehicle || !GetMassProperties)
+        !DestroyFirmwareVehicle || !StepFirmwareVehicle || !ReconfigureFirmwareVehicle || !GetMassProperties ||
+        !GetWingFields || !SetStripWindHook || !TransportAirfieldsHook || !GetTailIncidence)
     {
         Status = TEXT("Haskell math backend has an incomplete C ABI");
         UE_LOG(LogTemp, Error, TEXT("%s"), *Status);
@@ -200,6 +209,10 @@ void FBorn2FlapMathBridge::Unload()
     GetWingShape = nullptr;
     GetMassProperties = nullptr;
     GetWingForces = nullptr;
+    GetWingFields = nullptr;
+    GetTailIncidence = nullptr;
+    SetStripWindHook = nullptr;
+    TransportAirfieldsHook = nullptr;
     SetWingModelHook = nullptr;
     GetModelMassKgHook = nullptr;
     if (LibraryHandle)
@@ -242,7 +255,28 @@ bool FBorn2FlapMathBridge::ReadWingForces(double* Left, double* Right) const
     return Context && GetWingForces && GetWingForces(Context, B2F_WING_STATIONS, Left, Right) == B2F_WING_STATIONS;
 }
 
+bool FBorn2FlapMathBridge::ReadWingFields(B2F_WingField* Left, B2F_WingField* Right) const
+{
+    return Context && GetWingFields && GetWingFields(Context, B2F_WING_STATIONS, Left, Right) == B2F_WING_STATIONS;
+}
+
+bool FBorn2FlapMathBridge::ReadTailIncidence(double& Degrees) const
+{
+    return Context && GetTailIncidence && GetTailIncidence(Context, &Degrees) == 1;
+}
+
+bool FBorn2FlapMathBridge::SetStripWind(const double* Left, const double* Right) const
+{
+    return Context && SetStripWindHook && SetStripWindHook(Context, B2F_WING_STATIONS, Left, Right) == 1;
+}
+
 bool FBorn2FlapMathBridge::ReadMassProperties(double CgX, B2F_MassProperties& Out) const
 {
     return Context && GetMassProperties && GetMassProperties(Context, CgX, &Out) != 0;
+}
+
+bool FBorn2FlapMathBridge::TransportAirfields(const FVector& RotationVector) const
+{
+    const double Rotation[3] = {RotationVector.X, RotationVector.Y, RotationVector.Z};
+    return Context && TransportAirfieldsHook && TransportAirfieldsHook(Context, Rotation) == 1;
 }
