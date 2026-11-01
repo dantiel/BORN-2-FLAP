@@ -5,6 +5,7 @@ module Born2Flap.Math.FFI where
 import Born2Flap.Math.Types (Vec3(..))
 import Born2Flap.Math.Airframe
 import Born2Flap.Math.Vehicle
+import Born2Flap.Math.LiftField (PressureField(..))
 import Born2Flap.Math.Model (WingModel(..), kestrelModel, kestrelLightModel, ravenModel, prototypeModel, turtleModel)
 import Born2Flap.Math.Planform (shapeChord, shapeTwistRad)
 import Born2Flap.Math.PhaseEnvelope (phaseEnvelope, phaseCoverage)
@@ -41,6 +42,104 @@ foreign export ccall "hs_b2f_math_set_wing_model" b2f_math_set_wing_model :: Ptr
 foreign export ccall "hs_b2f_math_get_model_mass_kg" b2f_math_get_model_mass_kg :: Word32 -> IO Double
 foreign export ccall "hs_b2f_math_get_wing_shape" b2f_math_get_wing_shape :: Ptr () -> Word32 -> Ptr () -> Ptr () -> IO Int32
 foreign export ccall "hs_b2f_math_get_wing_forces" b2f_math_get_wing_forces :: Ptr () -> Word32 -> Ptr () -> Ptr () -> IO Int32
+foreign export ccall "hs_b2f_math_get_wing_fields" b2f_math_get_wing_fields :: Ptr () -> Word32 -> Ptr () -> Ptr () -> IO Int32
+foreign export ccall "hs_b2f_math_set_strip_wind" b2f_math_set_strip_wind :: Ptr () -> Word32 -> Ptr () -> Ptr () -> IO Int32
+
+foreign export ccall "hs_b2f_math_transport_airfields" b2f_math_transport_airfields :: Ptr () -> Ptr () -> IO Int32
+foreign export ccall "hs_b2f_math_get_tail_incidence" b2f_math_get_tail_incidence :: Ptr () -> Ptr () -> IO Int32
+
+-- Read the angle used for the common tail force; the host must not duplicate
+-- the controller's throttle/pitch mix in its animation.
+b2f_math_get_tail_incidence :: Ptr () -> Ptr () -> IO Int32
+b2f_math_get_tail_incidence pointer output
+  | pointer==nullPtr || output==nullPtr = pure 0
+  | otherwise = run `catch` failure
+ where
+  run = do
+    ref <- deRefStablePtr (castPtrToStablePtr pointer :: StablePtr (IORef FwContext))
+    context <- readIORef ref
+    let angle=fvTailIncidenceDeg(fwcState context)
+    if isNaN angle || isInfinite angle then pure 0 else do
+      poke (castPtr output :: Ptr CDouble) (CDouble angle)
+      pure 1
+  failure :: SomeException -> IO Int32
+  failure _ = pure 0
+
+-- Correct the predicted body basis to the authoritative host attitude. This
+-- re-expresses field directions and fixed air anchors in the new body basis;
+-- it does not change wing geometry or motion.
+b2f_math_transport_airfields :: Ptr () -> Ptr () -> IO Int32
+b2f_math_transport_airfields pointer rotationPointer
+  | pointer==nullPtr || rotationPointer==nullPtr = pure 0
+  | otherwise = run `catch` failure
+ where
+  run = do
+    values <- mapM (peekElemOff (castPtr rotationPointer :: Ptr CDouble)) [0..2]
+    let vector=case values of [CDouble a,CDouble b,CDouble c] -> Vec3 a b c; _ -> zeroVec
+        size=magnitude vector
+    if isNaN size || isInfinite size then pure 0 else do
+      ref <- deRefStablePtr (castPtrToStablePtr pointer :: StablePtr (IORef FwContext))
+      context <- readIORef ref
+      let next=transportAirfields vector (fwcState context)
+      writeIORef ref (context {fwcState=next})
+      pure 1
+  failure :: SomeException -> IO Int32
+  failure _ = pure 0
+
+-- Additive ABI-16 extensions: existing input/output layouts are unchanged.
+b2f_math_get_wing_fields :: Ptr () -> Word32 -> Ptr () -> Ptr () -> IO Int32
+b2f_math_get_wing_fields pointer capacity leftPointer rightPointer
+  | pointer == nullPtr || leftPointer == nullPtr || rightPointer == nullPtr
+      || capacity < fromIntegral stripCount = pure 0
+  | otherwise = run `catch` failure
+ where
+  run = do
+    ref <- deRefStablePtr (castPtrToStablePtr pointer :: StablePtr (IORef FwContext))
+    context <- readIORef ref
+    let state = fwcState context
+        xyz (Vec3 a b c) = [a,b,c]
+        values = concatMap (\s -> concatMap xyz
+          [stripPosition s, stripNormal s, stripLift s, stripPressure s,
+           stripAirVelocity s, fieldDisplacement (stripPressureField s),
+           fieldDirection (stripPressureField s)])
+        left = values (fvLeftStrips state)
+        right = values (fvRightStrips state)
+        valid xs = length xs == stripCount*21 && all (\v -> not (isNaN v || isInfinite v)) xs
+        write p xs = sequence_ [pokeElemOff (castPtr p :: Ptr CDouble) i (CDouble v) | (i,v)<-zip [0..] xs]
+    if not (valid left && valid right) then pure 0 else do
+      write leftPointer left
+      write rightPointer right
+      pure (fromIntegral stripCount)
+  failure :: SomeException -> IO Int32
+  failure _ = pure 0
+
+-- Wind increments relative to the wind already subtracted at the body origin.
+-- Validate BOTH arrays before committing any state.
+b2f_math_set_strip_wind :: Ptr () -> Word32 -> Ptr () -> Ptr () -> IO Int32
+b2f_math_set_strip_wind pointer count leftPointer rightPointer
+  | pointer == nullPtr || leftPointer == nullPtr || rightPointer == nullPtr
+      || count /= fromIntegral stripCount = pure 0
+  | otherwise = run `catch` failure
+ where
+  run = do
+    left <- mapM (peekElemOff (castPtr leftPointer :: Ptr CDouble)) [0..stripCount*3-1]
+    right <- mapM (peekElemOff (castPtr rightPointer :: Ptr CDouble)) [0..stripCount*3-1]
+    let values = map (\(CDouble v) -> v)
+        finite v = not (isNaN v || isInfinite v)
+        vectors (a:b:c:rest) = Vec3 a b c : vectors rest
+        vectors [] = []
+        vectors _ = error "invalid wind vector array"
+    if not (all finite (values (left++right))) then pure 0 else do
+      ref <- deRefStablePtr (castPtrToStablePtr pointer :: StablePtr (IORef FwContext))
+      context <- readIORef ref
+      let state = fwcState context
+          update wind strips = zipWith (\w s -> s {stripWindDelta=w}) (vectors (values wind)) strips
+          next = state {fvLeftStrips=update left (fvLeftStrips state), fvRightStrips=update right (fvRightStrips state)}
+      writeIORef ref (context {fwcState=next})
+      pure 1
+  failure :: SomeException -> IO Int32
+  failure _ = pure 0
+
 b2f_math_get_wing_shape :: Ptr () -> Word32 -> Ptr () -> Ptr () -> IO Int32
 b2f_math_get_wing_shape contextPointer capacity leftPointer rightPointer
   | contextPointer == nullPtr || leftPointer == nullPtr || rightPointer == nullPtr
@@ -344,7 +443,7 @@ applyTuning t ctx =
         , fwVerticalMountIncidenceDeg = clampRange (-15) 15 (tgVerticalMountAngleDeg t)
         , fwProfile = profile
         }
-  in ctx { fwcServo = servo, fwcBattery = battery, fwcParams = params, fwcMass = max 0.01 (tgBodyMassKg t) }
+  in ctx { fwcServo = servo, fwcBattery = battery, fwcParams = params, fwcMass = max 0.01 (tgBodyMassKg t), fwcState = (fwcState ctx) {fvTangent=Nothing} }
 
 clampRange :: Double -> Double -> Double -> Double
 clampRange lo hi = max lo . min hi

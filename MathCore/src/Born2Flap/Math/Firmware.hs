@@ -246,7 +246,8 @@ defaultFirmwareParams = FirmwareParams
   , fwFlapCentreDeg = 0
   , fwVerticalMountIncidenceDeg = 0
   , fwRudderYawWeight = 65
-  , fwRudderRollWeight = 100
+  -- Roll moves the wings against the air; it must not secretly steer the tail.
+  , fwRudderRollWeight = 0
   , fwAnchorGain = anchorGainDefault
   , fwCadenceGain = cadenceGainDefault
   }

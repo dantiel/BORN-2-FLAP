@@ -26,7 +26,7 @@ class Pilot(c.Structure):
 
 class Body(c.Structure):
     _fields_ = [('dt', c.c_double), ('v', c.c_double * 3), ('w', c.c_double * 3),
-                ('height', c.c_double), ('inertia', c.c_double)]
+                ('height', c.c_double), ('inertia', c.c_double), ('up', c.c_double * 3)]
 
 
 class Output(c.Structure):
@@ -89,7 +89,7 @@ def run_case(lib, create, destroy, step, reconfigure, speed, torque, voltage,
     try:
         tuning = make_tuning(speed, torque, voltage=voltage)
         assert reconfigure(ctx, c.byref(tuning)) == 1, (speed, torque, voltage, "reconfigure failed")
-        body = Body(1 / hz, (airspeed, 0, 0), (0, 0, 0), 1000, 0.008)
+        body = Body(1 / hz, (airspeed, 0, 0), (0, 0, 0), 1000, 0.008, (0, 0, 1))
         # Full throttle, neutral speed modifier, coupled.
         pilot = Pilot(1.0, 0, 0, 0, 0.5, 1)
         out = Output()

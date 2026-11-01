@@ -29,6 +29,10 @@ public:
     bool InjectWindPhaseNoise(double NoiseRadS) const;
     bool ReadWingShape(B2F_WingSection* Left, B2F_WingSection* Right) const;
     bool ReadWingForces(double* Left, double* Right) const;
+    bool ReadWingFields(B2F_WingField* Left, B2F_WingField* Right) const;
+    bool ReadTailIncidence(double& Degrees) const;
+    bool TransportAirfields(const FVector& RotationVector) const;
+    bool SetStripWind(const double* Left, const double* Right) const;
     bool ReadMassProperties(double CgX, B2F_MassProperties& Out) const;
 
     // Apply a complete live tuning profile (servo/battery/controller knobs) to
@@ -57,6 +61,10 @@ private:
     using ReconfigureFn = int32_t (*)(B2F_MathContext*, const B2F_TuningConfig*);
     using GetWingShapeFn = int32_t (*)(B2F_MathContext*, uint32_t, B2F_WingSection*, B2F_WingSection*);
     using GetWingForcesFn = int32_t (*)(B2F_MathContext*, uint32_t, double*, double*);
+    using GetWingFieldsFn = int32_t (*)(B2F_MathContext*, uint32_t, B2F_WingField*, B2F_WingField*);
+    using GetTailIncidenceFn = int32_t (*)(B2F_MathContext*, double*);
+    using TransportAirfieldsFn = int32_t (*)(B2F_MathContext*, const double*);
+    using SetStripWindFn = int32_t (*)(B2F_MathContext*, uint32_t, const double*, const double*);
     using SetWingModelFn = int32_t (*)(B2F_MathContext*, uint32_t);
     using GetModelMassKgFn = double (*)(uint32_t);
     void* LibraryHandle = nullptr;
@@ -69,6 +77,10 @@ private:
     ReconfigureFn ReconfigureFirmwareVehicle = nullptr;
     GetWingShapeFn GetWingShape = nullptr;
     GetWingForcesFn GetWingForces = nullptr;
+    GetWingFieldsFn GetWingFields = nullptr;
+    GetTailIncidenceFn GetTailIncidence = nullptr;
+    SetStripWindFn SetStripWindHook = nullptr;
+    TransportAirfieldsFn TransportAirfieldsHook = nullptr;
     SetWingModelFn SetWingModelHook = nullptr;
     GetModelMassKgFn GetModelMassKgHook = nullptr;
     using MassPropertiesFn = int32_t (*)(B2F_MathContext*, double, B2F_MassProperties*);

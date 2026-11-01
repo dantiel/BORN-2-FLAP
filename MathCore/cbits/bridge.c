@@ -167,6 +167,14 @@ extern HsInt32 hs_b2f_math_set_wind_phase_noise(HsPtr context, HsDouble noise);
 extern HsInt32 hs_b2f_math_reconfigure_firmware_vehicle(HsPtr context, HsPtr tuning);
 extern HsInt32 hs_b2f_math_get_wing_shape(HsPtr context, HsWord32 capacity, HsPtr left, HsPtr right);
 extern HsInt32 hs_b2f_math_get_wing_forces(HsPtr context, HsWord32 capacity, HsPtr left, HsPtr right);
+extern HsInt32 hs_b2f_math_get_wing_fields(HsPtr context, HsWord32 capacity, HsPtr left, HsPtr right);
+extern HsInt32 hs_b2f_math_set_strip_wind(HsPtr context, HsWord32 count, HsPtr left, HsPtr right);
+B2F_EXPORT HsInt32 b2f_math_get_wing_fields(HsPtr context, HsWord32 capacity, HsPtr left, HsPtr right) {
+    return hs_b2f_math_get_wing_fields(context, capacity, left, right);
+}
+B2F_EXPORT HsInt32 b2f_math_set_strip_wind(HsPtr context, HsWord32 count, HsPtr left, HsPtr right) {
+    return hs_b2f_math_set_strip_wind(context, count, left, right);
+}
 
 B2F_EXPORT HsInt32 b2f_math_get_wing_shape(HsPtr context, HsWord32 capacity, HsPtr left, HsPtr right) {
     return hs_b2f_math_get_wing_shape(context, capacity, left, right);
@@ -257,4 +265,13 @@ B2F_EXPORT HsDouble b2f_math_get_model_mass_kg(HsWord32 model_id) {
 extern HsInt32 hs_b2f_math_get_mass_properties(HsPtr context, HsDouble cg_x, HsPtr output);
 B2F_EXPORT HsInt32 b2f_math_get_mass_properties(HsPtr context, HsDouble cg_x, HsPtr output) {
     return hs_b2f_math_get_mass_properties(context, cg_x, output);
+}
+
+extern HsInt32 hs_b2f_math_transport_airfields(HsPtr context, HsPtr rotation);
+extern HsInt32 hs_b2f_math_get_tail_incidence(HsPtr context, HsPtr output);
+B2F_EXPORT HsInt32 b2f_math_get_tail_incidence(HsPtr context, HsPtr output) {
+    return hs_b2f_math_get_tail_incidence(context, output);
+}
+B2F_EXPORT HsInt32 b2f_math_transport_airfields(HsPtr context, HsPtr rotation) {
+    return hs_b2f_math_transport_airfields(context, rotation);
 }

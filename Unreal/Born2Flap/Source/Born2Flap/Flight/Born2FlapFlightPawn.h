@@ -360,9 +360,12 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     // The integration test uses the actual pawn/controller/Chaos path.
     bool bFlightTest = false, bSoakTest = false, bRavenFlightTest = false, bTestResetSent = false, bTestFinished = false;
     double TestTime = 0, TestPeakSpeed = 0, TestPeakAltitude = 0;
+    FQuat LastMathRotation = FQuat::Identity;
+    bool bHaveMathRotation = false;
     double MathProfileSeconds = 0;
     int32 MathProfileSteps = 0, MathProfileFrames = 0;
     FVector RollTestBaseline = FVector::ZeroVector;
+    double RollTestPeakRate = 0;
     double TestPoweredAltitude = 0, TestGlideAltitude = 0, TestBoostAltitude = 0;
     double TestBeforePullSpeed = 0, TestPullSpeed = 0, TestBeforePullHeight = 0, TestPullHeight = 0;
     double TestFlapMin = 80, TestFlapMax = -80;

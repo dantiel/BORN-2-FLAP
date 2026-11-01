@@ -22,6 +22,7 @@ module Born2Flap.Math.Servo
   , defaultServoState
   , stepServo
   , servoDriveTorque
+  , servoPairDriveTorque
   , servoBackdriveTorque
   , reflectedDriveInertia
   , batteryVoltageUnderLoad
@@ -154,6 +155,41 @@ servoDriveTorque servo battery voltage dt target load wingInertia old rate =
       positiveLimit = stall * clampRate 0 1 (1-rate/freeRate)
       negativeLimit = -stall * clampRate 0 1 (1+rate/freeRate)
   in clampRate negativeLimit positiveLimit demand
+
+-- | Coordinate the common stroke and differential position using the same
+-- two physical motors. Reserve the differential demand before spending the
+-- remaining voltage/torque on the common stroke. Independent saturated
+-- trackers otherwise turn a small centre offset into alternating phase lag.
+-- Both outputs obey each motor's actual speed/torque envelope.
+servoPairDriveTorque :: ServoSpec -> BatterySpec -> Double -> Double
+                     -> (Double,Double) -> (Double,Double) -> (Double,Double)
+                     -> (ServoState,ServoState) -> (Double,Double) -> (Double,Double)
+servoPairDriveTorque servo battery voltage dt (targetL,targetR) (loadL,loadR)
+                    (commonInertia,differenceInertia) (left,right) (rateL,rateR) =
+  let mean a b=(a+b)/2
+      difference a b=(b-a)/2
+      commonState=ServoState (mean (servoAngleDeg left) (servoAngleDeg right))
+                            (mean (servoRateDegPerSec left) (servoRateDegPerSec right))
+      differenceState=ServoState (difference (servoAngleDeg left) (servoAngleDeg right))
+                                (difference (servoRateDegPerSec left) (servoRateDegPerSec right))
+      common=servoDriveTorque servo battery voltage dt (mean targetL targetR)
+               (mean loadL loadR) commonInertia commonState (mean rateL rateR)
+      -- Continuous critically damped differential tracking. Reusing the
+      -- bang-bang stroke tracker here switched the light body's reaction
+      -- torque at every common-stroke reversal and excited roll oscillation.
+      bandwidth=6
+      inertia=differenceInertia+reflectedDriveInertia
+      errorRad=(difference targetL targetR-servoAngleDeg differenceState)*pi/180
+      differential=inertia*(bandwidth*bandwidth*errorRad-2*bandwidth*difference rateL rateR)
+                     -difference loadL loadR
+      stall=max 0 (servoStallTorqueNm servo*ptkServoTorqueFactor voltage)
+      freeRate=max 1e-6 (servoNoLoadSpeedDegPerSec servo*ptkServoSpeedFactor voltage*pi/180)
+      limits rate=(-stall*clampRate 0 1 (1+rate/freeRate),stall*clampRate 0 1 (1-rate/freeRate))
+      (loL,hiL)=limits rateL
+      (loR,hiR)=limits rateR
+      d=clampRate ((loR-hiL)/2) ((hiR-loL)/2) differential
+      c=clampRate (max (loL+d) (loR-d)) (min (hiL+d) (hiR-d)) common
+  in (c-d,c+d)
 
 -- | Passive gearbox resistance when an external load overpowers the drive.
 -- Retains the user's backdrive compliance setting without prescribing joint

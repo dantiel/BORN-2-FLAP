@@ -50,6 +50,8 @@ def main():
     mass.argtypes=[c.c_void_p,c.c_double,c.POINTER(c.c_double)]
     shape=lib.b2f_math_get_wing_shape
     shape.argtypes=[c.c_void_p,c.c_uint32,c.POINTER(c.c_double),c.POINTER(c.c_double)]
+    transport=lib.b2f_math_transport_airfields
+    transport.argtypes=[c.c_void_p,c.POINTER(c.c_double)]
     writer=csv.writer(sys.stdout, lineterminator="\n")
     writer.writerow(['speed_ms','incidence_deg','mean_fx_N','mean_fy_N','mean_fz_N','mean_pitch_Nm','mean_roll_Nm','weight_N','stroke_range_deg','mean_aero_power_W','mean_battery_power_W','max_bend_mm','max_aero_twist_deg','rejected_steps'])
     for speed in args.speed:
@@ -61,7 +63,10 @@ def main():
                 assert reconfigure(ctx,c.byref(tuning))==1
                 props=(c.c_double*7)()
                 assert mass(ctx,0,props)==1
-                body=Body(1/args.hz,(speed,args.side_speed,0),(args.roll_rate,0,0),1000,props[4])
+                # The tunnel clamps roll. Its inertia must also constrain the
+                # coupled solve: discarding a freely solved body impulse while
+                # retaining its joint recoil is not a fixed-body experiment.
+                body=Body(1/args.hz,(speed,args.side_speed,0),(args.roll_rate,0,0),1000,1e3,(0,0,1))
                 pilot=Pilot(args.throttle,0,0,0,args.speed_modifier,1)
                 out=Output()
                 samples=[]; rejected=0; start_soc=1
@@ -73,6 +78,13 @@ def main():
                         rejected+=1
                         continue
                     assert all(math.isfinite(v) for v in (*out.force,*out.moment,out.power,out.soc))
+                    # This fixture constrains body roll. Undo the free-body
+                    # predictor's attitude increment in the AIR memory, just as
+                    # Unreal reconciles its authoritative pose each frame.
+                    # Omitting this lets tiny asymmetry rotate the wake while
+                    # the fixture itself stays fixed, corrupting long averages.
+                    correction=(c.c_double*3)(out.moment[0]/body.inertia/args.hz**2,0,0)
+                    assert transport(ctx,correction)==1
                     if i==settle-1: start_soc=out.soc
                     if i>=settle:
                         samples.append((out.force[0],out.force[2],out.moment[1],out.left,out.power,out.moment[0],out.force[1]))

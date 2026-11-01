@@ -1,6 +1,6 @@
 ﻿param([string]$EngineRoot = 'V:\UE_5.8', [int[]]$FrameRates = @(30,60,144), [switch]$SkipSoak,
       [ValidateRange(-1,4)][int]$BirdModel = -1, [string]$Preferences = '',
-      [ValidateRange(240,3840)][int]$PhysicsHz = 960)
+      [ValidateRange(240,3840)][int]$PhysicsHz = 240)
 $ErrorActionPreference = 'Stop'
 $project = (Resolve-Path (Join-Path $PSScriptRoot '../Born2Flap.uproject')).Path
 $logs = Join-Path (Split-Path $project) 'Saved/Logs'
