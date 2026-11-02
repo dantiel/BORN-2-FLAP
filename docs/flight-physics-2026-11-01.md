@@ -1,5 +1,10 @@
 # Elastic-wing flight repair — 2026-11-01
 
+Historical snapshot: the pressure-support behavior and verification below are
+superseded by [free wing attitude and F5 strip diagnostics](flight-physics-free-attitude-2026-11-01.md).
+
+Future work: [tandem-wing aerodynamics and independent phase control](tandem-wing-wake-design.md).
+
 The Windows Editor build and physics DLL are installed. The saved Kestrel profile
 uses 50 g total mass and a 240 Hz physics solver. Automated full-flight, handling,
 loaded-roll, airfield ABI and yaw/lift checks pass. These are headless/solver
@@ -128,7 +133,9 @@ The coherent pressure memory is a reduced, calibrated wake model, not CFD.
 Structural stiffness and motor electrical assumptions still need measured data
 for hardware accuracy. Added-air coupling is strongest in the roll/heave system;
 this is not a complete six-axis deformable-fluid inertia model. The retained
-inverted-V aerodynamic tail is an approximation to the displayed fan: common
-pitch is synchronized, but differential ruddervator geometry is not rendered.
+inverted-V aerodynamic tail was an approximation to the displayed fan. The
+Kestrel now uses the actual fixed fan; see the
+[November 2 tail and control correction](tail-control-correction-2026-11-02.md)
+for current behavior, changed setting semantics, and failing integration gates.
 Windows Editor behavior is verified here; Shipping, mobile and macOS builds and
 rendered flight acceptance are not established by these checks.
