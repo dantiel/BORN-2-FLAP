@@ -144,19 +144,6 @@ void ABorn2FlapHUD::DrawHUD()
         return;
     }
     const FLinearColor Cream(.94f, .94f, .84f), Gold(1, .66f, .2f), Muted(.55f, .76f, .76f), Amber(.88f, .63f, .31f);
-    if (Bird->IsBlindFlight())
-    {
-        const auto *RcBlind = Bird->GetRcController();
-        if (RcBlind && RcBlind->IsPanelOpen())
-        {
-            DrawRcPanel(*RcBlind);
-            return;
-        }
-        DrawRect(FLinearColor(.015f, .035f, .045f, .82f), 20, 20, 360, 72);
-        DrawText(TEXT("BLINDFLUG — NUR KLANG"), Gold, 38, 30, GEngine->GetLargeFont(), 1.5f);
-        DrawText(TEXT("F1: Vogel zeigen    R: Reset    SPACE: Start"), Muted, 40, 68, GEngine->GetSmallFont(), 1.f);
-        return;
-    }
     if (!bSemanticHUD)
     {
         DrawRect(FLinearColor(.015f, .035f, .045f, .82f), 20, 20, 445, 250);

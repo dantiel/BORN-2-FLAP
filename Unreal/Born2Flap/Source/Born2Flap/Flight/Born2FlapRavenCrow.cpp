@@ -266,10 +266,10 @@ FVector KestrelTailPosition(FVector P)
 // Z = 0 (flat). UVs land on the T_KestrelTail feather raster placement; the mesh is
 // rendered from both sides by its material, without duplicate coplanar triangles.
 const FVector KestrelTailPts[8] = {
-    FVector(-61.0013, 5.1481, 0), FVector(-59.7605, -0.1170, 0),
-    FVector(-61.0013, -5.9671, 0), FVector(-107.8416, -21.9963, 0),
-    FVector(-110.0130, -17.5502, 0), FVector(-112.0293, 0.0, 0),
-    FVector(-109.7028, 16.8482, 0), FVector(-108.4620, 21.9963, 0),
+    FVector(-61.0013, 5.5576, 0), FVector(-59.7605, 0, 0),
+    FVector(-61.0013, -5.5576, 0), FVector(-108.1518, -21.9963, 0),
+    FVector(-109.8579, -17.1992, 0), FVector(-112.0293, 0.0, 0),
+    FVector(-109.8579, 17.1992, 0), FVector(-108.1518, 21.9963, 0),
 };
 const FVector2D KestrelTailUV[8] = {
     FVector2D(0.61677, 0.02647), FVector2D(0.49669, 0.00335),
@@ -291,7 +291,8 @@ void BuildKestrelTail(AActor* Owner, USceneComponent* Parent)
         V.Add(Pt); UV.Add(KestrelTailUV[I]);
         N.Add(FVector(0, 0, 1)); C.Add(FLinearColor::White);
     }
-    for (int32 I = 1; I < 7; ++I) T.Append({0, I, I + 1});  // front fan from root centre
+    // Mirror the physical quadrature about the centreline root as well.
+    for (int32 I = 1; I < 7; ++I) T.Append({1, (I + 1) % 8, (I + 2) % 8});
     // The material is two-sided. A coincident reversed fan double-blends the
     // translucent paint and creates unstable overlap at grazing angles.
 
@@ -467,11 +468,11 @@ void ABorn2FlapFlightPawn::BuildRavenCrow()
 void ABorn2FlapFlightPawn::SelectBirdModel(int32 Index)
 {
     BirdModel = FMath::Clamp(Index, 0, 5);
-    if (PrototypeRoot) PrototypeRoot->SetVisibility(!bBlind && BirdModel == 1, true);
-    if (RavenRoot) RavenRoot->SetVisibility(!bBlind && BirdModel == 0, true);
-    if (MembraneRoot) MembraneRoot->SetVisibility(!bBlind && (BirdModel == 2 || BirdModel == 4), true);
-    if (PterosaurRoot) PterosaurRoot->SetVisibility(!bBlind && BirdModel == 5, true);
-    if (TurtleRoot) TurtleRoot->SetVisibility(!bBlind && BirdModel == 3, true);
+    if (PrototypeRoot) PrototypeRoot->SetVisibility(BirdModel == 1, true);
+    if (RavenRoot) RavenRoot->SetVisibility(BirdModel == 0, true);
+    if (MembraneRoot) MembraneRoot->SetVisibility(BirdModel == 2 || BirdModel == 4, true);
+    if (PterosaurRoot) PterosaurRoot->SetVisibility(BirdModel == 5, true);
+    if (TurtleRoot) TurtleRoot->SetVisibility(BirdModel == 3, true);
     // Each silhouette is a distinct bird: its own dry mass (fed to Chaos) and
     // its own wing planform + carbon-rod inventory (fed to the Haskell solver
     // via SetWingModel). Per-model mass lives in the Haskell model config

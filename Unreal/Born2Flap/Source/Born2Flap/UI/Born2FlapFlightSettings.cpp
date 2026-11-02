@@ -198,12 +198,21 @@ void ABorn2FlapFlightSettings::BuildTree()
         Rows.push_back(Nd("Toggle", std::move(Props)));
     }
 
-    // On-foot pilot avatar — distinct realistic persons.
+    // On-foot pilot avatar — enable/disable + distinct persons.
     Rows.push_back(Nd("TextBlock", P({ {"text", S("PILOT AVATAR")}, {"tone", S("accent")}, {"size", S("l")} })));
     {
-        static const TCHAR* PersonNames[] = { TEXT("FOUNDER"), TEXT("HUNTER") };
+        FProps TProps;
+        TProps["action"] = S("avatar.enabled");
+        TProps["label"] = S("SHOW ON-FOOT PILOT");
+        TProps["on"] = S("SHOWN  /  click to hide");
+        TProps["off"] = S("HIDDEN  /  click to show");
+        TProps["value"] = B(Bird->IsAvatarEnabled());
+        Rows.push_back(Nd("Toggle", std::move(TProps)));
+    }
+    {
+        static const TCHAR* PersonNames[] = { TEXT("FOUNDER") };
         const int32 CurPerson = Bird->GetAvatarPerson();
-        for (int32 P = 0; P < 2; ++P)
+        for (int32 P = 0; P < 1; ++P)
         {
             FProps Props;
             Props["label"] = Sv(PersonNames[P]);
@@ -358,6 +367,7 @@ void ABorn2FlapFlightSettings::BuildTree()
             {"size", S("s")}
         })));
     }
+    FlapRangePath.Reset();
     for (const born2flap::tuning::FRow& Row : born2flap::tuning::Rows)
     {
         FProps Props;
@@ -370,6 +380,20 @@ void ABorn2FlapFlightSettings::BuildTree()
         Props["unit"] = Sv(FString(Row.Unit));
         Props["tooltip"] = Sv(FString(Row.Help));
         Rows.push_back(Nd("Slider", std::move(Props)));
+
+        // Live readout under the flap frequency ceiling: the min/max beat rate
+        // the speed modifier can actually select, clamped by the chosen servo's
+        // no-load rate at the chosen stroke amplitude. Kept in lockstep with
+        // Firmware.hs flappingBranch (margin 0.85, 0.5 Hz floor, 0.5x..1.5x).
+        if (Row.Field == ETuningField::FlapBaseFreq)
+        {
+            FlapRangePath = RowPath((int32)Rows.size());
+            Rows.push_back(Nd("TextBlock", P({
+                { "text", Sv(FlapRangeText()) },
+                { "tone", S("info") },
+                { "size", S("xs") }
+            })));
+        }
     }
     // Airframe mass + centre of gravity: physical body properties, not firmware
     // knobs — they act directly on the Chaos body (mass and COM offset).
@@ -477,6 +501,40 @@ void ABorn2FlapFlightSettings::RefreshMouseGains()
     }
 }
 
+FString ABorn2FlapFlightSettings::FlapRangeText() const
+{
+    if (!Bird.IsValid())
+        return TEXT("");
+    // Mirrors Firmware.hs flappingBranch exactly:
+    //   servoSpeedMargin = 0.85, freqMinHz = 0.5, speedFactor = 0.5..1.5.
+    // The servo can only track a full sine stroke up to
+    //   margin * servoSpeedDegS / (2*pi*ampMaxDeg),
+    // so the ceiling's 1.5x reach is clamped by the selected servo + amplitude.
+    const float ServoSpeedDegS = Bird->GetTuning(ETuningField::ServoSpeed);
+    const float CeilingDh = Bird->GetTuning(ETuningField::FlapBaseFreq);
+    const float CeilingHz = CeilingDh * 0.1f;
+    const float ServoMargin = 0.85f;
+    const float FreqFloorHz = 0.5f;
+    const float MechMaxDeg = 70.f;
+    // Full-throttle amplitude is derived from the servo: the largest stroke it
+    // can still trace at the base ceiling. No separate amplitude knob.
+    const float AmpMaxDeg = FMath::Min(MechMaxDeg,
+        ServoMargin * ServoSpeedDegS / (6.28318530718f * CeilingHz));
+    const float ServoMaxHz = ServoMargin * ServoSpeedDegS / (6.28318530718f * AmpMaxDeg);
+    const float MinFreqHz = FMath::Max(FreqFloorHz, CeilingHz * 0.5f);
+    const float MaxFreqHz = FMath::Max(MinFreqHz, FMath::Min(CeilingHz * 1.5f, ServoMaxHz));
+    return FString::Printf(
+        TEXT("speed modifier selects  %.1f - %.1f Hz   (servo-limited at %.1f Hz)"),
+        MinFreqHz, MaxFreqHz, ServoMaxHz);
+}
+
+void ABorn2FlapFlightSettings::RefreshFlapRange()
+{
+    if (!Renderer || !Bird.IsValid() || FlapRangePath.Num() == 0)
+        return;
+    SendUpdate(Renderer, FlapRangePath, P({ { "text", Sv(FlapRangeText()) } }));
+}
+
 void ABorn2FlapFlightSettings::HandleAction(const FString& Action, float Value, const FString& Text)
 {
     if (!Bird.IsValid())
@@ -493,6 +551,8 @@ void ABorn2FlapFlightSettings::HandleAction(const FString& Action, float Value, 
         BuildTree();
         return;
     }
+
+    if (Action == TEXT("avatar.enabled")) { Bird->SetAvatarEnabled(!Bird->IsAvatarEnabled()); BuildTree(); return; }
 
     if (Action.StartsWith(TEXT("avatar.person.")))
     {
@@ -570,6 +630,8 @@ void ABorn2FlapFlightSettings::HandleAction(const FString& Action, float Value, 
         if (Field == ETuningField::ServoSpeed || Field == ETuningField::StallTorque ||
             Field == ETuningField::Backdrive || Field == ETuningField::BatteryVoltage)
             MarkServoCustom();
+        if (Field == ETuningField::FlapBaseFreq || Field == ETuningField::ServoSpeed)
+            RefreshFlapRange();
     }
 }
 

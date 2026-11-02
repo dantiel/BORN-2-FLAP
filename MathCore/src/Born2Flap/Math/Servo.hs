@@ -23,6 +23,7 @@ module Born2Flap.Math.Servo
   , stepServo
   , servoDriveTorque
   , servoPairDriveTorque
+  , servoPairDriveTorqueWithRate
   , servoBackdriveTorque
   , reflectedDriveInertia
   , batteryVoltageUnderLoad
@@ -164,7 +165,16 @@ servoDriveTorque servo battery voltage dt target load wingInertia old rate =
 servoPairDriveTorque :: ServoSpec -> BatterySpec -> Double -> Double
                      -> (Double,Double) -> (Double,Double) -> (Double,Double)
                      -> (ServoState,ServoState) -> (Double,Double) -> (Double,Double)
-servoPairDriveTorque servo battery voltage dt (targetL,targetR) (loadL,loadR)
+servoPairDriveTorque servo battery voltage dt = servoPairDriveTorqueWithRate servo battery voltage dt 0
+
+-- Track the velocity of the commanded differential, not only its position.
+-- Damping against zero velocity attenuated (and nearly phase-reversed) the
+-- yaw amplitude differential at flap frequency. Motor limits still bound all
+-- work; this is setpoint tracking, never an injected aerodynamic yaw torque.
+servoPairDriveTorqueWithRate :: ServoSpec -> BatterySpec -> Double -> Double -> Double
+                     -> (Double,Double) -> (Double,Double) -> (Double,Double)
+                     -> (ServoState,ServoState) -> (Double,Double) -> (Double,Double)
+servoPairDriveTorqueWithRate servo battery voltage dt targetDifferenceRate (targetL,targetR) (loadL,loadR)
                     (commonInertia,differenceInertia) (left,right) (rateL,rateR) =
   let mean a b=(a+b)/2
       difference a b=(b-a)/2
@@ -180,7 +190,8 @@ servoPairDriveTorque servo battery voltage dt (targetL,targetR) (loadL,loadR)
       bandwidth=6
       inertia=differenceInertia+reflectedDriveInertia
       errorRad=(difference targetL targetR-servoAngleDeg differenceState)*pi/180
-      differential=inertia*(bandwidth*bandwidth*errorRad-2*bandwidth*difference rateL rateR)
+      referenceRate=clampRate (-freeRate) freeRate targetDifferenceRate
+      differential=inertia*(bandwidth*bandwidth*errorRad-2*bandwidth*(difference rateL rateR-referenceRate))
                      -difference loadL loadR
       stall=max 0 (servoStallTorqueNm servo*ptkServoTorqueFactor voltage)
       freeRate=max 1e-6 (servoNoLoadSpeedDegPerSec servo*ptkServoSpeedFactor voltage*pi/180)

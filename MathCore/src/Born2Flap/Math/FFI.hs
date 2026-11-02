@@ -27,6 +27,7 @@ import Foreign.StablePtr
 import Foreign.Storable
 
 foreign export ccall "hs_b2f_math_abi_version" b2f_math_abi_version :: IO Word32
+foreign export ccall "hs_b2f_math_get_wing_loads" b2f_math_get_wing_loads :: Ptr () -> Word32 -> Ptr () -> Ptr () -> IO Int32
 foreign export ccall "hs_b2f_math_runtime_init" b2f_math_runtime_init :: IO Int32
 foreign export ccall "hs_b2f_math_runtime_shutdown" b2f_math_runtime_shutdown :: IO ()
 foreign export ccall "hs_b2f_math_create_default_vehicle" b2f_math_create_default_vehicle :: IO (Ptr ())
@@ -47,6 +48,61 @@ foreign export ccall "hs_b2f_math_set_strip_wind" b2f_math_set_strip_wind :: Ptr
 
 foreign export ccall "hs_b2f_math_transport_airfields" b2f_math_transport_airfields :: Ptr () -> Ptr () -> IO Int32
 foreign export ccall "hs_b2f_math_get_tail_incidence" b2f_math_get_tail_incidence :: Ptr () -> Ptr () -> IO Int32
+foreign export ccall "hs_b2f_math_get_tail_fields" b2f_math_get_tail_fields :: Ptr () -> Word32 -> Ptr () -> IO Int32
+foreign export ccall "hs_b2f_math_get_external_force" b2f_math_get_external_force :: Ptr () -> Ptr () -> IO Int32
+foreign export ccall "hs_b2f_math_set_mass_frame" b2f_math_set_mass_frame :: Ptr () -> Double -> Double -> Double -> IO Int32
+
+-- Enable simultaneous angular force evaluation using the host's actual tensor.
+-- Existing prescribed-pitch/yaw wind tunnels leave this extension unset.
+b2f_math_set_mass_frame :: Ptr () -> Double -> Double -> Double -> IO Int32
+b2f_math_set_mass_frame pointer cgX iy iz
+  | pointer == nullPtr || any (\v -> isNaN v || isInfinite v) [cgX,iy,iz]
+      || abs cgX > 1 || iy <= 0 || iz <= 0 = pure 0
+  | otherwise = run `catch` failure
+  where
+    run = do
+      ref <- deRefStablePtr (castPtrToStablePtr pointer :: StablePtr (IORef FwContext))
+      modifyIORef' ref (\context -> context { fwcState = (fwcState context)
+        { fvMassFrame = Just (cgX,iy,iz), fvTangent = Nothing } })
+      pure 1
+    failure :: SomeException -> IO Int32
+    failure _ = pure 0
+
+-- Host-equivalent force also contains added-mass, recoil and gravity terms;
+-- those are not surface forces and must not be moved to an aerodynamic arm.
+b2f_math_get_external_force :: Ptr () -> Ptr () -> IO Int32
+b2f_math_get_external_force pointer output
+  | pointer == nullPtr || output == nullPtr = pure 0
+  | otherwise = run `catch` failure
+  where
+    run = do
+      ref <- deRefStablePtr (castPtrToStablePtr pointer :: StablePtr (IORef FwContext))
+      context <- readIORef ref
+      let Vec3 fx fy fz = fvExternalForce (fwcState context)
+          values = [fx,fy,fz]
+      if any (\v -> isNaN v || isInfinite v) values then pure 0 else do
+        sequence_ [pokeElemOff (castPtr output :: Ptr CDouble) i (CDouble v) | (i,v) <- zip [0..] values]
+        pure 1
+    failure :: SomeException -> IO Int32
+    failure _ = pure 0
+
+b2f_math_get_tail_fields :: Ptr () -> Word32 -> Ptr () -> IO Int32
+b2f_math_get_tail_fields pointer capacity output
+  | pointer==nullPtr || output==nullPtr || capacity<18 = pure 0
+  | otherwise = run `catch` failure
+ where
+  run = do
+    ref <- deRefStablePtr (castPtrToStablePtr pointer :: StablePtr (IORef FwContext))
+    context <- readIORef ref
+    let fields = fvTailFields (fwcState context)
+        xyz (Vec3 a b c) = [a,b,c]
+        values = concatMap (\f -> concatMap xyz [tfPosition f,tfNormal f,tfVelocity f,
+                    tfLift f,tfPressure f,tfDrag f,tfMoment f]) fields
+    if length fields/=18 || not(all (\v -> not(isNaN v || isInfinite v)) values) then pure 0 else do
+      sequence_ [pokeElemOff (castPtr output :: Ptr CDouble) i (CDouble v) | (i,v)<-zip [0..] values]
+      pure 18
+  failure :: SomeException -> IO Int32
+  failure _ = pure 0
 
 -- Read the angle used for the common tail force; the host must not duplicate
 -- the controller's throttle/pitch mix in its animation.
@@ -58,7 +114,9 @@ b2f_math_get_tail_incidence pointer output
   run = do
     ref <- deRefStablePtr (castPtrToStablePtr pointer :: StablePtr (IORef FwContext))
     context <- readIORef ref
-    let angle=fvTailIncidenceDeg(fwcState context)
+    let angle=if wmName (fwcModel context) `elem` ["kestrel", "kestrel-light"]
+              then profTailElevatorAngleDeg (fwProfile (fwcParams context))
+              else fvTailIncidenceDeg(fwcState context)
     if isNaN angle || isInfinite angle then pure 0 else do
       poke (castPtr output :: Ptr CDouble) (CDouble angle)
       pure 1
@@ -83,6 +141,32 @@ b2f_math_transport_airfields pointer rotationPointer
       let next=transportAirfields vector (fwcState context)
       writeIORef ref (context {fwcState=next})
       pure 1
+  failure :: SomeException -> IO Int32
+  failure _ = pure 0
+
+-- Read the same solved per-strip force decomposition used by the mechanics.
+-- Validate both arrays before writing either; diagnostics never advance state.
+b2f_math_get_wing_loads :: Ptr () -> Word32 -> Ptr () -> Ptr () -> IO Int32
+b2f_math_get_wing_loads pointer capacity leftPointer rightPointer
+  | pointer == nullPtr || leftPointer == nullPtr || rightPointer == nullPtr
+      || capacity < fromIntegral stripCount = pure 0
+  | otherwise = run `catch` failure
+ where
+  run = do
+    ref <- deRefStablePtr (castPtrToStablePtr pointer :: StablePtr (IORef FwContext))
+    context <- readIORef ref
+    let state = fwcState context
+        xyz (Vec3 a b c) = [a,b,c]
+        values = concatMap (\s -> concatMap xyz
+          [addVec (stripLift s) (addVec (stripDrag s) (stripPressure s)), stripDrag s, stripMoment s])
+        left = values (fvLeftStrips state)
+        right = values (fvRightStrips state)
+        valid xs = length xs == stripCount*9 && all (\v -> not (isNaN v || isInfinite v)) xs
+        write p xs = sequence_ [pokeElemOff (castPtr p :: Ptr CDouble) i (CDouble v) | (i,v)<-zip [0..] xs]
+    if not (valid left && valid right) then pure 0 else do
+      write leftPointer left
+      write rightPointer right
+      pure (fromIntegral stripCount)
   failure :: SomeException -> IO Int32
   failure _ = pure 0
 
@@ -189,7 +273,7 @@ b2f_math_get_wing_forces contextPointer capacity leftPointer rightPointer
     failure :: SomeException -> IO Int32
     failure _ = pure 0
 b2f_math_abi_version :: IO Word32
-b2f_math_abi_version = pure 16
+b2f_math_abi_version = pure 17
 
 b2f_math_runtime_init :: IO Int32
 b2f_math_runtime_init = pure 1
@@ -287,7 +371,7 @@ data TuningConfig = TuningConfig
   , tgBatteryCRating    :: !Double  -- ^ continuous discharge rating (C), e.g. 30
   , tgBatteryBurstCRating :: !Double  -- ^ burst discharge rating (C), e.g. 60 = momentarily double
   , tgFlapBaseFreqDh    :: !Double  -- ^ flap frequency ceiling [deci-Hz, 10..200]
-  , tgTailElevatorAngleDeg :: !Double  -- ^ tail elevator angle (flap stroke centre trim) [deg]
+  , tgTailElevatorAngleDeg :: !Double  -- ^ physical tail mounting incidence [deg]
   , tgGlideAngleDeg     :: !Double  -- ^ glide incidence [deg]
   , tgStrokeFerocity    :: !Double  -- ^ downstroke ferocity [0..100]
   , tgAileronScale      :: !Double  -- ^ aileron mix [0..100]
@@ -499,7 +583,7 @@ data BodyState = BodyState
   , bodyRates :: !Vec3
   , bodyRollInertia :: !Double
   , bodyGroundClearance :: !Double  -- ^ body-origin height above the surface below [m] (ABI v11)
-  , bodyUp :: !Vec3                 -- ^ world-up in the body frame (ABI v13): the pendulum hangs the body on the wings
+  , bodyUp :: !Vec3                 -- ^ world-up in body frame; zero disables gravity coupling (ABI v13)
   }
 
 peekBody :: Ptr () -> IO BodyState

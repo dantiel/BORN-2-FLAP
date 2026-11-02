@@ -23,7 +23,7 @@ module Born2Flap.Math.Vehicle
   , stepWingWithStroke
   , wingLoadsWithStroke
   , prepareWingLoads
-  , WingSystem(..), prepareWingSystem, coupleWingPressure
+  , WingSystem(..), prepareWingSystem
   , stepCoupledWing
   , addVec
   , crossVec
@@ -34,7 +34,7 @@ module Born2Flap.Math.Vehicle
   , radians
   ) where
 
-import Data.List (zipWith4, zip4)
+import Data.List (zipWith4)
 
 import Born2Flap.Math.RollDynamics (solveImplicitSystem)
 import Born2Flap.Math.LiftField
@@ -74,7 +74,7 @@ surfacePressureCp = 1.8
 -- vanishes as the relative speed tends to zero, so a slowly-drifting surface
 -- (slow aileron, held glide dihedral, a body just starting to roll) slips
 -- through the air with no reaction. v·√(v²+v0²) is linear below v0 and
--- quadratic above it: it anchors the wing at a crawl without distorting
+-- quadratic above it: it dissipates slow normal motion without changing
 -- flapping or forward glide. Raised 0.5 → 1.0 so the roll-rate coupling of a
 -- held differential stroke has a real grip below 1 m/s of normal motion.
 lowSpeedNormalFloor :: Double
@@ -95,6 +95,12 @@ inducedDragCoefficient aspect cl = cl*cl/(pi*0.82*max 0.01 aspect)
 -- Smoothing of the legacy display diagnostic only; not a physical time constant.
 springLoadTau :: Double
 springLoadTau = 0.05
+
+-- | Fraction of critical damping for the elastic bend/twist modes. Lowering
+-- this makes the aeroelastic spring oscillate more visibly after a load step
+-- (a livelier "bounce") without fully undamping the structure.
+structuralDampingRatio :: Double
+structuralDampingRatio = 0.15
 
 groundEffectLiftGain, groundEffectDragRelief :: Double
 groundEffectLiftGain = 0.30
@@ -148,11 +154,13 @@ data StripState = StripState
   , stripNormal :: !Vec3      -- ^ deformed surface normal
   , stripLift :: !Vec3        -- ^ circulation force, perpendicular to local flow
   , stripPressure :: !Vec3    -- ^ instantaneous pressure plus relaxing air patch
+  , stripDrag :: !Vec3       -- ^ skin, induced and spanwise drag
+  , stripMoment :: !Vec3     -- ^ aerodynamic r cross F plus section couple
   , stripAirVelocity :: !Vec3 -- ^ complete velocity through the sampled local wind
   , stripWindDelta :: !Vec3   -- ^ local wind minus body-origin wind, body frame
   } deriving stock (Eq, Show)
 emptyStrip :: StripState
-emptyStrip = StripState 0 0 0 0 0 0 0 0 0 0 0 0 emptyPressureField zeroVec (Vec3 0 0 1) zeroVec zeroVec zeroVec zeroVec
+emptyStrip = StripState 0 0 0 0 0 0 0 0 0 0 0 0 emptyPressureField zeroVec (Vec3 0 0 1) zeroVec zeroVec zeroVec zeroVec zeroVec zeroVec
 
 data VehicleState = VehicleState
   { vehicleOscillator :: !OscillatorState
@@ -296,6 +304,7 @@ wingLoadsWithStroke flapping side stroke rate phaseRate input model incidenceRad
 data WingSystem = WingSystem
   { wingInitialRates :: (Double,Double)
   , wingTrialLoads :: Double -> Double -> (Double,Double) -> [StripResult]
+  , wingTrialMotion :: Vec3 -> Vec3 -> Double -> (Double,Double) -> [StripResult]
   , wingElasticResidual :: (Double,Double) -> [StripResult] -> (Double,Double)
   , wingCommit :: [StripResult] -> ([StripResult],[StripState])
   }
@@ -306,12 +315,13 @@ prepareWingSystem flapping side stroke phaseRate input model incidenceRad states
       stations = shapeStationsAt wp stripCount
       aspect = shapeAspectRatio wp
       (initial,deform,residual,finish) = prepareStructure side stroke (wmSpars model) wp input states
-      raw rollRate rate elastic = zipWith3
-        (\station s sup -> stepStripPrepared station aspect True phaseRate flapping side stroke input incidenceRad wp 0 s sup centre supportPosDev rollRate rate 0)
+      rawMotion rates deltaVelocity rate elastic = zipWith3
+        (\station s sup -> stepStripPreparedMotion station aspect True phaseRate flapping side stroke input incidenceRad wp 0 s sup centre supportPosDev rates deltaVelocity rate)
         stations (deform elastic) supports
+      raw rollRate = rawMotion (Vec3 rollRate (vy(bodyRatesRadS input)) (vz(bodyRatesRadS input))) zeroVec
       commit rs = let results=transportSeparation side input wp (map finish rs)
                   in (results,map resultState results)
-  in WingSystem initial raw residual commit
+  in WingSystem initial raw rawMotion residual commit
 
 prepareWingLoads :: Bool -> Double -> Double -> Double -> VehicleInput -> WingModel -> Double -> [StripState] -> [Double] -> Double -> Double
                  -> Double -> Double -> Double -> [StripResult]
@@ -349,8 +359,13 @@ stepStrip implicitLoads phaseRate flapping side stroke input incidenceRad wp ind
 -- across all trial elastic velocities instead of sorting/resampling the
 -- outline again for each Jacobian column.
 stepStripPrepared :: SpanStation -> Double -> Bool -> Double -> Bool -> Double -> Double -> VehicleInput -> Double -> WingShape -> Int -> StripState -> Double -> Double -> Double -> Double -> Double -> Double -> StripResult
-{-# NOINLINE stepStripPrepared #-}
-stepStripPrepared station aspectRatio implicitLoads _phaseRate _flapping side stroke input incidenceRad wp _index old _supportN _centre _supportPosDev =
+stepStripPrepared station aspectRatio implicitLoads phaseRate flapping side stroke input incidenceRad wp index old support centre supportPosDev rollRate rate _common =
+  stepStripPreparedMotion station aspectRatio implicitLoads phaseRate flapping side stroke input incidenceRad wp index old support centre supportPosDev
+    (Vec3 rollRate (vy(bodyRatesRadS input)) (vz(bodyRatesRadS input))) zeroVec rate
+
+stepStripPreparedMotion :: SpanStation -> Double -> Bool -> Double -> Bool -> Double -> Double -> VehicleInput -> Double -> WingShape -> Int -> StripState -> Double -> Double -> Double -> Vec3 -> Vec3 -> Double -> StripResult
+{-# NOINLINE stepStripPreparedMotion #-}
+stepStripPreparedMotion station aspectRatio implicitLoads _phaseRate _flapping side stroke input incidenceRad wp _index old _supportN _centre _supportPosDev =
   let !dt = stepSeconds input
       !fraction = spanFraction station
       !spanM = wsSpanM wp
@@ -388,8 +403,6 @@ stepStripPrepared station aspectRatio implicitLoads _phaseRate _flapping side st
       -- wingspan (2 × half-span). Each strip sees its OWN flap height, so the
       -- downstroke pushes the tip into the cushion and the upstroke lifts it
       -- back out — the effect is strongest at the bottom of the beat.
-      !stripHeightM = wingRootHeight + radius * sin dihedral + bend*cos dihedral
-      !ge = groundEffectFactor (groundClearanceM input + stripHeightM) (2 * wsSpanM wp)
       !velocity = addVec (bodyVelocityMS input) (scaleVec (-1) (stripWindDelta old))
       -- Use section velocity through air throughout (not a mixture of air
       -- velocity and body velocity). Drag must do negative work. The normal
@@ -404,6 +417,10 @@ stepStripPrepared station aspectRatio implicitLoads _phaseRate _flapping side st
                          (side * radius * cos dihedral) (wingRootHeight + radius * sin dihedral))
                          (scaleVec bend (Vec3 0 (-side*sin dihedral) (cos dihedral)))
       !position = addVec leadingEdge (scaleVec (-0.25 * chord) chordAxis)
+      -- Height is along WORLD up, expressed in this body basis. A banked or
+      -- inverted wing must not receive the upright strip-height correction.
+      !stripHeightM = dotVector position (bodyUpB input)
+      !ge = groundEffectFactor (groundClearanceM input + stripHeightM) (2 * wsSpanM wp)
       !normal0 = Vec3 0 (-side * sin dihedralLocal) (cos dihedralLocal)
       -- Resolve flow in the swept section plane. Ignoring sweep here removed
       -- its differential lift in sideslip, despite it being in the planform.
@@ -423,9 +440,8 @@ stepStripPrepared station aspectRatio implicitLoads _phaseRate _flapping side st
       -- genuinely sweeps through the air and RESISTS. That resistance, acting
       -- at the spanwise lever arm (position), is what rolls the fuselage — the
       -- fuselage/tail sit on the centreline and carry no roll lever arm.
-  in \rollRate strokeRate _commonRate ->
-  let rates = Vec3 rollRate (vy (bodyRatesRadS input)) (vz (bodyRatesRadS input))
-      flapVelocity = crossVec (Vec3 (side * strokeRate) 0 0)
+  in \rates deltaVelocity strokeRate ->
+  let flapVelocity = crossVec (Vec3 (side * strokeRate) 0 0)
                        (addVec position (Vec3 0 0 (-wingRootHeight)))
       bendAngleRate = stripBendSlopeRate old / (1+bendSlope*bendSlope)
       bendRotationVelocity = scaleVec bendAngleRate
@@ -433,7 +449,7 @@ stepStripPrepared station aspectRatio implicitLoads _phaseRate _flapping side st
       elasticVelocity = addVec bendRotationVelocity (addVec
         (scaleVec (stripBendRateMS old) (Vec3 0 (-side*sin dihedral) (cos dihedral)))
         (scaleVec (-0.25*chord*stripTwistRateRadS old) normal))
-      sectionVelocity = addVec elasticVelocity (addVec velocity (addVec (crossVec rates position) flapVelocity))
+      sectionVelocity = addVec deltaVelocity (addVec elasticVelocity (addVec velocity (addVec (crossVec rates position) flapVelocity)))
       dot (Vec3 a b c) (Vec3 d e f) = a*d + b*e + c*f
       chordVelocity = dot sectionVelocity chordAxis
       normalVelocity = dot sectionVelocity normal
@@ -489,8 +505,8 @@ stepStripPrepared station aspectRatio implicitLoads _phaseRate _flapping side st
         else signum alphaEff * 0.05 * lev
       circulatoryCl = (1 - forceSeparation) * attachedCl
       cl = circulatoryCl + rotationalCl + vortexLift
-      -- Membrane loading follows the same surface pressure applied to the
-      -- mechanics, including the relaxing per-strip air patch.
+      -- Membrane loading follows the same local aerodynamic force applied
+      -- to the mechanics.
       camberNext = relaxCamber dt (spMembraneTau profile) camberPrev
                      (membraneCamberTarget profile
                        (clamp (-12) 12 (dot aeroForce normal / max 1e-9 (q * area))))
@@ -521,9 +537,9 @@ stepStripPrepared station aspectRatio implicitLoads _phaseRate _flapping side st
       chordForce = scaleVec (-drag * flowX - lift * flowZ) chordAxis
       normalForce = scaleVec (-drag * flowZ + lift * flowX) normal
       spanDrag = scaleVec (-0.5 * airDensity * area * sideCd * abs spanVelocity * spanVelocity) spanAxis
-      -- Full local-flow drag is shared by glide and flap. The coherent wake
-      -- pressure difference is added by coupleWingPressure after both wings
-      -- have been evaluated on their deformed surfaces.
+      -- Every strip sees complete local flow in glide and flap. No cross-wing
+      -- positional spring: air does not retain a fixed bank/support plane.
+      -- Non-circulatory added-air inertia is in the coupled mass solve.
       oldPatch = stripPressureField old
       quadraticPressure = scaleVec (surfacePressure area normalVelocity) normal
       liftPart = addVec (scaleVec (lift * flowX) normal)
@@ -532,7 +548,7 @@ stepStripPrepared station aspectRatio implicitLoads _phaseRate _flapping side st
       aeroForce = force
       nextLoad = fieldLoad oldPatch + (1-exp(-dt/0.15))
                    * (magnitude liftPart + magnitude quadraticPressure - fieldLoad oldPatch)
-      nextPatch = oldPatch {fieldLoad=nextLoad}
+      nextPatch = PressureField zeroVec (transportVector dt rates normal) nextLoad
       -- Explicit differencing of BODY acceleration as an added-mass force
       -- creates a delayed feedback loop at contacts. Omit this term until an
       -- implicit fluid/body inertia solve is available; do not clamp it into
@@ -556,76 +572,11 @@ stepStripPrepared station aspectRatio implicitLoads _phaseRate _flapping side st
                  , stripCamber = camberNext, stripPressureField = nextPatch
                  , stripPosition = position, stripNormal = normal
                  , stripLift = liftPart, stripPressure = quadraticPressure
+                 , stripDrag = addVec (scaleVec (-drag*flowX) chordAxis)
+                     (addVec (scaleVec (-drag*flowZ) normal) spanDrag)
+                 , stripMoment = moment
                  , stripAirVelocity = sectionVelocity }
   in StripResult next force moment power sectionTwistMoment sectionBendMoment (position,chordAxis,spanAxis,normal,sectionVelocity,flapVelocity)
-
--- A coherent wake carries the common motion of each spanwise pair. Its
--- differential pressure stores roll strain, not aircraft altitude: paired
--- reactions sum to zero force and do work only on relative strip motion.
--- Instantaneous lift and full surface drag still see COMPLETE local flow on
--- each wing in every mode. A crosswind gradient also enters the relative flow.
-coupleWingPressure :: VehicleInput -> WingModel -> [StripState] -> [StripState]
-                   -> [StripResult] -> [StripResult] -> ([StripResult],[StripResult])
-coupleWingPressure input model oldL oldR left right = unzip
-  [ pair i a b l r | (i,(a,b,l,r)) <- zip [0::Int ..] (zip4 oldL oldR left right) ]
- where
-  dt=stepSeconds input
-  pair i a b l r =
-    let (pl,cl,sl,nl,vl,fl)=resultFrame l
-        (pr,cr,sr,nr,vr,fr)=resultFrame r
-        chord=shapeChord (wmWing model) ((fromIntegral i+0.5)/fromIntegral stripCount)
-        pa=stripPressureField a; pb=stripPressureField b
-        history=addVec (fieldDirection pa) (fieldDirection pb)
-        target=unitVector (addVec nl nr)
-        rawNormal=if magnitude history>0.5
-          then addVec (unitVector history) (scaleVec (1-exp(-dt/12)) (addVec target (scaleVec (-1) (unitVector history))))
-          else target
-        -- This is remembered surface pressure, not the instantaneous lift
-        -- vector. Re-projecting it perpendicular to body airspeed every step
-        -- parallel-transported the support plane through pitch/yaw turns and
-        -- accumulated an uncommanded bank. Convect its direction unchanged;
-        -- only the explicit relaxation above may follow the wing. Ordinary
-        -- circulatory lift remains perpendicular to each strip's local flow.
-        n=unitVector rawNormal
-        load=0.5*(fieldLoad pa+fieldLoad pb)
-        stiffness=100*load/chord
-        q0=scaleVec 0.5 (addVec (fieldDisplacement pa) (scaleVec (-1) (fieldDisplacement pb)))
-        relative=scaleVec 0.5 (addVec vl (scaleVec (-1) vr))
-        -- A coherent wake persists in a through-flow. Once that flow stops,
-        -- shed its strain promptly instead of pinning a landed wing to an old
-        -- airborne patch. Use the pair's common local flow, so pure roll cannot
-        -- manufacture the flow that would keep its own pressure memory alive.
-        commonFlow=scaleVec 0.5 (addVec vl vr)
-        commonSpeed2=dotVector commonFlow commonFlow
-        wakeTau=0.05+11.95*commonSpeed2/(commonSpeed2+1)
-        (springPressure,patch)=advancePressureField dt wakeTau stiffness n relative (PressureField q0 n load)
-        dr=wsSpanM (wmWing model)/fromIntegral stripCount
-        entrainedMass=airDensity*pi*chord*chord*dr/4
-        damping=2*sqrt(stiffness*entrainedMass)
-        pressure=addVec springPressure (scaleVec (-damping*dotVector relative n) n)
-        update old side position chordAxis spanAxis normal velocity flapVelocity force result =
-          let arm=scaleVec (-0.25*chord) chordAxis
-              leMoment=crossVec arm force
-              next=resultState result
-              nextLoad=0.5*(fieldLoad(stripPressureField(resultState l))+fieldLoad(stripPressureField(resultState r)))
-              energyScale=if nextLoad>1e-12 then min 1e6 (sqrt(load/nextLoad)) else 0
-              nextPatch=(stripPressureField next)
-                {fieldDisplacement=transportVector dt (bodyRatesRadS input)
-                     (scaleVec (-side*energyScale) (fieldDisplacement patch))
-                ,fieldDirection=transportVector dt (bodyRatesRadS input) n}
-              total=addVec (resultForce result) force
-              profile=shapeSection (wmWing model) ((fromIntegral i+0.5)/fromIntegral stripCount)
-              planarSpeed2=dotVector velocity velocity-dotVector velocity spanAxis**2
-              qArea=0.5*airDensity*max 1e-9 planarSpeed2*chord*dr
-              camber=relaxCamber dt (spMembraneTau profile) (stripCamber old)
-                (membraneCamberTarget profile (clamp (-12) 12 (dotVector total normal/qArea)))
-          in result { resultForce=total
-             ,resultMoment=addVec (resultMoment result) (crossVec position force)
-             ,resultSectionMoment=resultSectionMoment result-side*dotVector leMoment spanAxis
-             ,resultBendMoment=resultBendMoment result+side*vx leMoment
-             ,resultPower=max 0 (negate(dotVector total flapVelocity))
-             ,resultState=next {stripCamber=camber,stripPressure=addVec (stripPressure next) force,stripPressureField=nextPatch}}
-    in (update a (-1) pl cl sl nl vl fl pressure l,update b 1 pr cr sr nr vr fr (scaleVec (-1) pressure) r)
 
 transportSeparation :: Double -> VehicleInput -> WingShape -> [StripResult] -> [StripResult]
 transportSeparation _side input wp results = zipWith update [0 ..] results
@@ -685,8 +636,8 @@ prepareStructure side stroke inv wp input old =
       tip = last old
       qb0 = stripBendM tip; qt0 = stripTwistAero tip
       vb0 = stripBendRateMS tip; vt0 = stripTwistRateRadS tip
-      cb = 2*0.25*sqrt(bendMass*bendK)
-      ct = 2*0.25*sqrt(twistMass*twistK)
+      cb = 2*structuralDampingRatio*sqrt(bendMass*bendK)
+      ct = 2*structuralDampingRatio*sqrt(twistMass*twistK)
       deform (vb,vt) = zipWith4 (\s b t slope -> s
         {stripBendM=b*(qb0+dt*vb), stripBendSlope=slope*(qb0+dt*vb)
         ,stripTwistAero=t*(qt0+dt*vt),stripBendRateMS=b*vb,stripTwistRateRadS=t*vt

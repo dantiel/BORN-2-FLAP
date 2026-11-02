@@ -41,11 +41,12 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     bool IsHarvestWatch() const { return bHarvestWatch; }
     bool IsDesertLevel() const { return bDesertLevel; }
     bool IsVoidLevel() const { return bVoidLevel; }
+    bool IsAirportLevel() const { return bAirportLevel; }
     bool IsMenuOpen() const { return bMenuOpen; }
     bool IsWater(double X,double Y) const;
     double WaterHeight() const;
     FVector WindAt(const FVector& P,double Time) const;
-    FString GetLevelId() const { return bDesertLevel ? TEXT("Yunsha") : bVoidLevel ? TEXT("NeonAbyss") : (bCoastLevel ? TEXT("Shiomori") : (bNatureLevel ? TEXT("Ravenstonefield") : TEXT("Training"))); }
+    FString GetLevelId() const { return bAirportLevel ? TEXT("Murex") : bDesertLevel ? TEXT("Yunsha") : bVoidLevel ? TEXT("NeonAbyss") : (bCoastLevel ? TEXT("Shiomori") : (bNatureLevel ? TEXT("Ravenstonefield") : TEXT("Training"))); }
     const FBorn2FlapConditions& GetConditions() const { return Conditions; }
     double GroundHeight(double X, double Y) const;
     bool HasRadioTrack() const;
@@ -115,6 +116,7 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     bool bHarvestWatch = false;
     bool bVoidLevel = false;
     bool bDesertLevel = false;
+    bool bAirportLevel = false;
     FBorn2FlapConditions Conditions;
     UPROPERTY() TObjectPtr<ABorn2FlapWeather> WeatherActor;
     float CoastTestTime=0;

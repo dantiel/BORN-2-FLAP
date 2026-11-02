@@ -37,7 +37,14 @@ data WingModel = WingModel
 -- 2.0 mm inner → 1.6 mm outer LE mainspar + diagonal/mid-chord brace box.
 -- PTK 7465 (or 7465 Plus) servo.
 kestrelModel :: WingModel
-kestrelModel = WingModel "kestrel" defaultBirdWing kestrelSpars 0.050
+kestrelModel = WingModel "kestrel" defaultBirdWing flightSpars 0.050
+  where
+    -- Calibrate torsion independently of bending. At the former scale of 5,
+    -- load-induced washout reversed the advancing wing's rolling response.
+    -- 20 retains elastic feathering while preserving the lift/roll derivative
+    -- through the tested 5-12 m/s envelope. Other airframes retain their own
+    -- existing spar calibration; this is not an aerodynamic force multiplier.
+    flightSpars = kestrelSpars { siTwistScale = 20 }
 
 -- | Horizontal servo mount angle of the RavenCrow ornithopter [deg]. The flap
 -- hinge axis is yawed this much in the horizontal plane, so each stroke sweeps

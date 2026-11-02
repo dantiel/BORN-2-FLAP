@@ -62,7 +62,11 @@ bool FBorn2FlapMathBridge::Load()
         ReconfigureFirmwareVehicle = &::b2f_math_reconfigure_firmware_vehicle;
         GetWingShape = &::b2f_math_get_wing_shape;
         GetWingFields = &::b2f_math_get_wing_fields;
+        GetWingLoads = &::b2f_math_get_wing_loads;
         GetTailIncidence = &::b2f_math_get_tail_incidence;
+        GetExternalForce = &::b2f_math_get_external_force;
+        SetMassFrameHook = &::b2f_math_set_mass_frame;
+        GetTailFields = &::b2f_math_get_tail_fields;
         SetStripWindHook = &::b2f_math_set_strip_wind;
         TransportAirfieldsHook = &::b2f_math_transport_airfields;
         SetWingModelHook = &::b2f_math_set_wing_model;
@@ -126,7 +130,11 @@ bool FBorn2FlapMathBridge::Load()
     GetWingShape = LoadExport<GetWingShapeFn>(LibraryHandle, TEXT("b2f_math_get_wing_shape"));
     GetWingForces = LoadExport<GetWingForcesFn>(LibraryHandle, TEXT("b2f_math_get_wing_forces"));
     GetWingFields = LoadExport<GetWingFieldsFn>(LibraryHandle, TEXT("b2f_math_get_wing_fields"));
+    GetWingLoads = LoadExport<GetWingLoadsFn>(LibraryHandle, TEXT("b2f_math_get_wing_loads"));
     GetTailIncidence = LoadExport<GetTailIncidenceFn>(LibraryHandle, TEXT("b2f_math_get_tail_incidence"));
+    GetExternalForce = LoadExport<GetTailIncidenceFn>(LibraryHandle, TEXT("b2f_math_get_external_force"));
+    SetMassFrameHook = LoadExport<SetMassFrameFn>(LibraryHandle, TEXT("b2f_math_set_mass_frame"));
+    GetTailFields = LoadExport<GetTailFieldsFn>(LibraryHandle, TEXT("b2f_math_get_tail_fields"));
     TransportAirfieldsHook = LoadExport<TransportAirfieldsFn>(LibraryHandle, TEXT("b2f_math_transport_airfields"));
     SetStripWindHook = LoadExport<SetStripWindFn>(LibraryHandle, TEXT("b2f_math_set_strip_wind"));
     SetWingModelHook = LoadExport<SetWingModelFn>(LibraryHandle, TEXT("b2f_math_set_wing_model"));
@@ -138,7 +146,8 @@ bool FBorn2FlapMathBridge::Load()
         UE_LOG(LogTemp, Warning, TEXT("Per-strip wing forces unavailable: rebuild the Haskell backend for force-driven audio."));
     if (!AbiVersion || !RuntimeInit || !RuntimeShutdown || !CreateFirmwareVehicle ||
         !DestroyFirmwareVehicle || !StepFirmwareVehicle || !ReconfigureFirmwareVehicle || !GetMassProperties ||
-        !GetWingFields || !SetStripWindHook || !TransportAirfieldsHook || !GetTailIncidence)
+        !GetWingFields || !SetStripWindHook || !TransportAirfieldsHook || !GetTailIncidence ||
+        !GetExternalForce || !SetMassFrameHook)
     {
         Status = TEXT("Haskell math backend has an incomplete C ABI");
         UE_LOG(LogTemp, Error, TEXT("%s"), *Status);
@@ -210,7 +219,11 @@ void FBorn2FlapMathBridge::Unload()
     GetMassProperties = nullptr;
     GetWingForces = nullptr;
     GetWingFields = nullptr;
+    GetWingLoads = nullptr;
     GetTailIncidence = nullptr;
+    GetExternalForce = nullptr;
+    SetMassFrameHook = nullptr;
+    GetTailFields = nullptr;
     SetStripWindHook = nullptr;
     TransportAirfieldsHook = nullptr;
     SetWingModelHook = nullptr;
@@ -260,9 +273,29 @@ bool FBorn2FlapMathBridge::ReadWingFields(B2F_WingField* Left, B2F_WingField* Ri
     return Context && GetWingFields && GetWingFields(Context, B2F_WING_STATIONS, Left, Right) == B2F_WING_STATIONS;
 }
 
+bool FBorn2FlapMathBridge::ReadWingLoads(B2F_WingLoads* Left, B2F_WingLoads* Right) const
+{
+    return Context && GetWingLoads && GetWingLoads(Context, B2F_WING_STATIONS, Left, Right) == B2F_WING_STATIONS;
+}
+
 bool FBorn2FlapMathBridge::ReadTailIncidence(double& Degrees) const
 {
     return Context && GetTailIncidence && GetTailIncidence(Context, &Degrees) == 1;
+}
+
+bool FBorn2FlapMathBridge::ReadTailFields(B2F_TailField* Fields) const
+{
+    return Context && GetTailFields && GetTailFields(Context, B2F_TAIL_PATCHES, Fields) == B2F_TAIL_PATCHES;
+}
+
+bool FBorn2FlapMathBridge::ReadExternalForce(double* Force) const
+{
+    return Context && GetExternalForce && GetExternalForce(Context, Force) == 1;
+}
+
+bool FBorn2FlapMathBridge::SetMassFrame(double CgX, double PitchInertia, double YawInertia) const
+{
+    return Context && SetMassFrameHook && SetMassFrameHook(Context, CgX, PitchInertia, YawInertia) == 1;
 }
 
 bool FBorn2FlapMathBridge::SetStripWind(const double* Left, const double* Right) const

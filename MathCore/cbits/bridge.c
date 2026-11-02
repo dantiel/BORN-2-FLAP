@@ -187,7 +187,7 @@ B2F_EXPORT HsWord32 b2f_math_abi_version(void) {
      * constant instead of a call into the (uninitialised) Haskell RTS.
       * KEEP IN SYNC with B2F_MATH_ABI_VERSION in Native/include/born2flap_math.h
       * and b2f_math_abi_version in MathCore/src/Born2Flap/Math/FFI.hs. */
-     return 16;
+     return 17;
 }
 
 B2F_EXPORT HsInt32 b2f_math_runtime_init(void) {
@@ -268,7 +268,23 @@ B2F_EXPORT HsInt32 b2f_math_get_mass_properties(HsPtr context, HsDouble cg_x, Hs
 }
 
 extern HsInt32 hs_b2f_math_transport_airfields(HsPtr context, HsPtr rotation);
+extern HsInt32 hs_b2f_math_get_wing_loads(HsPtr context, HsWord32 capacity, HsPtr left, HsPtr right);
+B2F_EXPORT HsInt32 b2f_math_get_wing_loads(HsPtr context, HsWord32 capacity, HsPtr left, HsPtr right) {
+    return hs_b2f_math_get_wing_loads(context, capacity, left, right);
+}
 extern HsInt32 hs_b2f_math_get_tail_incidence(HsPtr context, HsPtr output);
+extern HsInt32 hs_b2f_math_get_tail_fields(HsPtr context, HsWord32 capacity, HsPtr output);
+extern HsInt32 hs_b2f_math_get_external_force(HsPtr context, HsPtr output);
+extern HsInt32 hs_b2f_math_set_mass_frame(HsPtr context, HsDouble cg_x, HsDouble iy, HsDouble iz);
+B2F_EXPORT HsInt32 b2f_math_set_mass_frame(HsPtr context, HsDouble cg_x, HsDouble iy, HsDouble iz) {
+    return hs_b2f_math_set_mass_frame(context, cg_x, iy, iz);
+}
+B2F_EXPORT HsInt32 b2f_math_get_external_force(HsPtr context, HsPtr output) {
+    return hs_b2f_math_get_external_force(context, output);
+}
+B2F_EXPORT HsInt32 b2f_math_get_tail_fields(HsPtr context, HsWord32 capacity, HsPtr output) {
+    return hs_b2f_math_get_tail_fields(context, capacity, output);
+}
 B2F_EXPORT HsInt32 b2f_math_get_tail_incidence(HsPtr context, HsPtr output) {
     return hs_b2f_math_get_tail_incidence(context, output);
 }

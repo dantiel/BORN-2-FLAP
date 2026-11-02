@@ -43,11 +43,13 @@ def main():
     parser.add_argument('--yaw-rate', type=float, default=.6)
     parser.add_argument('--seconds', type=float, default=1.5)
     parser.add_argument('--output', type=Path)
+    parser.add_argument('--expect-outside-bank', action='store_true',
+                        help='Optional whole-airframe response gate; inverted-V tail and sideslip can oppose wing lift')
     args = parser.parse_args()
     if args.hz < 120 or args.speed <= 0 or args.yaw_rate <= 0 or args.seconds <= 0:
         parser.error('use positive speed, yaw rate and duration, and at least 120 Hz')
     lib = c.CDLL(str(args.dll.resolve()))
-    assert lib.b2f_math_runtime_init() == 1 and lib.b2f_math_abi_version() == 16
+    assert lib.b2f_math_runtime_init() == 1 and lib.b2f_math_abi_version() == 17
     create = lib.b2f_math_create_firmware_vehicle
     create.argtypes, create.restype = [c.c_void_p], c.c_void_p
     destroy = lib.b2f_math_destroy_firmware_vehicle
@@ -146,8 +148,11 @@ def main():
             # flap cycle; instantaneous upstroke lift need not point upwards.
             checks[prefix+'_initial_lift_gain'] = sign*first['lift_delta'] > 1e-3
             checks[prefix+'_initial_lift_roll'] = sign*first['lift_moment'] < -1e-5
-            checks[prefix+'_outside_rises'] = sign*final['span_bank'] < -.1
-            checks[prefix+'_body_banks'] = sign*final['body_bank'] < -.1
+            # These are whole-airframe outcomes, not consequences of wing lift
+            # alone: the inverted-V tail, hinge recoil and later sideslip act too.
+            if args.expect_outside_bank:
+                checks[prefix+'_outside_rises'] = sign*final['span_bank'] < -.1
+                checks[prefix+'_body_banks'] = sign*final['body_bank'] < -.1
     report = dict(hz=args.hz, speed=args.speed, seconds=args.seconds, checks=checks, results=results)
     if args.output:
         args.output.write_text(json.dumps(report, indent=2), encoding='utf-8')

@@ -39,6 +39,10 @@ private:
     int32 SelectedPage = 0;
     void RefreshModelButtons();
     void RefreshMouseGains();
+    // Recompute the "speed modifier selects X–Y Hz" readout under the flap
+    // frequency ceiling slider, mirroring Firmware.hs's servo-honest ceiling.
+    FString FlapRangeText() const;
+    void RefreshFlapRange();
 
     UFUNCTION()
     void HandleAction(const FString& Action, float Value, const FString& Text);
@@ -58,6 +62,9 @@ private:
     // currently loaded preset (-1 = CUSTOM after a manual slider edit).
     TArray<int32> ServoSelectPath;
     TArray<int32> ServoStatusPath;
+    // Text readout path for the flap speed-modifier frequency range, placed
+    // directly under the FLAP FREQ CEILING slider.
+    TArray<int32> FlapRangePath;
     int32 ServoPresetIndex = -1;
     void MarkServoCustom();
 };

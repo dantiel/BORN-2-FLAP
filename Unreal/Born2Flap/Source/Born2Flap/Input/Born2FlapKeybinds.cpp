@@ -41,7 +41,6 @@ const born2flap::keybinds::FAction DefaultCatalog[] = {
     { TEXT("ToggleUi"),     TEXT("HIDE ALL UI"),       TEXT("UI"),     EKeys::F7 },
     { TEXT("ClosePanel"),   TEXT("CLOSE / BACK"),      TEXT("UI"),     EKeys::Escape },
     // ---- DEBUG / HUD ----
-    { TEXT("ToggleBlind"),   TEXT("BLIND FLIGHT"),     TEXT("DEBUG"),  EKeys::F1 },
     { TEXT("ToggleChannels"),TEXT("CHANNELS"),         TEXT("DEBUG"),  EKeys::F2 },
     { TEXT("ToggleVectors"), TEXT("VECTORS"),          TEXT("DEBUG"),  EKeys::F5 },
     { TEXT("ToggleMouseInd"),TEXT("MOUSE INDICATOR"),  TEXT("DEBUG"),  EKeys::F9 },

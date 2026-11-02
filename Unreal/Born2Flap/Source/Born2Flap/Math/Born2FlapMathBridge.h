@@ -30,7 +30,11 @@ public:
     bool ReadWingShape(B2F_WingSection* Left, B2F_WingSection* Right) const;
     bool ReadWingForces(double* Left, double* Right) const;
     bool ReadWingFields(B2F_WingField* Left, B2F_WingField* Right) const;
+    bool ReadWingLoads(B2F_WingLoads* Left, B2F_WingLoads* Right) const;
     bool ReadTailIncidence(double& Degrees) const;
+    bool ReadTailFields(B2F_TailField* Fields) const;
+    bool ReadExternalForce(double* Force) const;
+    bool SetMassFrame(double CgX, double PitchInertia, double YawInertia) const;
     bool TransportAirfields(const FVector& RotationVector) const;
     bool SetStripWind(const double* Left, const double* Right) const;
     bool ReadMassProperties(double CgX, B2F_MassProperties& Out) const;
@@ -62,7 +66,9 @@ private:
     using GetWingShapeFn = int32_t (*)(B2F_MathContext*, uint32_t, B2F_WingSection*, B2F_WingSection*);
     using GetWingForcesFn = int32_t (*)(B2F_MathContext*, uint32_t, double*, double*);
     using GetWingFieldsFn = int32_t (*)(B2F_MathContext*, uint32_t, B2F_WingField*, B2F_WingField*);
+    using GetWingLoadsFn = int32_t (*)(B2F_MathContext*, uint32_t, B2F_WingLoads*, B2F_WingLoads*);
     using GetTailIncidenceFn = int32_t (*)(B2F_MathContext*, double*);
+    using GetTailFieldsFn = int32_t (*)(B2F_MathContext*, uint32_t, B2F_TailField*);
     using TransportAirfieldsFn = int32_t (*)(B2F_MathContext*, const double*);
     using SetStripWindFn = int32_t (*)(B2F_MathContext*, uint32_t, const double*, const double*);
     using SetWingModelFn = int32_t (*)(B2F_MathContext*, uint32_t);
@@ -78,7 +84,12 @@ private:
     GetWingShapeFn GetWingShape = nullptr;
     GetWingForcesFn GetWingForces = nullptr;
     GetWingFieldsFn GetWingFields = nullptr;
+    GetWingLoadsFn GetWingLoads = nullptr;
     GetTailIncidenceFn GetTailIncidence = nullptr;
+    GetTailIncidenceFn GetExternalForce = nullptr;
+    using SetMassFrameFn = int32_t (*)(B2F_MathContext*, double, double, double);
+    SetMassFrameFn SetMassFrameHook = nullptr;
+    GetTailFieldsFn GetTailFields = nullptr;
     SetStripWindFn SetStripWindHook = nullptr;
     TransportAirfieldsFn TransportAirfieldsHook = nullptr;
     SetWingModelFn SetWingModelHook = nullptr;

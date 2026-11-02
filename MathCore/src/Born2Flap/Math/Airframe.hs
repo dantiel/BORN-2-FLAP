@@ -1,5 +1,5 @@
 -- Explicit dry mass budget. Collision geometry never enters these calculations.
-module Born2Flap.Math.Airframe (airframeInertia, airframeMasses, fuselageDimensions, tailOutline) where
+module Born2Flap.Math.Airframe (airframeInertia, airframeMasses, fuselageDimensions, tailOutline, tailSamples) where
 import Born2Flap.Math.Model (WingModel(..))
 import Born2Flap.Math.Planform
 
@@ -20,16 +20,18 @@ airframeMasses total = (max 0.0001 (total-2*wing-tailMass),wing,tailMass)
 -- Its planform is ~39.5 cm long and ~50.8 cm wide; mass is only 2 g.
 tailOutline :: [(Double,Double)]
 tailOutline = [(mapX x,y*1.15425/100) | (x,y) <-
-  [(-61.0013,5.1481),(-59.7605,-0.1170),(-61.0013,-5.9671),
-   (-107.8416,-21.9963),(-110.0130,-17.5502),(-112.0293,0),
-   (-109.7028,16.8482),(-108.4620,21.9963)]]
+  [(-61.0013,5.5576),(-59.7605,0),(-61.0013,-5.5576),
+   (-108.1518,-21.9963),(-109.8579,-17.1992),(-112.0293,0),
+   (-109.8579,17.1992),(-108.1518,21.9963)]]
   where mapX x = (-38 + (x+61)/(-112.0293+61)*(-77.5+38))/100
 
 -- Triangle quadrature exact for second moments of a uniform sheet.
 tailSamples :: [(Double,Double,Double)]
-tailSamples = concat [points a b c | (b,c) <- zip (drop 1 tailOutline) (drop 2 tailOutline)]
+tailSamples = concat [points a b c | (b,c) <- zip (drop 1 outline) (drop 2 outline)]
  where
-  a = head tailOutline
+  -- Triangulate from the centreline root, so the quadrature is mirrored too.
+  outline = drop 1 tailOutline ++ take 1 tailOutline
+  a = head outline
   points (ax,ay) (bx,by) (cx,cy) =
    let area=abs ((bx-ax)*(cy-ay)-(by-ay)*(cx-ax))/2
    in [(area/3,wa*ax+wb*bx+wc*cx,wa*ay+wb*by+wc*cy) |
