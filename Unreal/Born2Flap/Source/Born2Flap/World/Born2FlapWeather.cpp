@@ -261,6 +261,15 @@ void ABorn2FlapWeather::Tick(float DeltaSeconds)
     const auto& W=Born2FlapWeather::Profile(Conditions.Weather);
     const FVector Flow=Born2FlapWeather::Wind(Level,Conditions,GetActorLocation(),Time);
     if(CloudMaterial) CloudMaterial->SetVectorParameterValue(TEXT("Layout_WindControls"),FLinearColor(Flow.X*.1,Flow.Y*.1,.5f,.333f));
+    // Foliage sway: expose the live atmospheric wind (m/s, world axes) to every
+    // tree/grass/bark material's World Position Offset via MPC_Weather.Wind.
+    // This is the SAME field the flight physics and aero-audio sample, so the
+    // trees bend with the wind the bird actually feels and hears.
+    if(SurfaceCollection)
+    {
+        auto* MPC=GetWorld()->GetParameterCollectionInstance(SurfaceCollection);
+        MPC->SetVectorParameterValue(TEXT("Wind"),FLinearColor(Flow.X,Flow.Y,Flow.Z,1.f));
+    }
     if(auto* Camera=UGameplayStatics::GetPlayerCameraManager(this,0))
     {
         const FVector Center=Camera->GetCameraLocation();

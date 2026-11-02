@@ -5,23 +5,9 @@
 
 class USceneComponent;
 class USkeletalMeshComponent;
-class UAnimSequence;
 class UMaterialInstanceDynamic;
 class UMaterialInterface;
-
-// High-level locomotion / interaction state the avatar renders.
-UENUM(BlueprintType)
-enum class EAvatarAnimState : uint8
-{
-    Idle           UMETA(DisplayName = "Idle"),
-    Walk           UMETA(DisplayName = "Walk"),
-    Run            UMETA(DisplayName = "Run"),
-    WalkBackward   UMETA(DisplayName = "Walk Backward"),
-    StrafeRight    UMETA(DisplayName = "Strafe Right"),
-    Throw          UMETA(DisplayName = "Throw"),
-    Catch          UMETA(DisplayName = "Catch"),
-    Carry          UMETA(DisplayName = "Carry"),
-};
+class UAnimSequence;
 
 UCLASS()
 class BORN2FLAP_API ABorn2FlapAvatar : public AActor
@@ -36,24 +22,18 @@ public:
     void SetSkin(int32 Index);
     static int32 GetSkinCount() { return 4; }
 
-    // Distinct realistic persons (each its own rigged human). Index 0 = Founder.
+    // The on-foot pilot currently has a single Founder character; Person maps
+    // onto the skin palette (kept so the menu selector and settings persist).
     void SetPerson(int32 Index);
-    int32 GetPerson() const { return PersonIndex; }
-    static int32 GetPersonCount() { return 2; }
+    static int32 GetPersonCount() { return 1; }
 
     void SetPlacement(const FVector& WorldFeet, float WorldYaw);
-    // Legacy forward-only locomotion (the pilot always faces travel direction).
     void SetWalkSpeed(float CmPerSecond);
-    // Direction-aware locomotion: LocalMoveDir in the avatar's local X/Y plane
-    // (X = forward, Y = right). Enables walk/run/backward/strafe selection.
-    void SetMovement(const FVector& LocalMoveDir, float CmPerSecond);
     void SetCarrying(bool bCarry);
     void SetFirstPerson(bool bFirstPerson);
 
     void BeginThrow();
-    void BeginCatch(bool bHeadHeight);
     bool IsThrowing() const { return bThrowing; }
-    bool IsCatching() const { return bCatching; }
     float GetFacingYaw() const { return FacingYaw; }
     USceneComponent* GetCarrySocket() const { return CarrySocket; }
     FVector GetHeadWorldLocation() const;
@@ -62,55 +42,50 @@ public:
     FOnThrowRelease OnThrowRelease;
 
 private:
-    void ApplyMesh();
+    void ResolveSkeleton();
+    int32 FindBone(const TCHAR* Substring) const;
+    void CaptureRestPoses();
     void ApplySkin();
-    void EnsureSections(int32 Count);
-    void LoadAnimations();
-    void PlayState(EAvatarAnimState State, bool bLooping);
+    void PoseBody(bool bMoving, float Dt);
+    void PoseThrow(float Dt);
+    void SetBoneRotation(int32 BoneIndex, const FRotator& Rot);
     void UpdateCarrySocket();
-    void ResolveBones();
-    void ApplyUprightTransform(const struct FReferenceSkeleton& RefSkel);
 
     UPROPERTY() USceneComponent* Root = nullptr;
     UPROPERTY() USkeletalMeshComponent* Body = nullptr;
-    UPROPERTY() TArray<USkeletalMeshComponent*> ExtraSections;
     UPROPERTY() USceneComponent* CarrySocket = nullptr;
 
-    // Animation clips (loaded at BeginPlay from /Game/Actor/Clean/Animations).
-    // UPROPERTY so the GC keeps them alive across runtime collection; without
-    // it the clips are collected after ~60s and PlayAnimation dereferences
-    // dangling pointers (EXCEPTION_ACCESS_VIOLATION 0x0 in PlayState).
-    UPROPERTY() TObjectPtr<UAnimSequence> AnimIdle = nullptr;
-    UPROPERTY() TObjectPtr<UAnimSequence> AnimStanding = nullptr;
-    UPROPERTY() TObjectPtr<UAnimSequence> AnimWalk = nullptr;
-    UPROPERTY() TObjectPtr<UAnimSequence> AnimRun = nullptr;
-    UPROPERTY() TObjectPtr<UAnimSequence> AnimWalkBackward = nullptr;
-    UPROPERTY() TObjectPtr<UAnimSequence> AnimStrafeRight = nullptr;
-    UPROPERTY() TObjectPtr<UAnimSequence> AnimThrow = nullptr;
-    UPROPERTY() TObjectPtr<UAnimSequence> AnimCatch = nullptr;
+    // Retargeted Mixamo locomotion clips (kept alive by UPROPERTY; a bare
+    // TObjectPtr would be GC'd and fault on the first runtime collect).
+    UPROPERTY() UAnimSequence* AnimIdle = nullptr;
+    UPROPERTY() UAnimSequence* AnimWalk = nullptr;
+    UPROPERTY() UAnimSequence* AnimRun = nullptr;
+    UPROPERTY() UAnimSequence* AnimThrow = nullptr;
+    UPROPERTY() UAnimSequence* AnimCatch = nullptr;
+    UAnimSequence* CurrentAnim = nullptr;
 
-    EAvatarAnimState CurrentState = EAvatarAnimState::Idle;
+    int32 BoneHips = INDEX_NONE, BoneSpine = INDEX_NONE, BoneHead = INDEX_NONE;
+    int32 BoneLArm = INDEX_NONE, BoneLForeArm = INDEX_NONE, BoneLHand = INDEX_NONE;
+    int32 BoneRArm = INDEX_NONE, BoneRForeArm = INDEX_NONE, BoneRHand = INDEX_NONE;
+    int32 BoneLUpLeg = INDEX_NONE, BoneLLeg = INDEX_NONE, BoneLFoot = INDEX_NONE;
+    int32 BoneRUpLeg = INDEX_NONE, BoneRLeg = INDEX_NONE, BoneRFoot = INDEX_NONE;
 
-    int32 BoneHead = INDEX_NONE;
-    int32 BoneLHand = INDEX_NONE;
-    int32 BoneRHand = INDEX_NONE;
-
-    UPROPERTY() TArray<UMaterialInterface*> OriginalMaterials;
+    TMap<int32, FVector> RestTranslations;
+    TArray<UMaterialInterface*> OriginalMaterials;
     UPROPERTY() UMaterialInstanceDynamic* SkinMID = nullptr;
 
     int32 SkinIndex = 0;
-    int32 PersonIndex = 0;
     FVector FeetWorld = FVector::ZeroVector;
     float FacingYaw = 0.f;
     float TargetFacingYaw = 0.f;
-    FVector LocalMoveDir = FVector(1.f, 0.f, 0.f);
-    float MoveSpeed = 0.f;
+    float GaitSpeed = 0.f;
+    float GaitPhase = 0.f;
+    float GaitBlend = 0.f;
+    float MeshScale = 1.f;
     bool bCarrying = false;
     bool bFirstPerson = false;
     bool bThrowing = false;
-    bool bCatching = false;
-    bool bCatchHeadHeight = false;
     float ThrowTime = 0.f;
-    float CatchTime = 0.f;
     bool bReleaseFired = false;
+    double WorldTime = 0.0;
 };

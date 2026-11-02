@@ -92,6 +92,9 @@ typedef struct B2F_FirmwareConfig {
 } B2F_FirmwareConfig;
 
 typedef struct B2F_FirmwareOutput {
+    /* Host-equivalent loads for the configured dry mass/tensor. With a mass
+     * frame, subtract cg cross get_external_force() from moment_n_m to obtain
+     * the torque at the host CG. Surface diagnostics remain raw aero loads. */
     double force_n[3];
     double moment_n_m[3];
     double mechanical_power_w;
@@ -144,6 +147,7 @@ typedef struct B2F_TuningConfig {
     double body_mass_kg;         /* airframe mass, scales the wing planform (ABI v8) */
     double vertical_mount_angle_deg; /* real wing mount incidence (nose-up +), -15..+15 (ABI v14) */
     double return_ferocity;      /* upstroke/return ferocity, 0..100 (ABI v15) */
+    double reserved_legacy_amplitude_deg; /* Preserve ABI 17 size; ignored. Amplitude is automatic. */
 } B2F_TuningConfig;
 
 B2F_API int32_t b2f_math_reconfigure_firmware_vehicle(
@@ -216,9 +220,10 @@ B2F_API int32_t b2f_math_get_tail_incidence(B2F_MathContext* context, double* de
  * which also includes added-mass, gravity correction and inertial recoil.
  * Read-only ABI-17 extension; returns 1, or 0 without writes on invalid input. */
 B2F_API int32_t b2f_math_get_external_force(B2F_MathContext* context, double* force_n);
-/* Enable implicit pitch/yaw rates with host CG x [m] and dry inertias [kg m2].
+/* Enable coupled translation/rotation/hinges with CG x [m] and dry inertias [kg m2].
  * Roll inertia remains supplied in BodyState. Linear velocity is at the body
- * origin; this hook accounts for the CG while evaluating trial angular rates.
+ * origin; this hook accounts for the CG while evaluating all trial velocities.
+ * Without it the legacy prescribed-motion fixture path remains available.
  * Returns 0 without mutation for nonfinite/invalid values; 1 on success. */
 B2F_API int32_t b2f_math_set_mass_frame(B2F_MathContext* context, double cg_x_m,
     double pitch_inertia_kg_m2, double yaw_inertia_kg_m2);

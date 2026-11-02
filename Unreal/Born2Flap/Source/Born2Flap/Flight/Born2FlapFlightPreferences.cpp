@@ -1,4 +1,5 @@
 #include "Flight/Born2FlapFlightPawn.h"
+#include "Debug/DebugDrawService.h"
 #include "Avatar/Born2FlapAvatar.h"
 #include "Flight/Born2FlapTuning.h"
 #include "Game/Born2FlapGameMode.h"
@@ -50,6 +51,9 @@ void ABorn2FlapFlightPawn::LoadFlightPreferences()
     int32 RollStick = MobileRollStick;
     Config.GetInt(TEXT("Mobile"),TEXT("RollStick"),RollStick);
     MobileRollStick = (RollStick == 0 || RollStick == 1) ? RollStick : 1;
+    bool AvatarEnabled = bAvatarEnabled;
+    Config.GetBool(TEXT("Avatar"),TEXT("Enabled"),AvatarEnabled);
+    bAvatarEnabled = AvatarEnabled;
     int32 Person = AvatarPerson;
     Config.GetInt(TEXT("Avatar"),TEXT("Person"),Person);
     AvatarPerson = FMath::Clamp(Person, 0, ABorn2FlapAvatar::GetPersonCount() - 1);
@@ -111,6 +115,7 @@ void ABorn2FlapFlightPawn::SaveFlightPreferences()
     Config.SetBool(TEXT("Mobile"),TEXT("InvertPitch"),bMobileInvertPitch);
     Config.SetInt64(TEXT("Mobile"),TEXT("ThrottleStick"),MobileThrottleStick);
     Config.SetInt64(TEXT("Mobile"),TEXT("RollStick"),MobileRollStick);
+    Config.SetBool(TEXT("Avatar"),TEXT("Enabled"),bAvatarEnabled);
     Config.SetInt64(TEXT("Avatar"),TEXT("Person"),AvatarPerson);
     Config.SetBool(TEXT("Flight"),TEXT("CoupledThrottle"),bCoupledThrottle);
     Config.SetFloat(TEXT("Flight"),TEXT("BodyMassKg"),BodyMassKg);
@@ -285,6 +290,7 @@ void ABorn2FlapFlightPawn::DeleteReplaySpirits()
 }
 void ABorn2FlapFlightPawn::EndPlay(const EEndPlayReason::Type Reason)
 {
+    UDebugDrawService::Unregister(VectorOverlayHandle);
     CloseFlightSettings();
     ClosePoiOverlay();
     if (PanelKeyProcessor.IsValid() && FSlateApplication::IsInitialized())

@@ -27,8 +27,8 @@ LIB = u.EditorAssetLibrary
 _HERE = Path(__file__).resolve()
 _PROJECT = _HERE.parents[1]
 
-SKELETON_PATH = '/Game/Actor/Founder_rigged/SkeletalMeshes/Object_72_Skeleton'
-DEST_PATH = '/Game/Actor/Animations'
+SKELETON_PATH = '/Game/Actor/Clean/Founder_rigged_clean/SkeletalMeshes/Object_72_Skeleton'
+DEST_PATH = '/Game/Actor/Clean/Animations'
 
 # source filename -> (asset name, log label)
 CLIPS = [
@@ -115,8 +115,16 @@ def import_animations():
 
         seq = u.load_asset(DEST_PATH + '/' + asset_name)
         if seq and isinstance(seq, u.AnimSequence):
-            u.log('Mixamo %s -> %s (%d frames, %.2fs)'
-                  % (label, seq.get_path(), seq.get_number_of_frames(), seq.get_play_length()))
+            frames = -1
+            for meth in ('get_number_of_frames', 'get_num_frames'):
+                if hasattr(seq, meth):
+                    try:
+                        frames = int(getattr(seq, meth)())
+                        break
+                    except Exception:
+                        pass
+            u.log('Mixamo %s -> %s (frames=%d, %.2fs)'
+                  % (label, seq.get_path_name(), frames, seq.get_play_length()))
         imported.append(asset_name)
 
     u.log('import_mixamo_animations: done, imported %d/%d clips'

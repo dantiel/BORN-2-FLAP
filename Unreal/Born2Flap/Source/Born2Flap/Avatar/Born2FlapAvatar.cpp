@@ -2,52 +2,39 @@
 #include "Components/SceneComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
+#include "Animation/AnimInstance.h"
 #include "Animation/AnimSequence.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 
 namespace
 {
+// One full gait cycle covers this much forward travel (cm).
+constexpr float StrideCm = 65.f;
+// Throw animation: total duration and the release moment (fraction 0..1).
+constexpr float ThrowDuration = 0.65f;
+constexpr float ThrowReleaseFraction = 0.30f;
+// Normalise any imported character to this standing height (cm).
 constexpr float TargetHeightCm = 180.f;
-constexpr float IdleSpeedCm = 15.f;
-constexpr float RunSpeedCm = 380.f;
 
+// Colour palettes per skin index. Cloth / Skin / Hair / Accent.
 struct FB2FAvatarPalette
 {
     FLinearColor Cloth, Skin, Hair, Accent;
 };
-
-// Distinct realistic persons, each a separate rigged human (Mixamo). Person 0
-// is the Founder character. Person 1 (the Hunter) is byte-identical to the
-// founder source, so it reuses the same clean mesh until a second human is
-// committed. Each person is a list of skeletal-mesh sections sharing one
-// skeleton (the founder GLB splits into gambeson body x2 + hair).
-const TArray<TArray<FString>>& AvatarPersonSections()
-{
-    static const TArray<TArray<FString>> Persons = {
-        {
-            TEXT("/Game/Actor/Clean/Founder_rigged_clean/SkeletalMeshes/Object_72.Object_72"),
-            TEXT("/Game/Actor/Clean/Founder_rigged_clean/SkeletalMeshes/Object_73.Object_73"),
-            TEXT("/Game/Actor/Clean/Founder_rigged_clean/SkeletalMeshes/Object_75.Object_75"),
-        },
-        {
-            TEXT("/Game/Actor/Clean/Founder_rigged_clean/SkeletalMeshes/Object_72.Object_72"),
-            TEXT("/Game/Actor/Clean/Founder_rigged_clean/SkeletalMeshes/Object_73.Object_73"),
-            TEXT("/Game/Actor/Clean/Founder_rigged_clean/SkeletalMeshes/Object_75.Object_75"),
-        },
-    };
-    return Persons;
-}
-
 const TArray<FB2FAvatarPalette>& AvatarSkins()
 {
     static const TArray<FB2FAvatarPalette> Skins = {
+        // 0: founder (original textures; palette only used as tint fallback)
         { FLinearColor(0.16f, 0.22f, 0.18f), FLinearColor(0.76f, 0.58f, 0.45f),
           FLinearColor(0.09f, 0.07f, 0.05f), FLinearColor(0.80f, 0.62f, 0.20f) },
+        // 1: coast
         { FLinearColor(0.02f, 0.27f, 0.30f), FLinearColor(0.85f, 0.70f, 0.55f),
           FLinearColor(0.03f, 0.03f, 0.04f), FLinearColor(1.0f, 0.49f, 0.055f) },
+        // 2: neon
         { FLinearColor(0.05f, 0.05f, 0.10f), FLinearColor(0.70f, 0.75f, 0.80f),
           FLinearColor(0.02f, 0.02f, 0.03f), FLinearColor(0.0f, 1.0f, 0.9f) },
+        // 3: bronze statue
         { FLinearColor(0.24f, 0.145f, 0.06f), FLinearColor(0.24f, 0.145f, 0.06f),
           FLinearColor(0.15f, 0.10f, 0.05f), FLinearColor(0.42f, 0.28f, 0.12f) },
     };
@@ -67,335 +54,167 @@ ABorn2FlapAvatar::ABorn2FlapAvatar()
     Body->SetupAttachment(Root);
     Body->SetCollisionEnabled(ECollisionEnabled::NoCollision);
     Body->SetCastShadow(true);
-    Body->SetAnimationMode(EAnimationMode::AnimationSingleNode);
 
     CarrySocket = CreateDefaultSubobject<USceneComponent>(TEXT("CarrySocket"));
     CarrySocket->SetupAttachment(Body);
 }
 
-void ABorn2FlapAvatar::ApplyMesh()
-{
-    if (!Body)
-        return;
-
-    const TArray<TArray<FString>>& Persons = AvatarPersonSections();
-    const TArray<FString>& Paths = Persons[FMath::Clamp(PersonIndex, 0, Persons.Num() - 1)];
-
-    EnsureSections(Paths.Num());
-
-    TArray<USkeletalMeshComponent*> All;
-    All.Add(Body);
-    All.Append(ExtraSections);
-
-    USkeletalMesh* PrimaryMesh = nullptr;
-    for (int32 i = 0; i < Paths.Num(); ++i)
-    {
-        USkeletalMesh* Mesh = LoadObject<USkeletalMesh>(nullptr, *Paths[i]);
-        if (!Mesh || !All.IsValidIndex(i))
-            continue;
-        All[i]->SetSkeletalMesh(Mesh);
-        All[i]->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-        All[i]->SetCastShadow(true);
-        if (i > 0)
-            All[i]->SetLeaderPoseComponent(Body);
-        if (i == 0)
-            PrimaryMesh = Mesh;
-    }
-
-    ResolveBones();
-
-    // The imported glTF rig rests on its back in component space; recover the
-    // character's intrinsic basis from the static reference skeleton and rotate
-    // the whole mesh upright. Self-healing and independent of the importer's
-    // coordinate conversion.
-    if (PrimaryMesh)
-        ApplyUprightTransform(PrimaryMesh->GetRefSkeleton());
-
-    OriginalMaterials.Reset();
-    for (int32 i = 0; i < Body->GetNumMaterials(); ++i)
-        OriginalMaterials.Add(Body->GetMaterial(i));
-    SkinMID = nullptr;
-    ApplySkin();
-}
-
-void ABorn2FlapAvatar::ApplyUprightTransform(const FReferenceSkeleton& RefSkel)
-{
-    const TArray<FTransform>& RefPose = RefSkel.GetRefBonePose();
-    if (RefPose.Num() == 0)
-        return;
-
-    auto RefIdx = [&](const TCHAR* Sub) -> int32
-    {
-        for (int32 i = 0; i < RefSkel.GetNum(); ++i)
-            if (RefSkel.GetBoneName(i).ToString().Contains(Sub))
-                return i;
-        return INDEX_NONE;
-    };
-    auto CompPos = [&](int32 RefBoneIdx) -> FVector
-    {
-        if (RefBoneIdx == INDEX_NONE || RefBoneIdx >= RefPose.Num())
-            return FVector::ZeroVector;
-        TArray<int32> Chain;
-        int32 Cur = RefBoneIdx;
-        while (Cur != INDEX_NONE && Chain.Num() < 64)
-        {
-            Chain.Add(Cur);
-            Cur = RefSkel.GetParentIndex(Cur);
-        }
-        FTransform Acc = FTransform::Identity;
-        for (int32 k = Chain.Num() - 1; k >= 0; --k)
-            Acc = Acc * RefPose[Chain[k]];
-        return Acc.GetLocation();
-    };
-
-    const int32 HipsIdx = RefIdx(TEXT("Hips"));
-    const int32 HeadIdx = RefIdx(TEXT("Head"));
-    const int32 LArmIdx = RefIdx(TEXT("LeftArm"));
-    const int32 RArmIdx = RefIdx(TEXT("RightArm"));
-    const int32 LFootIdx = RefIdx(TEXT("LeftFoot"));
-    const int32 RFootIdx = RefIdx(TEXT("RightFoot"));
-
-    const FVector Hips = CompPos(HipsIdx);
-    const FVector Head = CompPos(HeadIdx);
-    const FVector RightRaw = CompPos(RArmIdx) - CompPos(LArmIdx);
-    const FVector UpRaw = Head - Hips;
-
-    FVector Up = UpRaw.GetSafeNormal();
-    FVector Right = RightRaw.GetSafeNormal();
-    FVector Forward = FVector::CrossProduct(Right, Up).GetSafeNormal();
-    Right = FVector::CrossProduct(Up, Forward).GetSafeNormal();
-    Up = FVector::CrossProduct(Forward, Right).GetSafeNormal();
-
-    if (Up.IsNearlyZero() || Right.IsNearlyZero() || Forward.IsNearlyZero())
-        return;
-
-    const FMatrix Basis(Forward, Right, Up, FVector::ZeroVector);
-    const FRotator Stand = Basis.Rotator();
-
-    FVector FootMid = FVector::ZeroVector;
-    int32 FootCount = 0;
-    if (LFootIdx != INDEX_NONE) { FootMid += CompPos(LFootIdx); ++FootCount; }
-    if (RFootIdx != INDEX_NONE) { FootMid += CompPos(RFootIdx); ++FootCount; }
-    float MeshScale = 1.f;
-    if (FootCount == 2)
-    {
-        FootMid *= 0.5f;
-        const float StandingHeight = FVector::DotProduct(Head - FootMid, Up);
-        if (StandingHeight > 1.f)
-            MeshScale = TargetHeightCm / StandingHeight;
-    }
-    const FVector RelLoc(0.f, 0.f, -Stand.RotateVector(FootMid).Z * MeshScale);
-
-    Body->SetRelativeRotation(Stand);
-    Body->SetRelativeScale3D(FVector(MeshScale));
-    Body->SetRelativeLocation(RelLoc);
-    for (USkeletalMeshComponent* Sec : ExtraSections)
-    {
-        if (!Sec)
-            continue;
-        Sec->SetRelativeRotation(Stand);
-        Sec->SetRelativeScale3D(FVector(MeshScale));
-        Sec->SetRelativeLocation(RelLoc);
-    }
-
-    UE_LOG(LogTemp, Log, TEXT("Avatar upright: Up=(%.2f,%.2f,%.2f) Fwd=(%.2f,%.2f,%.2f) Right=(%.2f,%.2f,%.2f) scale=%.3f Stand=%s"),
-        Up.X, Up.Y, Up.Z, Forward.X, Forward.Y, Forward.Z, Right.X, Right.Y, Right.Z,
-        MeshScale, *Stand.ToString());
-}
-
-void ABorn2FlapAvatar::EnsureSections(int32 Count)
-{
-    const int32 Target = FMath::Max(0, Count - 1);
-    const int32 Current = ExtraSections.Num();
-    if (Target > Current)
-    {
-        for (int32 i = Current; i < Target; ++i)
-        {
-            USkeletalMeshComponent* Sec = NewObject<USkeletalMeshComponent>(
-                this, *FString::Printf(TEXT("Section%d"), i + 1));
-            Sec->SetupAttachment(Root);
-            Sec->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-            Sec->SetCastShadow(true);
-            Sec->RegisterComponent();
-            ExtraSections.Add(Sec);
-        }
-    }
-    else if (Target < Current)
-    {
-        for (int32 i = Current - 1; i >= Target; --i)
-        {
-            ExtraSections[i]->DestroyComponent();
-            ExtraSections.RemoveAt(i);
-        }
-    }
-}
-
-void ABorn2FlapAvatar::ResolveBones()
-{
-    if (!Body)
-        return;
-    auto Find = [&](const TCHAR* Sub) -> int32
-    {
-        const int32 N = Body->GetNumBones();
-        for (int32 i = 0; i < N; ++i)
-            if (Body->GetBoneName(i).ToString().Contains(Sub))
-                return i;
-        return INDEX_NONE;
-    };
-    BoneHead = Find(TEXT("Head"));
-    BoneLHand = Find(TEXT("LeftHand"));
-    BoneRHand = Find(TEXT("RightHand"));
-}
-
-void ABorn2FlapAvatar::LoadAnimations()
-{
-    AnimIdle = LoadObject<UAnimSequence>(nullptr, TEXT("/Game/Actor/Clean/Animations/AM_Idle"));
-    AnimStanding = LoadObject<UAnimSequence>(nullptr, TEXT("/Game/Actor/Clean/Animations/AM_Standing"));
-    AnimWalk = LoadObject<UAnimSequence>(nullptr, TEXT("/Game/Actor/Clean/Animations/AM_Walk"));
-    AnimRun = LoadObject<UAnimSequence>(nullptr, TEXT("/Game/Actor/Clean/Animations/AM_Run"));
-    AnimWalkBackward = LoadObject<UAnimSequence>(nullptr, TEXT("/Game/Actor/Clean/Animations/AM_WalkBackward"));
-    AnimStrafeRight = LoadObject<UAnimSequence>(nullptr, TEXT("/Game/Actor/Clean/Animations/AM_StrafeRight"));
-    AnimThrow = LoadObject<UAnimSequence>(nullptr, TEXT("/Game/Actor/Clean/Animations/AM_Throw"));
-    AnimCatch = LoadObject<UAnimSequence>(nullptr, TEXT("/Game/Actor/Clean/Animations/AM_Catch"));
-
-    UE_LOG(LogTemp, Log, TEXT("Avatar anims: idle=%d walk=%d run=%d throw=%d catch=%d"),
-        AnimIdle != nullptr, AnimWalk != nullptr, AnimRun != nullptr,
-        AnimThrow != nullptr, AnimCatch != nullptr);
-}
-
-void ABorn2FlapAvatar::PlayState(EAvatarAnimState State, bool bLooping)
-{
-    if (!Body)
-        return;
-    UAnimSequence* Clip = nullptr;
-    switch (State)
-    {
-        case EAvatarAnimState::Idle:         Clip = AnimIdle; break;
-        case EAvatarAnimState::Walk:         Clip = AnimWalk; break;
-        case EAvatarAnimState::Run:          Clip = AnimRun; break;
-        case EAvatarAnimState::WalkBackward: Clip = AnimWalkBackward; break;
-        case EAvatarAnimState::StrafeRight:  Clip = AnimStrafeRight; break;
-        case EAvatarAnimState::Throw:        Clip = AnimThrow; bLooping = false; break;
-        case EAvatarAnimState::Catch:        Clip = AnimCatch; bLooping = false; break;
-        case EAvatarAnimState::Carry:        Clip = AnimStanding ? AnimStanding : AnimIdle; break;
-    }
-    if (!Clip)
-        Clip = AnimIdle;
-    if (!Clip)
-        return;
-
-    // Never drive animation on a mesh whose skinned asset or skeleton is still
-    // missing (async compilation / broken reference); PlayAnimation would walk
-    // a null anim instance and fault at 0x0.
-    USkeletalMesh* SkelMesh = Body->GetSkeletalMeshAsset();
-    if (!SkelMesh || !SkelMesh->GetSkeleton())
-        return;
-
-    Body->SetAnimationMode(EAnimationMode::AnimationSingleNode);
-    Body->PlayAnimation(Clip, bLooping);
-}
-
 void ABorn2FlapAvatar::BeginPlay()
 {
     Super::BeginPlay();
-    ApplyMesh();
-    LoadAnimations();
-    PlayState(EAvatarAnimState::Idle, true);
+
+    if (USkeletalMesh* Mesh = LoadObject<USkeletalMesh>(nullptr, TEXT("/Game/Actor/SK_Founder/SkeletalMeshes/SK_Founder.SK_Founder")))
+    {
+        Body->SetSkeletalMesh(Mesh);
+    }
+    else
+    {
+        UE_LOG(LogTemp, Warning, TEXT("Avatar: /Game/Actor/SK_Founder/SkeletalMeshes/SK_Founder missing - run Tools/import_founder.py"));
+    }
+
+    ResolveSkeleton();
+
+    // Load the Mixamo locomotion clips baked directly into the Founder GLB (so
+    // they share the skeleton's glTF frame — no FBX retarget axis mismatch).
+    AnimIdle  = LoadObject<UAnimSequence>(nullptr, TEXT("/Game/Actor/SK_Founder/SkeletalMeshes/SK_FounderIdle.SK_FounderIdle"));
+    AnimWalk  = LoadObject<UAnimSequence>(nullptr, TEXT("/Game/Actor/SK_Founder/SkeletalMeshes/SK_FounderWalk.SK_FounderWalk"));
+    AnimRun   = LoadObject<UAnimSequence>(nullptr, TEXT("/Game/Actor/SK_Founder/SkeletalMeshes/SK_FounderRun.SK_FounderRun"));
+    AnimThrow = LoadObject<UAnimSequence>(nullptr, TEXT("/Game/Actor/SK_Founder/SkeletalMeshes/SK_FounderThrow.SK_FounderThrow"));
+    AnimCatch = LoadObject<UAnimSequence>(nullptr, TEXT("/Game/Actor/SK_Founder/SkeletalMeshes/SK_FounderCatch.SK_FounderCatch"));
+
+    Body->SetAnimationMode(EAnimationMode::AnimationSingleNode);
+    if (AnimIdle)
+    {
+        CurrentAnim = AnimIdle;
+        Body->SetAnimation(AnimIdle);
+        Body->Play(true);
+    }
+
+    // Normalise to a ~180 cm human and rest the feet on the ground. The skeleton
+    // root is the hips, so lift the mesh until the foot bone reaches the root.
+    if (Body->GetSkeletalMeshAsset())
+    {
+        const FBoxSphereBounds B = Body->CalcBounds(Body->GetComponentTransform());
+        const float HeightLocal = B.BoxExtent.Z * 2.f;
+        if (HeightLocal > 1.f)
+            MeshScale = TargetHeightCm / HeightLocal;
+        Body->SetRelativeScale3D(FVector(MeshScale));
+        if (BoneLFoot != INDEX_NONE)
+        {
+            const float FootZ = Body->GetBoneLocation(Body->GetBoneName(BoneLFoot), EBoneSpaces::ComponentSpace).Z;
+            Body->SetRelativeLocation(FVector(0.f, 0.f, -FootZ * MeshScale));
+        }
+    }
+
+    // Cache the founder's own materials for skin index 0 (naturalistic human).
+    OriginalMaterials.Reset();
+    for (int32 i = 0; i < Body->GetNumMaterials(); ++i)
+        OriginalMaterials.Add(Body->GetMaterial(i));
+
+    ApplySkin();
     SetFirstPerson(false);
 }
 
 void ABorn2FlapAvatar::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
+    WorldTime += DeltaSeconds;
 
     FacingYaw = FMath::FInterpTo(FacingYaw, TargetFacingYaw, DeltaSeconds, 10.f);
     Root->SetWorldLocation(FeetWorld);
     Root->SetWorldRotation(FRotator(0.f, FacingYaw, 0.f));
 
+    const bool bMoving = FMath::Abs(GaitSpeed) > 12.f;
+
+    // Pick the locomotion clip and loop it.
+    UAnimSequence* Target = nullptr;
+    if (bThrowing)
+        Target = AnimThrow;
+    else if (GaitSpeed > 240.f)
+        Target = AnimRun;
+    else if (bMoving)
+        Target = AnimWalk;
+    else
+        Target = AnimIdle;
+
+    if (Target && Target != CurrentAnim)
+    {
+        CurrentAnim = Target;
+        Body->SetAnimation(Target);
+        Body->Play(!bThrowing);   // one-shot for throw, loop otherwise
+    }
+
+    // One-shot throw bookkeeping: release at 30% of the clip, auto-return to idle/walk.
     if (bThrowing)
     {
         ThrowTime += DeltaSeconds;
-        const float ThrowLen = AnimThrow ? FMath::Max(0.1f, AnimThrow->GetPlayLength()) : 0.8f;
-        if (!bReleaseFired && ThrowTime >= ThrowLen * 0.40f)
+        const float ThrowDur = AnimThrow ? AnimThrow->GetPlayLength() : ThrowDuration;
+        if (!bReleaseFired && ThrowTime >= ThrowDur * ThrowReleaseFraction)
         {
             bReleaseFired = true;
             OnThrowRelease.ExecuteIfBound();
         }
-        if (ThrowTime >= ThrowLen)
+        if (ThrowTime >= ThrowDur)
         {
             bThrowing = false;
-            PlayState(CurrentState, true);
-        }
-    }
-    else if (bCatching)
-    {
-        CatchTime += DeltaSeconds;
-        const float CatchLen = AnimCatch ? FMath::Max(0.1f, AnimCatch->GetPlayLength()) : 1.0f;
-        if (CatchTime >= CatchLen)
-        {
-            bCatching = false;
-            PlayState(CurrentState, true);
-        }
-    }
-    else
-    {
-        EAvatarAnimState Desired;
-        const float S = MoveSpeed;
-        if (S < IdleSpeedCm)
-        {
-            Desired = EAvatarAnimState::Idle;
-        }
-        else
-        {
-            const float Fwd = LocalMoveDir.X;
-            const float Right = LocalMoveDir.Y;
-            if (FMath::Abs(Right) > FMath::Abs(Fwd) * 0.8f)
-                Desired = EAvatarAnimState::StrafeRight;
-            else if (Fwd < -0.3f)
-                Desired = EAvatarAnimState::WalkBackward;
-            else if (S > RunSpeedCm)
-                Desired = EAvatarAnimState::Run;
-            else
-                Desired = EAvatarAnimState::Walk;
-        }
-        if (bCarrying)
-            Desired = EAvatarAnimState::Carry;
-
-        if (Desired != CurrentState)
-        {
-            CurrentState = Desired;
-            PlayState(CurrentState, true);
+            ThrowTime = 0.f;
+            CurrentAnim = nullptr;   // re-select idle/walk next tick
         }
     }
 
     UpdateCarrySocket();
 }
 
-void ABorn2FlapAvatar::UpdateCarrySocket()
+int32 ABorn2FlapAvatar::FindBone(const TCHAR* Substring) const
 {
-    if (!CarrySocket || !Body)
+    if (!Body)
+        return INDEX_NONE;
+    const int32 N = Body->GetNumBones();
+    for (int32 i = 0; i < N; ++i)
+        if (Body->GetBoneName(i).ToString().Contains(Substring))
+            return i;
+    return INDEX_NONE;
+}
+
+void ABorn2FlapAvatar::ResolveSkeleton()
+{
+    BoneHips = FindBone(TEXT("Hips"));
+    BoneSpine = FindBone(TEXT("Spine"));
+    BoneHead = FindBone(TEXT("Head"));
+    BoneLArm = FindBone(TEXT("LeftArm"));
+    BoneLForeArm = FindBone(TEXT("LeftForeArm"));
+    BoneLHand = FindBone(TEXT("LeftHand"));
+    BoneRArm = FindBone(TEXT("RightArm"));
+    BoneRForeArm = FindBone(TEXT("RightForeArm"));
+    BoneRHand = FindBone(TEXT("RightHand"));
+    BoneLUpLeg = FindBone(TEXT("LeftUpLeg"));
+    BoneLLeg = FindBone(TEXT("LeftLeg"));
+    BoneLFoot = FindBone(TEXT("LeftFoot"));
+    BoneRUpLeg = FindBone(TEXT("RightUpLeg"));
+    BoneRLeg = FindBone(TEXT("RightLeg"));
+    BoneRFoot = FindBone(TEXT("RightFoot"));
+}
+
+void ABorn2FlapAvatar::CaptureRestPoses()
+{
+    RestTranslations.Reset();
+    if (!Body)
         return;
-    FVector Mid = Body->GetComponentLocation();
-    if (BoneLHand != INDEX_NONE && BoneRHand != INDEX_NONE)
-    {
-        Mid = (Body->GetBoneLocation(Body->GetBoneName(BoneLHand), EBoneSpaces::WorldSpace) +
-               Body->GetBoneLocation(Body->GetBoneName(BoneRHand), EBoneSpaces::WorldSpace)) * 0.5f;
-    }
-    CarrySocket->SetRelativeLocation(Body->GetComponentTransform().InverseTransformPosition(Mid));
+    const int32 Bones[] = { BoneHips, BoneSpine, BoneHead, BoneLArm, BoneLForeArm, BoneLHand,
+        BoneRArm, BoneRForeArm, BoneRHand, BoneLUpLeg, BoneLLeg, BoneLFoot,
+        BoneRUpLeg, BoneRLeg, BoneRFoot };
+    for (int32 Idx : Bones)
+        if (Idx != INDEX_NONE)
+            RestTranslations.Add(Idx, Body->GetBoneTransform(Body->GetBoneName(Idx), RTS_Component).GetLocation());
 }
 
-void ABorn2FlapAvatar::SetPerson(int32 Index)
+void ABorn2FlapAvatar::SetBoneRotation(int32 BoneIndex, const FRotator& Rot)
 {
-    PersonIndex = FMath::Clamp(Index, 0, AvatarPersonSections().Num() - 1);
-    if (HasActorBegunPlay())
-        ApplyMesh();
-}
-
-void ABorn2FlapAvatar::SetSkin(int32 Index)
-{
-    SkinIndex = Index;
-    if (HasActorBegunPlay())
-        ApplySkin();
+    // UE 5.8 has no public "set a single bone transform" API on USkeletalMeshComponent.
+    // Procedural posing must go through a UAnimInstance (override NativeUpdateAnimation
+    // and write into the compact pose). Until that lands the avatar renders its reference pose.
+    (void)BoneIndex;
+    (void)Rot;
 }
 
 void ABorn2FlapAvatar::ApplySkin()
@@ -405,6 +224,7 @@ void ABorn2FlapAvatar::ApplySkin()
     const auto& Palettes = AvatarSkins();
     const FB2FAvatarPalette& P = Palettes[FMath::Clamp(SkinIndex, 0, Palettes.Num() - 1)];
 
+    // Skin 0 keeps the founder's own textured materials (naturalistic human).
     if (SkinIndex == 0 && OriginalMaterials.Num() > 0)
     {
         for (int32 i = 0; i < Body->GetNumMaterials() && i < OriginalMaterials.Num(); ++i)
@@ -412,6 +232,8 @@ void ABorn2FlapAvatar::ApplySkin()
         return;
     }
 
+    // Tinted actors: use the parameterized actor material when available, else
+    // fall back to the flat training material so a missing M_Actor still shows.
     UMaterialInterface* Base = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Actor/M_Actor"));
     if (!Base)
         Base = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Training/M_Stone"));
@@ -425,6 +247,19 @@ void ABorn2FlapAvatar::ApplySkin()
         Body->SetMaterial(i, SkinMID);
 }
 
+void ABorn2FlapAvatar::SetSkin(int32 Index)
+{
+    SkinIndex = Index;
+    if (HasActorBegunPlay())
+        ApplySkin();
+}
+
+void ABorn2FlapAvatar::SetPerson(int32 Index)
+{
+    // Single Founder character; Person maps onto the skin palette for now.
+    SetSkin(FMath::Clamp(Index, 0, 3));
+}
+
 void ABorn2FlapAvatar::SetPlacement(const FVector& WorldFeet, float WorldYaw)
 {
     FeetWorld = WorldFeet;
@@ -433,15 +268,9 @@ void ABorn2FlapAvatar::SetPlacement(const FVector& WorldFeet, float WorldYaw)
         Root->SetWorldLocation(WorldFeet);
 }
 
-void ABorn2FlapAvatar::SetMovement(const FVector& InLocalMoveDir, float CmPerSecond)
-{
-    LocalMoveDir = InLocalMoveDir.SizeSquared() > 0.01f ? InLocalMoveDir.GetSafeNormal() : FVector(1.f, 0.f, 0.f);
-    MoveSpeed = CmPerSecond;
-}
-
 void ABorn2FlapAvatar::SetWalkSpeed(float CmPerSecond)
 {
-    SetMovement(FVector(1.f, 0.f, 0.f), CmPerSecond);
+    GaitSpeed = CmPerSecond;
 }
 
 void ABorn2FlapAvatar::SetCarrying(bool bCarry)
@@ -454,8 +283,6 @@ void ABorn2FlapAvatar::SetFirstPerson(bool bFirstPersonView)
     bFirstPerson = bFirstPersonView;
     if (Body)
         Body->SetVisibility(!bFirstPerson, true);
-    for (USkeletalMeshComponent* Sec : ExtraSections)
-        Sec->SetVisibility(!bFirstPerson, true);
 }
 
 void ABorn2FlapAvatar::BeginThrow()
@@ -463,19 +290,8 @@ void ABorn2FlapAvatar::BeginThrow()
     if (bThrowing)
         return;
     bThrowing = true;
-    bCatching = false;
     ThrowTime = 0.f;
     bReleaseFired = false;
-    PlayState(EAvatarAnimState::Throw, false);
-}
-
-void ABorn2FlapAvatar::BeginCatch(bool bHeadHeight)
-{
-    bCatchHeadHeight = bHeadHeight;
-    bCatching = true;
-    bThrowing = false;
-    CatchTime = 0.f;
-    PlayState(EAvatarAnimState::Catch, false);
 }
 
 FVector ABorn2FlapAvatar::GetHeadWorldLocation() const
@@ -483,4 +299,96 @@ FVector ABorn2FlapAvatar::GetHeadWorldLocation() const
     if (Body && BoneHead != INDEX_NONE)
         return Body->GetBoneLocation(Body->GetBoneName(BoneHead), EBoneSpaces::WorldSpace);
     return GetActorLocation() + FVector(0.f, 0.f, 160.f);
+}
+
+void ABorn2FlapAvatar::PoseBody(bool bMoving, float Dt)
+{
+    const float K = GaitBlend;
+    const float L = FMath::Sin(GaitPhase);
+    const float R = FMath::Sin(GaitPhase + 3.1415927f);
+
+    // Legs: hip swing + knee flex on the recovery (swinging) phase.
+    SetBoneRotation(BoneLUpLeg, FRotator(L * 38.f * K, 0.f, 0.f));
+    SetBoneRotation(BoneRUpLeg, FRotator(R * 38.f * K, 0.f, 0.f));
+    SetBoneRotation(BoneLLeg, FRotator(FMath::Max(0.f, -L) * 58.f * K, 0.f, 0.f));
+    SetBoneRotation(BoneRLeg, FRotator(FMath::Max(0.f, -R) * 58.f * K, 0.f, 0.f));
+
+    // Torso sway / vertical bob.
+    const float Bob = K * FMath::Abs(FMath::Sin(GaitPhase * 2.f)) * 2.5f;
+    const float Sway = bMoving ? -Bob * 0.2f : FMath::Sin(float(WorldTime) * 1.5f) * 1.5f;
+    SetBoneRotation(BoneSpine, FRotator(Sway, 0.f, 0.f));
+
+    // Arms.
+    if (bCarrying)
+    {
+        const float ShoulderPitch = -70.f, ElbowPitch = -95.f;
+        SetBoneRotation(BoneLArm, FRotator(ShoulderPitch, 10.f, 0.f));
+        SetBoneRotation(BoneRArm, FRotator(ShoulderPitch, -10.f, 0.f));
+        SetBoneRotation(BoneLForeArm, FRotator(ElbowPitch, 0.f, 0.f));
+        SetBoneRotation(BoneRForeArm, FRotator(ElbowPitch, 0.f, 0.f));
+    }
+    else
+    {
+        const float ArmSwing = 26.f * K;
+        SetBoneRotation(BoneLArm, FRotator(-R * ArmSwing, 8.f, 0.f));
+        SetBoneRotation(BoneRArm, FRotator(-L * ArmSwing, -8.f, 0.f));
+        SetBoneRotation(BoneLForeArm, FRotator(20.f, 0.f, 0.f));
+        SetBoneRotation(BoneRForeArm, FRotator(20.f, 0.f, 0.f));
+    }
+    UpdateCarrySocket();
+}
+
+void ABorn2FlapAvatar::PoseThrow(float Dt)
+{
+    ThrowTime += Dt;
+    const float T = ThrowDuration > 0.f ? FMath::Clamp(ThrowTime / ThrowDuration, 0.f, 1.f) : 1.f;
+
+    float ShoulderPitch, ElbowPitch, SpinePitch;
+    if (T < ThrowReleaseFraction)
+    {
+        const float K = T / ThrowReleaseFraction;
+        const float E = K * K * (3.f - 2.f * K);   // smoothstep
+        ShoulderPitch = FMath::Lerp(-70.f, -165.f, E);
+        ElbowPitch = FMath::Lerp(-95.f, -30.f, E);
+        SpinePitch = FMath::Lerp(0.f, -12.f, E);
+    }
+    else
+    {
+        const float K = FMath::Clamp((T - ThrowReleaseFraction) / (1.f - ThrowReleaseFraction), 0.f, 1.f);
+        const float E = 1.f - FMath::Pow(1.f - K, 3.f);   // ease-out cubic
+        ShoulderPitch = FMath::Lerp(-165.f, -25.f, E);
+        ElbowPitch = FMath::Lerp(-30.f, -15.f, E);
+        SpinePitch = FMath::Lerp(-12.f, 6.f, E);
+    }
+
+    SetBoneRotation(BoneLArm, FRotator(ShoulderPitch, 6.f, 0.f));
+    SetBoneRotation(BoneRArm, FRotator(ShoulderPitch, -6.f, 0.f));
+    SetBoneRotation(BoneLForeArm, FRotator(ElbowPitch, 0.f, 0.f));
+    SetBoneRotation(BoneRForeArm, FRotator(ElbowPitch, 0.f, 0.f));
+    SetBoneRotation(BoneSpine, FRotator(SpinePitch, 0.f, 0.f));
+    UpdateCarrySocket();
+
+    if (!bReleaseFired && T >= ThrowReleaseFraction)
+    {
+        bReleaseFired = true;
+        OnThrowRelease.ExecuteIfBound();
+    }
+    if (T >= 1.f)
+    {
+        bThrowing = false;
+        ThrowTime = 0.f;
+    }
+}
+
+void ABorn2FlapAvatar::UpdateCarrySocket()
+{
+    if (!CarrySocket || !Body)
+        return;
+    FVector Mid = Body->GetComponentLocation();
+    if (BoneLHand != INDEX_NONE && BoneRHand != INDEX_NONE)
+    {
+        Mid = (Body->GetBoneLocation(Body->GetBoneName(BoneLHand), EBoneSpaces::WorldSpace) +
+               Body->GetBoneLocation(Body->GetBoneName(BoneRHand), EBoneSpaces::WorldSpace)) * 0.5f;
+    }
+    CarrySocket->SetRelativeLocation(Body->GetComponentTransform().InverseTransformPosition(Mid));
 }

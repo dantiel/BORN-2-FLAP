@@ -80,6 +80,7 @@ FString DefaultSeason(const FString& Level)
     if(Level==TEXT("Yunsha")) return TEXT("dry");
     if(Level==TEXT("Shiomori")) return TEXT("summer");
     if(Level==TEXT("Training")) return TEXT("spring");
+    if(Level==TEXT("Murex")) return TEXT("summer"); // runway-thermal season
     return TEXT("autumn"); // Ravenstonefield â€” its register is "quiet autumn nature"
 }
 FBorn2FlapConditions Defaults(const FString& Level)

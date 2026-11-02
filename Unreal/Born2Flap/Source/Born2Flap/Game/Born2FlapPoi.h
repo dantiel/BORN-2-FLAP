@@ -60,6 +60,15 @@ namespace Born2FlapPoi
         {
             { FBorn2FlapPoi P; P.Key = TEXT("poi.bronze_ring"); Out.Add(P); }
         }
+        else if (Level.Equals(TEXT("Murex"), ESearchCase::IgnoreCase))
+        {
+            for (const TCHAR* K : { TEXT("The Runway Head"), TEXT("The Tower Cab"),
+                                    TEXT("The Spiral Gallery"), TEXT("The Approach Lane"),
+                                    TEXT("The Wetland Basin"), TEXT("Hangar Row") })
+            {
+                FBorn2FlapPoi P; P.Key = K; Out.Add(P);
+            }
+        }
         else // Ravenstonefield
         {
             for (const TCHAR* K : { TEXT("poi.launch_meadow"), TEXT("poi.raven_watch"),

@@ -35,7 +35,7 @@ return lerp(float3(.40,.32,.21)*(1+f*.13),float3(.14,.10,.06),crack*.6);''',{'P'
                     ez=width*.5*math.sin(theta)*math.sin(phi)*wrinkle*flatten
                     # Slightly sunken shell with asymmetric compression folds.
                     ez-=.10*math.sin(theta*3+phase)*math.sin(phi*2)
-                    verts.append((cx+x+ex*math.cos(yaw)-ey*math.sin(yaw),cy+y+ex*math.sin(yaw)+ey*math.cos(yaw),z+.10+ez))
+                    verts.append((cx+x+ex*math.cos(yaw)-ey*math.sin(yaw),cy+y+ex*math.sin(yaw)+ey*math.cos(yaw),ground(cx+x,cy+y)+.10+ez))
             for j in range(rows):
                 for i in range(n):
                     a=k+j*n+i;b=k+j*n+(i+1)%n

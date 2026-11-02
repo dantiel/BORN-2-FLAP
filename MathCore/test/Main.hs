@@ -17,6 +17,7 @@ import Born2Flap.Math.Waveform
 import Born2Flap.Math.Firmware
 import Born2Flap.Math.Servo
 import Born2Flap.Math.RollDynamics
+import qualified Born2Flap.Math.SpatialDynamics as Spatial
 import Born2Flap.Math.FirmwareVehicle
 import Born2Flap.Math.FerocityPrice
 import Born2Flap.Math.PhaseEnvelope
@@ -24,6 +25,30 @@ import Born2Flap.Math.ResponsePhase
 
 main :: IO ()
 main = do
+  -- Spatial added inertia must be positive, symmetric, and carry no weight.
+  -- Dry free fall must not actuate either hinge, at any wing position or CG.
+  let positive [] = True
+      positive matrix =
+        let pivot=head(head matrix)
+            reduced=zipWith (\row arm -> zipWith (\a b -> a-arm*b/pivot) (tail row) (tail(head matrix)))
+                      (tail matrix) (map head (tail matrix))
+        in pivot>1e-10 && positive reduced
+      spatialCase cg l r =
+        let tensor=airframeInertia kestrelModel 0.05 cg
+            run rho=Spatial.spatialSystem kestrelModel 0.05 cg tensor rho (l,r) (replicate 8 0) (Vec3 0 0 (-9.81))
+            (dry,_,weight)=run 0
+            (wet,_,wetWeight)=run airDensity
+            falling=Spatial.multiply dry [0,0,-9.81,0,0,0,0,0]
+        in positive wet && positive dry
+           && and [abs(wet!!i!!j-wet!!j!!i)<1e-12 | i<-[0..7],j<-[0..7]]
+           && maximum(map abs(zipWith (-) weight falling))<1e-12
+           && maximum(map abs(zipWith (-) weight wetWeight))<1e-12
+      (flatMass,_,_)=Spatial.spatialSystem kestrelModel 0.05 0
+        (airframeInertia kestrelModel 0.05 0) airDensity (0,0) (replicate 8 0) zeroVec
+      (_,dryPitch,_)=airframeInertia kestrelModel 0.05 0
+  if and [spatialCase cg l r | cg<-[-0.1,0,0.1],l<-[-1,0,1],r<-[-1,0,1]]
+     && abs(flatMass!!0!!0-0.05)<1e-12 && flatMass!!2!!2>0.05 && flatMass!!4!!4>dryPitch
+    then pure () else fail "spatial wing inertia must preserve positive energy, dry weight and pitch added mass"
   -- A pressure patch may return stored energy, but never create it. Check
   -- changing surface direction, reversal, and relaxation at several steps.
   let fieldCase dt normal velocity =

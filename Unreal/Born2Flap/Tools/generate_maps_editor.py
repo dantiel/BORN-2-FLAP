@@ -62,6 +62,12 @@ def inspect_world(request):
         assert sum('YunshaPterosaurEggReconstruction' in tags(a) for a in fossils)==3
         assert sum('YunshaFieldTent' in tags(a) for a in actors)==3
         assert sum('YunshaDigFence' in tags(a) for a in actors)==4
+        dunes=[a for a in actors if a.get_actor_label().startswith('Yunsha dunes ')]
+        assert len(dunes)==36, 'Incomplete expanded desert'
+        assert min(a.get_actor_location().y for a in perches)>200000, 'Cloud forest spacing reverted'
+        assert all(a.get_actor_location().x>120000 for a in scans), 'Archive relocation reverted'
+        assert abs(mountains[0].get_actor_location().x+80000)<1, 'Grotto relocation reverted'
+        details.update(desert_width_m=6000,desert_length_m=6000,dune_tiles=len(dunes))
         details.update(field_tents=3,open_fence_sections=4)
         details.update(fossil_scans=len(scans),fossil_types=7,reconstructed_egg_beds=3)
         details.update(sky_temples=len(perches),grotto_murals=len(murals),imported_buildings=len(architecture),carved_mountains=len(mountains),seed=221022)

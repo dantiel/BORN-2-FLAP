@@ -1,10 +1,11 @@
-"""Rebuild both wing membranes OPAQUE (no transparency, no dither) with a
+"""Rebuild the bird feathers OPAQUE (no transparency, no dither) with a
 backlit-only "church-window" glow.
 
   M_FalconWing    -> kestrel membrane wing (T_KestrelWingTop, greyed underside)
+  M_KestrelTail    -> kestrel fanned tail (T_KestrelTail, same paint both sides)
   M_WingMembrane  -> ravencrow/prototype wing (vertex-colour base)
 
-The wing is fully opaque: detail stays legible and the lit side reflects
+The feathers are fully opaque: detail stays legible and the lit side reflects
 normally (roughness 0.65, two-sided, default lit). The only light-through
 effect is an additive emissive that fires ONLY when the sun is behind the
 membrane (backlit), tinted by the paint colour.
@@ -57,7 +58,7 @@ def wire_vertex(vertex, dst, pin):
         assert lib.connect_material_expressions(vertex, "RGB", dst, pin), "vertex colour connect failed"
 
 
-def add_backlit_glow(m, tint):
+def add_backlit_glow(m, tint, glow_name="WingGlow", glow_value=12.0):
     """Emissive = brightened tint * WingGlow * transmission.
 
     transmission = saturate(-dot(CameraVectorWS, AtmosphericLightVector)).
@@ -89,7 +90,7 @@ def add_backlit_glow(m, tint):
     sat = node(m, "Saturate")
     wire(dneg, sat, "")
 
-    glow = node(m, "ScalarParameter", parameter_name="WingGlow", default_value=12.0)
+    glow = node(m, "ScalarParameter", parameter_name=glow_name, default_value=glow_value)
     scaled = node(m, "Multiply")
     wire(glow, scaled, "A")
     wire(sat, scaled, "B")
@@ -111,6 +112,33 @@ def add_backlit_glow(m, tint):
     wire(tint_bright, emissive, "A")
     wire(scaled, emissive, "B")
     output(emissive, "EMISSIVE_COLOR")
+
+
+def build_tail():
+    path = BIRDS + "/M_KestrelTail"
+    tex = u.load_asset("/Game/Birds/T_KestrelTail")
+    if not isinstance(tex, u.Texture2D):
+        u.log_warning("TAIL_KESTREL: T_KestrelTail missing, using white")
+        tex = u.load_asset(WHITE)
+
+    m = get_or_create(path)
+    lib.delete_all_material_expressions(m)
+    m.set_editor_property("two_sided", True)
+    m.set_editor_property("blend_mode", u.BlendMode.BLEND_OPAQUE)
+    m.set_editor_property("shading_model", u.MaterialShadingModel.MSM_DEFAULT_LIT)
+    m.set_editor_property("disable_depth_test", False)
+
+    paint = node(m, "TextureSampleParameter2D", parameter_name="TailPaint", texture=tex)
+    output(paint, "BASE_COLOR", "RGB")
+
+    rough = node(m, "Constant", r=0.65)
+    output(rough, "ROUGHNESS")
+
+    add_backlit_glow(m, paint, glow_name="TailGlow")
+
+    lib.recompile_material(m)
+    assert ela.save_asset(path), "TAIL_KESTREL: failed to save " + path
+    u.log("TAIL_KESTREL_READY " + path)
 
 
 def get_or_create(path):
@@ -203,5 +231,6 @@ def build_membrane():
 
 
 build_falcon()
+build_tail()
 build_membrane()
 u.log("WING_MATERIALS_READY")
