@@ -1,6 +1,6 @@
 ﻿param([string]$EngineRoot = 'V:\UE_5.8', [int[]]$FrameRates = @(30,60,144), [switch]$SkipSoak,
       [ValidateRange(-1,4)][int]$BirdModel = -1, [string]$Preferences = '',
-      [ValidateRange(240,3840)][int]$PhysicsHz = 240)
+      [ValidateRange(240,3840)][int]$PhysicsHz = 240, [string]$Library = '')
 $ErrorActionPreference = 'Stop'
 $project = (Resolve-Path (Join-Path $PSScriptRoot '../Born2Flap.uproject')).Path
 $logs = Join-Path (Split-Path $project) 'Saved/Logs'
@@ -15,6 +15,7 @@ foreach ($case in $cases) {
     $map = if ($case.Flag -eq 'B2FRavenFlightTest') { '/Game/Ravenstonefield/Maps/RAVENSTONEFIELD' } else { '/Engine/Maps/Entry' }
     $arguments = @(('"'+$project+'"'),$map,'-game','-nullrhi','-nosound','-unattended','-nosplash','-benchmark',('-fps='+$case.Fps),('-'+$case.Flag),('-abslog="'+$log+'"'))
     $arguments += '-B2FPhysicsHz='+$PhysicsHz
+    if ($Library) { $arguments += '-B2FPhysicsTestLibrary="'+(Resolve-Path -LiteralPath $Library).Path+'"' }
     if ($BirdModel -ge 0) { $arguments += '-B2FTestBirdModel='+$BirdModel }
     if ($Preferences) {
         $preferencesPath = (Resolve-Path -LiteralPath $Preferences).Path

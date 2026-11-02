@@ -41,6 +41,15 @@
         "Yunsha/Materials/*.uasset",
         "Yunsha/Audio/*.uasset"
       ]
+    },
+    "murex": {
+      "script": "create_murex_map.py",
+      "package": "/Game/Murex/Maps/MUREX",
+      "outputs": [
+        "Murex/Maps/MUREX.umap",
+        "Murex/Meshes/*.uasset",
+        "Murex/Materials/*.uasset"
+      ]
     }
   }
 }

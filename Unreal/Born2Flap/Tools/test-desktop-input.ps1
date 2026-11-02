@@ -1,8 +1,9 @@
-param([string]$EngineRoot = 'V:\UE_5.8', [switch]$Capture, [switch]$BirdPreview, [switch]$SettingsCapture, [switch]$WingPaintPreview)
+param([string]$EngineRoot = 'V:\UE_5.8', [switch]$Capture, [switch]$BirdPreview, [switch]$SettingsCapture, [switch]$WingPaintPreview,
+      [string]$Map = '/Game/Ravenstonefield/Maps/RAVENSTONEFIELD')
 $ErrorActionPreference = 'Stop'
 $project = (Resolve-Path (Join-Path $PSScriptRoot '../Born2Flap.uproject')).Path
 $log = Join-Path (Split-Path $project) 'Saved/Logs/desktop-input-test.log'
-$arguments = @(('"'+$project+'"'),'/Game/Ravenstonefield/Maps/RAVENSTONEFIELD','-game','-nosound','-unattended','-nosplash','-benchmark','-fps=60','-B2FDesktopInputTest',('-abslog="'+$log+'"'))
+$arguments = @(('"'+$project+'"'),$Map,'-game','-nosound','-unattended','-nosplash','-benchmark','-fps=60','-B2FDesktopInputTest',('-abslog="'+$log+'"'))
 if ($Capture) { $arguments += @('-RenderOffscreen','-ResX=1600','-ResY=900','-B2FChannelCapture') }
 else { $arguments += '-nullrhi' }
 if ($WingPaintPreview) { $arguments += '-B2FWingPaintPreview' }

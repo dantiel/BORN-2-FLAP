@@ -631,7 +631,9 @@ void ABorn2FlapFlightPawn::ResetFlight(bool bSafety)
         ApplyTuning();
     }
     bFlying = bReturning = false;
+    const double SavedSpeedModifier = Desktop.speedModifier;
     Desktop = {};
+    Desktop.speedModifier = SavedSpeedModifier;
     Throttle = RollInput = YawInput = PitchInput = LeftFlap = RightFlap = 0;
     bStripStatsValid = false;
     BatterySoc = 1;
@@ -1146,10 +1148,10 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
         const bool BackendValid = Valid;
         const FVector F(O.force_n[0], O.force_n[1], O.force_n[2]);
         const FVector M(O.moment_n_m[0], O.moment_n_m[1], O.moment_n_m[2]);
-        // CG authority: the firmware resolves the aerodynamic moment about the
-        // body origin. Shift it to the actual centre of mass so a fore/aft CG
-        // offset produces a real pitching moment (M_cg = M - r_cg x F). The CG
-        // is + = aft, and aft is -X in the body frame, so r_cg = (-cg, 0, 0).
+        // Convert the backend's host-equivalent moment to the configured CG.
+        // The spatial solve already contains joint recoil and added inertia;
+        // the ABI retains the origin-to-CG shift using the raw surface force.
+        // CG is aft-positive, so r_cg = (-cg, 0, 0) in the body frame.
         double SurfaceComponents[3]{};
         const bool HasSurfaceForce = MathBridge->ReadExternalForce(SurfaceComponents);
         const FVector SurfaceForce = HasSurfaceForce
@@ -1751,6 +1753,48 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
             Body->SetPhysicsAngularVelocityInRadians(FVector::ZeroVector);
             UE_LOG(LogTemp, Display, TEXT("HandlingTest bank perturbation %.1f degrees; sticks neutral"), Attitude.Roll);
         }
+        if (FParse::Param(FCommandLine::Get(), TEXT("B2FPitchBalanceTest")))
+        {
+            Effort = TestTime >= 3 ? .72f : 0;
+            Roll = Pitch = Steer = 0;
+            Launch = Reset = false;
+            double WheelSetting = .5;
+            FParse::Value(FCommandLine::Get(), TEXT("B2FTestWheel="), WheelSetting);
+            Desktop.speedModifier = FMath::Clamp(WheelSetting, 0., 1.);
+            if (Previous < 3 && TestTime >= 3)
+            {
+                ResetFlight();
+                double TestCg = 0;
+                FParse::Value(FCommandLine::Get(), TEXT("B2FPitchTestCg="), TestCg);
+                SetCgOffsetMm(TestCg);
+                Body->SetWorldLocationAndRotation(FVector(0, 0, 10000), FRotator::ZeroRotator,
+                    false, nullptr, ETeleportType::TeleportPhysics);
+                Body->SetPhysicsLinearVelocity(FParse::Param(FCommandLine::Get(), TEXT("B2FPitchTestLaunch"))
+                    ? FVector(850, 0, 220) : FVector(500, 0, 0));
+                Body->SetPhysicsAngularVelocityInRadians(FVector::ZeroVector);
+                bFlying = true;
+            }
+            if (TestTime >= 3)
+            {
+                const double Angle = Body->GetComponentRotation().Pitch;
+                PitchTestPeak = FMath::Max(PitchTestPeak, FMath::Abs(Angle));
+                if (TestTime >= 9)
+                {
+                    PitchTestIntegral += Angle * DeltaSeconds;
+                    PitchTestDuration += DeltaSeconds;
+                }
+            }
+            if (TestTime >= 15 && !bTestFinished)
+            {
+                bTestFinished = true;
+                const bool Pass = bHealthy && MathFailures == 0 && SafetyResets == 0 &&
+                    PitchTestPeak < 60 && GetAltitude() > 20;
+                UE_LOG(LogTemp, Display, TEXT("PitchBalanceTest %s cgMm=%.1f wheel=%.2f peakPitch=%.3f meanPitch=%.3f altitude=%.3f speed=%.3f mathFailures=%d"),
+                    Pass ? TEXT("PASS") : TEXT("FAIL"), CgOffsetMm, Desktop.speedModifier,
+                    PitchTestPeak, PitchTestIntegral/FMath::Max(.001,PitchTestDuration), GetAltitude(), GetSpeed(), MathFailures);
+                FPlatformMisc::RequestExitWithStatus(false, Pass ? 0 : 1);
+            }
+        }
         double YawTestDirection = 0;
         if (FParse::Value(FCommandLine::Get(), TEXT("B2FYawBankTest="), YawTestDirection))
         {
@@ -1764,6 +1808,18 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
             Roll = Pitch = 0;
             Reset = false;
             Launch = Previous < 3 && TestTime >= 3;
+            // Isolate an airborne turn: ground contacts before the command
+            // otherwise supply uncontrolled roll/yaw impulses to this test.
+            if (Launch)
+            {
+                ResetFlight();
+                Body->SetWorldLocationAndRotation(FVector(0, 0, 10000), FRotator::ZeroRotator,
+                    false, nullptr, ETeleportType::TeleportPhysics);
+                Body->SetPhysicsLinearVelocity(FVector(500, 0, 0));
+                Body->SetPhysicsAngularVelocityInRadians(FVector::ZeroVector);
+                bFlying = true;
+                Launch = false;
+            }
             if (Previous < 18 && TestTime >= 18)
             {
                 YawTestStartHeading = Body->GetComponentRotation().Yaw;

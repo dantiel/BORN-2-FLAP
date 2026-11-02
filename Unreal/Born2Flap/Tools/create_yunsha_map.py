@@ -79,8 +79,8 @@ def material(name,tint,texture=None,metal=0.,emission=0.,cloud=False,mural=False
     return mat
 
 sand=material('WindRippleSand',(1.0,.77,.48),'/Game/Shiomori/Textures/T_SandBeach_Diffuse')
-out(custom(sand,'''float3 detail=Texture2DSample(T,TSampler,P.xy/180).rgb*2-1;
-return normalize(N+float3(detail.xy*.32,0));''',{
+from yunsha_sand import normal_code
+out(custom(sand,normal_code(),{
     'P':expr(sand,'WorldPosition'),'N':expr(sand,'VertexNormalWS'),
     'T':expr(sand,'TextureObject',texture=u.load_asset('/Game/Shiomori/Textures/T_SandBeach_Normal'))}),'NORMAL')
 sand.set_editor_property('tangent_space_normal',False)
@@ -116,8 +116,10 @@ cloud=material('StandingCloud',(.64,.69,.68),cloud=True)
 pigment=material('SunGlass',(.88,.38,.09),mural=True)
 lantern=material('Lantern',(.95,.32,.055),emission=5)
 material('LiftMote',(.66,.42,.19),emission=.2)
-ptero=material('Pterosaur',(.7,.4,.15))
-vertex=expr(ptero,'VertexColor');out(vertex,'BASE_COLOR','RGB');ptero.set_editor_property('two_sided',True);M.recompile_material(ptero);E.save_loaded_asset(ptero)
+# Shared runtime bird material is immutable during map-only rebuilds.
+if not E.does_asset_exist(ROOT+'/Materials/M_Pterosaur'):
+    ptero=material('Pterosaur',(.7,.4,.15))
+    vertex=expr(ptero,'VertexColor');out(vertex,'BASE_COLOR');ptero.set_editor_property('two_sided',True);M.recompile_material(ptero);E.save_loaded_asset(ptero)
 
 
 generated_meshes=set()
@@ -137,6 +139,8 @@ def mesh(name,verts,tris,mat,collision=True):
     for a,b,c in tris:md.create_triangle(pg,[ids[a],ids[c],ids[b]])
     sm.set_editor_property('allow_cpu_access',True);sm.build_from_static_mesh_descriptions([md],False,False)
     if collision:sm.get_editor_property('body_setup').set_editor_property('collision_trace_flag',u.CollisionTraceFlag.CTF_USE_COMPLEX_AS_SIMPLE)
+    if name.startswith('Dunes_') or name in ('BoneArchiveTerrain','DistantSandSea'):
+        u.Born2FlapTerrainBuilder.smooth_yunsha_terrain(sm,u.Vector2D(100000 if name=='BoneArchiveTerrain' else 0,0),name=='DistantSandSea')
     sm.set_material(0,mat);assert E.save_loaded_asset(sm)
     return sm
 
@@ -161,34 +165,39 @@ def box(kind,p,size,yaw=0):
 
 # Native height sampler is the source of truth for both collision and flight.
 ground=u.Born2FlapYunsha.ground_height
-# 2.4 x 2.8 km, 10m cells; tiled to keep precision and culling practical.
-for row in range(4):
-    for col in range(4):
-        x0=-120000+col*60000;y0=-110000+row*70000;verts=[];tris=[]
-        for j in range(71):
-            for i in range(61):
+# Six kilometre desert, 10m cells; all tiles share the native dune sampler.
+for row in range(6):
+    for col in range(6):
+        x0=-300000+col*100000;y0=-180000+row*100000;verts=[];tris=[]
+        for j in range(101):
+            for i in range(101):
                 x=x0+i*1000;y=y0+j*1000;verts.append((x,y,ground(x,y)))
-        for j in range(70):
-            for i in range(60):
-                if 24000<=x0+i*1000<70000 and -30000<=y0+j*1000<8000:continue
-                k=j*61+i;tris.extend([(k,k+1,k+61),(k+1,k+62,k+61)])
+        for j in range(100):
+            for i in range(100):
+                if 124000<=x0+i*1000<170000 and -30000<=y0+j*1000<8000:continue
+                k=j*101+i;tris.extend([(k,k+1,k+101),(k+1,k+102,k+101)])
         terrain=actor('dunes %d %d'%(row,col),mesh('Dunes_%d_%d'%(row,col),verts,tris,sand))
         terrain.static_mesh_component.set_editor_property('affect_distance_field_lighting',False)
 
-# A distant skirt carries the sand-sea to the horizon, beyond the flight area.
-verts=[];tris=[];segments=192
-for ring,factor in enumerate((1.,1.5,3.,7.,80.)):
-    for i in range(segments):
-        ang=math.tau*i/segments;ca=math.cos(ang);sa=math.sin(ang)
-        r=min(120000/max(abs(ca),1e-6),140000/max(abs(sa),1e-6))
-        x=ca*r;y=30000+sa*r
-        z=ground(x,y) if ring==0 else 1600+1100*math.sin(ang*9+ring)*math.sin(ang*3-ring*.7)
-        verts.append((x*factor,30000+(y-30000)*factor,z))
+# Horizon apron begins exactly on the perimeter of the playable terrain.
+verts=[];tris=[]
+perimeter=[]
+for i in range(600):perimeter.append((-300000+i*1000,-180000))
+for i in range(600):perimeter.append((300000,-180000+i*1000))
+for i in range(600):perimeter.append((300000-i*1000,420000))
+for i in range(600):perimeter.append((-300000,420000-i*1000))
+segments=len(perimeter)
+for factor in (1.,1.5,3.,12.,80.):
+    for px,py in perimeter:
+        x=px*factor;y=120000+(py-120000)*factor
+        verts.append((x,y,ground(x,y)))
 for ring in range(4):
     for i in range(segments):
         a=ring*segments+i;b=ring*segments+(i+1)%segments
-        tris.extend([(a,b,b+segments),(a,b+segments,a+segments)])
-actor('Distant sand sea',mesh('DistantSandSea',verts,tris,sand,False),collision=False)
+        tris.extend([(a,b+segments,b),(a,a+segments,b+segments)])
+skirt=actor('Distant sand sea',mesh('DistantSandSea',verts,tris,sand,False),collision=False)
+skirt.static_mesh_component.set_editor_property('affect_distance_field_lighting',False)
+skirt.static_mesh_component.set_cast_shadow(False)
 
 # Water uses the exact crescent mask: clip a fine grid to the native basin.
 verts=[];tris=[]
@@ -225,7 +234,12 @@ from yunsha_palace import build as build_palace
 build_palace(imported,place_asset,mesh,actor,material,ground,scan,expr,custom,out)
 plant_oasis(imported,ground)
 from yunsha_excavation import build as build_excavation
-build_excavation(mesh,actor,material,ground,imported,expr,custom,out)
+# Regional translation preserves authored dimensions, including tiny fossils.
+def shifted_actor(offset):
+    def place(label,sm,p=(0,0,0),*args,**kwargs):
+        return actor(label,sm,(p[0]+offset,p[1],p[2]),*args,**kwargs)
+    return place
+fossil_placements=build_excavation(mesh,shifted_actor(100000),material,lambda x,y:ground(x+100000,y),imported,expr,custom,out)
 
 # Sandstone pillars: tapered, fluted and striated, never scaled cylinders.
 def pillar(name,x,y,height,radius,seed,forest=False,base=None):
@@ -247,21 +261,22 @@ def pillar(name,x,y,height,radius,seed,forest=False,base=None):
     return height
 
 peaks=[(-16000,39000,23000,4300),(17000,59000,32000,4600),(-19000,81000,41000,5000),(14000,104000,50000,4500),(-6500,126000,61000,5800)]
+peaks=[(x*1.6,y*1.8+140000,z,r) for x,y,z,r in peaks]
 for i,(x,y,z,r) in enumerate(peaks):
     pillar('Gilded Peak %d'%i,x,y,z,r,420+i,True)
     temple('Sky Temple %d'%i,x,y,z+10,1.,True)
 for i in range(14):
-    x=rng.choice([-1,1])*rng.uniform(12000,37000);y=rng.uniform(33000,146000)
+    x=rng.choice([-1,1])*rng.uniform(19200,59200);y=rng.uniform(199400,402800)
     if any(math.hypot(x-a,y-b)<r+4000 for a,b,z,r in peaks):continue
     pillar('Mist spire %d'%i,x,y,rng.uniform(14000,42000),rng.uniform(1100,2800),800+i)
 # Two eroded buttresses form a real slot with no invisible boundary.
-for side in (-1,1):pillar('Narrows buttress %d'%side,4500+side*8500,14000,18000,3600,49+side)
+for side in (-1,1):pillar('Narrows buttress %d'%side,4500+side*8500,74000,18000,3600,49+side)
 
 # Grottoes excavated in one continuous mountain, with broad uncarved ribs.
 from yunsha_escarpment import build as build_escarpment, front as cliff_front
-mouths=build_escarpment(mesh,actor,rock,pigment)
+mouths=build_escarpment(mesh,shifted_actor(-80000),rock,pigment)
 for i in range(54):
-    y=rng.uniform(-67000,13000);x=cliff_front(y,0)+rng.uniform(200,3800)
+    y=rng.uniform(-67000,13000);x=cliff_front(y,0)-80000+rng.uniform(200,3800)
     place_asset('Escarpment fallen rock %d'%i,scan,x,y,ground(x,y)-100,rng.uniform(400,1500),rng.uniform(0,360))
 for i,(x,y,z,r) in enumerate(peaks):
     for j in range(9):
@@ -295,8 +310,8 @@ for name in ('Tree0','Tree1','Fir0'):
 # Standing clouds use volumetric fog, so flying into them has depth and no
 # translucent sphere surface or disc silhouette. Uniform scales are required.
 for i in range(26):
-    x=rng.uniform(-30000,30000);y=rng.uniform(35000,150000)
-    z=21000+.22*(y-35000)+rng.uniform(-2500,2500)
+    x=rng.uniform(-48000,48000);y=rng.uniform(203000,410000)
+    z=21000+.122*(y-203000)+rng.uniform(-2500,2500)
     a=u.EditorLevelLibrary.spawn_actor_from_class(u.LocalFogVolume,u.Vector(x,y,z))
     a.set_actor_label('Yunsha standing mist %d'%i);a.tags=['Yunsha','YunshaCloud']
     radius=rng.uniform(22,35);a.set_actor_scale3d(u.Vector(radius,radius,radius))
@@ -308,7 +323,7 @@ for i in range(26):
 
 # Silver mirror-wadis emerge only in monsoon; no second permanent oasis.
 for i in range(5):
-    x=11000+2300*math.sin(i);y=-18000+i*8500;z=ground(x,y)+6
+    x=11000+2300*math.sin(i);y=-18000+i*23000;z=ground(x,y)+6
     rim=[(x+2400*math.cos(j*math.tau/48),y+650*math.sin(j*math.tau/48)) for j in range(48)]
     verts=[(x,y,z)]+[(px,py,ground(px,py)+6) for px,py in rim]
     tris=[(0,1+j,1+(j+1)%48) for j in range(48)]
@@ -341,14 +356,28 @@ views=[((33000,-85000,33000),(3000,-50000,1800)),((-22000,-70000,10000),(-43000,
        ((-3500,-56100,1400),(1800,-50500,600)),
        ((74000,-40000,30000),(46000,-11000,-600)),
        ((46500,-12800,-1000),(46000,-12000,-1650)),
-       ((36680,-10830,ground(36500,-10500)+240),(36500,-10500,ground(36500,-10500)+12)),
-       ((36680,-10435,ground(36660,-10400)+30),(36660,-10400,ground(36660,-10400)+.5)),
-       ((41000,-13820,ground(40900,-13700)+75),(40900,-13700,ground(40900,-13700)+20)),
-       ((40055,-13065,ground(40000,-13000)+60),(40000,-13000,ground(40000,-13000)+1)),
-       ((40840,-13750,ground(40820,-13720)+35),(40820,-13720,ground(40820,-13720)+1)),
-       ((36770,-10640,ground(36740,-10600)+40),(36740,-10600,ground(36740,-10600)+3)),
+       ((36680,-10830,ground(136500,-10500)+240),(36500,-10500,ground(136500,-10500)+12)),
+       ((36680,-10435,ground(136660,-10400)+30),(36660,-10400,ground(136660,-10400)+.5)),
+       ((41000,-13820,ground(140900,-13700)+75),(40900,-13700,ground(140900,-13700)+20)),
+       ((40055,-13065,ground(140000,-13000)+60),(40000,-13000,ground(140000,-13000)+1)),
+       ((40840,-13750,ground(140820,-13720)+35),(40820,-13720,ground(140820,-13720)+1)),
+       ((36770,-10640,ground(136740,-10600)+40),(36740,-10600,ground(136740,-10600)+3)),
        ((57000,-27500,4200),(52000,-22500,100)),
        ((48800,-23800,650),(48200,-21900,210))]
+# If a scan had to leave a bench edge, keep its inspection camera with it.
+for index,source in ((9,(46000,-12000)),(10,(36500,-10500)),(11,(36660,-10400)),(12,(40900,-13700)),(14,(40820,-13720)),(15,(36740,-10600))):
+    x,y,z=fossil_placements[source];oldz=ground(source[0]+100000,source[1])
+    views[index]=tuple((p[0]+x-source[0],p[1]+y-source[1],p[2]+z-oldz) for p in views[index])
+views[1]=tuple((x-80000,y,z) for x,y,z in views[1])
+views[2]=tuple((x,y+60000,z) for x,y,z in views[2])
+for index in (3,4):
+    views[index]=tuple((x*1.6,y*1.8+140000,z) for x,y,z in views[index])
+for index in range(8,18):
+    views[index]=tuple((x+100000,y,z) for x,y,z in views[index])
+views.extend([((95000,-95000,8000),(125000,-55000,700)),
+              ((-65000,-110000,18000),(15000,-40000,0)),
+              ((70000,140000,8500),(95000,180000,800)),
+              ((90000,-70000,ground(90000,-70000)+120),(90500,-69800,ground(90500,-69800)+20))])
 for i,(p,target) in enumerate(views):
     a=u.EditorLevelLibrary.spawn_actor_from_class(u.CameraActor,u.Vector(*p),u.MathLibrary.find_look_at_rotation(u.Vector(*p),u.Vector(*target)))
     a.tags=['YunshaView%d'%i];a.set_actor_label('Yunsha view %d'%i)

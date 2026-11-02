@@ -26,7 +26,7 @@
 
 namespace {
 double Smooth(double A,double B,double V){const double T=FMath::Clamp((V-A)/(B-A),0.,1.);return T*T*(3-2*T);}
-const FVector ThermalCentres[]={FVector(-12000,-42000,0),FVector(13000,-5000,0),FVector(-10000,36000,0),FVector(19000,72000,0),FVector(-6000,111000,0)};
+const FVector ThermalCentres[]={FVector(-12000,-42000,0),FVector(13000,55000,0),FVector(-16000,204800,0),FVector(30400,269600,0),FVector(-9600,339800,0)};
 }
 ABorn2FlapYunsha::ABorn2FlapYunsha()
 {
@@ -40,7 +40,7 @@ ABorn2FlapYunsha::ABorn2FlapYunsha()
     for(auto* Audio:{Harp.Get(),Bell.Get()}){Audio->SetupAttachment(RootComponent);Audio->bAutoActivate=false;Audio->bAllowSpatialization=false;}
 }
 double ABorn2FlapYunsha::CanyonCentre(double Y){return 6000*FMath::Sin(Y*.000025);}
-double ABorn2FlapYunsha::CanyonWidth(double Y){return 36000-29000*FMath::Exp(-FMath::Square((Y-14000)/13000));}
+double ABorn2FlapYunsha::CanyonWidth(double Y){return 36000-29000*FMath::Exp(-FMath::Square((Y-74000)/13000));}
 bool ABorn2FlapYunsha::SpringContains(double X,double Y)
 {
     const double A=FMath::Square(X/15600)+FMath::Square((Y+52000)/9600);
@@ -49,14 +49,20 @@ bool ABorn2FlapYunsha::SpringContains(double X,double Y)
 }
 double ABorn2FlapYunsha::GroundHeight(double X,double Y)
 {
-    const double Distance=FMath::Abs(X-CanyonCentre(Y));
-    // Low wind-shaped dunes leave the oasis and pilgrimage floor open to light.
-    // The western escarpment is a separate carved rock volume, not a sand wall.
-    const double Wall=Smooth(65000,115000,Distance);
-    const double Dunes=420+250*FMath::Sin(X*.000095+1.2*FMath::Sin(Y*.000047))+170*FMath::Sin(Y*.00013+X*.000035);
-    const double Ridge=2300+850*FMath::Sin(Y*.000052)+420*FMath::Sin(X*.00012+Y*.00008);
+    // Domain-warped transverse dunes blend into a second seasonal wind field.
+    // A long stoss slope and short slip face replace the old low sine bumps.
+    auto Dune=[](double Phase){
+        const double T=Phase-FMath::FloorToDouble(Phase);
+        return T<.78 ? Smooth(0.,.78,T) : 1-Smooth(.78,1.,T);
+    };
+    const double Warp=1600*FMath::Sin(Y*.000041)+900*FMath::Sin(X*.000027+Y*.000019);
+    const double Primary=Dune((X*.85+Y*.53+Warp)/11500);
+    const double Secondary=Dune((-X*.46+Y*.89+1100*FMath::Sin(X*.000055))/7800);
+    const double WindMix=Smooth(-.6,.6,FMath::Sin(X*.000013-Y*.000009));
+    const double Envelope=850+650*(.5+.5*FMath::Sin(X*.000018+Y*.000023));
+    double Height=100+Envelope*FMath::Lerp(Primary,Secondary,WindMix)
+        +180*Dune((X*.96-Y*.28+Warp*.3)/3200);
     const double Oasis=1-Smooth(1.,2.3,FMath::Sqrt(FMath::Square((X-4000)/23000)+FMath::Square((Y+50000)/19500)));
-    double Height=FMath::Lerp(Dunes,Ridge,Wall);
     Height=FMath::Lerp(Height,140.,Oasis);
     // The crescent is excavated in the same sampler used by generation.
     const double Outer=FMath::Square(X/15600)+FMath::Square((Y+52000)/9600);
@@ -65,6 +71,7 @@ double ABorn2FlapYunsha::GroundHeight(double X,double Y)
     Height=FMath::Lerp(Height,-220.,Basin);
     // The Bone Archive occupies a dry fossil field east of the pilgrimage
     // floor. Its excavation is terrain, not a pit mesh covering intact ground.
+    X-=100000; // Bone Archive moved one kilometre east; local pit dimensions retained.
     const double Field=FMath::Sqrt(FMath::Square((X-47000)/23000)+FMath::Square((Y+11000)/16500));
     Height=FMath::Lerp(Height,100.,1-Smooth(.83,1.12,Field));
     const double DX=(X-47000)/13500,DY=(Y+11000)/9500;
@@ -109,7 +116,7 @@ FVector ABorn2FlapYunsha::SoaringWind(const FVector& P,double Time,const FBorn2F
     const double DY=(GroundHeight(P.X,P.Y+600)-GroundHeight(P.X,P.Y-600))/1200;
     Ambient.Z+=FMath::Clamp((Ambient.X*DX+Ambient.Y*DY)*1.2,-4.,6.)*FMath::Exp(-Alt/6500);
     // Constriction accelerates the existing wind (zero wind remains zero).
-    const double Slot=FMath::Exp(-FMath::Square((P.Y-14000)/11000))*FMath::Exp(-FMath::Square((P.X-CanyonCentre(P.Y))/9000));
+    const double Slot=FMath::Exp(-FMath::Square((P.Y-74000)/11000))*FMath::Exp(-FMath::Square((P.X-CanyonCentre(P.Y))/9000));
     Ambient.X*=1+1.8*Slot;Ambient.Y*=1+1.8*Slot;
     return Ambient;
 }
@@ -187,14 +194,14 @@ void ABorn2FlapYunsha::ValidateWorld()
             break;
         }
     }
-    for(const FVector P:{FVector(-6000,-59000,0),FVector(0,-22000,0),FVector(4500,14000,0),FVector(45000,60000,0)})
+    for(const FVector P:{FVector(-6000,-59000,0),FVector(0,-22000,0),FVector(4500,14000,0),FVector(45000,60000,0),FVector(180000,170000,0),FVector(-220000,-130000,0),FVector(80000,360000,0)})
     {
         FHitResult Hit;FCollisionQueryParams Q(SCENE_QUERY_STAT(YunshaFloor),true);
         const bool Found=GetWorld()->LineTraceSingleByObjectType(Hit,P+FVector(0,0,90000),P-FVector(0,0,1000),FCollisionObjectQueryParams(ECC_WorldStatic),Q);
         Check(Found && FMath::Abs(Hit.ImpactPoint.Z-GroundHeight(P.X,P.Y))<120,TEXT("ground-collision"));
     }
-    Check(GroundHeight(47000,-11000)<-1600 && GroundHeight(65000,-11000)>0,TEXT("excavation-depth"));
-    Check(!SpringContains(47000,-11000),TEXT("excavation-dry-below-sea-level"));
+    Check(GroundHeight(147000,-11000)<-1600 && GroundHeight(165000,-11000)>0,TEXT("excavation-depth"));
+    Check(!SpringContains(147000,-11000),TEXT("excavation-dry-below-sea-level"));
     TArray<AActor*> Fossils;UGameplayStatics::GetAllActorsWithTag(this,TEXT("YunshaFossil"),Fossils);
     Check(Fossils.Num()==28,TEXT("excavation-fossils"));
     TArray<AActor*> EggBeds;UGameplayStatics::GetAllActorsWithTag(this,TEXT("YunshaPterosaurEggReconstruction"),EggBeds);
@@ -204,8 +211,9 @@ void ABorn2FlapYunsha::ValidateWorld()
     TArray<AActor*> Fences;UGameplayStatics::GetAllActorsWithTag(this,TEXT("YunshaDigFence"),Fences);
     Check(Fences.Num()==4,TEXT("excavation-open-fence-sections"));
 
-    for(const FVector P:{FVector(48000,-10000,0),FVector(37000,-13000,0),FVector(30000,-14000,0),FVector(65000,-11000,0),FVector(55000,-22000,0),FVector(50000,-25000,0),FVector(59000,-18000,0)})
+    for(const FVector Local:{FVector(48000,-10000,0),FVector(37000,-13000,0),FVector(30000,-14000,0),FVector(65000,-11000,0),FVector(55000,-22000,0),FVector(50000,-25000,0),FVector(59000,-18000,0)})
     {
+        const FVector P=Local+FVector(100000,0,0);
         FHitResult Hit;FCollisionQueryParams Q(SCENE_QUERY_STAT(YunshaDigFloor),true);
         const bool Found=GetWorld()->LineTraceSingleByObjectType(Hit,P+FVector(0,0,6000),P-FVector(0,0,3000),FCollisionObjectQueryParams(ECC_WorldStatic),Q);
         Check(Found && FMath::Abs(Hit.ImpactPoint.Z-GroundHeight(P.X,P.Y))<45,TEXT("excavation-floor-collision"));
@@ -213,9 +221,9 @@ void ABorn2FlapYunsha::ValidateWorld()
     // Probe an actual grotto: open mouth, deep rear wall, usable floor.
     {
         FCollisionQueryParams Q(SCENE_QUERY_STAT(YunshaGrotto),true);FHitResult Hit;
-        const FVector Mouth(-42000,-54400,6500),Inside(-45000,-54400,6500);
+        const FVector Mouth(-122000,-54400,6500),Inside(-125000,-54400,6500);
         Check(!GetWorld()->LineTraceSingleByObjectType(Hit,Mouth,Inside,FCollisionObjectQueryParams(ECC_WorldStatic),Q),TEXT("grotto-open-mouth"));
-        Check(GetWorld()->LineTraceSingleByObjectType(Hit,Inside,FVector(-48000,-54400,6500),FCollisionObjectQueryParams(ECC_WorldStatic),Q),TEXT("grotto-rear-wall"));
+        Check(GetWorld()->LineTraceSingleByObjectType(Hit,Inside,FVector(-128000,-54400,6500),FCollisionObjectQueryParams(ECC_WorldStatic),Q),TEXT("grotto-rear-wall"));
         Check(GetWorld()->LineTraceSingleByObjectType(Hit,Inside,Inside-FVector(0,0,1600),FCollisionObjectQueryParams(ECC_WorldStatic),Q),TEXT("grotto-floor"));
     }
     Check(SpringContains(-12000,-52000) && !SpringContains(0,-52000),TEXT("crescent-water-mask"));
@@ -256,7 +264,7 @@ void ABorn2FlapYunsha::ValidateWorld()
     Check(Core.Z>5 && Core.Z>Outside.Z+3,TEXT("thermal-core"));
     C.WindThermal=0;
     Check(FMath::Abs(SoaringWind(FVector(-12000,-42000,4000),0,C,FVector::ZeroVector).Z)<.001,TEXT("thermal-off"));
-    Check(SoaringWind(FVector(CanyonCentre(14000),14000,3000),0,C,FVector(0,2,0)).Y>4,TEXT("venturi"));
+    Check(SoaringWind(FVector(CanyonCentre(74000),74000,3000),0,C,FVector(0,2,0)).Y>4,TEXT("venturi"));
     int32 Perches=0;
     for(TActorIterator<AActor> It(GetWorld());It;++It)if(It->ActorHasTag(TEXT("YunshaPerch")))
     {

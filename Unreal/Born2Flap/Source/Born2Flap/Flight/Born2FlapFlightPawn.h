@@ -373,6 +373,7 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     double TestTime = 0, TestPeakSpeed = 0, TestPeakAltitude = 0;
     int32 TailAngleTestSamples = 0;
     int32 CgTestSamples = 0;
+    double PitchTestPeak = 0, PitchTestIntegral = 0, PitchTestDuration = 0;
     FQuat LastMathRotation = FQuat::Identity;
     bool bHaveMathRotation = false;
     double MathProfileSeconds = 0;

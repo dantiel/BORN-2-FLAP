@@ -668,3 +668,16 @@ Three additional rectangular terrain cuts occupy the Bone Archive southern apron
 Three modest canvas tents form a spaced research camp. The retained CC BY Jungle Tent by SyntheticMN supplies authored fabric folds and textures; attribution and the pinned source hash live in `Yunsha-assets.json`. Four short weathered-post and slack-rope sections mark selected edges, leaving broad access gaps and the main ramp open. Views 16 and 17 show the cuts and camp. These portable recipes support macOS generation; native macOS execution has not been verified here.
 
 Validation (2026-10-26): Editor build passed; procedural generation saved and reloaded 457 actors. Morning/dry runtime checks passed, including seven excavation-floor collision probes, three tents and four fence sections. All 18 fresh captures were produced; the rectangular-pit overview and camp close-up were visually inspected. The expanded fossil set also passed a noon/monsoon rendered run before the camp addition.
+
+
+### Desert spacing and surface revision (2026-10-29)
+
+The playable terrain is now 6 x 6 km (X -3000..3000 m, Y -1800..4200 m), with a distant sand apron. Landmark dimensions are preserved: the Bone Archive moves 1000 m east, the Bronze grotto mountain moves 800 m west, the Narrows moves 600 m north, and the cloud forest uses wider peak spacing farther north. The oasis retains its full lake, gardens, palace and open approaches, with desert breathing room between it and the monumental rock formations. Teleport destinations and inspection cameras follow their subjects.
+
+Native height generation blends two domain-warped dune fields with different wind directions, asymmetric windward/lee slopes and smaller secondary ridges. The oasis and fossil field remain sheltered flat areas. Ground shading reuses Shiomori's stochastic texture sampling and gradient-noise helper, with desert-specific wind ripples, shared relief/parallax and dry mineral colours instead of coastal wetness and caustics.
+
+Fossils now use the exact triangles of the 2 m excavation grid. Each scan fits a slope across nine footprint samples; placements crossing a terrace edge move to a nearby supported surface. Sediment matrices are partly buried rather than balanced on their bounding-box minima. Each reconstructed egg follows its own local triangle height. Generator logs record each scan's support error, slope and embed depth.
+
+Terrain vertex normals are sampled from the native height field in the editor builder, so dune lighting stays smooth across triangles and tile boundaries. The horizon apron has matching perimeter vertices and upward faces. Four additional cameras inspect dune fields, the oasis approach and close sand relief (22 views total).
+
+Validation (2026-10-29): normal Editor build passed after file locks were released. The final generator saved and reloaded 483 actors in 257.1 s. Noon/dry runtime validation passed with seven general ground probes, seven excavation-floor probes, daylight and passage checks, relocated thermals and summit checks. All 22 fresh captures were produced; fossil, dune, sand-detail and oasis-spacing views were inspected. A separate saved-map inspection confirmed the 6 x 6 km footprint, 36 smoothly shaded dune tiles and relocated landmarks. Windows execution verified; native macOS execution remains unverified.

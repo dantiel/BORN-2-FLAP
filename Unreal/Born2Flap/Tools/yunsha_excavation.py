@@ -2,11 +2,12 @@
 import math
 import random
 import unreal as u
+from yunsha_sand import HLSL, RELIEF, DRY_COLOUR, normal_code
 
 
 def build(mesh, actor, material, ground, imported, expr, custom, out):
     strata=material('BoneArchiveStrata',(1.,.77,.48),'/Game/Shiomori/Textures/T_SandBeach_Diffuse')
-    out(custom(strata,'''float3 w=pow(abs(N),4);w/=max(.0001,w.x+w.y+w.z);
+    out(custom(strata,HLSL+RELIEF+'''float3 w=pow(abs(N),4);w/=max(.0001,w.x+w.y+w.z);
 float3 rock=Texture2DSample(T,TSampler,P.yz/580).rgb*w.x+Texture2DSample(T,TSampler,P.xz/580).rgb*w.y+Texture2DSample(T,TSampler,P.xy/580).rgb*w.z;
 float3 broad=Texture2DSample(T,TSampler,P.yz/1900+3.7).rgb*w.x+Texture2DSample(T,TSampler,P.xz/1900+3.7).rgb*w.y+Texture2DSample(T,TSampler,P.xy/1900+3.7).rgb*w.z;
 rock=lerp(rock,broad,.45);
@@ -14,13 +15,12 @@ float z=P.z+38*sin(P.x*.0006)+19*sin(P.y*.0011);
 float layer=frac((z+2200)/440);
 float3 bed=layer<.16?float3(.29,.24,.19):(layer<.52?float3(.77,.57,.36):float3(.94,.83,.61));
 bed*=.88+.12*sin(z*.16);
-float3 sand=Texture2DSample(S,SSampler,P.yz/400).rgb*w.x+Texture2DSample(S,SSampler,P.xz/400).rgb*w.y+Texture2DSample(S,SSampler,P.xy/400).rgb*w.z;
-return lerp(rock*bed,sand*float3(1,.77,.48),smoothstep(-180,80,P.z));''',{
-        'P':expr(strata,'WorldPosition'),'N':expr(strata,'VertexNormalWS'),
+'''+DRY_COLOUR+'''
+return lerp(rock*bed,dry,smoothstep(-180,80,P.z));''',{
+        'P':expr(strata,'WorldPosition'),'N':expr(strata,'VertexNormalWS'),'C':expr(strata,'CameraVectorWS'),
         'T':expr(strata,'TextureObject',texture=u.load_asset('/Game/Shiomori/Cliffs/Textures/T_Cliff_rock_face_03_Diffuse')),
         'S':expr(strata,'TextureObject',texture=u.load_asset('/Game/Shiomori/Textures/T_SandBeach_Diffuse'))}),'BASE_COLOR')
-    out(custom(strata,'''float3 d=Texture2DSample(T,TSampler,P.xy/180).rgb*2-1;
-return normalize(N+float3(d.xy*.32,0));''',{
+    out(custom(strata,normal_code(),{
         'P':expr(strata,'WorldPosition'),'N':expr(strata,'VertexNormalWS'),
         'T':expr(strata,'TextureObject',texture=u.load_asset('/Game/Shiomori/Textures/T_SandBeach_Normal'))}),'NORMAL')
     strata.set_editor_property('tangent_space_normal',False)
@@ -41,11 +41,48 @@ return normalize(N+float3(d.xy*.32,0));''',{
             k=j*nx+i;tris.extend(((k,k+1,k+nx),(k+1,k+nx+1,k+nx)))
     terrain=actor('Bone Archive excavation',mesh('BoneArchiveTerrain',verts,tris,strata),tags=['YunshaExcavation'])
     terrain.static_mesh_component.set_editor_property('affect_distance_field_lighting',False)
+    # Evaluate the exact two triangles of the saved 2m grid, not the smooth
+    # native height function between its vertices. Tiny eggs need this too.
+    sampled_ground=ground
+    def ground(x,y):
+        x0=math.floor(x/200)*200;y0=math.floor(y/200)*200
+        tx=(x-x0)/200;ty=(y-y0)/200
+        a=sampled_ground(x0,y0);b=sampled_ground(x0+200,y0)
+        c=sampled_ground(x0,y0+200);d=sampled_ground(x0+200,y0+200)
+        return a+(b-a)*tx+(c-a)*ty if tx+ty<=1 else d+(c-d)*(1-tx)+(b-d)*(1-ty)
+    placements={}
     def specimen(name,kind,x,y,span,yaw,burial):
-        sm=imported(kind);b=sm.get_bounds();s=span/(2*max(b.box_extent.x,b.box_extent.y));a=math.radians(yaw)
-        ox=s*(b.origin.x*math.cos(a)-b.origin.y*math.sin(a));oy=s*(b.origin.x*math.sin(a)+b.origin.y*math.cos(a))
-        z=ground(x,y)-burial-s*(b.origin.z-b.box_extent.z)
-        actor(name,sm,(x-ox,y-oy,z),(s,s,s),yaw,tags=['YunshaFossil','YunshaFossilScan',kind])
+        source=(x,y);sm=imported(kind);b=sm.get_bounds()
+        scale=span/(2*max(b.box_extent.x,b.box_extent.y));angle=math.radians(yaw)
+        # Prefer the authored location; search nearby only if it crosses a
+        # terrace break. Fit the scan plane to nine points under its footprint.
+        def fit(px,py):
+            h=ground(px,py);radius=max(4,span*.48)
+            dx=(ground(px+radius,py)-ground(px-radius,py))/(2*radius)
+            dy=(ground(px,py+radius)-ground(px,py-radius))/(2*radius)
+            error=max(abs(ground(px+rx*radius,py+ry*radius)-(h+dx*rx*radius+dy*ry*radius)) for rx in (-1,0,1) for ry in (-1,0,1))
+            return h,dx,dy,error
+        candidates=[(x,y)]
+        for radius in (100,200,400,800,1400,2200):
+            candidates.extend((x+radius*math.cos(i*math.tau/16),y+radius*math.sin(i*math.tau/16)) for i in range(16))
+        for px,py in candidates:
+            h,dx,dy,error=fit(px,py)
+            if error<=max(.8,span*.012) and math.hypot(dx,dy)<.22:
+                x,y=px,py;break
+        else:raise AssertionError('No supported fossil footprint: '+name)
+        normal=u.Vector(-dx,-dy,1).normal()
+        forward=u.Vector(math.cos(angle),math.sin(angle),dx*math.cos(angle)+dy*math.sin(angle)).normal()
+        rotation=u.MathLibrary.make_rotation_from_axes(forward,normal.cross(forward),normal)
+        # Sink the scan's sediment matrix, leaving its fossil-bearing relief
+        # exposed. Previously its lowest bounding-box point merely touched sand.
+        thickness=2*b.box_extent.z*scale
+        inset=max(burial,thickness*({'PterosaurSlab':.12,'PteranodonBones':.12,'FossilFish':.45,'Herbstosaurus':.10}.get(kind,.28)))
+        local=u.Vector(b.origin.x*scale,b.origin.y*scale,(b.origin.z-b.box_extent.z)*scale+inset)
+        offset=forward*local.x+normal.cross(forward)*local.y+normal*local.z
+        a=actor(name,sm,(x-offset.x,y-offset.y,h-offset.z),(scale,scale,scale),tags=['YunshaFossil','YunshaFossilScan',kind])
+        a.set_actor_rotation(rotation,False)
+        placements[source]=(x,y,h)
+        u.log('YUNSHA_FOSSIL_SEATED %s error_cm=%.3f inset_cm=%.3f slope=%.3f'%(name,error,inset,math.hypot(dx,dy)))
     # Five to seven metre specimens, spread across a 460 metre research field.
     specimen('Anhanguera main exposure','PterosaurSlab',46000,-12000,680,28,4)
     specimen('Western Pteranodon limb and claw exposure','PteranodonBones',36500,-10500,190,133,2)
@@ -112,3 +149,5 @@ return normalize(N+float3(d.xy*.32,0));''',{
             tube(rv,rt,points,1.5,6)
         actor('Weathered dig posts %d'%i,mesh('DigPosts%d'%i,pv,pt,wood),tags=['YunshaDigFence'])
         actor('Slack excavation rope %d'%i,mesh('DigRope%d'%i,rv,rt,rope,False),collision=False)
+
+    return placements

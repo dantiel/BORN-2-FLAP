@@ -13,7 +13,8 @@ public class Born2FlapEditor : ModuleRules
 
         PrivateDependencyModuleNames.AddRange(new[]
         {
-            "UnrealEd", "Niagara", "NiagaraEditor", "AssetRegistry"
+            "UnrealEd", "Niagara", "NiagaraEditor", "AssetRegistry",
+            "Born2Flap", "MeshDescription", "StaticMeshDescription"
         });
     }
 }
