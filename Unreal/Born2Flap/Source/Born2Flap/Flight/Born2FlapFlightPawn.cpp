@@ -13,6 +13,9 @@
 #include "Engine/StaticMesh.h"
 #include "Engine/OverlapResult.h"
 #include "DrawDebugHelpers.h"
+#include "Debug/DebugDrawService.h"
+#include "Engine/Canvas.h"
+#include "CanvasItem.h"
 #include "Engine/GameViewportClient.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/PlayerInput.h"
@@ -185,7 +188,7 @@ ABorn2FlapFlightPawn::ABorn2FlapFlightPawn()
     Tuning.battery_c_rating = 30;
     Tuning.battery_burst_c_rating = 60;
     Tuning.flap_base_freq_dhz = 32;
-    Tuning.tail_elevator_angle_deg = 0;
+    Tuning.tail_elevator_angle_deg = -2.3;
     Tuning.glide_angle_deg = -4;
     Tuning.stroke_ferocity = 50;
     Tuning.aileron_scale = 40;
@@ -287,6 +290,7 @@ void ABorn2FlapFlightPawn::ApplyTuning()
         {
             const FVector Tensor(Props.dry_inertia_kg_m2[0], Props.dry_inertia_kg_m2[1], Props.dry_inertia_kg_m2[2]);
             DryRollInertiaKgM2 = Props.dry_inertia_kg_m2[0];
+            MathBridge->SetMassFrame(-double(CgOffsetMm)/1000.0, Props.dry_inertia_kg_m2[1], Props.dry_inertia_kg_m2[2]);
             FPhysicsCommand::ExecuteWrite(Body->GetBodyInstance()->ActorHandle, [&](const FPhysicsActorHandle& Actor)
             {
                 FPhysicsInterface::SetMassSpaceInertiaTensor_AssumesLocked(Actor, Tensor * 10000.0);
@@ -376,6 +380,8 @@ int32 ABorn2FlapFlightPawn::DefaultBirdModel() const
 void ABorn2FlapFlightPawn::BeginPlay()
 {
     Super::BeginPlay();
+    VectorOverlayHandle = UDebugDrawService::Register(TEXT("Game"),
+        FDebugDrawDelegate::CreateUObject(this, &ABorn2FlapFlightPawn::DrawVectorOverlay));
     if (AudioSynth)
         AudioSynth->Start();
     PanelKeyProcessor = MakeShared<FPanelKeyInputProcessor>();
@@ -443,9 +449,9 @@ void ABorn2FlapFlightPawn::BeginPlay()
     bDesktopInputTest = FParse::Param(FCommandLine::Get(), TEXT("B2FDesktopInputTest"));
     if (!bFlightTest && !bDesktopInputTest)
         RcController = MakeUnique<FBorn2FlapRcController>();
-    bBlind = FParse::Param(FCommandLine::Get(), TEXT("B2FBlind"));
-    if (bBlind)
-        UE_LOG(LogTemp, Display, TEXT("BlindFlight: bird hidden — fly by ear (F5 toggles)"));
+    FParse::Value(FCommandLine::Get(), TEXT("B2FVectorView="), VectorView);
+    VectorView = FMath::Clamp(VectorView, 0, 2);
+    bVectors = VectorView != 0;
     BuildRavenCrow();
     for (int32 Side : {-1,1})
     {
@@ -557,7 +563,6 @@ void ABorn2FlapFlightPawn::BeginPlay()
         POIs.Add(Fallback);
     }
     ResetFlight();
-    SetBlindFlight(bBlind);
     if (bDesktopInputTest && FParse::Param(FCommandLine::Get(), TEXT("B2FBirdPreview")))
     {
         CameraBoom->TargetArmLength = 360;
@@ -628,6 +633,7 @@ void ABorn2FlapFlightPawn::ResetFlight(bool bSafety)
     bFlying = bReturning = false;
     Desktop = {};
     Throttle = RollInput = YawInput = PitchInput = LeftFlap = RightFlap = 0;
+    bStripStatsValid = false;
     BatterySoc = 1;
     Accumulator = 0;
     AeroForce = AeroMoment = FVector::ZeroVector;
@@ -942,6 +948,8 @@ void ABorn2FlapFlightPawn::LaunchFlight()
 }
 void ABorn2FlapFlightPawn::SpawnAvatar()
 {
+    if (!bAvatarEnabled)
+        return;
     FActorSpawnParameters Params;
     Params.Owner = this;
     Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
@@ -952,6 +960,24 @@ void ABorn2FlapFlightPawn::SpawnAvatar()
     Avatar->OnThrowRelease.BindUObject(this, &ABorn2FlapFlightPawn::LaunchFlight);
     PrevAvatarFeet = GroundAnchor - FVector(0.f, 0.f, 180.f);
     Avatar->SetPlacement(PrevAvatarFeet, 0.f);
+}
+void ABorn2FlapFlightPawn::SetAvatarEnabled(bool bEnabled)
+{
+    bAvatarEnabled = bEnabled;
+    if (!bEnabled)
+    {
+        // Hide/destroy the on-foot pilot immediately when disabled from the menu.
+        if (Avatar)
+        {
+            Avatar->Destroy();
+            Avatar = nullptr;
+        }
+        return;
+    }
+    // (Re)spawn only when already in a live world (menu opened in-level);
+    // otherwise the regular BeginPlay spawn picks the flag up.
+    if (!Avatar && HasActorBegunPlay() && !bFlightTest && !bDesktopInputTest)
+        SpawnAvatar();
 }
 void ABorn2FlapFlightPawn::SetAvatarPerson(int32 Index)
 {
@@ -990,13 +1016,6 @@ FString ABorn2FlapFlightPawn::GetFlightStatus() const
     return Throttle > .85f ? Born2Flap::I18n::T("status.power_strokes") : Born2Flap::I18n::T("status.flapping");
 }
 
-void ABorn2FlapFlightPawn::SetBlindFlight(bool bOn)
-{
-    bBlind = bOn;
-    if (VisualRoot)
-        VisualRoot->SetVisibility(!bBlind, true);
-    SelectBirdModel(BirdModel);
-}
 bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
 {
     const double ProfileStart = FPlatformTime::Seconds();
@@ -1086,6 +1105,8 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
     int32 Steps = 0;
     const bool bVoid = WindMode && WindMode->IsVoidLevel();
     const FVector Gravity = bVoid ? FVector::ZeroVector : FVector(0, 0, -9.81);
+    const double CgM = double(CgOffsetMm) / 1000.0;
+    const FVector CgBody(-CgM, 0, 0);
     while (Steps < StepCount)
     {
         double StripWindBody[2][B2F_WING_STATIONS * 3]{};
@@ -1103,8 +1124,11 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
             AeroForce = AeroMoment = FVector::ZeroVector;
             return false;
         }
-        const FVector V = Rotation.UnrotateVector(Velocity - Wind);
         const FVector W = Rotation.UnrotateVector(Omega);
+        // Chaos reports COM velocity; the strip positions use the body origin.
+        // v_origin = v_COM - omega cross r_COM, so subsequent omega cross
+        // position evaluates each surface relative to the actual CG.
+        const FVector V = Rotation.UnrotateVector(Velocity - Wind) - FVector::CrossProduct(W, CgBody);
         for (int I = 0; I < 3; ++I)
         {
             State.linear_velocity_m_s[I] = V[I];
@@ -1112,7 +1136,8 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
         }
         // Gravity/ground reference only. Strip force directions come from
         // their deformed geometry, airflow and convected pressure history.
-        const FVector UpB = Rotation.UnrotateVector(FVector(0.0, 0.0, 1.0));
+        // A zero reference disables gravity coupling in the gravity-free Void.
+        const FVector UpB = Rotation.UnrotateVector(bVoid ? FVector::ZeroVector : FVector(0.0, 0.0, 1.0));
         State.body_up_body_frame[0] = UpB.X;
         State.body_up_body_frame[1] = UpB.Y;
         State.body_up_body_frame[2] = UpB.Z;
@@ -1125,8 +1150,35 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
         // body origin. Shift it to the actual centre of mass so a fore/aft CG
         // offset produces a real pitching moment (M_cg = M - r_cg x F). The CG
         // is + = aft, and aft is -X in the body frame, so r_cg = (-cg, 0, 0).
-        const double CgM = double(CgOffsetMm) / 1000.0;   // metres
-        const FVector Mcg(M.X, M.Y - CgM * F.Z, M.Z + CgM * F.Y);
+        double SurfaceComponents[3]{};
+        const bool HasSurfaceForce = MathBridge->ReadExternalForce(SurfaceComponents);
+        const FVector SurfaceForce = HasSurfaceForce
+            ? FVector(SurfaceComponents[0], SurfaceComponents[1], SurfaceComponents[2]) : F;
+        // Shift the surface-force moment, not the reduced host force: the
+        // latter contains inertial recoil and a gravity correction, which
+        // previously created a spurious CG-dependent pitching moment.
+        const FVector Mcg = M - FVector::CrossProduct(CgBody, SurfaceForce);
+        CgPitchMomentCorrection = Mcg.Y - M.Y;
+        if (bFlightTest && FParse::Param(FCommandLine::Get(), TEXT("B2FCgTest")) && TestTime >= 18)
+        {
+            const int32 CgSampleBit = TestTime < 19.4 ? 1 : 2;
+            if (!(CgTestSamples & CgSampleBit))
+            {
+                const double ExpectedMm = CgSampleBit == 1 ? -20 : 20;
+                const FVector ActualCg = Body->GetComponentQuat().UnrotateVector(Body->GetCenterOfMass() - BodyPos) / 100.;
+                B2F_MassProperties CgProps{};
+                const bool CgPass = HasSurfaceForce && MathBridge->ReadMassProperties(CgBody.X, CgProps) &&
+                    FMath::IsNearlyEqual(double(CgOffsetMm), ExpectedMm, 1.e-5) &&
+                    (ActualCg - CgBody).Size() < 1.e-5 &&
+                    FMath::IsNearlyEqual(Inertia.Y, CgProps.dry_inertia_kg_m2[1], 1.e-6) &&
+                    FMath::IsNearlyEqual(CgPitchMomentCorrection, -CgM * SurfaceForce.Z, 1.e-8);
+                UE_LOG(LogTemp, Display, TEXT("CgTest %s settingMm=%.1f actualX=%.5f inertiaY=%.7f forceZ=%.5f hostZ=%.5f pitchCorrection=%.6f"),
+                    CgPass ? TEXT("PASS") : TEXT("FAIL"), CgOffsetMm, ActualCg.X, Inertia.Y,
+                    SurfaceForce.Z, F.Z, CgPitchMomentCorrection);
+                CgTestSamples |= CgSampleBit;
+                if (!CgPass) FPlatformMisc::RequestExitWithStatus(false, 1);
+            }
+        }
         Valid = Valid && Finite(F) && Finite(M) && Finite(Mcg) && F.Size() < 100 && M.Size() < 50 &&
                 FMath::IsFinite(O.left_flap_deg) && FMath::IsFinite(O.right_flap_deg) &&
                 FMath::Abs(O.left_flap_deg) <= 85 && FMath::Abs(O.right_flap_deg) <= 85;
@@ -1151,6 +1203,32 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
         LastPhaseError = O.phase_error;
         LastKGainMod = O.k_gain_mod;
         FlapHz = O.flap_hz;
+        // Integrate diagnostic averages at physics rate: sampling only the
+        // last strip evaluation of a rendered frame can alias the wingbeat.
+        if (bVectors)
+        {
+            B2F_WingField StatsFields[2][B2F_WING_STATIONS];
+            B2F_WingLoads StatsLoads[2][B2F_WING_STATIONS];
+            if (MathBridge->ReadWingFields(StatsFields[0], StatsFields[1]) &&
+                MathBridge->ReadWingLoads(StatsLoads[0], StatsLoads[1]))
+            {
+                const double Blend = bStripStatsValid ? 1.0 - FMath::Exp(-StepDt / .5) : 1.0;
+                for (int Side = 0; Side < 2; ++Side)
+                {
+                    FVector Stats = FVector::ZeroVector;
+                    for (uint32 I = 0; I < B2F_WING_STATIONS; ++I)
+                    {
+                        const auto& Field = StatsFields[Side][I];
+                        Stats.X += Rotation.RotateVector(FVector(Field.lift_n[0], Field.lift_n[1], Field.lift_n[2])).Z;
+                        Stats.Y += Field.air_velocity_m_s[0] / B2F_WING_STATIONS;
+                        Stats.Z += StatsLoads[Side][I].moment_nm[0];
+                    }
+                    SmoothedStripStats[Side] += Blend * (Stats - SmoothedStripStats[Side]);
+                }
+                bStripStatsValid = true;
+            }
+        }
+        else bStripStatsValid = false;
         // Predict BOTH linear and rotational feedback between wing evaluations.
         // Holding angular velocity for a whole 30 Hz frame made aerodynamic
         // roll damping overshoot. Chaos receives the mean loads once and stays
@@ -1467,9 +1545,10 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         if (Launch)
             ResetMouse = true;
         if (PC->WasInputKeyJustPressed(Get(TEXT("ToggleVectors"))))
-            bVectors = !bVectors;
-        if (PC->WasInputKeyJustPressed(Get(TEXT("ToggleBlind"))))
-            SetBlindFlight(!bBlind);
+        {
+            VectorView = (VectorView + 1) % 3;
+            bVectors = VectorView != 0;
+        }
         if (PC->WasInputKeyJustPressed(Get(TEXT("ToggleUi"))))
             ToggleUIHidden();
         if (PC->WasInputKeyJustPressed(Get(TEXT("ThrottleMode"))))
@@ -1672,10 +1751,72 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
             Body->SetPhysicsAngularVelocityInRadians(FVector::ZeroVector);
             UE_LOG(LogTemp, Display, TEXT("HandlingTest bank perturbation %.1f degrees; sticks neutral"), Attitude.Roll);
         }
+        double YawTestDirection = 0;
+        if (FParse::Value(FCommandLine::Get(), TEXT("B2FYawBankTest="), YawTestDirection))
+        {
+            YawTestDirection = YawTestDirection < 0 ? -1 : 1;
+            Effort = TestTime >= 3 ? .72f : 0;
+            Steer = TestTime >= 18 && TestTime < 22 ? .3f * YawTestDirection : 0;
+            double YawRampSeconds = 0;
+            FParse::Value(FCommandLine::Get(), TEXT("B2FYawTestRamp="), YawRampSeconds);
+            if (YawRampSeconds > 0) Steer *= FMath::Clamp((TestTime - 18) / YawRampSeconds, 0., 1.);
+            if (TestTime >= 18 && FParse::Param(FCommandLine::Get(), TEXT("B2FYawTestGlide"))) Effort = 0;
+            Roll = Pitch = 0;
+            Reset = false;
+            Launch = Previous < 3 && TestTime >= 3;
+            if (Previous < 18 && TestTime >= 18)
+            {
+                YawTestStartHeading = Body->GetComponentRotation().Yaw;
+                YawTestStartBank = Body->GetComponentRotation().Roll;
+            }
+            if (Previous < 18.25 && TestTime >= 18.25)
+                YawTestEarlyBank = FMath::FindDeltaAngleDegrees(YawTestStartBank, Body->GetComponentRotation().Roll);
+            if (TestTime >= 19 && TestTime < 22)
+            {
+                YawTestBankIntegral += FMath::FindDeltaAngleDegrees(YawTestStartBank, Body->GetComponentRotation().Roll) * DeltaSeconds;
+                YawTestDuration += DeltaSeconds;
+            }
+            if (TestTime >= 22 && !bTestFinished)
+            {
+                bTestFinished = true;
+                const double MeanBank = YawTestBankIntegral / FMath::Max(.001, YawTestDuration);
+                const double HeadingChange = FMath::FindDeltaAngleDegrees(YawTestStartHeading, Body->GetComponentRotation().Yaw);
+                const bool Pass = bHealthy && bFlying && MathFailures == 0 && SafetyResets == 0 &&
+                    YawTestDirection * HeadingChange > 5 && YawTestDirection * MeanBank > 1;
+                UE_LOG(LogTemp, Display, TEXT("YawBankTest %s direction=%.0f heading=%.3f meanBank=%.3f earlyBank=%.3f startBank=%.3f altitude=%.3f speed=%.3f safety=%d mathFailures=%d"),
+                    Pass ? TEXT("PASS") : TEXT("FAIL"), YawTestDirection, HeadingChange, MeanBank, YawTestEarlyBank, YawTestStartBank, GetAltitude(), GetSpeed(), SafetyResets, MathFailures);
+                FPlatformMisc::RequestExitWithStatus(false, Pass ? 0 : 1);
+            }
+        }
         if (Previous < 18 && TestTime >= 18 && FParse::Param(FCommandLine::Get(), TEXT("B2FCapture")))
             FScreenshotRequest::RequestScreenshot(TEXT("AerodynamicFlight.png"), true, false);
         if (Previous < 60 && TestTime >= 60 && FParse::Param(FCommandLine::Get(), TEXT("B2FCapture")))
             FScreenshotRequest::RequestScreenshot(TEXT("MurexApproach.png"), true, false);
+        if (FParse::Param(FCommandLine::Get(), TEXT("B2FVectorCapture")))
+        {
+            if (FParse::Param(FCommandLine::Get(), TEXT("B2FCgTest")))
+            {
+                if (Previous < 18 && TestTime >= 18) SetCgOffsetMm(-20);
+                if (Previous < 19.4 && TestTime >= 19.4) SetCgOffsetMm(20);
+            }
+            if (FParse::Param(FCommandLine::Get(), TEXT("B2FTailAngleTest")))
+            {
+                if (Previous < 18 && TestTime >= 18) SetTuning(ETuningField::TailElevatorAngle, -8);
+                if (Previous < 19.4 && TestTime >= 19.4) SetTuning(ETuningField::TailElevatorAngle, 8);
+            }
+            VectorView = TestTime < 18.6 ? 1 : 2;
+            bVectors = true;
+            if (Previous < 18 && TestTime >= 18)
+                FScreenshotRequest::RequestScreenshot(TEXT("StripForces.png"), true, false);
+            if (Previous < 19.4 && TestTime >= 19.4)
+                FScreenshotRequest::RequestScreenshot(TEXT("StripAirflow.png"), true, false);
+            if (TestTime >= 20 && !bTestFinished)
+            {
+                bTestFinished = true;
+                UE_LOG(LogTemp, Display, TEXT("F5_CAPTURE_COMPLETE views=2 strips=32; visual inspection required"));
+                FPlatformMisc::RequestExitWithStatus(false, 0);
+            }
+        }
         if (FParse::Param(FCommandLine::Get(), TEXT("B2FRollResponseTest")))
         {
             // Loaded tow fixture: constrain forward speed, pitch and yaw while
@@ -1709,14 +1850,15 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
             const bool HaveFields = MathBridge && MathBridge->ReadWingFields(FieldsL, FieldsR);
             auto SurfaceBank = [&](const B2F_WingField* Fields)
             {
-                double Bank = 0;
+                double NormalY = 0, NormalZ = 0;
                 for (uint32 I = 0; I < B2F_WING_STATIONS; ++I)
                 {
                     const auto& N = Fields[I].normal;
                     const FVector WorldNormal = Body->GetComponentQuat().RotateVector(FVector(N[0], N[1], N[2]));
-                    Bank += FMath::RadiansToDegrees(FMath::Atan2(-WorldNormal.Y, WorldNormal.Z));
+                    NormalY += WorldNormal.Y;
+                    NormalZ += WorldNormal.Z;
                 }
-                return Bank / B2F_WING_STATIONS;
+                return FMath::RadiansToDegrees(FMath::Atan2(-NormalY, NormalZ));
             };
             if (Previous < 3 && TestTime >= 3 && HaveFields)
                 RollTestBaseline = FVector(Body->GetComponentRotation().Roll, SurfaceBank(FieldsL), SurfaceBank(FieldsR));
@@ -1727,11 +1869,20 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
                 const double LeftWorld = HaveFields ? FMath::FindDeltaAngleDegrees(RollTestBaseline.Y, SurfaceBank(FieldsL)) : 999;
                 const double RightWorld = HaveFields ? FMath::FindDeltaAngleDegrees(RollTestBaseline.Z, SurfaceBank(FieldsR)) : 999;
                 const double TailRoll = MembraneTailPivot->GetComponentRotation().Roll;
-                const bool Pass = bHealthy && HaveFields && MathFailures == 0 && FMath::Abs(BodyRoll) > 3 &&
-                    FMath::Max(FMath::Abs(LeftWorld), FMath::Abs(RightWorld)) < 3 && RollTestPeakRate < 1 &&
+                // UE Euler roll has the opposite sign to the span-normal bank
+                // used above. Test relative joint response, not a world horizon.
+                // Subtract on the circle before averaging: either wing can
+                // cross +/-180 degrees without the hinge moving by 360.
+                const double RelativeRoll = .5 *
+                    (FMath::UnwindDegrees(-BodyRoll - LeftWorld) +
+                     FMath::UnwindDegrees(-BodyRoll - RightWorld));
+                const bool LegacyLevelSupport = FParse::Param(FCommandLine::Get(), TEXT("B2FLegacyLevelSupport"));
+                const bool LevelGate = !LegacyLevelSupport ||
+                    (FMath::Max(FMath::Abs(LeftWorld), FMath::Abs(RightWorld)) < 3 && RollTestPeakRate < 1);
+                const bool Pass = bHealthy && HaveFields && MathFailures == 0 && RelativeRoll < -3 && LevelGate &&
                     FMath::Abs(FMath::FindDeltaAngleDegrees(Body->GetComponentRotation().Roll, TailRoll)) < 1;
-                UE_LOG(LogTemp, Display, TEXT("RollResponseTest %s body=%.3f leftSurfaceWorld=%.3f rightSurfaceWorld=%.3f tail=%.3f peakRate=%.3f mass=%.4f"),
-                    Pass ? TEXT("PASS") : TEXT("FAIL"), BodyRoll, LeftWorld, RightWorld, TailRoll, RollTestPeakRate, Body->GetMass());
+                UE_LOG(LogTemp, Display, TEXT("RollResponseTest %s body=%.3f leftSurfaceWorld=%.3f rightSurfaceWorld=%.3f relative=%.3f tail=%.3f peakRate=%.3f mass=%.4f legacyLevelGate=%d"),
+                    Pass ? TEXT("PASS") : TEXT("FAIL"), BodyRoll, LeftWorld, RightWorld, RelativeRoll, TailRoll, RollTestPeakRate, Body->GetMass(), LegacyLevelSupport);
                 FPlatformMisc::RequestExitWithStatus(false, Pass ? 0 : 1);
             }
             if (Previous < 11.5 && TestTime >= 11.5 && FParse::Param(FCommandLine::Get(), TEXT("B2FCapture")))
@@ -1884,14 +2035,28 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     if(PterosaurRightShoulder) PterosaurRightShoulder->SetRelativeRotation(RightShoulder->GetRelativeRotation());
     if(TurtleLeftShoulder) TurtleLeftShoulder->SetRelativeRotation(LeftShoulder->GetRelativeRotation());
     if(TurtleRightShoulder) TurtleRightShoulder->SetRelativeRotation(RightShoulder->GetRelativeRotation());
-    // Show the actual aerodynamic tail incidence, including pitch/throttle
-    // trim. A roll command leaves the tail fixed relative to the fuselage.
+    // Read the physics mount angle. The Kestrel fan remains fixed at the
+    // configured incidence; steering/throttle do not animate a hidden servo.
     double TailPitch = 0;
     if (MathBridge) MathBridge->ReadTailIncidence(TailPitch);
     if (RavenTailPivot) RavenTailPivot->SetRelativeRotation(FRotator(TailPitch, 0, 0));
     if (PterosaurTailPivot) PterosaurTailPivot->SetRelativeRotation(FRotator(TailPitch, 0, 0));
     if (MembraneTailPivot) MembraneTailPivot->SetRelativeRotation(FRotator(TailPitch, 0, 0));
     if (TurtleTailPivot) TurtleTailPivot->SetRelativeRotation(FRotator(TailPitch, 0, 0));
+    if (bFlightTest && FParse::Param(FCommandLine::Get(), TEXT("B2FTailAngleTest")) && TestTime >= 18)
+    {
+        const int32 SampleBit = TestTime < 19.4 ? 1 : 2;
+        if (!(TailAngleTestSamples & SampleBit))
+        {
+            const double Expected = SampleBit == 1 ? -8 : 8;
+            const double Visible = MembraneTailPivot ? MembraneTailPivot->GetRelativeRotation().Pitch : 999;
+            const bool Pass = FMath::Abs(TailPitch - Expected) < 1.e-5 && FMath::Abs(Visible - Expected) < 1.e-5;
+            UE_LOG(LogTemp, Display, TEXT("TailAngleTest %s setting=%.1f solver=%.3f visible=%.3f"),
+                Pass ? TEXT("PASS") : TEXT("FAIL"), Expected, TailPitch, Visible);
+            TailAngleTestSamples |= SampleBit;
+            if (!Pass) FPlatformMisc::RequestExitWithStatus(false, 1);
+        }
+    }
     B2F_WingSection LeftShape[B2F_WING_STATIONS], RightShape[B2F_WING_STATIONS];
     if(MathBridge && MathBridge->ReadWingShape(LeftShape,RightShape))
     {
@@ -1907,41 +2072,115 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     UpdateWaterRipples(Dt);
     if (bVectors)
     {
-        const FRotator R = Body->GetComponentRotation();
-        const FVector Fwd   = R.Vector();                        // body +X = thrust
-        const FVector Right = R.RotateVector(FVector(0, 1, 0));  // body +Y = side
-        const FVector Up    = R.RotateVector(FVector(0, 0, 1));  // body +Z = lift
-        const float K = 25.f;
-        // Draw from a point lifted clear of the fuselage, at FOREGROUND depth
-        // (1 = SDPG_Foreground) so the arrows are never hidden inside the bird
-        // mesh or the ground — F5 must be readable in flight.
-        const FVector VOrigin = Body->GetComponentLocation() + FVector(0, 0, 40);
-        // Total aerodynamic force (world space).
-        DrawDebugDirectionalArrow(GetWorld(), VOrigin, VOrigin + AeroForce * K, 15, FColor::Cyan, false, 0, 1, 3);
-        // Body-axis decomposition so the thrust/side/lift split is visible live.
-        const FVector Thrust = Fwd   * (AeroForce | Fwd);
-        const FVector Side   = Right * (AeroForce | Right);
-        const FVector Lift   = Up    * (AeroForce | Up);
-        DrawDebugDirectionalArrow(GetWorld(), VOrigin, VOrigin + Thrust * K, 15, FColor::Green,  false, 0, 1, 3);
-        DrawDebugDirectionalArrow(GetWorld(), VOrigin, VOrigin + Side   * K, 15, FColor::Yellow, false, 0, 1, 3);
-        DrawDebugDirectionalArrow(GetWorld(), VOrigin, VOrigin + Lift   * K, 15, FColor::Blue,   false, 0, 1, 3);
-        // Gravity reference.
-        DrawDebugDirectionalArrow(GetWorld(), VOrigin, VOrigin + FVector(0, 0, -Body->GetMass() * 9.81) * K, 15, FColor::Red,
-                                  false, 0, 1, 3);
-        B2F_WingField Fields[2][B2F_WING_STATIONS]{};
-        if (MathBridge && MathBridge->ReadWingFields(Fields[0], Fields[1]))
+        // Force arrows begin at the actual deformed strip, never at a common
+        // wing centroid. All force arrows share one linear scale (cm / N).
+        const FQuat Q = Body->GetComponentQuat();
+        const FVector Origin = Body->GetComponentLocation();
+        const FVector Fwd = Q.RotateVector(FVector::ForwardVector);
+        const auto WorldVector = [&Q](const double* V) { return Q.RotateVector(FVector(V[0], V[1], V[2])); };
+        constexpr float ForceScale = 800.f;
+        const FColor LiftColor(70, 145, 255), ThrustColor(80, 255, 100);
+        const FColor PressureColor(50, 235, 240), DragColor(255, 155, 45);
+        const FColor FlowColor(255, 230, 70), MomentColor(235, 90, 235);
+        const auto Arrow = [this](const FVector& StripOrigin, const FVector& V, FColor Color, float Scale, float Thickness)
         {
-            const FQuat Q = Body->GetComponentQuat();
-            const FVector Origin = Body->GetComponentLocation();
-            for (const auto& Wing : Fields)
-                for (const auto& Strip : Wing)
+            if (!V.IsNearlyZero(1.e-8))
+                DrawDebugDirectionalArrow(GetWorld(), StripOrigin, StripOrigin + V * Scale,
+                    FMath::Clamp(float(V.Size() * Scale * .18), .08f, 5.f), Color, false, 0, 1, Thickness);
+        };
+        B2F_WingField Fields[2][B2F_WING_STATIONS]{};
+        B2F_WingLoads Loads[2][B2F_WING_STATIONS]{};
+        if (MathBridge && MathBridge->ReadWingFields(Fields[0], Fields[1]) &&
+            MathBridge->ReadWingLoads(Loads[0], Loads[1]))
+        {
+            FVector WingLift[2]{}, WingForce[2]{}, WingMoment[2]{};
+            for (int32 W = 0; W < 2; ++W)
+                for (uint32 I = 0; I < B2F_WING_STATIONS; ++I)
                 {
-                    const auto Vector = [&Q](const double* V) { return Q.RotateVector(FVector(V[0], V[1], V[2])); };
-                    const FVector StripOrigin = Origin + Vector(Strip.position_m) * 100.0;
-                    DrawDebugDirectionalArrow(GetWorld(), StripOrigin, StripOrigin + Vector(Strip.lift_n) * 250.0, 3, FColor::Blue, false, 0, 1, 1);
-                    DrawDebugDirectionalArrow(GetWorld(), StripOrigin, StripOrigin + Vector(Strip.pressure_n) * 250.0, 3, FColor::Cyan, false, 0, 1, 1);
-                    DrawDebugLine(GetWorld(), StripOrigin, StripOrigin + Vector(Strip.normal) * 6.0, FColor::White, false, 0, 1, .5f);
+                    const auto& Strip = Fields[W][I];
+                    const auto& Load = Loads[W][I];
+                    const FVector StripOrigin = Origin + WorldVector(Strip.position_m) * 100.0;
+                    const FVector Lift = WorldVector(Strip.lift_n);
+                    const FVector Force = WorldVector(Load.force_n);
+                    WingLift[W] += FVector(Strip.lift_n[0], Strip.lift_n[1], Strip.lift_n[2]);
+                    WingForce[W] += FVector(Load.force_n[0], Load.force_n[1], Load.force_n[2]);
+                    WingMoment[W] += FVector(Load.moment_nm[0], Load.moment_nm[1], Load.moment_nm[2]);
+                    DrawDebugPoint(GetWorld(), StripOrigin, 3.f, FColor::White, false, 0, 1);
+                    if (VectorView == 1)
+                    {
+                        Arrow(StripOrigin, Force, FColor::White, ForceScale, .7f);
+                        Arrow(StripOrigin, Lift, LiftColor, ForceScale, 1.6f);
+                        // Forward projection of the resultant: green can point
+                        // backwards in glide. It is not an extra thrust source.
+                        Arrow(StripOrigin, Fwd * Load.force_n[0], ThrustColor, ForceScale, 1.3f);
+                    }
+                    else
+                    {
+                        Arrow(StripOrigin, WorldVector(Strip.pressure_n), PressureColor, ForceScale, 1.4f);
+                        Arrow(StripOrigin, WorldVector(Load.drag_n), DragColor, ForceScale, 1.4f);
+                        // Air moving relative to the strip is opposite the
+                        // solver's surface-through-air velocity. Keep its own scale.
+                        Arrow(StripOrigin, -WorldVector(Strip.air_velocity_m_s), FlowColor, 2.f, .7f);
+                        Arrow(StripOrigin, WorldVector(Load.moment_nm), MomentColor, 2500.f, .9f);
+                        DrawDebugLine(GetWorld(), StripOrigin, StripOrigin + WorldVector(Strip.normal) * 6.f,
+                            FColor::White, false, 0, 1, .5f);
+                    }
                 }
+            // Aggregate arrows use a separate labelled scale to stay readable.
+            const FVector Hub = Origin + Q.RotateVector(FVector(0, 0, 45));
+            DrawDebugSphere(GetWorld(), Body->GetCenterOfMass(), 2.5f, 12, FColor::Orange, false, 0, 0, 1.5f);
+            Arrow(Hub, AeroForce, FColor::White, 100.f, 2.f);
+            Arrow(Hub, FVector(0, 0, -Body->GetMass() * 9.81), FColor::Red, 100.f, 2.f);
+            VectorLegend = VectorView == 1
+                ? TEXT("F5 1/2 | WING + TAIL PATCHES | Blue: lift   Green: forward force   White: resultant | 800 cm/N")
+                : TEXT("F5 2/2 | Cyan: pressure   Orange: drag (800 cm/N)   White: surface normal");
+            VectorDetail = VectorView == 1
+                ? TEXT("Lift follows local airflow; forward force can point backwards. Thrust is a component, not an extra force.")
+                : TEXT("Yellow: relative airflow (2 cm per m/s)   Magenta: torque axis about body origin (2500 cm/Nm)");
+            VectorTotals = FString::Printf(TEXT("Instantaneous L/R  |  Lift magnitude %.3f / %.3f N   Forward %+.3f / %+.3f N   Roll torque %+.4f / %+.4f Nm"),
+                WingLift[0].Size(), WingLift[1].Size(), WingForce[0].X, WingForce[1].X, WingMoment[0].X, WingMoment[1].X);
+            VectorAverage = FString::Printf(TEXT("Smoothed 0.5 s L/R | Vertical lift %+.3f / %+.3f N   Wing roll moment %+.4f / %+.4f Nm"),
+                SmoothedStripStats[0].X, SmoothedStripStats[1].X, SmoothedStripStats[0].Z, SmoothedStripStats[1].Z);
+            const double YawRate = Q.UnrotateVector(Body->GetPhysicsAngularVelocityInRadians()).Z;
+            const TCHAR* Outside = YawRate > .02 ? TEXT("LEFT") : YawRate < -.02 ? TEXT("RIGHT") : TEXT("no turn");
+            VectorFlow = FString::Printf(TEXT("Smoothed forward airspeed L/R %.2f / %.2f m/s | Outside wing: %s | Upright: +roll moment raises RIGHT"),
+                SmoothedStripStats[0].Y, SmoothedStripStats[1].Y, Outside);
+            B2F_TailField TailFields[B2F_TAIL_PATCHES]{};
+            VectorTail = TEXT("Tail patch diagnostics unavailable for this model/backend.");
+            if (MathBridge->ReadTailFields(TailFields))
+            {
+                FVector TailForceWorld = FVector::ZeroVector, TailMomentWorld = FVector::ZeroVector;
+                for (const auto& Patch : TailFields)
+                {
+                    const FVector PatchOrigin = Origin + WorldVector(Patch.position_m) * 100.0;
+                    const FVector PatchLift = WorldVector(Patch.lift_n);
+                    const FVector PatchPressure = WorldVector(Patch.pressure_n);
+                    const FVector PatchDrag = WorldVector(Patch.drag_n);
+                    const FVector PatchForce = PatchLift + PatchPressure + PatchDrag;
+                    TailForceWorld += PatchForce;
+                    TailMomentWorld += WorldVector(Patch.moment_nm);
+                    DrawDebugPoint(GetWorld(), PatchOrigin, 3.f, FColor::White, false, 0, 1);
+                    if (VectorView == 1)
+                    {
+                        Arrow(PatchOrigin, PatchForce, FColor::White, ForceScale, .7f);
+                        Arrow(PatchOrigin, PatchLift, LiftColor, ForceScale, 1.6f);
+                    }
+                    else
+                    {
+                        Arrow(PatchOrigin, PatchLift, LiftColor, ForceScale, 1.6f);
+                        Arrow(PatchOrigin, PatchPressure, PressureColor, ForceScale, 1.4f);
+                        Arrow(PatchOrigin, PatchDrag, DragColor, ForceScale, 1.4f);
+                        Arrow(PatchOrigin, -WorldVector(Patch.air_velocity_m_s), FlowColor, 2.f, .7f);
+                    }
+                }
+                VectorTail = FString::Printf(TEXT("Fixed tail %+0.1f deg | World vertical force %+.3f N | World yaw moment %+.4f Nm"),
+                    TailPitch, TailForceWorld.Z, TailMomentWorld.Z);
+            }
+        }
+        else
+        {
+            VectorLegend = TEXT("F5 strip diagnostics unavailable: restart with the updated physics backend.");
+            VectorDetail.Empty(); VectorTotals.Empty(); VectorAverage.Empty(); VectorFlow.Empty(); VectorTail.Empty();
         }
     }
     LogTime += DeltaSeconds;
@@ -2114,6 +2353,39 @@ void ABorn2FlapFlightPawn::UpdateWindMotes(float DeltaSeconds)
     WindMotes->MarkRenderStateDirty();
 }
 
+void ABorn2FlapFlightPawn::DrawVectorOverlay(UCanvas* Canvas, APlayerController* DebugController)
+{
+    if (!bVectors || !Canvas || !GEngine || (DebugController && DebugController->GetPawn() != this)) return;
+    // A dedicated lower panel avoids the instrument readouts at the top left.
+    const TArray<FString> Lines{VectorLegend, VectorDetail, VectorTotals, VectorAverage, VectorFlow, VectorTail,
+        FString::Printf(TEXT("CG %+.1f cm (orange marker; +aft) | CG pitch-moment correction %+.4f Nm (+nose-down)"),
+            CgOffsetMm / 10., CgPitchMomentCorrection),
+        TEXT("Body arrows: white = host force, red = gravity (100 cm/N). F5: forces > airflow/torque > off.")};
+    UFont* Font = GEngine->GetSmallFont();
+    float MaxWidth = 1.f, TextHeight = 0.f;
+    for (const FString& Line : Lines)
+    {
+        float Width = 0.f;
+        Canvas->StrLen(Font, Line, Width, TextHeight);
+        MaxWidth = FMath::Max(MaxWidth, Width);
+    }
+    const float Scale = FMath::Min(1.f, (Canvas->SizeX - 48.f) / MaxWidth);
+    const float Row = FMath::Max(16.f, TextHeight * Scale + 3.f);
+    const float Top = Canvas->SizeY - Row * Lines.Num() - 24.f;
+    FCanvasTileItem Backdrop(FVector2D(12.f, Top - 8.f),
+        FVector2D(FMath::Min(MaxWidth * Scale + 24.f, Canvas->SizeX - 24.f), Row * Lines.Num() + 16.f),
+        FLinearColor(.012f, .018f, .025f, .88f));
+    Backdrop.BlendMode = SE_BLEND_Translucent;
+    Canvas->DrawItem(Backdrop);
+    for (int32 I = 0; I < Lines.Num(); ++I)
+    {
+        FCanvasTextItem Text(FVector2D(24.f, Top + I * Row), FText::FromString(Lines[I]), Font, FLinearColor::White);
+        Text.Scale = FVector2D(Scale, Scale);
+        Text.EnableShadow(FLinearColor::Black);
+        Canvas->DrawItem(Text);
+    }
+}
+
 void ABorn2FlapFlightPawn::CheckFlightTest()
 {
     if (bHandlingTest)
@@ -2199,7 +2471,13 @@ void ABorn2FlapFlightPawn::CheckFlightTest()
     if (TestTime > 94 && TestTime < 95)
         bTestLand = !bFlying && GetAltitude() < .3 && GetSpeed() < .3;
     if (TestTime > 97 && TestTime < 98)
-        bTestReset = !bFlying && GetActorLocation().Size2D() < 100 && GetAltitude() < .3;
+    {
+        // ResetFlight returns to the selected launch point, which is far from
+        // world origin on authored maps such as Murex's runway head.
+        const FVector ExpectedSpawn = POIs.IsValidIndex(SelectedPoi)
+            ? POIs[SelectedPoi].Position : FVector::ZeroVector;
+        bTestReset = !bFlying && (Body->GetComponentLocation() - ExpectedSpawn).Size2D() < 100 && GetAltitude() < .3;
+    }
     if (TestTime > 108 && TestTime < 109)
         bTestSecondFlight = bFlying && GetAltitude() > 1 && GetSpeed() > 5;
     if (bSoakTest && TestTime >= 180 && !bTestFinished)

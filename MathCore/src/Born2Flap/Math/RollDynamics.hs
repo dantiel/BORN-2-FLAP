@@ -1,6 +1,6 @@
 -- | Implicit parallel-hinge roll dynamics. Coordinates are body roll and
 -- left/right flap deviation; positive deviation raises either wing.
-module Born2Flap.Math.RollDynamics (stepRoll, rollMomentum, rollEnergy, stepRollWithMass, supportMassMatrix, supportedRollSystem, solveImplicitSystem, solveImplicitSystemCached) where
+module Born2Flap.Math.RollDynamics (stepRoll, rollMomentum, rollEnergy, stepRollWithMass, supportMassMatrix, supportedRollSystem, supportGravity, solveImplicitSystem, solveImplicitSystemCached) where
 
 import Born2Flap.Math.Types (Vec3(..))
 import Data.List (maximumBy, transpose)
@@ -169,8 +169,9 @@ supportMassMatrix mass ma locked dry wing rotor mr mar h (phi,l,r) =
       [py,pz,pp,pl,pr],[ly,lz,pl,ll,0],[ry,rz,pr,0,rr]]
 
 -- | Eliminate lateral/heave acceleration by a Schur complement. In a freely
--- falling reference frame gravity cancels from the relative joint equations:
--- existing aerodynamic support enters as -B^T F / mass, not another weight.
+-- falling reference frame dry gravity cancels from the relative joint equations
+-- only when added air is absent. With added air, apply 'supportGravity' too:
+-- the surrounding fluid does not fall with the aircraft.
 -- Returns reduced inertia, the generalized support/Coriolis load correction,
 -- the translational recoil force to return to the host integrator, and the
 -- dry/full translation mass ratio the host must scale external force by (the
@@ -202,3 +203,20 @@ supportedRollSystem mass ma locked dry wing rotor mr mar h (l,r) (Vec3 p vl vr) 
                                      f i c = -c-sum (zipWith (*) (drop 2 (m!!i)) a)
                                  in Vec3 0 (ratio * f 0 cy) (ratio * f 1 cz)
   in ((row 2,row 3,row 4),correction,reaction,ratio)
+
+-- | Gravity correction for the same Schur reduction. Only dry mass has
+-- weight; added mass resists acceleration. The host already integrates g,
+-- so return its correction (ratio-1)*m*g, never a second copy of weight.
+-- Dry-wing gravity torques must also enter the reduced joint equations:
+-- B_dry^T*g - B_full^T*(m*g)/(m+2*ma). This vanishes exactly in vacuum.
+-- Coordinates and gravity are in the body frame; no upright target exists.
+supportGravity :: Double -> Double -> Double -> Double -> (Double,Double) -> Vec3
+               -> (Vec3,Vec3)
+supportGravity mass ma mr mar (l,r) (Vec3 _ gy gz) =
+  let ratio = mass/(mass+2*ma)
+      first = mr-ratio*(mr+mar)
+      roll = first * (-(sin l+sin r)*gy+(cos r-cos l)*gz)
+      left = first * (sin l*gy+cos l*gz)
+      right = first * (-sin r*gy+cos r*gz)
+      correction = mass*(ratio-1)
+  in (Vec3 roll left right,Vec3 0 (correction*gy) (correction*gz))

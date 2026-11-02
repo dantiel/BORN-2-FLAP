@@ -13,7 +13,7 @@
 extern "C" {
 #endif
 
-#define B2F_MATH_ABI_VERSION 16u
+#define B2F_MATH_ABI_VERSION 17u
 
 typedef struct B2F_MathContext B2F_MathContext;
 
@@ -77,8 +77,9 @@ typedef struct B2F_BodyState {
     double angular_velocity_rad_s[3];
     double ground_clearance_m;   /* body-origin height above the surface below [m] (ABI v11) */
     double roll_inertia_kg_m2;  /* positive dry locked-wing host inertia (ABI v12); required */
-    double body_up_body_frame[3]; /* world-up unit vector in the BODY frame (ABI v13): the
-                                   * pendulum hangs the body weight on the wings */
+    double body_up_body_frame[3]; /* world-up unit vector in the BODY frame (ABI v13),
+                                   * strip height and gravity/added-air coupling (g=9.81).
+                                   * Set all three to zero in a gravity-free world. */
 } B2F_BodyState;
 
 typedef struct B2F_FirmwareConfig {
@@ -134,7 +135,7 @@ typedef struct B2F_TuningConfig {
     double battery_c_rating;      /* continuous discharge rating (C), e.g. 30 (ABI v14) */
     double battery_burst_c_rating; /* burst discharge rating (C), e.g. 60 = momentarily double (ABI v14) */
     double flap_base_freq_dhz;   /* 10..200 */
-    double tail_elevator_angle_deg; /* tail elevator angle (flap stroke centre trim), -15..+15 */
+    double tail_elevator_angle_deg; /* physical tail mounting incidence, -15..+15 degrees */
     double glide_angle_deg;      /* -15..+15 */
     double stroke_ferocity;      /* 0..100 */
     double aileron_scale;        /* 0..100 */
@@ -181,7 +182,8 @@ B2F_API int32_t b2f_math_get_wing_shape(B2F_MathContext* context,
 B2F_API int32_t b2f_math_get_wing_forces(B2F_MathContext* context,
     uint32_t capacity, double* left, double* right);
 /* Additive ABI-16 extension. SI/body coordinates. The first five vectors are
- * from the last force evaluation; patch vectors use the next body basis.
+ * from the last force evaluation; diagnostic direction uses the next body basis.
+ * field_displacement_m is reserved and zero: no positional support spring.
  * No world-up/attitude target exists. */
 typedef struct B2F_WingField {
     double position_m[3];
@@ -194,8 +196,38 @@ typedef struct B2F_WingField {
 } B2F_WingField;
 B2F_API int32_t b2f_math_get_wing_fields(B2F_MathContext* context,
     uint32_t capacity, B2F_WingField* left, B2F_WingField* right);
+/* Additive diagnostic API; preserves the existing field layout. Last solved
+ * aerodynamic loads, SI/body frame. Moment is about the body origin and includes
+ * r cross force plus section pitching couple, before internal inertial recoil.
+ * Thrust is the signed body-forward component of force, not an extra force. */
+typedef struct B2F_WingLoads {
+    double force_n[3];
+    double drag_n[3];
+    double moment_nm[3];
+} B2F_WingLoads;
+B2F_API int32_t b2f_math_get_wing_loads(B2F_MathContext* context,
+    uint32_t capacity, B2F_WingLoads* left, B2F_WingLoads* right);
 /* Actual common tail incidence, degrees nose-up. Read-only ABI-16 extension. */
 B2F_API int32_t b2f_math_get_tail_incidence(B2F_MathContext* context, double* degrees);
+
+#define B2F_TAIL_PATCHES 18
+/* Last solved sum of surface forces, body frame, N; three doubles.
+ * Use this when shifting the aerodynamic moment to the CG, not the host force
+ * which also includes added-mass, gravity correction and inertial recoil.
+ * Read-only ABI-17 extension; returns 1, or 0 without writes on invalid input. */
+B2F_API int32_t b2f_math_get_external_force(B2F_MathContext* context, double* force_n);
+/* Enable implicit pitch/yaw rates with host CG x [m] and dry inertias [kg m2].
+ * Roll inertia remains supplied in BodyState. Linear velocity is at the body
+ * origin; this hook accounts for the CG while evaluating trial angular rates.
+ * Returns 0 without mutation for nonfinite/invalid values; 1 on success. */
+B2F_API int32_t b2f_math_set_mass_frame(B2F_MathContext* context, double cg_x_m,
+    double pitch_inertia_kg_m2, double yaw_inertia_kg_m2);
+typedef struct B2F_TailField {
+    double position_m[3], normal[3], air_velocity_m_s[3];
+    double lift_n[3], pressure_n[3], drag_n[3], moment_nm[3];
+} B2F_TailField;
+/* Read-only solved fan patches; zero on unsupported model or insufficient capacity. */
+B2F_API int32_t b2f_math_get_tail_fields(B2F_MathContext* context, uint32_t capacity, B2F_TailField* output);
 /* Axis-angle vector mapping the predicted body basis to the actual host
  * basis, radians. Rotates air-field memory without changing wing coordinates. */
 B2F_API int32_t b2f_math_transport_airfields(B2F_MathContext* context, const double rotation[3]);

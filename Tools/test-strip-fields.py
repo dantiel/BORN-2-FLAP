@@ -40,9 +40,11 @@ def main():
     p.add_argument('--free-translation', action='store_true')
     p.add_argument('--output', type=Path)
     p.add_argument('--progress', action='store_true')
+    p.add_argument('--expect-level-support', action='store_true',
+                   help='Legacy support-spring acceptance gate; NOT a physical requirement')
     args = p.parse_args()
     lib = c.CDLL(str(args.dll.resolve()))
-    assert lib.b2f_math_abi_version() == 16
+    assert lib.b2f_math_abi_version() == 17
     assert lib.b2f_math_runtime_init() == 1
     lib.b2f_math_create_firmware_vehicle.argtypes = [c.c_void_p]
     lib.b2f_math_create_firmware_vehicle.restype = c.c_void_p
@@ -134,19 +136,23 @@ def main():
     printable = dict(result, sample={k:v for k,v in result['sample'].items() if k != 'samples'})
     print(json.dumps(printable, indent=2))
     s = result['sample']
-    # A quarter-stick slow command must visibly rotate the body while keeping
-    # the mean wing plane close to its initial air-frame orientation.
-    checks = dict(direction=s['body_deg']*args.roll < 0,
-                  body_response=abs(s['body_deg']) >= abs(args.roll)*15,
-                  wing_stability=abs(s['surface_deg']) < 3,
-                  smooth_roll=s['peak_roll_rate'] < 1,
+    # A differential hinge command counter-rotates body relative to wings.
+    # Neither absolute bank nor passive return to the horizon is prescribed.
+    relative=s['body_deg']-s['wing_deg']
+    checks = dict(relative_direction=relative*args.roll <= 1e-4,
+                  relative_response=abs(relative) >= abs(args.roll)*15,
+                  finite_motion=all(math.isfinite(s[k]) for k in ('body_deg','wing_deg','surface_deg','peak_roll_rate')),
                   lift_direction=s['lift_dot_velocity'] < 1e-8,
                   normals=s['normal_error'] < 1e-10)
+    if args.expect_level_support:
+        checks.update(direction=s['body_deg']*args.roll < 0,
+                      wing_stability=abs(s['surface_deg']) < 3,
+                      smooth_roll=s['peak_roll_rate'] < 1)
     if args.perturb_bank:
-        checks.pop('direction')
-        checks.pop('body_response')
-        checks.pop('smooth_roll')  # the imposed jump is intentionally abrupt
-        checks['passive_recovery'] = abs(s['body_deg']) < .6*abs(args.perturb_bank)
+        checks.pop('relative_direction')
+        checks.pop('relative_response')
+        if not args.free_translation and args.roll == 0:
+            checks['no_horizon_anchor']=abs(s['body_deg']-args.perturb_bank)<.1
     print(json.dumps(checks))
     return 0 if all(checks.values()) else 1
 

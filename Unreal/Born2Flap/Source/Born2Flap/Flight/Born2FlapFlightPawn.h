@@ -54,6 +54,8 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     int32 GetBirdModel() const { return BirdModel; }
     int32 GetAvatarPerson() const { return AvatarPerson; }
     void SetAvatarPerson(int32 Index);
+    bool IsAvatarEnabled() const { return bAvatarEnabled; }
+    void SetAvatarEnabled(bool bEnabled);
     float GetTuning(ETuningField Field) const;
     void SetTuning(ETuningField Field, float Value);
     int32 DefaultBirdModel() const;
@@ -89,7 +91,6 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     void RequestHandLaunch();
     bool IsFlying() const { return bFlying; }
     bool IsHealthy() const { return bHealthy; }
-    bool IsBlindFlight() const { return bBlind; }
     // F7 "remove all UI" toggle: collapses the cockpit/radio overlays.
     bool IsUIHidden() const { return bHideUI; }
     void ToggleUIHidden() { bHideUI = !bHideUI; }
@@ -234,6 +235,7 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     // with the observer, hides in first-person ground view, and throws the bird.
     UPROPERTY() TObjectPtr<ABorn2FlapAvatar> Avatar;
     int32 AvatarPerson = 0;
+    bool bAvatarEnabled = true;
     FVector PrevAvatarFeet = FVector::ZeroVector;
     double CameraTime = 0, GroundSettleTime = 0;
     // True once the pilot has walked away from the auto-anchor beside the bird:
@@ -302,6 +304,7 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     int32 BirdModel = 0;
     float BodyMassKg = 0.050f;
     float CgOffsetMm = 0.f;
+    double CgPitchMomentCorrection = 0;
     B2F_TuningConfig Tuning{};
     void ApplyTuning();
     void ApplyBodyMass();
@@ -329,7 +332,15 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     void SaveTuningPreference(ETuningField Field);
     void LoadFlightPreferences();
     float Throttle = 0, RollInput = 0, YawInput = 0, PitchInput = 0, LeftFlap = 0, RightFlap = 0, BatterySoc = 1;
-    bool bFlying = false, bHealthy = false, bVectors = false, bReturning = false, bBlind = false;
+    void DrawVectorOverlay(class UCanvas* Canvas, APlayerController* DebugController);
+    FDelegateHandle VectorOverlayHandle;
+    FString VectorLegend, VectorDetail, VectorTotals, VectorAverage, VectorFlow, VectorTail;
+    FVector SmoothedStripStats[2]{}; // world vertical lift, forward airflow, body roll moment
+    bool bStripStatsValid = false;
+    double YawTestBankIntegral = 0, YawTestDuration = 0, YawTestStartHeading = 0;
+    double YawTestStartBank = 0, YawTestEarlyBank = 0;
+    int32 VectorView = 0; // F5: off, strip lift/thrust/resultant, airflow/pressure/torque
+    bool bFlying = false, bHealthy = false, bVectors = false, bReturning = false;
     bool bHideUI = false;
     // Touch hand-launch gate: re-arms when the throttle stick returns near
     // centre so a grounded bird can be thrown by pushing the left stick up.
@@ -360,6 +371,8 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     // The integration test uses the actual pawn/controller/Chaos path.
     bool bFlightTest = false, bSoakTest = false, bRavenFlightTest = false, bTestResetSent = false, bTestFinished = false;
     double TestTime = 0, TestPeakSpeed = 0, TestPeakAltitude = 0;
+    int32 TailAngleTestSamples = 0;
+    int32 CgTestSamples = 0;
     FQuat LastMathRotation = FQuat::Identity;
     bool bHaveMathRotation = false;
     double MathProfileSeconds = 0;
@@ -382,7 +395,6 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     bool StepMath(float DeltaSeconds);
     void UpdateAeroAudio(float DeltaSeconds);
     void UpdateWindMotes(float DeltaSeconds);
-    void SetBlindFlight(bool bOn);
     void CheckFlightTest();
     bool bHandlingTest = false;
     double TestLeftRecovery = 0, TestRightRecovery = 0;

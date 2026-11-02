@@ -161,6 +161,10 @@ void MenuSettingsLoad(FMenuSettings& Out)
     Config.GetInt(TEXT("Flight"), TEXT("BirdModel"), Model);
     Out.BirdModel = (Model >= 0 && Model <= 5) ? Model : -1;
 
+    bool AvatarEnabled = Out.bAvatarEnabled;
+    Config.GetBool(TEXT("Avatar"), TEXT("Enabled"), AvatarEnabled);
+    Out.bAvatarEnabled = AvatarEnabled;
+
     int32 Person = Out.AvatarPerson;
     Config.GetInt(TEXT("Avatar"), TEXT("Person"), Person);
     Out.AvatarPerson = FMath::Clamp(Person, 0, ABorn2FlapAvatar::GetPersonCount() - 1);
@@ -206,6 +210,7 @@ void MenuSettingsSave(const FMenuSettings& In)
     }
     if (In.BirdModel >= 0 && In.BirdModel <= 5)
         Config.SetInt64(TEXT("Flight"), TEXT("BirdModel"), In.BirdModel);
+    Config.SetBool(TEXT("Avatar"), TEXT("Enabled"), In.bAvatarEnabled);
     Config.SetInt64(TEXT("Avatar"), TEXT("Person"), In.AvatarPerson);
     Config.SetString(TEXT("General"), TEXT("Language"), *In.Language);
     Config.SetFloat(TEXT("General"), TEXT("UIScale"), In.UIScale);
@@ -220,6 +225,7 @@ void MenuSettingsFromPawn(const ABorn2FlapFlightPawn* Pawn, FMenuSettings& Out)
     for (uint8 I = 0; I < uint8(ETuningField::Count); ++I)
         MenuSettingsSetTuning(Out, ETuningField(I), Pawn->GetTuning(ETuningField(I)));
     Out.BirdModel = Pawn->GetBirdModel();
+    Out.bAvatarEnabled = Pawn->IsAvatarEnabled();
     Out.AvatarPerson = Pawn->GetAvatarPerson();
     Out.BodyMassKg = Pawn->GetBodyMassKg();
     Out.CgOffsetMm = Pawn->GetCgOffsetMm();
@@ -248,6 +254,7 @@ void MenuSettingsToPawn(const FMenuSettings& In, ABorn2FlapFlightPawn* Pawn)
     // length-derived range (a larger craft allows a wider CG travel).
     if (In.BirdModel >= 0 && In.BirdModel <= 5)
         Pawn->SelectBirdModel(In.BirdModel);
+    Pawn->SetAvatarEnabled(In.bAvatarEnabled);
     Pawn->SetAvatarPerson(In.AvatarPerson);
     Pawn->SetBodyMassKg(In.BodyMassKg);
     Pawn->SetCgOffsetMm(In.CgOffsetMm);

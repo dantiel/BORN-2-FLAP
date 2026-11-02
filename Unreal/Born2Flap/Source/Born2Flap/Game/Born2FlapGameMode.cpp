@@ -113,8 +113,10 @@ const FMenuWorld MenuWorlds[] = {
       TEXT("The Cloud-Sand Gorge. A crescent jade spring beneath a mile of singing grottoes. Ride the rising air to cloud-forest pillars and the flight-only sun-temples. Read the shimmer, earn the ridge, and come back to the Wind-Harp at dusk.") },
     { TEXT("NeonAbyss"), TEXT("NEON ABYSS"),
       TEXT("A primordial, eternal sanctuary that has always floated here — a void of soft nebulae and ringed planets hung under a circle of ancient bronzes, their verdigris seams opening to gold as you draw near. There is no ground and no horizon: a baby turtle swims the aether, chasing neon jellyfish that flutter like insects. Flap to pulse forward, glide to coast, and net the festival lights before the timer ends.") },
+    { TEXT("Murex"), TEXT("MUREX SPIRE AERODROME"),
+      TEXT("An airport grown from a vast murex shell lying on its side. Its pearl-lined opening shelters a glass-fronted arrival hall and a green entrance park; along the tapering shell, six long spines become smaller gate terminals with waiting aircraft. One powerful upward spine beside the main hall carries the control tower. Follow the shell's golden growth, explore the sheltered aperture, and land above the working apron.") },
 };
-constexpr int32 MenuWorldCount = 5;
+constexpr int32 MenuWorldCount = 6;
 }  // namespace
 
 ABorn2FlapGameMode::ABorn2FlapGameMode()
@@ -147,7 +149,8 @@ void ABorn2FlapGameMode::InitGame(const FString &MapName, const FString &Options
                    !FParse::Param(FCommandLine::Get(), TEXT("B2FHandlingTest"));
     bVoidLevel = Level.Equals(TEXT("NeonAbyss"), ESearchCase::IgnoreCase) || (Level.IsEmpty() && MapName.Contains(TEXT("NEONABYSS")));
     bDesertLevel = Level.Equals(TEXT("Yunsha"), ESearchCase::IgnoreCase) || (Level.IsEmpty() && MapName.Contains(TEXT("YUNSHA")));
-    if (bVoidLevel || bDesertLevel) { bCoastLevel = false; bNatureLevel = false; }
+    bAirportLevel = Level.Equals(TEXT("Murex"), ESearchCase::IgnoreCase) || (Level.IsEmpty() && MapName.Contains(TEXT("MUREX")));
+    if (bVoidLevel || bDesertLevel || bAirportLevel) { bCoastLevel = false; bNatureLevel = false; }
     // Menu mode: a plain interactive boot into the minimal Entry map (no
     // explicit level) is the home screen, NOT a playable level. Nothing is
     // built and no bird spawns behind the menu — a real level only loads when
@@ -223,6 +226,20 @@ void ABorn2FlapGameMode::RestartPlayerAtPlayerStart(AController* NewPlayer, AAct
 }
 double ABorn2FlapGameMode::GroundHeight(double X, double Y) const
 {
+    if (bAirportLevel)
+    {
+        // The aerodrome is a flat field: line-trace the saved geometry and
+        // fall back to the apron plane (z=0) beyond the colliding core.
+        FHitResult Hit; FCollisionQueryParams Query(SCENE_QUERY_STAT(MurexGround), true);
+        double TraceTop = 90000;
+        if (const auto* Pawn = UGameplayStatics::GetPlayerPawn(this, 0))
+            if (FVector2D(Pawn->GetActorLocation().X - X, Pawn->GetActorLocation().Y - Y).Size() < 500)
+                TraceTop = Pawn->GetActorLocation().Z + 40;
+        if (GetWorld()->LineTraceSingleByObjectType(Hit, FVector(X, Y, TraceTop), FVector(X, Y, -2000),
+                                                    FCollisionObjectQueryParams(ECC_WorldStatic), Query))
+            return Hit.ImpactPoint.Z;
+        return 0.0;
+    }
     if(bDesertLevel)
     {
         FHitResult Hit; FCollisionQueryParams Query(SCENE_QUERY_STAT(YunshaGround),true);
@@ -385,6 +402,16 @@ void ABorn2FlapGameMode::BeginPlay()
         // Wind-blown foliage rides the atmospheric field near the trees. Runs on
         // both the coast and the valley — wherever groves stand to shed leaves.
         World->SpawnActor<ABorn2FlapWindLeaves>(FVector::ZeroVector, FRotator::ZeroRotator, Params);
+    }
+    if (bAirportLevel)
+    {
+        // The saved aerodrome map carries all geometry and atmosphere; nothing
+        // is built at runtime. The runway thermal and the flock grid are
+        // gameplay for a later pass.
+        Born2Flap::Loading::Report(0.40f, TEXT("READY AT MUREX"));
+        // The loading UI is not visible in -game -unattended runs; the abslog
+        // marker is what test-murex.ps1 keys on.
+        UE_LOG(LogTemp, Display, TEXT("READY AT MUREX"));
     }
     if(bCoastLevel)
     {
@@ -622,15 +649,28 @@ void ABorn2FlapGameMode::AddPoi(const FString& Key, const FVector& Position, flo
 void ABorn2FlapGameMode::PopulatePOIs()
 {
     POIs.Reset();
+    if (bAirportLevel)
+    {
+        AddPoi(TEXT("The Runway Head"), -155000.0, 0.0);
+        AddPoi(TEXT("The Aperture Park"), FVector(-127200.0, -61000.0, 180.0), 90.f);
+        AddPoi(TEXT("The Shell Entrance"), FVector(-127200.0, -55000.0, 180.0), 90.f);
+        AddPoi(TEXT("The Tower Cab"), FVector(-121200.0, -35700.0, 11950.0), 0.f);
+        AddPoi(TEXT("The Spiral Gallery"), FVector(-121300.0, -37200.0, 8700.0), 0.f);
+        AddPoi(TEXT("The Outer Gate Spines"), FVector(-72000.0, -27000.0, 180.0), -90.f);
+        AddPoi(TEXT("The Approach Lane"), 145000.0, 0.0);
+        AddPoi(TEXT("The Wetland Basin"), -150000.0, 150000.0);
+        AddPoi(TEXT("Hangar Row"), 70000.0, -39800.0);
+        return;
+    }
     if(bDesertLevel)
     {
         AddPoi(TEXT("Lunya - the Jade Palace"), 13000.,-68500.);
         AddPoi(TEXT("Canyon Mouth - read the shimmer"), -12000.,-42000.);
-        AddPoi(TEXT("The Wind-Harp - come back at dusk"), FVector(-45000.,-54400.,6500.),0.f);
-        AddPoi(TEXT("The Narrows"), 4500.,7000.);
-        AddPoi(TEXT("Cloud-Forest - begin the climb"), -10000.,30000.);
+        AddPoi(TEXT("The Wind-Harp - come back at dusk"), FVector(-125000.,-54400.,6500.),0.f);
+        AddPoi(TEXT("The Narrows"), 4500.,67000.);
+        AddPoi(TEXT("Cloud-Forest - begin the climb"), -16000.,194000.);
         AddPoi(TEXT("The Dune Sea"), 18000.,-85000.);
-        AddPoi(TEXT("The Bone Archive"),65000.,-21000.);
+        AddPoi(TEXT("The Bone Archive"),165000.,-21000.);
         return;
     }
     if (bCoastLevel)
@@ -1498,6 +1538,7 @@ void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, c
         { TEXT("menu.shiomori"),        TEXT("/Game/Shiomori/Maps/SHIOMORI"),               TEXT("Shiomori") },
         { TEXT("menu.training"),        TEXT("/Engine/Maps/Entry"),                         TEXT("Training") },
         { TEXT("menu.yunsha"), TEXT("/Game/Yunsha/Maps/YUNSHA"), TEXT("Yunsha") },
+        { TEXT("menu.murex"),          TEXT("/Game/Murex/Maps/MUREX"),                     TEXT("Murex") },
         { TEXT("menu.neonabyss"),       TEXT("/Game/NeonAbyss/Maps/NEONABYSS"),             TEXT("NeonAbyss") },
     };
     for (const FEntry& E : Entries)
@@ -1621,7 +1662,7 @@ FString ABorn2FlapGameMode::BuildBrainTelemetry() const
         Root->SetBoolField(TEXT("poi"), Bird->IsPoiOverlayOpen());
         // F7 hides the whole HUD layer (cockpit + radio). Mirrors the native
         // cockpit collapse in Born2FlapFlightHUD::Refresh().
-        Root->SetBoolField(TEXT("hud"), !(Bird->IsBlindFlight() || Bird->IsFlightSettingsOpen() || Bird->IsUIHidden()));
+        Root->SetBoolField(TEXT("hud"), !(Bird->IsFlightSettingsOpen() || Bird->IsUIHidden()));
 
         // POI list (current level).
         const TArray<FBorn2FlapPoi>& PoiList = Bird->GetPOIs();

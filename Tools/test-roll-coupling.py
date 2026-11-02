@@ -55,7 +55,7 @@ def main():
     args = parser.parse_args()
     if args.hz < 120 or args.ramp_seconds < 0: parser.error('invalid rate or ramp duration')
     lib = c.CDLL(str(args.dll.resolve()))
-    assert lib.b2f_math_abi_version() == 16
+    assert lib.b2f_math_abi_version() == 17
     assert lib.b2f_math_runtime_init() == 1
     create = lib.b2f_math_create_firmware_vehicle
     create.argtypes, create.restype = [c.c_void_p], c.c_void_p

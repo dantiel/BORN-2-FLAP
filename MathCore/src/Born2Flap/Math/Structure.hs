@@ -158,10 +158,11 @@ kestrelSpars = SparInventory
   { siYoungsModulus = 135e9
   , siShearModulus  = 5e9
     -- Effective stressed-skin calibration, independent in bending and torsion.
-    -- Retain spar flex while the braced membrane resists excessive washout;
-    -- deformation is solved dynamically, without an angle clamp.
-    , siBendScale     = 12.0
-    , siTwistScale    = 8.0
+    -- Softer than the original 12.0/8.0: the wing now flexes and washes out
+    -- more under load so the aeroelastic spring reads clearly in flight.
+    -- Deformation is solved dynamically, without an angle clamp.
+    , siBendScale     = 8.0
+    , siTwistScale    = 5.0
     , siMembraneGJ    = 1.0e-2
     , siBraceScale    = 0.4
   , siSpars         = kestrelSparList

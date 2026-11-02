@@ -35,7 +35,7 @@ struct FMenuSettings
         Tuning.battery_c_rating = 30;
         Tuning.battery_burst_c_rating = 60;
         Tuning.flap_base_freq_dhz = 32;
-        Tuning.tail_elevator_angle_deg = 0;
+        Tuning.tail_elevator_angle_deg = -2.3;
         Tuning.glide_angle_deg = -4;
         Tuning.stroke_ferocity = 50;
         Tuning.aileron_scale = 40;
@@ -45,7 +45,9 @@ struct FMenuSettings
     }
     // -1 = never explicitly chosen → the level's default bird applies.
     int32 BirdModel = -1;
-    // On-foot pilot avatar (0 = Founder, 1 = Hunter).
+    // On-foot pilot avatar: Enabled toggles the whole on-foot pilot; AvatarPerson
+    // selects which rigged human (0 = Soldier, 1 = Scout).
+    bool bAvatarEnabled = true;
     int32 AvatarPerson = 0;
     float BodyMassKg = 0.45f;
     float CgOffsetMm = 0.f;

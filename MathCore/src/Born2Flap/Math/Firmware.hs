@@ -28,7 +28,7 @@ module Born2Flap.Math.Firmware
   , crsfToFloat
   , normToRaw
     , computeServoMixer
-    , ampMaxDeg
+    , strokeAmpMaxDeg
     , glideAileronMaxDeg
     , glideRudderMaxDeg
     ) where
@@ -163,10 +163,16 @@ glideRudderMaxDeg = 8
 -- (No arbitrary amplitude-differential gain: the aileron differential spends
 --  the servo's physical travel budget, not a hand-tuned multiplier.)
 
-ampMaxDeg, freqMinHz, servoSpeedMsDefault :: Double
-ampMaxDeg = 55
+-- Full-throttle stroke amplitude is NOT a tuning knob: it is the largest
+-- amplitude the selected servo can still trace at the base frequency ceiling
+-- (margin * servoDegS / (2*pi*freqCeiling)), bounded only by the mechanical
+-- linkage. A slower ceiling therefore yields a deeper stroke, and vice versa —
+-- amplitude and cadence trade against each other at the servo limit.
+mechanicalMaxStrokeDeg, freqMinHz, servoSpeedMsDefault, servoSpeedMargin :: Double
+mechanicalMaxStrokeDeg = 70
 freqMinHz = 0.5
 servoSpeedMsDefault = 40
+servoSpeedMargin = 0.85
 
 ferocityMin, ferocityMax, differentialMax :: Double
 ferocityMin = 0
@@ -195,7 +201,7 @@ data FlightProfile = FlightProfile
   { profStrokeFerocity  :: !Double  -- 0..100
   , profReturnFerocity  :: !Double  -- 0..100
   , profGlideAngleDeg   :: !Double  -- -15..+15
-  , profTailElevatorAngleDeg :: !Double  -- -15..+15, tail elevator angle (flap stroke centre trim)
+  , profTailElevatorAngleDeg :: !Double  -- -15..+15, physical tail mounting incidence
   , profAileronScale    :: !Double  -- 0..100
   , profElevatorScale   :: !Double  -- 0..100
   , profRudderFerocityRange :: !Double  -- 0..100
@@ -216,9 +222,9 @@ data FlightProfile = FlightProfile
 -- default active profile.
 defaultFlightProfiles :: [FlightProfile]
 defaultFlightProfiles =
-  [ FlightProfile 30 50 (-4) 0 40 60 50 40 0 0 0 0 0 0 0 0 0 0
-  , FlightProfile 62 42 (-4) 0 40 60 50 40 0 0 0 0 0 0 0 0 0 0
-  , FlightProfile 70 50   2  0 40 60 50 40 0 0 0 0 0 0 0 0 0 0
+  [ FlightProfile 30 50 (-4) (-2.3) 40 60 50 40 0 0 0 0 0 0 0 0 0 0
+  , FlightProfile 62 42 (-4) (-2.3) 40 60 50 40 0 0 0 0 0 0 0 0 0 0
+  , FlightProfile 70 50   2  (-2.3) 40 60 50 40 0 0 0 0 0 0 0 0 0 0
   ]
 
 -- ── Runtime mixer params ───────────────────────────────────────────
@@ -230,7 +236,7 @@ data FirmwareParams = FirmwareParams
   { fwProfile       :: !FlightProfile
   , fwServoSpeedMs  :: !Double  -- ^ ms per 60° stroke (25..250); servo selection
   , fwFlapBaseFreqDh:: !Double  -- ^ deci-Hz (10..200), CH6 frequency ceiling
-  , fwFlapCentreDeg :: !Double  -- ^ flap stroke centre trim (dihedral) [deg]; like the tail elevator (no direct alpha incidence)
+  , fwFlapCentreDeg :: !Double  -- ^ flap stroke centre trim (dihedral) [deg], separate from tail incidence
   , fwVerticalMountIncidenceDeg :: !Double  -- ^ real wing mount incidence (nose-up +) [deg]
   , fwRudderYawWeight :: !Double  -- 0..100
   , fwRudderRollWeight:: !Double  -- 0..100
@@ -251,6 +257,19 @@ defaultFirmwareParams = FirmwareParams
   , fwAnchorGain = anchorGainDefault
   , fwCadenceGain = cadenceGainDefault
   }
+
+-- Servo no-load slew rate [deg/s] from the ms-per-60° selection.
+servoDegPerSec :: FirmwareParams -> Double
+servoDegPerSec params = 60000 / max 1 (fwServoSpeedMs params)
+
+-- Full-throttle stroke amplitude [deg]: the largest amplitude the selected
+-- servo can still trace at the base frequency ceiling (before the speed
+-- modifier is applied). Derived from servo speed, never a tuning field.
+strokeAmpMaxDeg :: FirmwareParams -> Double
+strokeAmpMaxDeg params =
+  let baseFreqHz = fwFlapBaseFreqDh params * 0.1
+  in min mechanicalMaxStrokeDeg
+       (servoSpeedMargin * servoDegPerSec params / max 1e-6 (2*pi * baseFreqHz))
 
 -- ── Firmware state (persistent across mixer ticks) ─────────────────
 
@@ -366,14 +385,10 @@ computeServoMixer coupled rc params state dt =
 -- | Glide: STATIC stroke positions — the wings hold their commanded angle and
 -- do not flap. The common centre trims pitch (glide angle + elevator, a
 -- position is the right mechanism for a static trim). Aileron commands a
--- static differential stroke: positive aileron RAISES the RIGHT wing and
--- lowers the left (stick-right, like a real aileron). The wing's lift is
--- modulated by its held position — a raised wing LOSES lift, a lowered wing
--- GAINS it — so the fuselage counter-rotates the wing movement: the raised
--- side drops and the bird banks right. The held geometry keeps acting after
--- the servo has arrived and the flap rate is exactly zero (position-based,
--- not rate-based). Rudder adds a small static differential (drag rudder);
--- the tail ruddervators carry the rest of the yaw authority.
+-- static differential stroke: positive roll or yaw raises the RIGHT wing and
+-- lowers the left. The coupled inertia produces the opposite fuselage motion.
+-- Subsequent bank/yaw comes from local surface forces at their own lever arms,
+-- including the fixed tail; a held wing angle is not a prescribed body bank.
 glideBranch :: FlightProfile -> Double -> Double -> RcChannels
             -> FirmwareParams -> FirmwareState -> Double
             -> (MixerOutput, FirmwareState)
@@ -381,17 +396,12 @@ glideBranch prof aileronNorm elevatorNorm rc params state _dt =
   let rudderNorm = crsfToNorm (rcRudder rc)
       -- Pitch trim: the common stroke centre carries the glide angle + elevator.
       common = negate (profGlideAngleDeg prof + elevatorNorm * profElevatorScale prof * 0.01 * steerMaxDeg)
-      -- Roll: static differential stroke POSITION. Positive aileron raises
-      -- the RIGHT wing: that wing loses part of its lift (its counter-force
-      -- against gravity) while the lowered left wing gains lift — the body
-      -- counter-rotates the wing movement and banks right. Position-based,
-      -- so the HELD differential keeps acting after the servo stops.
+      -- Roll commands hinge position; the multibody solve supplies recoil.
       aileronDiff = aileronNorm * profAileronScale prof * 0.01 * glideAileronMaxDeg
-      -- Yaw: small static differential (drag rudder, positive rudder raises
-      -- the left wing a touch).
+      -- Yaw initiates the SAME bank as roll; the fixed tail then follows it.
       rudderDiff = rudderNorm * profRudderAmplitudeDiff prof * 0.01 * glideRudderMaxDeg
-      left = clamp (-80) 80 (common - aileronDiff + rudderDiff)
-      right = clamp (-80) 80 (common + aileronDiff - rudderDiff)
+      left = clamp (-80) 80 (common - aileronDiff - rudderDiff)
+      right = clamp (-80) 80 (common + aileronDiff + rudderDiff)
       rudderMix = clamp (-1) 1 (rudderNorm * fwRudderYawWeight params * 0.01
                                 + aileronNorm * fwRudderRollWeight params * 0.01)
       output = MixerOutput
@@ -433,35 +443,23 @@ flappingBranch coupled prof aileronNorm elevatorNorm rc params state dt =
       speedFactor = 0.5 + speedMod01  -- 0.5x..1.5x base frequency
       -- Keep commanded travel independent of actuator speed. The complete
       -- waveform below determines the speed-limited cadence instead.
-      servoSpeedDegS = 60000 / max 1 (fwServoSpeedMs params)
-      -- The servo is never commanded to run at its no-load speed (where it has
-      -- zero torque to spare): a fraction of the no-load rate is reserved so the
-      -- full geometric stroke stays TRACKABLE under aerodynamic load instead of
+      servoSpeedDegS = servoDegPerSec params
+      -- servoSpeedMargin (top-level) reserves a fraction of the no-load rate so
+      -- the full geometric stroke stays trackable under aero load instead of
       -- back-driving the servo every downstroke.
-      servoSpeedMargin = 0.55
       -- Apply the actuator ceiling once, to the actual shaped arc below.
       -- A full-travel ceiling here would waste speed at partial throttle.
       freqMax = fwFlapBaseFreqDh params * 0.1 * speedFactor
       requestedHz = freqMinHz + freq01 * (freqMax - freqMinHz)
       cadenceTarget = freqHz * 6.283185307
 
-            -- Steering commands (deg).
-            -- Roll comes from an asymmetric flap-CENTRE deviation (differential
-            -- dihedral), identical to the glide branch: positive aileron raises
-            -- the RIGHT wing stroke centre and lowers the left. The raised wing
-            -- LOSES part of its lift (position-based lift modulation) so its
-            -- side drops and the bird banks right — the same geometry and the
-            -- same sense as the glide static differential. The timing/skew
-            -- terms below add a further dynamic roll term (gated by
-            -- profAileronSkewMix, 0 by default) on top of this static centre
-            -- shift. YAW (rudder) deliberately does NOT shift the flap
-            -- centre while flapping — it owns stroke AMPLITUDE (profRudderAmplitudeDiff) and
-      -- ferocity (profRudderFerocityRange) instead, so the stroke centres stay
-      -- balanced and only the thrust asymmetry steers.
+      -- Roll commands opposite stroke-centre offsets. Yaw combines an offset
+      -- of the same sign with unequal travel, anchored toward the downstroke.
+      -- Both controls enter the physical wing joints, not the host attitude.
       elevatorCmd = elevatorNorm * profElevatorScale prof * 0.01 * steerMaxDeg
-      -- This legacy tail-elevator control trims the stroke centre. Wing
-      -- mount incidence is separate and rotates the aerodynamic section frame.
-      flapCentreTrim = profTailElevatorAngleDeg prof + fwFlapCentreDeg params
+      -- Flap Centre owns stroke position. Tail incidence and wing mount
+      -- incidence are separate physical surface angles.
+      flapCentreTrim = fwFlapCentreDeg params
 
       -- Elevator → ferocity asymmetry.
       elevFerScale = profElevatorFerocityMix prof * 0.01 * (ferocityMax - ferocityMin)
@@ -477,15 +475,18 @@ flappingBranch coupled prof aileronNorm elevatorNorm rc params state dt =
       returnFer = ferocityMin + profReturnFerocity prof * 0.01 * (ferocityMax - ferocityMin)
                   + elevDownBoost + thrustDwellBoost thrust
 
-      -- Rudder → L/R differential (ferocity + amplitude).
+      -- Rudder → L/R differential travel.
       rudderNorm = crsfToNorm (rcRudder rc)
-      rudderFer = rudderNorm * profRudderFerocityRange prof * 0.01 * differentialMax
       rudderAmpDiff = rudderNorm * profRudderAmplitudeDiff prof * 0.01
 
-      strokeFerL = strokeFer + rudderFer
-      strokeFerR = strokeFer - rudderFer
-      returnFerL = returnFer + rudderFer
-      returnFerR = returnFer - rudderFer
+      -- Keep yaw's reversals synchronized. Differential dwell/ferocity made
+      -- one wing advance through the stroke before the other, reversing the
+      -- position differential partway through a nominally one-sided turn.
+      -- Unequal travel still gives unequal physical velocity and force.
+      strokeFerL = strokeFer
+      strokeFerR = strokeFer
+      returnFerL = returnFer
+      returnFerR = returnFer
 
       -- Shared reversal threshold from BASE ferocities.
       limiarShared = limiarFromFerocities strokeFer returnFer
@@ -504,6 +505,7 @@ flappingBranch coupled prof aileronNorm elevatorNorm rc params state dt =
       -- instead. The speedFactor (mouse wheel) must NOT scale amplitude here —
       -- that made the wheel grow/shrink the stroke in coupled mode, which is
       -- the throttle's job; the wheel should only fine-tune the cadence.
+      ampMaxDeg = strokeAmpMaxDeg params
       amplitude = clamp 0 ampMaxDeg (ampMaxDeg * throttlePct)
 
       -- Aileron + aileron-rate → opposite stroke/return timing skew. Rudder
@@ -525,10 +527,26 @@ flappingBranch coupled prof aileronNorm elevatorNorm rc params state dt =
       -- flight. Reserve travel for its centre shift; there is no incidence servo.
       aileronCmd = aileronNorm
                    * profAileronScale prof * 0.01 * steerMaxDeg * rollAuthorityGain
-      centreL = clamp (-80) 80 (-aileronCmd - elevatorCmd - flapCentreTrim)
-      centreR = clamp (-80) 80 ( aileronCmd - elevatorCmd - flapCentreTrim)
-      amplitudeL = min (80-abs centreL) (clamp 0 ampMaxDeg (amplitude * (1 + yawAmpDiff)))
-      amplitudeR = min (80-abs centreR) (clamp 0 ampMaxDeg (amplitude * (1 - yawAmpDiff)))
+      amplitudeL = clamp 0 ampMaxDeg (amplitude * (1 + yawAmpDiff))
+      amplitudeR = clamp 0 ampMaxDeg (amplitude * (1 - yawAmpDiff))
+      -- Anchor yaw's larger outside stroke toward the downstroke. A pure
+      -- amplitude change initially raises that wing on an upstroke, recoiling
+      -- the fuselage into the opposite bank. The static component also gives
+      -- the fixed tail the same bank-to-yaw sense in glide and powered flight.
+      -- These are hinge commands, never prescribed body moments or attitudes.
+      yawCentre = rudderAmpDiff * (glideRudderMaxDeg + amplitude)
+      -- Allocate the finite linkage travel BEFORE choosing the common centre.
+      -- Previously strong pitch/anhedral consumed the stroke arc (down to five
+      -- degrees), losing power while cadence still assumed the full amplitude.
+      -- Keep the commanded arc and differential; stop the common trim at the
+      -- mechanically reachable centre instead of silently shortening the beat.
+      differentialLimit = 80 - (amplitudeL + amplitudeR)/2
+      differential = clamp (-differentialLimit) differentialLimit (aileronCmd + yawCentre)
+      commonLow = max (-80 + amplitudeL + differential) (-80 + amplitudeR - differential)
+      commonHigh = min (80 - amplitudeL + differential) (80 - amplitudeR - differential)
+      commonCentre = clamp commonLow commonHigh (-elevatorCmd - flapCentreTrim)
+      centreL = commonCentre - differential
+      centreR = commonCentre + differential
       -- Servo-honest frequency ceiling: the peak rate of a full sinusoidal
       -- stroke at this amplitude must not exceed the no-load servo rate.
       -- Ferocity (dwell/shape) deliberately does NOT enter this ceiling — a

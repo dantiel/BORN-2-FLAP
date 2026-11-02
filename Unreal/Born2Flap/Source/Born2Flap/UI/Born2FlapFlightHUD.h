@@ -51,6 +51,9 @@ private:
     FString LastClimb;
     FString LastSpeed;
     FString LastFlapHz;
+    FString LastFlapRange;
+    FString LastAmp;
+    FString LastAmpLabel;
     FString LastBattery;
     FString LastThrottle;
     FString LastWindSpeed;

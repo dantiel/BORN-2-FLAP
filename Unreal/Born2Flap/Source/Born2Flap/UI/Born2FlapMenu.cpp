@@ -164,8 +164,10 @@ const FWorldDef Worlds[] = {
       TEXT("The Cloud-Sand Gorge. A crescent jade spring beneath a mile of singing grottoes. Ride the rising air to cloud-forest pillars and the flight-only sun-temples. Read the shimmer, earn the ridge, and come back to the Wind-Harp at dusk.") },
     { TEXT("NeonAbyss"), TEXT("NEON ABYSS"),
       TEXT("A primordial, eternal sanctuary floating outside time — soft nebulae, ringed planets and a circle of ancient bronzes whose gold seams brighten as you draw near. There is no ground and no horizon: a baby turtle swims the aether, netting neon jellyfish before the festival timer ends.") },
+    { TEXT("Murex"), TEXT("MUREX SPIRE AERODROME"),
+      TEXT("A working international airport of concrete, glass and jet wash, where the one living instrument is an ornithopter: the bird-scarer that keeps every landing clear. Heat shimmers off the runway in strong, steady thermals, flocks drift in from the wetlands and the verges, and above it all rises the control tower — a murex spine of pale concrete with a glazed cab. Ride the apron thermal, hold the approach lane empty, and set down where no aircraft can: on the tower's crown.") },
 };
-constexpr int32 WorldCount = 5;
+constexpr int32 WorldCount = 6;
 
 // Available locales for the language switch. Names are the languages' native
 // endonyms (always shown in their own language regardless of the active locale);
@@ -327,7 +329,7 @@ void ABorn2FlapMenu::BeginPlay()
     // Apply the persisted language before the first Build() so every localized
     // string (nav rail, pane titles, HUD/status via the shared locale) is right.
     Born2Flap::I18n::SetLocale(Settings.Language);
-    for(const FString Level:{FString(TEXT("Ravenstonefield")),FString(TEXT("Shiomori")),FString(TEXT("Training")),FString(TEXT("NeonAbyss")),FString(TEXT("Yunsha"))})
+    for(const FString Level:{FString(TEXT("Ravenstonefield")),FString(TEXT("Shiomori")),FString(TEXT("Training")),FString(TEXT("NeonAbyss")),FString(TEXT("Yunsha")),FString(TEXT("Murex"))})
         LevelConditions.Add(Level,Born2FlapWeather::Load(Level));
     Build();
     if(FParse::Param(FCommandLine::Get(),TEXT("B2FWeatherMenuTest")))
@@ -419,7 +421,9 @@ void ABorn2FlapMenu::Build()
         // one selection at a time, equal-width cells on a shared track.
         PaneChildren.push_back(Nd("Segment",P({{"options",Pages},{"value",N(SelectedPage)},{"action",S("menu.page")},{"tooltip",S("Choose a location, set flight conditions, then select your starting point.")}})));
         const int32 LocationStart=PaneChildren.size();
-        const FString Preview = Level == TEXT("Yunsha") ? TEXT("Desert") : Level == TEXT("Shiomori") ? TEXT("Coast") : Level == TEXT("Ravenstonefield") ? TEXT("Valley") : Level == TEXT("NeonAbyss") ? TEXT("Abyss") : TEXT("Islands");
+        // Murex reuses the Valley key until its own Airport artwork lands
+        // (menu artwork pass, GDD step 7).
+        const FString Preview = Level == TEXT("Yunsha") ? TEXT("Desert") : Level == TEXT("Shiomori") ? TEXT("Coast") : Level == TEXT("Ravenstonefield") ? TEXT("Valley") : Level == TEXT("NeonAbyss") ? TEXT("Abyss") : Level == TEXT("Murex") ? TEXT("Valley") : TEXT("Islands");
         PaneChildren.push_back(Nd("HorizontalBox", P({{"spacing",N(18)}}), {
             Nd("SizeBox",P({{"width",N(234)},{"height",N(128)}}),{
                 Nd("Image",P({{"texture",S(TEXT("/Game/UI/Elements/")+Preview+TEXT(".")+Preview)}}))}),
@@ -678,11 +682,21 @@ void ABorn2FlapMenu::BuildFlightDesk(std::vector<FNode>& Out)
         })), 0);
     }
 
-    // ---- CRAFT (0): choose the pilot avatar (distinct realistic persons) ----
+    // ---- CRAFT (0): pilot avatar — on/off toggle + which person ----
     Push(Nd("TextBlock", P({ {"text", S("CHOOSE YOUR PILOT")}, {"tone", S("accent")}, {"size", S("l")} })), 0);
     {
+        FProps TProps;
+        TProps["action"] = S("avatar.enabled");
+        TProps["label"] = S("PILOT AVATAR");
+        TProps["on"] = S("SHOWN  ·  click to hide");
+        TProps["off"] = S("HIDDEN  ·  click to show");
+        TProps["value"] = B(Settings.bAvatarEnabled);
+        TProps["tooltip"] = S("Shows or hides the on-foot pilot entirely. Turn off if the pilot character renders incorrectly.");
+        Push(Nd("Toggle", std::move(TProps)), 0);
+    }
+    {
         FValue Persons; Persons.kind = FValue::Kind::Array;
-        for (const TCHAR* Name : { TEXT("FOUNDER"), TEXT("HUNTER") }) Persons.arr.push_back(S(FString(Name)));
+        for (const TCHAR* Name : { TEXT("FOUNDER") }) Persons.arr.push_back(S(FString(Name)));
         Push(Nd("Segment", P({
             {"options", std::move(Persons)},
             {"value", N(Settings.AvatarPerson)},
@@ -1567,6 +1581,7 @@ void ABorn2FlapMenu::OnAction(const FString& Action, float Value, const FString&
         { TEXT("menu.shiomori"),        TEXT("/Game/Shiomori/Maps/SHIOMORI"),               TEXT("Shiomori") },
         { TEXT("menu.training"),        TEXT("/Engine/Maps/Entry"),                         TEXT("Training") },
         { TEXT("menu.yunsha"), TEXT("/Game/Yunsha/Maps/YUNSHA"), TEXT("Yunsha") },
+        { TEXT("menu.murex"),          TEXT("/Game/Murex/Maps/MUREX"),                     TEXT("Murex") },
         { TEXT("menu.neonabyss"),       TEXT("/Game/NeonAbyss/Maps/NEONABYSS"),             TEXT("NeonAbyss") },
     };
     for (const FEntry& E : Entries)
@@ -1611,9 +1626,16 @@ void ABorn2FlapMenu::OnAction(const FString& Action, float Value, const FString&
         Build();   // CG slider min/max scale with the new craft's length
         return;
     }
+    if (Action == TEXT("avatar.enabled"))
+    {
+        Settings.bAvatarEnabled = !Settings.bAvatarEnabled;
+        if (Bird.IsValid()) Bird->SetAvatarEnabled(Settings.bAvatarEnabled);
+        Build();
+        return;
+    }
     if (Action == TEXT("avatar.person"))
     {
-        Settings.AvatarPerson = FMath::Clamp(FMath::RoundToInt(Value), 0, 1);
+        Settings.AvatarPerson = FMath::Clamp(FMath::RoundToInt(Value), 0, 0);
         if (Bird.IsValid()) Bird->SetAvatarPerson(Settings.AvatarPerson);
         Build();
         return;

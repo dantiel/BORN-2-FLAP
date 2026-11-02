@@ -143,6 +143,7 @@ void ABorn2FlapFlightHUD::BuildCockpit()
                 Nd("Stat", P({ {"label", L("hud.climb")},    {"value", N(0)}, {"unit", S("m/s")}, {"format", S("f1")}, {"signed", B(true)}, {"tone", S("normal")} })),
                 Nd("Stat", P({ {"label", L("hud.speed")},    {"value", N(0)}, {"unit", S("m/s")}, {"format", S("f1")}, {"tone", S("info")} })),
                 Nd("Stat", P({ {"label", S("FLAP")},         {"value", N(0)}, {"unit", S("Hz")},  {"format", S("f1")}, {"tone", S("accent")} })),
+                Nd("Stat", P({ {"label", S("AMP")},          {"value", N(0)}, {"unit", S("°")},   {"format", S("int")}, {"tone", S("accent")} })),
             }),
 
             Nd("Panel", P({ {"title", L("hud.energy")}, {"spacing", N(2)} }),
@@ -311,9 +312,8 @@ void ABorn2FlapFlightHUD::Refresh()
             return;
     }
 
-    // Blind flight is ear-only: collapse the whole cockpit (no banner — just
-    // silence and sound). Settings panel owns the screen while open.
-    const bool bCockpitHidden = CachedBird->IsBlindFlight() || CachedBird->IsFlightSettingsOpen() || CachedBird->IsUIHidden();
+    // Collapse the whole cockpit while a modal panel owns the screen.
+    const bool bCockpitHidden = CachedBird->IsFlightSettingsOpen() || CachedBird->IsUIHidden();
     if (bCockpitHidden != bLastHidden)
     {
         TArray<FOp> Ops;
@@ -360,6 +360,51 @@ void ABorn2FlapFlightHUD::Refresh()
     {
         Ops.Add(UpdateProps(Pth({0, 1, 3}), P({ {"value", N(FlapHz)} })));
         LastFlapHz = FlapTxt;
+    }
+
+    // Flap-speed window the pilot can dial with the speed modificator. It mirrors
+    // Firmware.hs: the servo can only track a full sine stroke up to
+    // margin * servoSpeed / (2*pi*amplitude), so the ceiling's upper reach is
+    // clamped by the selected servo + stroke amplitude. Min is the 0.5 Hz floor
+    // (or the 0.5x ceiling at minimum modifier, whichever is higher); max is the
+    // tighter of 1.5x ceiling and the servo-honest limit. This is the same
+    // arithmetic the firmware uses, kept here so the HUD and the mixer never drift.
+    const float ServoSpeed = CachedBird->GetTuning(ETuningField::ServoSpeed);
+    const float CeilingDh = CachedBird->GetTuning(ETuningField::FlapBaseFreq);
+    const float CeilingHz = CeilingDh * 0.1f;
+    const float ServoMargin = 0.85f;   // Firmware.hs servoSpeedMargin
+    const float FreqFloorHz = 0.5f;    // Firmware.hs freqMinHz
+    const float MechMaxDeg = 70.f;     // Firmware.hs mechanicalMaxStrokeDeg
+    // Full-throttle amplitude is derived from the servo: the largest stroke it
+    // can still trace at the base ceiling. No separate amplitude knob.
+    const float AmpMaxDeg = FMath::Min(MechMaxDeg,
+        ServoMargin * ServoSpeed / (6.28318530718f * CeilingHz));
+    const float ServoMaxHz = ServoMargin * ServoSpeed / (6.28318530718f * AmpMaxDeg);
+    const float MinFreqHz = FMath::Max(FreqFloorHz, CeilingHz * 0.5f);
+    const float MaxFreqHz = FMath::Max(MinFreqHz, FMath::Min(CeilingHz * 1.5f, ServoMaxHz));
+    const FString RangeTxt = FString::Printf(TEXT("FLAP  %.1f-%.1f Hz"), MinFreqHz, MaxFreqHz);
+    if (RangeTxt != LastFlapRange)
+    {
+        Ops.Add(UpdateProps(Pth({0, 1, 3}), P({ {"label", S(TCHAR_TO_UTF8(*RangeTxt))} })));
+        LastFlapRange = RangeTxt;
+    }
+
+    // Current commanded amplitude (the larger wing's deviation) + the chosen
+    // full-throttle maximum. The maximum the firmware can actually command at
+    // the ceiling cadence is servo-limited (shown implicitly by the FLAP range).
+    const FVector2D Wings = CachedBird->GetWingAngles();
+    const float AmpNow = FMath::Max(FMath::Abs(Wings.X), FMath::Abs(Wings.Y));
+    const FString AmpTxt = FString::Printf(TEXT("%.0f"), AmpNow);
+    if (AmpTxt != LastAmp)
+    {
+        Ops.Add(UpdateProps(Pth({0, 1, 4}), P({ {"value", N(AmpNow)} })));
+        LastAmp = AmpTxt;
+    }
+    const FString AmpLabel = FString::Printf(TEXT("AMP  max %.0f\302\260"), AmpMaxDeg);
+    if (AmpLabel != LastAmpLabel)
+    {
+        Ops.Add(UpdateProps(Pth({0, 1, 4}), P({ {"label", S(TCHAR_TO_UTF8(*AmpLabel))} })));
+        LastAmpLabel = AmpLabel;
     }
 
     // Battery: the bar stays a 0..100 % gauge, the readout shows the LiPo
