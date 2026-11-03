@@ -13,7 +13,7 @@
 extern "C" {
 #endif
 
-#define B2F_MATH_ABI_VERSION 17u
+#define B2F_MATH_ABI_VERSION 18u
 
 typedef struct B2F_MathContext B2F_MathContext;
 
@@ -147,7 +147,7 @@ typedef struct B2F_TuningConfig {
     double body_mass_kg;         /* airframe mass, scales the wing planform (ABI v8) */
     double vertical_mount_angle_deg; /* real wing mount incidence (nose-up +), -15..+15 (ABI v14) */
     double return_ferocity;      /* upstroke/return ferocity, 0..100 (ABI v15) */
-    double reserved_legacy_amplitude_deg; /* Preserve ABI 17 size; ignored. Amplitude is automatic. */
+    double yaw_scale;            /* rudder amplitude differential (YAW SCALE), 0..100 (ABI v18) */
 } B2F_TuningConfig;
 
 B2F_API int32_t b2f_math_reconfigure_firmware_vehicle(

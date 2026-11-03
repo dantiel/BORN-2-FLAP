@@ -35,6 +35,7 @@ FORCEINLINE const TCHAR* Key(ETuningField Field)
     case ETuningField::FlapCentre:         return TEXT("FlapCentre");
     case ETuningField::VerticalMountAngle: return TEXT("VerticalMountAngle");
     case ETuningField::ReturnFerocity:    return TEXT("ReturnFerocity");
+    case ETuningField::YawScale:          return TEXT("YawScale");
     default:                               return TEXT("");
     }
 }
@@ -103,6 +104,7 @@ static const FRow Rows[] =
     { ETuningField::FlapCentre,         TEXT("FLAP CENTRE"),          TEXT("°"),           -15.f,   15.f, 0, TEXT("Powered stroke-centre trim. Negative raises both wings (dihedral); positive lowers them (anhedral). Changes sideslip stability through actual wing geometry. It is not wing incidence.") },
     { ETuningField::VerticalMountAngle, TEXT("VERTICAL MOUNT ANGLE"), TEXT("°"),           -15.f,   15.f, 0, TEXT("Real wing mount incidence (nose-up +). Tilts the wing about its span axis; feeds the strip's geometric twist. Negative = nose-down; positive = nose-up.") },
     { ETuningField::ReturnFerocity,    TEXT("RETURN FEROCITY"),      TEXT("%"),             0.f,  100.f, 0, TEXT("How aggressively the upstroke/return accelerates through centre, independently of the downstroke. Low = soft return; high = crisp snap.") },
+    { ETuningField::YawScale,          TEXT("YAW SCALE"),            TEXT("%"),             0.f,  100.f, 0, TEXT("Maximum differential wing amplitude in a yaw turn. Low = symmetric stroke; high = one wing beats far deeper than the other for a strong visual + proverse-yaw swing.") },
 };
 
 FORCEINLINE const FRow& Row(ETuningField Field)

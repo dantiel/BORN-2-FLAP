@@ -222,9 +222,9 @@ data FlightProfile = FlightProfile
 -- default active profile.
 defaultFlightProfiles :: [FlightProfile]
 defaultFlightProfiles =
-  [ FlightProfile 30 50 (-4) (-2.3) 40 60 50 40 0 0 0 0 0 0 0 0 0 0
-  , FlightProfile 62 42 (-4) (-2.3) 40 60 50 40 0 0 0 0 0 0 0 0 0 0
-  , FlightProfile 70 50   2  (-2.3) 40 60 50 40 0 0 0 0 0 0 0 0 0 0
+  [ FlightProfile 30 50 (-4) (-2.3) 40 60 50 60 0 0 0 0 0 0 0 0 0 0
+  , FlightProfile 62 42 (-4) (-2.3) 40 60 50 60 0 0 0 0 0 0 0 0 0 0
+  , FlightProfile 70 50   2  (-2.3) 40 60 50 60 0 0 0 0 0 0 0 0 0 0
   ]
 
 -- ── Runtime mixer params ───────────────────────────────────────────
@@ -527,12 +527,16 @@ flappingBranch coupled prof aileronNorm elevatorNorm rc params state dt =
       -- flight. Reserve travel for its centre shift; there is no incidence servo.
       aileronCmd = aileronNorm
                    * profAileronScale prof * 0.01 * steerMaxDeg * rollAuthorityGain
-      amplitudeL = clamp 0 ampMaxDeg (amplitude * (1 + yawAmpDiff))
-      amplitudeR = clamp 0 ampMaxDeg (amplitude * (1 - yawAmpDiff))
-      -- Anchor yaw's larger outside stroke toward the downstroke. A pure
-      -- amplitude change initially raises that wing on an upstroke, recoiling
-      -- the fuselage into the opposite bank. The static component also gives
-      -- the fixed tail the same bank-to-yaw sense in glide and powered flight.
+      -- Positive yaw raises the RIGHT wing (matching aileron's stick-right
+      -- convention) and must therefore also give the RIGHT wing the larger
+      -- stroke, so the visual differential and the static centre tilt agree on
+      -- which wing is the active one instead of pulling against each other.
+      amplitudeL = clamp 0 ampMaxDeg (amplitude * (1 - yawAmpDiff))
+      amplitudeR = clamp 0 ampMaxDeg (amplitude * (1 + yawAmpDiff))
+      -- Anchor yaw's larger stroke toward the downstroke. A pure amplitude
+      -- change initially raises that wing on an upstroke, recoiling the
+      -- fuselage into the opposite bank. The static component also gives the
+      -- fixed tail the same bank-to-yaw sense in glide and powered flight.
       -- These are hinge commands, never prescribed body moments or attitudes.
       yawCentre = rudderAmpDiff * (glideRudderMaxDeg + amplitude)
       -- Allocate the finite linkage travel BEFORE choosing the common centre.
