@@ -90,7 +90,10 @@ for cgmm in args.cg:
             theta+=q*dt
             z+=vz*dt
             assert all(math.isfinite(v) for v in (vx,vz,q,theta,z))
-        row=dict(cg_mm=cgmm,inertia_y=mass[5],samples=samples)
+        settled=[s for s in samples if s['t']>=min(3,args.seconds/2)]
+        summary=dict(pitch_rate_rms_deg_s=math.degrees(math.sqrt(sum(s['q']**2 for s in settled)/len(settled))),
+                     pitch_min_deg=min(s['pitch'] for s in settled),pitch_max_deg=max(s['pitch'] for s in settled))
+        row=dict(cg_mm=cgmm,inertia_y=mass[5],summary=summary,samples=samples)
         rows.append(row)
         print(json.dumps(dict(cg_mm=cgmm,final=samples[-1],pitch_range=[min(s['pitch'] for s in samples),max(s['pitch'] for s in samples)])))
     finally:
