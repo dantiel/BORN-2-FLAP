@@ -30,7 +30,7 @@ enum class ETuningField : uint8
     ServoSpeed, StallTorque, Backdrive, BatteryVoltage, BatteryResistance, BatteryCapacity,
     BatteryCRating, BatteryBurstCRating,
     FlapBaseFreq, TailElevatorAngle, GlideAngle, StrokeFerocity, AileronScale, ElevatorScale,
-    FlapCentre, VerticalMountAngle, ReturnFerocity, Count
+    FlapCentre, VerticalMountAngle, ReturnFerocity, YawScale, Count
 };
 // RC channels drive the native actuators. All forces and moments are aerodynamic.
 UCLASS()
@@ -44,9 +44,10 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     virtual void Tick(float DeltaSeconds) override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
     virtual void CalcCamera(float DeltaTime, FMinimalViewInfo& OutResult) override;
-    void ToggleGroundView();
-    void ToggleFpvView();
-    // Cycle the single mobile "perspective" button: CHASE → FPV → GROUND → CHASE.
+    void ToggleGroundView();   // F6: focus toggle — bird vs on-foot pilot
+    void ToggleFpvView();      // V: perspective toggle — 1st vs 3rd person
+    void SyncCameraState();
+    // Cycle the single mobile "perspective" button: BIRD-3RD → BIRD-1ST → PILOT-3RD → PILOT-1ST.
     void CycleCamera();
     bool IsFpvAirView() const { return bFpvAirView; }
     FString GetCameraLabel() const;
@@ -228,14 +229,19 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     UPROPERTY(VisibleAnywhere) TObjectPtr<UBorn2FlapAudioSynth> AudioSynth;
     UPROPERTY() TObjectPtr<UCameraComponent> GroundCamera;
     UPROPERTY() TObjectPtr<UCameraComponent> FpvCamera;
+    UPROPERTY() TObjectPtr<UCameraComponent> ActorCamera;
     FVector GroundAnchor = FVector::ZeroVector, LastLanding = FVector::ZeroVector;
     FRotator GroundGaze = FRotator::ZeroRotator;
     bool bGroundView = false, bFpvAirView = false, bCameraGrounded = false, bGroundGazeReady = false;
+    // Canonical camera axes: focus (bird vs pilot) and distance (1st vs 3rd).
+    // bGroundView / bFpvAirView / bThirdPersonActor are derived in SyncCameraState().
+    bool bFocusActor = false, bFirstPerson = false, bThirdPersonActor = false;
     // The visible on-foot pilot. Spawned once; follows the ground anchor, walks
     // with the observer, hides in first-person ground view, and throws the bird.
     UPROPERTY() TObjectPtr<ABorn2FlapAvatar> Avatar;
     int32 AvatarPerson = 0;
     bool bAvatarEnabled = true;
+    bool bBirdHeld = false;
     FVector PrevAvatarFeet = FVector::ZeroVector;
     double CameraTime = 0, GroundSettleTime = 0;
     // True once the pilot has walked away from the auto-anchor beside the bird:
@@ -284,6 +290,11 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     bool CheckFlightCameras();
     void SpawnAvatar();
     void UpdateAvatarState(float Dt);
+    // When the avatar is enabled, the throw is shown as "holding the bird":
+    // attach the bird to the pilot's hands during the wind-up, then release and
+    // launch at the natural throw moment. Disabled avatar -> instant launch.
+    void HoldBird();
+    void ReleaseBird();
     TUniquePtr<FBorn2FlapMathBridge> MathBridge;
     TUniquePtr<FBorn2FlapRcController> RcController;
     double Accumulator = 0, LogTime = 0, WorldTime = 0;
