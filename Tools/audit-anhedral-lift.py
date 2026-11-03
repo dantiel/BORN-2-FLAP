@@ -21,6 +21,9 @@ f = yaw.fields
 class Tail(c.Structure):
     _fields_ = [(n, c.c_double*3) for n in ('position', 'normal', 'velocity', 'lift', 'pressure', 'drag', 'moment')]
 
+class Shape(c.Structure):
+    _fields_ = [(n, c.c_double) for n in ('fraction','chord','bend','geometric_twist','elastic_twist','camber')]
+
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
@@ -58,6 +61,7 @@ def main():
     fields = bind('get_wing_fields', [c.c_void_p, c.c_uint32, c.POINTER(f.Field), c.POINTER(f.Field)])
     loads = bind('get_wing_loads', [c.c_void_p, c.c_uint32, c.POINTER(yaw.Loads), c.POINTER(yaw.Loads)])
     tails = bind('get_tail_fields', [c.c_void_p, c.c_uint32, c.POINTER(Tail)])
+    shapes = bind('get_wing_shape', [c.c_void_p, c.c_uint32, c.POINTER(Shape), c.POINTER(Shape)])
     cfg = configparser.ConfigParser()
     assert cfg.read(args.preferences), args.preferences
     base = f.Tuning(*[cfg.getfloat('Flight' if n == 'BodyMassKg' else 'Tuning', n,
@@ -81,12 +85,14 @@ def main():
             left, right = (f.Field*16)(), (f.Field*16)()
             ll, rr = (yaw.Loads*16)(), (yaw.Loads*16)()
             tail = (Tail*18)()
+            sl, sr = (Shape*16)(), (Shape*16)()
             samples, crests = [], []
             last, rising, closure = 0, False, 0
             for i in range(6*args.hz):
                 assert step(ctx, c.byref(pilot), c.byref(body), c.byref(out)) == 1, (centre, pitch, i)
                 assert fields(ctx, 16, left, right) == 16 and loads(ctx, 16, ll, rr) == 16
                 assert tails(ctx, 18, tail) == 18
+                assert shapes(ctx, 16, sl, sr) == 16
                 angle = (out.left+out.right)/2
                 delta = angle-last
                 if i >= 3*args.hz:
@@ -94,6 +100,8 @@ def main():
                         crests.append(len(samples))
                     fs, ls = [*left, *right], [*ll, *rr]
                     sample = dict(angle_deg=angle, frequency_hz=out.flap_hz,
+                                  tip_bend_abs_mm=500*(abs(sl[15].bend)+abs(sr[15].bend)),
+                                  tip_twist_abs_deg=math.degrees((abs(sl[15].elastic_twist)+abs(sr[15].elastic_twist))/2),
                                   power_w=out.power, separation=out.separation,
                                   host_x_n=out.force[0], host_z_n=out.force[2],
                                   stroke_rate_deg_s=delta*args.hz,

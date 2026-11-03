@@ -39,12 +39,12 @@ data WingModel = WingModel
 kestrelModel :: WingModel
 kestrelModel = WingModel "kestrel" defaultBirdWing flightSpars 0.050
   where
-    -- Calibrate torsion independently of bending. At the former scale of 5,
-    -- load-induced washout reversed the advancing wing's rolling response.
-    -- 20 retains elastic feathering while preserving the lift/roll derivative
-    -- through the tested 5-12 m/s envelope. Other airframes retain their own
-    -- existing spar calibration; this is not an aerodynamic force multiplier.
-    flightSpars = kestrelSpars { siTwistScale = 20 }
+    -- Effective skin/brace calibration (not measured carbon material values).
+    -- Reduce span bending from 8 to 6 for visible load-dependent spar flex.
+    -- Retain the torsion calibration of 20 used for the yaw/lift response.
+    -- These scales affect the physical beam solve,
+    -- including section flow and torque, not a visual deformation multiplier.
+    flightSpars = kestrelSpars { siBendScale = 6, siTwistScale = 20 }
 
 -- | Horizontal servo mount angle of the RavenCrow ornithopter [deg]. The flap
 -- hinge axis is yawed this much in the horizontal plane, so each stroke sweeps
