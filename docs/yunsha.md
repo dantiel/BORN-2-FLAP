@@ -149,7 +149,7 @@ landscape sites, but every in-game name is invented — the same rule that keeps
 | --- | --- |
 | **Mogao Grottoes / Dunhuang (莫高窟)** — cliff of painted cave-temples in the Gobi | the Grotto Cliff: a mile of carved, mural-painted cave-mouths |
 | **Mingsha Shan + Crescent Spring / Yuèyáquán (鸣沙山·月牙泉)** — singing dunes around a crescent oasis | Lunya 轮亚, the Disc of Atlantis spring (瑶池 "the Jade Pool"): the only water, ringed by dunes |
-| **Yungang / Longmen / Dazu grottos (云冈·龙门·大足)** — monumental rock-carved shrines | the carved scale and the winged-figure reliefs |
+| **Yungang / Longmen / Dazu grottos (云冈·龙门·大足) ** — monumental rock-carved shrines | the carved scale and the winged-figure reliefs |
 | **Zhangjiajie sandstone pillars / Wulingyuan (张家界)** — misty pillar mountains with cloud forest | the Cloud-Forest Pillars: sheer sandstone summits wrapped in cloud |
 | **Xuankong Si, the Hanging Temple (悬空寺)** — shrine cantilevered into a cliff | the "flight-only" principle, pushed to its limit: no ground path at all |
 

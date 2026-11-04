@@ -55,6 +55,8 @@ void ABorn2FlapPoiOverlay::BuildTree()
 
     const TArray<FBorn2FlapPoi>& POIs = Bird->GetPOIs();
     const int32 Selected = Bird->GetSelectedPoi();
+    UE_LOG(LogTemp, Warning, TEXT("PoiOverlay BuildTree: %d POIs, selected=%d first=%s"),
+           POIs.Num(), Selected, POIs.Num() ? *POIs[0].Key : TEXT("<none>"));
 
     std::vector<FNode> Rows;
     Rows.push_back(Nd("Banner", P({ {"text", S("POINTS OF INTEREST")}, {"tone", S("accent")} })));

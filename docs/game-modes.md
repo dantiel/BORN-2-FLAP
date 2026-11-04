@@ -53,6 +53,7 @@ Jeder Rennmodus ist ein eigener `RaceRules`-Ableger:
 - Thermik & Gleitflug (Effizienz, Energie)
 - Delivery & Rescue (Transport, Zielpunkte)
 - Konstrukteurs-Challenges (baue, fliege, optimiere)
+- Airfield Watch (Vogelschlag verhindern, Vögel vom Flugfeld fernhalten)
 - Test Bench & Windkanal
 
 ## Regeln, die Ruby verdrahtet
