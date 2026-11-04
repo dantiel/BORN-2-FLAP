@@ -30,6 +30,7 @@ public:
     // FlightPawn before Destroy() so the window disappears this frame instead of
     // lingering on screen until the next garbage collection.
     void Close();
+    bool TestCgSlider();
 
     virtual void Tick(float DeltaSeconds) override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;

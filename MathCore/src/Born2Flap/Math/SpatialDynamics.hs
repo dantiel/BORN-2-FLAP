@@ -2,12 +2,14 @@
 -- [vCG.x,vCG.y,vCG.z,omega.x,omega.y,omega.z,leftRate,rightRate].
 -- Added fluid carries inertia, not weight. Normal-only fluid inertia is
 -- assembled at its chordwise distribution, including its pitching moment.
-module Born2Flap.Math.SpatialDynamics (spatialSystem, multiply) where
+module Born2Flap.Math.SpatialDynamics (spatialSystem, tailFluidInertia, multiply) where
 
 import Born2Flap.Math.Types (Vec3(..))
 import Born2Flap.Math.Model (WingModel(..))
 import Born2Flap.Math.Planform
 import Born2Flap.Math.Servo (reflectedDriveInertia)
+import Born2Flap.Math.Airframe (tailRootX, tailOutline)
+import Data.List (sort)
 
 type Matrix = [[Double]]
 
@@ -86,11 +88,53 @@ spatialSystem model mass cg (ix,iy,iz) density (left,right) velocity (Vec3 gx gy
       v=take 3 velocity; omega=take 3(drop 3 velocity)
       p=take 3 momentum; angular=take 3(drop 3 momentum)
       coadjoint=cross omega p ++ zipWith (+) (cross omega angular) (cross v p) ++ [0,0]
+      -- The section polar already supplies the complete steady quarter-chord
+      -- force/moment, including the Kutta circulation's cancellation of the
+      -- potential-flow Munk couple. Adding v x p_fluid again gives a spurious
+      -- pitch moment even at constant translation (and U*flap-rate recoil).
+      -- Retain added acceleration, rotating-basis, joint and gyroscopic terms.
+      fluidMomentum=multiply (subtractM m dry) velocity
+      polarOverlap=replicate 3 0 ++ cross v (take 3 fluidMomentum) ++ [0,0]
       -- Unknown body translation is an INERTIAL acceleration expressed in
       -- body axes, not the derivative of body-coordinate velocity. Remove
       -- its rotating-basis term from the Euler-Poincare inertial load.
       basis=multiply m (cross omega v ++ replicate 5 0)
       energyGradient=replicate 6 0 ++ [0.5*sum(zipWith (*) velocity (multiply d velocity)) | d<-[dl,drate]]
-      bias=zipWith (-) (zipWith (+) (multiply mdot velocity) coadjoint) (zipWith (+) basis energyGradient)
+      bias=zipWith (-) (zipWith (+) (multiply mdot velocity) coadjoint)
+             (zipWith (+) polarOverlap (zipWith (+) basis energyGradient))
       gravity=multiply dry ([gx,gy,gz]++replicate 5 0)
   in (m,bias,gravity)
+
+-- Rigid fan's normal added-air inertia, using its visible polygon and actual
+-- incidence. As for the wings, fluid contributes kinetic energy, not weight.
+-- Keep rotation/basis terms, but exclude the Munk couple already included
+-- in the complete quarter-chord section polar (same convention as wings).
+tailFluidInertia :: Double -> Double -> Double -> [Double] -> (Matrix,[Double])
+tailFluidInertia cg density incidence velocity =
+  let ci=cos incidence; si=sin incidence; z=[0,0,0]
+      rows=[[-si,0,0],z,[ci,0,0],[0,0,ci],
+            [tailRootX*(1-ci)+ci*cg,-1,0],[0,0,si],z,z]
+      m=scale density [map (sum . zipWith (*) weighted) rows
+          | row<-rows,let weighted=multiply tailFluidCovariance row]
+      momentum=multiply m velocity
+      v=take 3 velocity; omega=take 3(drop 3 velocity)
+      p=take 3 momentum; angular=take 3(drop 3 momentum)
+      coadjoint=cross omega p ++ zipWith (+) (cross omega angular) (cross v p) ++ [0,0]
+      basis=multiply m (cross omega v ++ replicate 5 0)
+      polarOverlap=replicate 3 0 ++ cross v p ++ [0,0]
+  in (m,zipWith (-) coadjoint (zipWith (+) basis polarOverlap))
+
+-- Two-point chord quadrature reproduces the thin plate added mass and its
+-- c^2/32 pitching variance. Span integration follows the actual fan edges.
+tailFluidCovariance :: Matrix
+tailFluidCovariance =
+  let ys=map snd tailOutline; lo=minimum ys; dy=(maximum ys-lo)/64
+      edges=zip tailOutline (tail tailOutline++take 1 tailOutline)
+      section y=sort [x0+(y-y0)*(x1-x0)/(y1-y0)
+        | ((x0,y0),(x1,y1))<-edges, (y0<=y && y<y1)||(y1<=y && y<y0)]
+      pairs (a:b:rest)=(a,b):pairs rest
+      pairs _=[]
+  in foldl' add (replicate 3 (replicate 3 0))
+       [scale (pi*c*c*dy/8) (outer [1,(a+b)/2+k*c/sqrt 32,y])
+       | i<-[0..63::Int],let y=lo+(fromIntegral i+0.5)*dy,
+         (a,b)<-pairs(section y),let c=b-a,k<-[-1,1]]

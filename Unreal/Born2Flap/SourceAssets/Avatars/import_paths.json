@@ -1,0 +1,10 @@
+{
+  "SK_Soldier": {
+    "mesh": "/Game/Actor/SK_Soldier/SkeletalMeshes/SK_Soldier.SK_Soldier",
+    "skeleton": "/Game/Actor/SK_Soldier/SkeletalMeshes/SK_Soldier_Skeleton.SK_Soldier_Skeleton"
+  },
+  "SK_Scout": {
+    "mesh": "/Game/Actor/SK_Scout/SkeletalMeshes/SK_Scout.SK_Scout",
+    "skeleton": "/Game/Actor/SK_Scout/SkeletalMeshes/SK_Scout_Skeleton.SK_Scout_Skeleton"
+  }
+}

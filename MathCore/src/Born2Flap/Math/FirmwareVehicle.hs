@@ -28,9 +28,9 @@ import Born2Flap.Math.Types (Vec3(..))
 import Born2Flap.Math.Firmware
 import Born2Flap.Math.Servo
 import Born2Flap.Math.RollDynamics (solveImplicitSystemCached, supportedRollSystem, supportGravity)
-import Born2Flap.Math.SpatialDynamics (spatialSystem, multiply)
+import Born2Flap.Math.SpatialDynamics (spatialSystem, tailFluidInertia, multiply)
 import Born2Flap.Math.Model (WingModel(..))
-import Born2Flap.Math.Airframe (tailOutline, tailSamples)
+import Born2Flap.Math.Airframe (tailRootX, tailOutline, tailSamples)
 import Born2Flap.Math.Planform
   ( shapeFlapInertia, referenceWingMassKg, shapeChord, WingShape(..) )
 import Born2Flap.Math.Simulation
@@ -309,8 +309,13 @@ advanceFirmwareVehicle totalMass hostInertia coupled rc params servo battery mod
             (angleL,angleR) (scaleVec (-9.81) bodyUp)
           cgVelocity = addVec bodyVel (crossVec bodyRates cg)
           oldSpatial = components cgVelocity ++ components bodyRates ++ [y oldRates,z oldRates]
-          (spatialMass,spatialBias,spatialGravity) = spatialSystem model totalMass cgX
+          (baseSpatialMass,baseSpatialBias,spatialGravity) = spatialSystem model totalMass cgX
             (hostInertia,pitchInertia,yawInertia) airDensity (angleL,angleR) oldSpatial (scaleVec (-9.81) bodyUp)
+          (tailMass,tailBias) = if fixedFan
+            then tailFluidInertia cgX airDensity (radians tailIncidence) oldSpatial
+            else (replicate 8 (replicate 8 0),replicate 8 0)
+          spatialMass=zipWith (zipWith (+)) baseSpatialMass tailMass
+          spatialBias=zipWith (+) baseSpatialBias tailBias
           aeroAt candidateBodyRates deltaVelocity (ls,rs) =
             let (bodyF,bodyM) = bodyLoadsAt candidateBodyRates deltaVelocity
                 tailPanels = panelsAt candidateBodyRates deltaVelocity
@@ -431,7 +436,8 @@ advanceFirmwareVehicle totalMass hostInertia coupled rc params servo battery mod
             let velocity = addVec deltaVelocity (originVelocity rates)
                 drag = scaleVec (-0.5*airDensity*0.0004*magnitude velocity) velocity
                 flow = addVec velocity (crossVec rates fuselageAftArm)
-                (sx,sy) = panelSurface bodyLiftPolar fuselageAftArea 0 (x flow) (y flow)
+                sidePolar = if fixedFan then kestrelSidePolar else bodyLiftPolar
+                (sx,sy) = panelSurface sidePolar fuselageAftArea 0 (x flow) (y flow)
                 (tx,tz) = panelSurface bodyLiftPolar fuselageAftArea 0 (x flow) (z flow)
                 panelsForce = Vec3 (sx+tx) sy tz
             in (addVec drag panelsForce,crossVec fuselageAftArm panelsForce)
@@ -634,7 +640,7 @@ kestrelTailLoads incidenceDeg velocity rates = map at tailSamples
     width = maximum (map snd tailOutline)-minimum (map snd tailOutline)
     aspect = width*width/area
     at (patchArea,px,py) =
-      let position = Vec3 (-0.38+ci*(px+0.38)) py (si*(px+0.38))
+      let position = Vec3 (tailRootX+ci*(px-tailRootX)) py (si*(px-tailRootX))
           flow = addVec velocity (crossVec rates position)
           u = x flow; w = z flow
           speed = sqrt(u*u+w*w)
@@ -659,6 +665,13 @@ kestrelTailLoads incidenceDeg velocity rates = map at tailSamples
 -- slope ≈0.45 is about half the flat plate, matching slender-body theory.
 bodyLiftPolar :: PanelPolar
 bodyLiftPolar = PanelPolar 0.45 0.034 0.10 2.5
+
+-- A modest lateral calibration for the Kestrel's aft fuselage. This surface
+-- sees the same local flow in glide and flap; its force at fuselageAftArm
+-- supplies both sideslip resistance and the restoring yaw moment. Keep the
+-- zero-sideslip profile drag and the pitch panel unchanged.
+kestrelSidePolar :: PanelPolar
+kestrelSidePolar = bodyLiftPolar { ppClSlope = 0.52, ppCdPressureK = 2.875 }
 
 -- | Centre of pressure of the fuselage aft-body + tail boom, BEHIND the CG.
 -- Everything aft acts like a wing fence / vertical stabiliser; this lever arm

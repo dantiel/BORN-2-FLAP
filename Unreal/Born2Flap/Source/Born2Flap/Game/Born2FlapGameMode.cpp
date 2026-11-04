@@ -35,6 +35,7 @@
 #include "UI/Born2FlapLoading.h"
 #include "UI/Born2FlapMenu.h"
 #include "UI/Born2FlapUiTheme.h"
+#include "Avatar/Born2FlapAvatar.h"
 #include "Racing/Born2FlapRacing.h"
 #include "Water/Born2FlapWaterDirector.h"
 #include "Water/Born2FlapSurf.h"
@@ -117,6 +118,31 @@ const FMenuWorld MenuWorlds[] = {
       TEXT("An airport grown from a vast murex shell lying on its side. Its pearl-lined opening shelters a glass-fronted arrival hall and a green entrance park; along the tapering shell, six long spines become smaller gate terminals with waiting aircraft. One powerful upward spine beside the main hall carries the control tower. Follow the shell's golden growth, explore the sheltered aperture, and land above the working apron.") },
 };
 constexpr int32 MenuWorldCount = 6;
+}  // namespace
+
+namespace
+{
+// Resolution picker shared by the Brain "DISPLAY" settings. Index 0 = follow
+// the desktop (native); the rest are explicit sizes.
+static int32 DisplayResIndex(FIntPoint P)
+{
+    static const FIntPoint List[] = {
+        FIntPoint(0, 0), FIntPoint(3840, 2160), FIntPoint(2560, 1440),
+        FIntPoint(1920, 1080), FIntPoint(1600, 900), FIntPoint(1366, 768), FIntPoint(1280, 720)
+    };
+    for (int32 i = 0; i < (int32)UE_ARRAY_COUNT(List); ++i)
+        if (List[i] == P)
+            return i;
+    return 0;
+}
+static FIntPoint DisplayResPoint(int32 Index)
+{
+    static const FIntPoint List[] = {
+        FIntPoint(0, 0), FIntPoint(3840, 2160), FIntPoint(2560, 1440),
+        FIntPoint(1920, 1080), FIntPoint(1600, 900), FIntPoint(1366, 768), FIntPoint(1280, 720)
+    };
+    return List[FMath::Clamp(Index, 0, (int32)UE_ARRAY_COUNT(List) - 1)];
+}
 }  // namespace
 
 ABorn2FlapGameMode::ABorn2FlapGameMode()
@@ -1185,6 +1211,37 @@ void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, c
             born2flap::MenuSettingsFromPawn(Bird,BrainPreferences);
         born2flap::MenuSettingsSave(BrainPreferences); return;
     }
+    // PILOT AVATAR — enable/disable the on-foot pilot + pick the visual style.
+    // Applies live to the pawn when in-level, otherwise just persists for the
+    // next spawn. Reaches both the frontend (menu) and in-level settings.
+    if (Action == TEXT("avatar.enabled") || Action == TEXT("avatar.person"))
+    {
+        if (Action == TEXT("avatar.enabled"))
+            BrainPreferences.bAvatarEnabled = Value > .5f;
+        else
+            BrainPreferences.AvatarPerson = FMath::Clamp(FMath::RoundToInt(Value), 0, ABorn2FlapAvatar::GetPersonCount() - 1);
+        if (ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
+        {
+            Bird->SetAvatarEnabled(BrainPreferences.bAvatarEnabled);
+            Bird->SetAvatarPerson(BrainPreferences.AvatarPerson);
+        }
+        born2flap::MenuSettingsSave(BrainPreferences);
+        return;
+    }
+    // DISPLAY — window mode + resolution. Applied immediately through the
+    // shared UGameUserSettings path (same store the native menu edits).
+    if (Action == TEXT("display.mode") || Action == TEXT("display.follow_system") || Action == TEXT("display.resolution"))
+    {
+        if (Action == TEXT("display.mode"))
+            BrainPreferences.WindowMode = FMath::Clamp(FMath::RoundToInt(Value), 0, 2);
+        else if (Action == TEXT("display.follow_system"))
+            BrainPreferences.bFollowSystemResolution = Value > .5f;
+        else
+            BrainPreferences.Resolution = DisplayResPoint(FMath::RoundToInt(Value));
+        born2flap::ApplyDisplaySettings(BrainPreferences);
+        born2flap::MenuSettingsSave(BrainPreferences);
+        return;
+    }
     auto* ActiveBird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this,0));
     auto* ActiveRc = ActiveBird ? ActiveBird->GetRcControllerMutable() : BrainRc.Get();
     if (Action.StartsWith(TEXT("rc.axis.")) || Action.StartsWith(TEXT("rc.invert.")) || Action.StartsWith(TEXT("rc.learn.axis."))) {
@@ -1199,7 +1256,15 @@ void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, c
     if (!ActiveBird && bMenuMode) {
         auto& S=BrainPreferences;
         bool Changed=true;
-        if(Action==TEXT("bird.select")) S.BirdModel=FMath::Clamp(FMath::RoundToInt(Value),0,5);
+        if(Action==TEXT("bird.select")) {
+            const int32 NewModel=FMath::Clamp(FMath::RoundToInt(Value),0,5);
+            if(NewModel!=S.BirdModel) {
+                born2flap::MenuSettingsSave(S);              // persist the old model's edits
+                S.BirdModel=NewModel;
+                born2flap::MenuSettingsLoadModelProfile(S,NewModel);  // load (or default) the new model
+            }
+        }
+        else if(Action==TEXT("tuning.reset")) born2flap::MenuSettingsResetTuningForModel(S,S.BirdModel);
         else if(Action==TEXT("bird.weight")) S.BodyMassKg=FMath::Clamp(Value,.01f,2.f);
         else if(Action==TEXT("bird.cg")) S.CgOffsetMm=FMath::Clamp(Value,-100.f,100.f);
         else if(Action==TEXT("bird.coupled")) S.bCoupledThrottle=Value>.5f;
@@ -1499,6 +1564,23 @@ void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, c
             Bird->DeleteReplaySpirits();
         return;
     }
+    if (Action == TEXT("tuning.reset"))
+    {
+        auto* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0));
+        const int32 Model = Bird ? Bird->GetBirdModel() : FMath::Max(0, BrainPreferences.BirdModel);
+        if (Bird)
+        {
+            born2flap::FMenuSettings Def;
+            Def.Tuning = born2flap::tuning::DefaultTuningForModel(Model);
+            for (uint8 I = 0; I < uint8(ETuningField::Count); ++I)
+                Bird->SetTuning(ETuningField(I), born2flap::MenuSettingsGetTuning(Def, ETuningField(I)));
+            Bird->SetBodyMassKg(born2flap::tuning::DefaultBodyMassForModel(Model));
+            Bird->SetCgOffsetMm(born2flap::tuning::DefaultCgOffsetForModel(Model));
+        }
+        born2flap::MenuSettingsResetTuningForModel(BrainPreferences, Model);
+        born2flap::MenuSettingsSave(BrainPreferences);
+        return;
+    }
     if (Action.StartsWith(TEXT("tuning.display.")))
     {
         const auto F=born2flap::tuning::FromKey(Action.Mid(15));
@@ -1741,6 +1823,12 @@ FString ABorn2FlapGameMode::BuildBrainTelemetry() const
         Root->SetArrayField(TEXT("tuning_fields"),Knobs);
         Root->SetNumberField(TEXT("wingbeat_volume"),Settings.WingbeatVolume);
         Root->SetBoolField(TEXT("freelook_invert"),Settings.bFreeLookInvert);
+        // Display + pilot avatar (Brain "General Settings" page).
+        Root->SetNumberField(TEXT("display_mode"), Settings.WindowMode);
+        Root->SetBoolField(TEXT("display_follow_system"), Settings.bFollowSystemResolution);
+        Root->SetNumberField(TEXT("display_resolution"), (double)DisplayResIndex(Settings.Resolution));
+        Root->SetBoolField(TEXT("avatar_enabled"), Settings.bAvatarEnabled);
+        Root->SetNumberField(TEXT("avatar_person"), Settings.AvatarPerson);
         // RC sender (F3 panel) + live channels.
         const FBorn2FlapRcController* Rc = Bird ? Bird->GetRcController() : BrainRc.Get();
         Root->SetBoolField(TEXT("rc"), Rc && Rc->IsPanelOpen());
@@ -1854,15 +1942,16 @@ FString ABorn2FlapGameMode::BuildBrainTelemetry() const
         WObj->SetArrayField(TEXT("seasons"), SeasonOpts);
 
         // Wind config: effective values for the menu sliders (an explicit
-        // override when >= 0, otherwise the weather/time profile "auto" default)
-        // plus a flag that shows the reset button only when the player tuned it.
+        // override when >= 0, otherwise the season's prevailing-wind "auto"
+        // default) plus a flag that shows the reset button only when tuned.
+        const FBorn2FlapSeason& WSsn = Born2FlapWeather::Season(C.Season);
         auto EffectiveWind = [](float Override, float AutoDefault)
         { return (double)(Override >= 0.f ? Override : AutoDefault); };
-        WObj->SetNumberField(TEXT("wind_dir"),     EffectiveWind(C.WindDir, Born2FlapWeather::DefaultWindDirection(W.Id)));
-        WObj->SetNumberField(TEXT("wind_speed"),   EffectiveWind(C.WindSpeed, 1.f));
-        WObj->SetNumberField(TEXT("wind_gust"),    EffectiveWind(C.WindGust, 1.f));
-        WObj->SetNumberField(TEXT("wind_random"),  EffectiveWind(C.WindRandom, 1.f));
-        WObj->SetNumberField(TEXT("wind_thermal"), EffectiveWind(C.WindThermal, 1.f));
+        WObj->SetNumberField(TEXT("wind_dir"),     EffectiveWind(C.WindDir, Born2FlapWeather::DefaultWindDirection(W.Id) + WSsn.WindDirBias));
+        WObj->SetNumberField(TEXT("wind_speed"),   EffectiveWind(C.WindSpeed, WSsn.WindSpeedScale));
+        WObj->SetNumberField(TEXT("wind_gust"),    EffectiveWind(C.WindGust, WSsn.WindGustScale));
+        WObj->SetNumberField(TEXT("wind_random"),  EffectiveWind(C.WindRandom, WSsn.WindRandom));
+        WObj->SetNumberField(TEXT("wind_thermal"), EffectiveWind(C.WindThermal, WSsn.WindThermalScale));
         WObj->SetBoolField(TEXT("wind_custom"),
             C.WindDir >= 0.f || C.WindSpeed >= 0.f || C.WindGust >= 0.f ||
             C.WindRandom >= 0.f || C.WindThermal >= 0.f);

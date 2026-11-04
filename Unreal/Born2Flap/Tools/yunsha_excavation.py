@@ -21,8 +21,7 @@ return lerp(rock*bed,dry,smoothstep(-180,80,P.z));''',{
         'T':expr(strata,'TextureObject',texture=u.load_asset('/Game/Shiomori/Cliffs/Textures/T_Cliff_rock_face_03_Diffuse')),
         'S':expr(strata,'TextureObject',texture=u.load_asset('/Game/Shiomori/Textures/T_SandBeach_Diffuse'))}),'BASE_COLOR')
     out(custom(strata,normal_code(),{
-        'P':expr(strata,'WorldPosition'),'N':expr(strata,'VertexNormalWS'),
-        'T':expr(strata,'TextureObject',texture=u.load_asset('/Game/Shiomori/Textures/T_SandBeach_Normal'))}),'NORMAL')
+        'P':expr(strata,'WorldPosition'),'N':expr(strata,'VertexNormalWS')}),'NORMAL')
     strata.set_editor_property('tangent_space_normal',False)
     u.MaterialEditingLibrary.recompile_material(strata);u.EditorAssetLibrary.save_loaded_asset(strata)
     # Replace coarse terrain, including every bench and the east access ramp.

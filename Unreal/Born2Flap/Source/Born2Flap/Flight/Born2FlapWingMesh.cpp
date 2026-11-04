@@ -79,6 +79,7 @@ double SampleStationField(const B2F_WingSection* Shape, int32 Count, double Stat
 // folds that do not exist in the aerodynamic surface.
 constexpr double AeroBendVisualGain  = 1.0;
 constexpr double AeroTwistVisualGain = 1.0;
+constexpr double KestrelMeshScale = 0.55; // authored at 100 cm half-span → 55 cm to match the 0.55 m physics half-span
 // Neon turtle flipper planform (Design 3), shared by the rest-mesh builder and
 // ApplyShape so the chord bounds never drift apart.
 constexpr double TurtleFlipperSpan      = 72.0;
@@ -205,7 +206,7 @@ void UBorn2FlapWingMesh::InitializeWing(int32 Side, int32 Design)
     }
 }
 
-void UBorn2FlapWingMesh::ApplyShape(const B2F_WingSection* Shape)
+void UBorn2FlapWingMesh::ApplyShape(const B2F_WingSection* Shape, double MountIncidenceRad)
 {
     if(Shape) { bReceivedShape=true; for(uint32 I=0;I<B2F_WING_STATIONS;++I) PeakBend=FMath::Max(PeakBend,FMath::Abs(Shape[I].bend_m)); }
     Vertices.SetNum(RestVertices.Num()); Normals.Init(FVector::ZeroVector,Vertices.Num()); Tangents.SetNum(Vertices.Num());
@@ -250,6 +251,41 @@ void UBorn2FlapWingMesh::ApplyShape(const B2F_WingSection* Shape)
         const double Chord=Trailing-Leading;                                   // signed (LE forward +, TE aft -)
         const double ChordLen=-Chord;                                          // positive chord length
         const double U=FMath::Clamp(ChordLen>1.e-6?(Leading-R.X)/ChordLen:.5,0.,1.);
+        if (WingDesign == 2)
+        {
+            // Keep the authored UV/material coordinates, but use the physical
+            // scaled SVG planform and LE axis for the deformed surface.
+            // Shape fields already contain metres/radians: do not scale bend
+            // a second time or subtract the root's real geometric incidence.
+            const double Station=FMath::Clamp(V*B2F_WING_STATIONS-.5,0.,double(B2F_WING_STATIONS-1));
+            const double Ramp=Shape ? FMath::Clamp(V/Shape[0].span_fraction,0.,1.) : 1.;
+            const double Incidence=MountIncidenceRad+(Shape
+                ? SampleStationField(Shape,B2F_WING_STATIONS,Station,&B2F_WingSection::twist_geo_rad)
+                  + Ramp*SampleStationField(Shape,B2F_WING_STATIONS,Station,&B2F_WingSection::twist_elastic_rad)
+                : Twist);
+            const double ChordCm=ChordLen*KestrelMeshScale;
+            const double X=-U*ChordCm;
+            // The root membrane is attached to the fuselage, not a free cup.
+            const double Cup=Shape ? Camber*Ramp : Camber*FMath::SmoothStep(0.,.16,V);
+            const double Z=4*U*(1-U)*Cup*ChordCm;
+            // Follow the local bent spar normal, as the aerodynamic section does.
+            double Slope=0.;
+            if (Shape)
+            {
+                const int32 A=FMath::Clamp(FMath::FloorToInt(Station),0,int32(B2F_WING_STATIONS)-2);
+                const int32 B=A+1;
+                Slope=(Shape[B].bend_m-Shape[A].bend_m)
+                    / ((Shape[B].span_fraction-Shape[A].span_fraction)*KestrelMeshScale);
+                Slope*=Ramp;
+            }
+            const double BendAngle=FMath::Atan(Slope);
+            const double SectionZ=X*FMath::Sin(Incidence)+Z*FMath::Cos(Incidence);
+            Vertices[I]=FVector(Leading*KestrelMeshScale
+                +X*FMath::Cos(Incidence)-Z*FMath::Sin(Incidence),
+                R.Y*KestrelMeshScale-WingSide*SectionZ*FMath::Sin(BendAngle),
+                SectionZ*FMath::Cos(BendAngle)+Bend);
+            continue;
+        }
         // The aeroelastic twist rotates about the *elastic axis* (the spar line),
         // not the leading edge. Inboard the braced arm-wing's diagonal + mid-chord
         // spars shift the elastic axis ~0.15c aft of the LE; outboard the unbraced
@@ -290,6 +326,7 @@ bool UBorn2FlapWingMesh::HasValidDeformation()
     const auto* Section=GetProcMeshSection(0); if(!Section || Section->ProcVertexBuffer.Num()!=UV.Num()) return false;
     for(int32 I=0;I<Vertices.Num();++I)
         if(Vertices[I].ContainsNaN() || !Normals[I].IsNormalized() || !Section->ProcVertexBuffer[I].UV0.Equals(UV[I],1.e-6)) return false;
+    if (WingDesign==2 && (FMath::Abs(GetWingTipLocal().Y)<53. || FMath::Abs(GetWingTipLocal().Y)>57.)) return false;
     return true;
 }
 FVector UBorn2FlapWingMesh::GetWingTipLocal() const
@@ -297,13 +334,13 @@ FVector UBorn2FlapWingMesh::GetWingTipLocal() const
     // Average the outboard-most span band of the rest membrane: the falcon's LE/TE
     // converge to a point while the prototype's tip is a chord edge, so a centroid
     // gives a stable probe anchor for every design. Sign follows WingSide (left -Y).
-    const FVector Fallback(-6.f, WingSide * 100.f, 0.f);
+    const FVector Fallback(-6.f, WingSide * 55.f, 0.f);
     if (RestVertices.IsEmpty()) return Fallback;
     float MaxSpan = 0.f;
     for (const FVector& V : RestVertices) MaxSpan = FMath::Max(MaxSpan, FMath::Abs(V.Y));
     FVector Tip = FVector::ZeroVector; int32 N = 0;
-    for (const FVector& V : RestVertices)
-        if (FMath::Abs(V.Y) >= MaxSpan - 2.f) { Tip += V; ++N; }
+    for (int32 I=0; I<RestVertices.Num(); ++I)
+        if (FMath::Abs(RestVertices[I].Y) >= MaxSpan - 2.f) { Tip += Vertices[I]; ++N; }
     return N > 0 ? Tip / float(N) : Fallback;
 }
 FVector UBorn2FlapWingMesh::GetWingRootLocal() const
@@ -314,7 +351,7 @@ FVector UBorn2FlapWingMesh::GetWingRootLocal() const
     const FVector Fallback(-2.f, 0.f, 0.f);
     if (RestVertices.IsEmpty()) return Fallback;
     FVector Root = FVector::ZeroVector; int32 N = 0;
-    for (const FVector& V : RestVertices)
-        if (FMath::Abs(V.Y) <= 3.f) { Root += V; ++N; }
+    for (int32 I=0; I<RestVertices.Num(); ++I)
+        if (FMath::Abs(RestVertices[I].Y) <= 3.f) { Root += Vertices[I]; ++N; }
     return N > 0 ? Root / float(N) : Fallback;
 }

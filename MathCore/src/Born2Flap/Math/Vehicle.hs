@@ -422,9 +422,12 @@ stepStripPreparedMotion station aspectRatio implicitLoads _phaseRate _flapping s
       !stripHeightM = dotVector position (bodyUpB input)
       !ge = groundEffectFactor (groundClearanceM input + stripHeightM) (2 * wsSpanM wp)
       !normal0 = Vec3 0 (-side * sin dihedralLocal) (cos dihedralLocal)
-      -- Resolve flow in the swept section plane. Ignoring sweep here removed
-      -- its differential lift in sideslip, despite it being in the planform.
-      !sweep = spanSweep station + (mountRad - armRad) + sin mountRad * stroke
+      -- Planform chords are streamwise distances, not lengths normal to the
+      -- swept leading edge. LE sweep already moves each strip's leading edge.
+      -- Rotating that chord by LE sweep again displaced inboard force centres
+      -- across the shoulder and disagreed with the rendered membrane. Only
+      -- actual hinge/arm sweep rotates this section basis.
+      !sweep = (mountRad - armRad) + sin mountRad * stroke
       !chordAxis0 = Vec3 (cos sweep) (side * sin sweep * cos dihedralLocal) (sin sweep * sin dihedralLocal)
       !spanAxis = Vec3 (-sin sweep) (side * cos sweep * cos dihedralLocal) (cos sweep * sin dihedralLocal)
       -- Mount incidence, geometric twist and elastic twist rotate the local

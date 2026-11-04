@@ -36,6 +36,8 @@ FORCEINLINE const TCHAR* Key(ETuningField Field)
     case ETuningField::VerticalMountAngle: return TEXT("VerticalMountAngle");
     case ETuningField::ReturnFerocity:    return TEXT("ReturnFerocity");
     case ETuningField::YawScale:          return TEXT("YawScale");
+    case ETuningField::StrokeSkew:        return TEXT("StrokeSkew");
+    case ETuningField::ReturnSkew:        return TEXT("ReturnSkew");
     default:                               return TEXT("");
     }
 }
@@ -105,6 +107,8 @@ static const FRow Rows[] =
     { ETuningField::VerticalMountAngle, TEXT("VERTICAL MOUNT ANGLE"), TEXT("°"),           -15.f,   15.f, 0, TEXT("Real wing mount incidence (nose-up +). Tilts the wing about its span axis; feeds the strip's geometric twist. Negative = nose-down; positive = nose-up.") },
     { ETuningField::ReturnFerocity,    TEXT("RETURN FEROCITY"),      TEXT("%"),             0.f,  100.f, 0, TEXT("How aggressively the upstroke/return accelerates through centre, independently of the downstroke. Low = soft return; high = crisp snap.") },
     { ETuningField::YawScale,          TEXT("YAW SCALE"),            TEXT("%"),             0.f,  100.f, 0, TEXT("Maximum differential wing amplitude in a yaw turn. Low = symmetric stroke; high = one wing beats far deeper than the other for a strong visual + proverse-yaw swing.") },
+    { ETuningField::StrokeSkew,        TEXT("STROKE SKEW"),          TEXT("%"),          -100.f,  100.f, 0, TEXT("Downstroke centre-skew. Positive front-loads thrust (peak earlier); negative delays it. Mirrors PteronautOS strokeSkewPercent.") },
+    { ETuningField::ReturnSkew,        TEXT("RETURN SKEW"),          TEXT("%"),          -100.f,  100.f, 0, TEXT("Upstroke centre-skew. Positive front-loads the return; negative delays it. Mirrors PteronautOS returnSkewPercent.") },
 };
 
 FORCEINLINE const FRow& Row(ETuningField Field)
@@ -113,6 +117,77 @@ FORCEINLINE const FRow& Row(ETuningField Field)
         if (R.Field == Field)
             return R;
     return Rows[0];
+}
+
+// ── Per-model factory defaults ────────────────────────────────────────────
+// Each silhouette has its own reset target for the whole tuning profile (servo,
+// battery, geometry, ferocity, authority, waveform) plus body mass + CG. These
+// are the values a per-model profile falls back to before any user override is
+// stored under [Tuning.Model<N>] in FlightPreferences.ini.
+
+FORCEINLINE B2F_TuningConfig DefaultTuningForModel(int32 Model)
+{
+    B2F_TuningConfig T{};
+    // Shared reference defaults (VOTIK PTK 7465 servo, 3S 1.3 Ah 30C/60C pack).
+    T.servo_no_load_speed_deg_s = 750;
+    T.servo_stall_torque_nm = 1.332;
+    T.servo_backdrive_deg_s_nm = 20;
+    T.battery_voltage = 11.1;
+    T.battery_resistance_ohm = 0.08;
+    T.battery_capacity_ah = 1.3;
+    T.battery_c_rating = 30;
+    T.battery_burst_c_rating = 60;
+    T.flap_base_freq_dhz = 32;
+    T.tail_elevator_angle_deg = -2.3;
+    T.glide_angle_deg = -4;
+    T.stroke_ferocity = 50;
+    T.aileron_scale = 40;
+    T.elevator_scale = 55;
+    T.flap_centre_deg = 0;
+    T.body_mass_kg = 0.050;
+    T.vertical_mount_angle_deg = 0;
+    T.return_ferocity = 50;
+    T.yaw_scale = 60;
+    T.stroke_skew_percent = 0;
+    T.return_skew_percent = 0;
+
+    switch (Model)
+    {
+    case 0:  // RAVENCROW — big night hunter: stronger servo, heavier, more pitch authority.
+        T.servo_stall_torque_nm = 1.8;
+        T.elevator_scale = 65;
+        T.body_mass_kg = 0.086;
+        break;
+    case 1:  // PROTOTYPE — training workhorse: gentle stroke, light.
+        T.stroke_ferocity = 45;
+        T.body_mass_kg = 0.036;
+        break;
+    case 2:  // COMMON KESTREL — reference bird.
+        break;
+    case 3:  // NEON TURTLE — weightless aether swimmer.
+        break;
+    case 4:  // KESTREL LIGHT — halved rods + weight: fast micro servo.
+        T.servo_no_load_speed_deg_s = 1200;
+        T.servo_stall_torque_nm = 0.5;
+        T.body_mass_kg = 0.025;
+        break;
+    case 5:  // PTEROSAUR — kestrel physics, desert glider skin.
+        break;
+    default:
+        break;
+    }
+    return T;
+}
+
+FORCEINLINE float DefaultBodyMassForModel(int32 Model)
+{
+    return float(DefaultTuningForModel(Model).body_mass_kg);
+}
+
+FORCEINLINE float DefaultCgOffsetForModel(int32 Model)
+{
+    (void)Model;
+    return 0.f;   // neutral CG for every silhouette by default
 }
 
 }  // namespace born2flap::tuning

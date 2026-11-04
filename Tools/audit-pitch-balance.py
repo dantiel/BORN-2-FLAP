@@ -30,6 +30,7 @@ ap.add_argument('--output', type=Path, required=True)
 args = ap.parse_args()
 lib = c.CDLL(str(args.dll.resolve()))
 assert lib.b2f_math_runtime_init() == 1
+assert lib.b2f_math_abi_version() in (17, 18)
 def bind(name, types, result=c.c_int):
     fn = getattr(lib,'b2f_math_'+name)
     fn.argtypes, fn.restype = types, result
@@ -46,7 +47,8 @@ fields = bind('get_wing_fields',[c.c_void_p,c.c_uint32,c.POINTER(f.Field),c.POIN
 tails = bind('get_tail_fields',[c.c_void_p,c.c_uint32,c.POINTER(ledger.Tail)])
 cfg = configparser.ConfigParser()
 assert cfg.read(args.preferences)
-tuning = f.Tuning(*[cfg.getfloat('Flight' if n=='BodyMassKg' else 'Tuning', n) for n,_ in f.Tuning._fields_])
+tuning = f.Tuning(*[cfg.getfloat('Flight' if n=='BodyMassKg' else 'Tuning', n,
+    **({'fallback': 60} if n == 'YawScale' else {})) for n,_ in f.Tuning._fields_])
 rows = []
 for cgmm in args.cg:
     ctx = create(None)

@@ -5,6 +5,7 @@
 #include "Components/BoxComponent.h"
 #include "Components/VolumetricCloudComponent.h"
 #include "Components/PostProcessComponent.h"
+#include "Components/LocalFogVolumeComponent.h"
 #include "Components/DirectionalLightComponent.h"
 #include "Components/SkyLightComponent.h"
 #include "Components/ExponentialHeightFogComponent.h"
@@ -124,6 +125,21 @@ void ABorn2FlapWeather::Apply()
         auto* Fog=GetWorld()->SpawnActor<AExponentialHeightFog>();
         Fog->GetComponent()->SetFogDensity(W.Fog);
     }
+    // Yunsha's standing cloud (the perpetual gorge mist, 鸿蒙 the Source) thins in
+    // the dry season and thickens under monsoon/mist. The map authored it as
+    // LocalFogVolumes tagged YunshaCloud; re-tune their density to weather+season.
+    if(Level==TEXT("Yunsha"))
+    {
+        float StandingMist=W.Id==TEXT("mist") ? .9f : (W.Rain ? .6f : (W.Id==TEXT("cloudy") ? .45f : .28f));
+        StandingMist*=Conditions.Season==TEXT("monsoon") ? 1.4f : (Conditions.Season==TEXT("cool") ? .8f : .6f);
+        StandingMist=FMath::Clamp(StandingMist,.08f,1.f);
+        for(TActorIterator<AActor> It(GetWorld());It;++It)
+        {
+            if(!It->ActorHasTag(TEXT("YunshaCloud"))) continue;
+            TInlineComponentArray<ULocalFogVolumeComponent*> Vols(*It);
+            for(auto* Vol:Vols) Vol->SetRadialFogExtinction(.018f*StandingMist);
+        }
+    }
     auto& S=PostProcess->Settings;
     const auto* Range=IConsoleManager::Get().FindConsoleVariable(TEXT("r.DefaultFeature.AutoExposure.ExtendDefaultLuminanceRange"));
     const float EV=Born2FlapWeather::Exposure(Conditions)-(Level==TEXT("Yunsha") && !D.Night ? .3f : 0.f);
@@ -139,6 +155,32 @@ void ABorn2FlapWeather::Apply()
             HaloMaterial=UMaterialInstanceDynamic::Create(Material,this);
             HaloMaterial->SetVectorParameterValue(TEXT("SunDirection"),FLinearColor(SunDirection));
             S.AddBlendable(HaloMaterial,1.f);
+        }
+    }
+    // Yunsha's desert sky optics: a broad warm dust aureole + dust sun-pillar +
+    // horizon mirage + night star field (M_YunshaSky). The gorge's analogue of
+    // Shiomori's ice halo, driven by the same weather/day/season/wind knobs.
+    if(Level==TEXT("Yunsha"))
+    {
+        if(auto* Material=LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Yunsha/Materials/M_YunshaSky")))
+        {
+            YunshaSkyMaterial=UMaterialInstanceDynamic::Create(Material,this);
+            YunshaSkyMaterial->SetVectorParameterValue(TEXT("SunDirection"),FLinearColor(SunDirection));
+            // Dust haze: strongest in the dry season's clear sun, cleared by
+            // monsoon rain. Mirage: dry clear air only (the desert Fata Morgana).
+            float Dust=.4f;
+            if(Conditions.Season==TEXT("dry"))       Dust=.85f;
+            else if(Conditions.Season==TEXT("cool")) Dust=.50f;
+            else if(Conditions.Season==TEXT("monsoon")) Dust=.22f;
+            if(Conditions.Weather==TEXT("rain"))     Dust*=.15f;
+            else if(Conditions.Weather==TEXT("cloudy")) Dust*=.45f;
+            else if(Conditions.Weather==TEXT("mist"))   Dust*=.70f;
+            const bool bClearDay=!D.Night && (Conditions.Weather==TEXT("sunny")||Conditions.Weather==TEXT("cloudy"));
+            const float Mirage=bClearDay && Conditions.Season==TEXT("dry") ? (Conditions.Weather==TEXT("sunny") ? .7f : .35f) : 0.f;
+            YunshaSkyMaterial->SetScalarParameterValue(TEXT("Dust"),FMath::Clamp(Dust,0.f,1.f));
+            YunshaSkyMaterial->SetScalarParameterValue(TEXT("Mirage"),Mirage);
+            YunshaSkyMaterial->SetScalarParameterValue(TEXT("Night"),D.Night?1.f:0.f);
+            S.AddBlendable(YunshaSkyMaterial,1.f);
         }
     }
     if(auto* Material=LoadObject<UMaterialInterface>(nullptr,TEXT("/Engine/EngineSky/VolumetricClouds/m_SimpleVolumetricCloud_Inst")))
@@ -261,6 +303,9 @@ void ABorn2FlapWeather::Tick(float DeltaSeconds)
     const auto& W=Born2FlapWeather::Profile(Conditions.Weather);
     const FVector Flow=Born2FlapWeather::Wind(Level,Conditions,GetActorLocation(),Time);
     if(CloudMaterial) CloudMaterial->SetVectorParameterValue(TEXT("Layout_WindControls"),FLinearColor(Flow.X*.1,Flow.Y*.1,.5f,.333f));
+    // Yunsha's dust/mirage/stars drift and shimmer with the same live wind the
+    // flight physics and foliage sway already sample. SkyWind.w carries time.
+    if(YunshaSkyMaterial) YunshaSkyMaterial->SetVectorParameterValue(TEXT("SkyWind"),FLinearColor(Flow.X,Flow.Y,Flow.Z,(float)Time));
     // Foliage sway: expose the live atmospheric wind (m/s, world axes) to every
     // tree/grass/bark material's World Position Offset via MPC_Weather.Wind.
     // This is the SAME field the flight physics and aero-audio sample, so the

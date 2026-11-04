@@ -78,11 +78,94 @@ def material(name,tint,texture=None,metal=0.,emission=0.,cloud=False,mural=False
     M.recompile_material(mat);assert E.save_loaded_asset(mat)
     return mat
 
+def yunsha_sky_material():
+    """Yunsha desert-sky optics — the gorge's analogue of Shiomori's ice-halo
+    (M_SunParhelion). Screen-space post-process, additive over the scene after
+    tonemapping. Four effects: a broad warm dust aureole around the sun (dust
+    scatters wide, unlike the crisp 22-deg ice ring), a dust sun-pillar at a low
+    dry sun, a horizon mirage band (Fata Morgana), and a dark-sky star field at
+    night. Driven by SunDirection/Dust/Mirage/Night/SkyWind set at runtime by
+    ABorn2FlapWeather, so it follows weather, day, season and wind. The sun disc
+    itself is NOT re-drawn here (DirectionalLight + SkyAtmosphere render it)."""
+    path = ROOT+'/Materials/M_YunshaSky'
+    m = u.load_asset(path) if E.does_asset_exist(path) else A.create_asset('M_YunshaSky',ROOT+'/Materials',u.Material,u.MaterialFactoryNew())
+    M.delete_all_material_expressions(m)
+    m.set_editor_property('material_domain',u.MaterialDomain.MD_POST_PROCESS)
+    m.set_editor_property('blend_mode',u.BlendMode.BLEND_OPAQUE)
+    m.set_editor_property('blendable_location',u.BlendableLocation.BL_SCENE_COLOR_AFTER_TONEMAPPING)
+    m.set_editor_property('shading_model',u.MaterialShadingModel.MSM_UNLIT)
+    m.set_editor_property('two_sided',True)
+    sd=expr(m,'VectorParameter',parameter_name='SunDirection',default_value=u.LinearColor(.3,.5,.8,0.))
+    dust=expr(m,'ScalarParameter',parameter_name='Dust',default_value=.5)
+    mirage=expr(m,'ScalarParameter',parameter_name='Mirage',default_value=0.)
+    night=expr(m,'ScalarParameter',parameter_name='Night',default_value=0.)
+    skywind=expr(m,'VectorParameter',parameter_name='SkyWind',default_value=u.LinearColor(0.,0.,0.,0.))
+    view=expr(m,'CameraVectorWS')
+    scene=expr(m,'SceneTexture',scene_texture_id=u.SceneTextureId.PPI_POST_PROCESS_INPUT0)
+    depth=expr(m,'SceneTexture',scene_texture_id=u.SceneTextureId.PPI_SCENE_DEPTH)
+    code='''float3 R = normalize(-ViewToCamera);
+    float3 S = normalize(SunDir);
+    float ang = acos(clamp(dot(R, S), -1.0, 1.0));
+    float elS = asin(clamp(S.z, -1.0, 1.0));
+    float elR = asin(clamp(R.z, -1.0, 1.0));
+    float dEl = elR - elS;
+    float dAz = atan2(R.y, R.x) - atan2(S.y, S.x);
+    dAz = atan2(sin(dAz), cos(dAz));
+
+    // Above-horizon mask: dust optics live in the sky; terrain occludes them.
+    float skyMask = smoothstep(0.0, 0.025, R.z) * step(10000000.0, SceneDepth.r);
+    float sunDeg = elS * 57.2958;
+    float lowSun = 1.0 - smoothstep(4.0, 20.0, sunDeg);
+    // Sun optics fade out at night (only the star field remains).
+    float dayOptics = 1.0 - Night;
+
+    // (1) Dust aureole: broad warm scattering lobe around the sun. Widens and
+    // reddens as the sun lowers into the haze; no crisp ice ring here.
+    float aureole = exp(-pow(ang / (0.30 + 0.30 * lowSun), 2.0)) * Dust * dayOptics;
+    float3 aureoleCol = lerp(float3(1.00, 0.60, 0.32), float3(1.00, 0.78, 0.50), saturate(ang * 3.0));
+
+    // (2) Dust sun-pillar: vertical light column from horizontally aligned dust
+    // grains, strongest at a low dry sun (dawn/sunset).
+    float pillar = exp(-pow(abs(dAz) * 26.0, 2.0)) * exp(-pow(dEl * 3.0, 2.0)) * lowSun * Dust * dayOptics;
+    float3 pillarCol = lerp(float3(1.00, 0.42, 0.22), float3(1.00, 0.72, 0.40), saturate(dEl * 2.0 + 0.5));
+
+    // (3) Horizon mirage band: a warm silver shimmer along the horizon (the
+    // desert Fata Morgana), only in dry clear air; wind drifts and breaks it.
+    float horizon = 1.0 - smoothstep(0.0, 0.030, abs(R.z - 0.010));
+    float shimmer = 0.55 + 0.45 * sin(R.x * 38.0 + SkyWind.x * 0.6 + SkyWind.w * 0.7)
+                            * sin(R.y * 31.0 + SkyWind.y * 0.6);
+    float mirageBand = horizon * Mirage * shimmer * dayOptics;
+    float3 mirageCol = float3(1.00, 0.88, 0.68);
+
+    // (4) Dark-sky star field (night only): cell-hash stars over the desert's
+    // clear black sky, twinkling faintly. The moon is the DirectionalLight.
+    float3 starGrid = floor(R * 220.0);
+    float starHash = frac(sin(dot(starGrid, float3(12.9898, 78.233, 37.719))) * 43758.5453);
+    float star = smoothstep(0.9986, 0.9992, starHash) * step(0.02, R.z);
+    float twinkle = 0.65 + 0.35 * sin(SkyWind.w * 2.4 + starHash * 91.0);
+    float3 starCol = star * twinkle * float3(0.82, 0.88, 1.00) * Night;
+
+    float3 contrib = aureoleCol * aureole * 0.85
+                   + pillarCol * pillar * 0.55
+                   + mirageCol * mirageBand * 0.40
+                   + starCol;
+    return SceneColor.rgb + (1.0 - saturate(SceneColor.rgb)) * (1.0 - exp(-contrib));'''
+    h=expr(m,'Custom',code=code,output_type=u.CustomMaterialOutputType.CMOT_FLOAT3)
+    pins=[]
+    for nm in ('SunDir','Dust','Mirage','Night','SkyWind','ViewToCamera','SceneColor','SceneDepth'):
+        p=u.CustomInput();p.set_editor_property('input_name',nm);pins.append(p)
+    h.set_editor_property('inputs',pins)
+    link(sd,h,'SunDir');link(dust,h,'Dust');link(mirage,h,'Mirage');link(night,h,'Night');link(skywind,h,'SkyWind')
+    link(view,h,'ViewToCamera');link(scene,h,'SceneColor','Color');link(depth,h,'SceneDepth','Color')
+    out(h,'EMISSIVE_COLOR')
+    M.set_material_usage(m,u.MaterialUsage.MATUSAGE_INSTANCED_STATIC_MESHES)
+    M.recompile_material(m);assert E.save_loaded_asset(m)
+    return m
+
 sand=material('WindRippleSand',(1.0,.77,.48),'/Game/Shiomori/Textures/T_SandBeach_Diffuse')
 from yunsha_sand import normal_code
 out(custom(sand,normal_code(),{
-    'P':expr(sand,'WorldPosition'),'N':expr(sand,'VertexNormalWS'),
-    'T':expr(sand,'TextureObject',texture=u.load_asset('/Game/Shiomori/Textures/T_SandBeach_Normal'))}),'NORMAL')
+    'P':expr(sand,'WorldPosition'),'N':expr(sand,'VertexNormalWS')}),'NORMAL')
 sand.set_editor_property('tangent_space_normal',False)
 M.recompile_material(sand);E.save_loaded_asset(sand)
 from yunsha_oasis import ground_material, plant as plant_oasis
@@ -143,6 +226,17 @@ def mesh(name,verts,tris,mat,collision=True):
         u.Born2FlapTerrainBuilder.smooth_yunsha_terrain(sm,u.Vector2D(100000 if name=='BoneArchiveTerrain' else 0,0),name=='DistantSandSea')
     sm.set_material(0,mat);assert E.save_loaded_asset(sm)
     return sm
+
+
+def enable_nanite(sm):
+    # Best-effort Nanite for dense opaque geometry. Masked foliage or meshes
+    # that still need CPU collision are skipped so the world always generates.
+    try:
+        sm.set_editor_property('nanite_settings',u.MeshNaniteSettings(enabled=True))
+        sm.build()
+        u.log('YUNSHA_NANITE '+sm.get_name())
+    except Exception as e:
+        u.log_warning('YUNSHA_NANITE_SKIP '+sm.get_name()+' '+str(e))
 
 
 def actor(label,sm,p=(0,0,0),scale=(1,1,1),yaw=0,collision=True,tags=()):
@@ -260,15 +354,43 @@ def pillar(name,x,y,height,radius,seed,forest=False,base=None):
     actor(name,mesh(name,verts,tris,rock))
     return height
 
+
+def talus(name,x,y,height,radius,seed):
+    # Eroded scree/mesa apron grounding a pillar: the column reads as the
+    # resistant core of a weathered mountain, not a spike from bare sand.
+    r=random.Random(seed);rings=10;segments=56;z0=ground(x,y)-80;verts=[];tris=[]
+    for j in range(rings+1):
+        t=j/rings;z=z0+(height-z0)*t;rr=radius*(1-t*0.85)
+        for i in range(segments):
+            a=math.tau*i/segments
+            crag=1+.22*erosion_noise(math.cos(a)*2.0+seed,math.sin(a)*2.0+t*2.0)+.05*erosion_noise(math.cos(a)*7+t*4,math.sin(a)*7+seed)
+            verts.append((x+rr*crag*math.cos(a),y+rr*crag*math.sin(a),z))
+    for j in range(rings):
+        for i in range(segments):a=j*segments+i;b=j*segments+(i+1)%segments;tris.extend([(a,b,b+segments),(a,b+segments,a+segments)])
+    c=len(verts);verts.append((x,y,height))
+    top=rings*segments
+    for i in range(segments):tris.append((c,top+i,top+(i+1)%segments))
+    actor(name,mesh(name,verts,tris,rock))
+    return height
+
 peaks=[(-16000,39000,23000,4300),(17000,59000,32000,4600),(-19000,81000,41000,5000),(14000,104000,50000,4500),(-6500,126000,61000,5800)]
 peaks=[(x*1.6,y*1.8+140000,z,r) for x,y,z,r in peaks]
+spires=[]
 for i,(x,y,z,r) in enumerate(peaks):
+    talus('Gilded Peak %d talus'%i,x,y,z*.34,r*4.2,920+i)
     pillar('Gilded Peak %d'%i,x,y,z,r,420+i,True)
     temple('Sky Temple %d'%i,x,y,z+10,1.,True)
-for i in range(14):
-    x=rng.choice([-1,1])*rng.uniform(19200,59200);y=rng.uniform(199400,402800)
-    if any(math.hypot(x-a,y-b)<r+4000 for a,b,z,r in peaks):continue
-    pillar('Mist spire %d'%i,x,y,rng.uniform(14000,42000),rng.uniform(1100,2800),800+i)
+# Hoodoo fields: clustered spire-arcs read as canyon corridors, not lone columns.
+clusters=[(-56000,262000),(54000,238000),(-30000,336000),(26000,372000),(30000,200000),(-54000,198000)]
+for ci,(cx,cy) in enumerate(clusters):
+    for i in range(6):
+        ang=ci*.7+rng.uniform(-.5,.5)
+        x=cx+rng.uniform(0,26000)*math.cos(ang);y=cy+rng.uniform(0,18000)*math.sin(ang)
+        if any(math.hypot(x-px,y-py)<pr+4000 for px,py,pz,pr in peaks):continue
+        h=rng.uniform(12000,38000);rad=rng.uniform(1000,2400)
+        talus('Mist spire %d %d talus'%(ci,i),x,y,h*.30,rad*3.6,2100+ci*10+i)
+        pillar('Mist spire %d %d'%(ci,i),x,y,h,rad,800+ci*7+i)
+        spires.append((x,y,h,rad))
 # Two eroded buttresses form a real slot with no invisible boundary.
 for side in (-1,1):pillar('Narrows buttress %d'%side,4500+side*8500,74000,18000,3600,49+side)
 
@@ -287,9 +409,11 @@ for i in range(36):
     place_asset('Oasis exposed bedrock %d'%i,scan,x,y,ground(x,y)-100,rng.uniform(100,360),rng.uniform(0,360))
 
 # Natural imported trees only where the concept permits them: oasis and summits.
+# Nanite is requested on foliage so the cloud forest can be dense and cheap.
 for name in ('Tree0','Tree1','Fir0'):
     sm=u.load_asset('/Game/Nature/SM_'+name)
     assert sm,'Missing retained Nature asset '+name
+    enable_nanite(sm)
     a=u.EditorLevelLibrary.spawn_actor_from_class(u.Born2FlapYunshaBatch,u.Vector());a.tags=['Yunsha'];a.set_actor_label('Yunsha canopy '+name)
     c=a.instances;c.set_static_mesh(sm);c.set_collision_profile_name('NoCollision')
     b=sm.get_bounds()
@@ -301,20 +425,27 @@ for name in ('Tree0','Tree1','Fir0'):
             x=cx+radius*math.cos(ang);y=cy+radius*math.sin(ang)
             if not u.Born2FlapYunsha.spring_contains(x,y):locations.append((x,y,ground(x,y),rng.uniform(1000,1700)))
     else:
+        # Cloud forest: tree + fir on peak shoulders and the wider spire crowns,
+        # so the cloud band is a real forest rather than five lonely trees.
         for x,y,z,r in peaks:
-            for j in range(18):
-                a0=rng.uniform(0,math.tau);rr=rng.uniform(r*.4,r*.65);locations.append((x+rr*math.cos(a0),y+rr*math.sin(a0),z,rng.uniform(650,1250)))
+            for j in range(24):
+                a0=rng.uniform(0,math.tau);rr=rng.uniform(r*.38,r*.68);locations.append((x+rr*math.cos(a0),y+rr*math.sin(a0),z,rng.uniform(650,1250)))
+        for x,y,z,r in spires:
+            if r<1800:continue
+            for j in range(rng.randint(2,5)):
+                a0=rng.uniform(0,math.tau);rr=rng.uniform(0,r*.5)
+                locations.append((x+rr*math.cos(a0),y+rr*math.sin(a0),z,rng.uniform(500,950)))
     for x,y,z,h in locations:
         s=h/(2*b.box_extent.z);c.add_instance(u.Transform(location=u.Vector(x,y,z-s*(b.origin.z-b.box_extent.z)),rotation=u.Rotator(yaw=rng.uniform(0,360)),scale=u.Vector(s,s,s)),False)
 
 # Standing clouds use volumetric fog, so flying into them has depth and no
 # translucent sphere surface or disc silhouette. Uniform scales are required.
-for i in range(26):
+for i in range(10):
     x=rng.uniform(-48000,48000);y=rng.uniform(203000,410000)
     z=21000+.122*(y-203000)+rng.uniform(-2500,2500)
     a=u.EditorLevelLibrary.spawn_actor_from_class(u.LocalFogVolume,u.Vector(x,y,z))
     a.set_actor_label('Yunsha standing mist %d'%i);a.tags=['Yunsha','YunshaCloud']
-    radius=rng.uniform(22,35);a.set_actor_scale3d(u.Vector(radius,radius,radius))
+    radius=rng.uniform(40,60);a.set_actor_scale3d(u.Vector(radius,radius,radius))
     c=a.get_component_by_class(u.LocalFogVolumeComponent)
     c.set_editor_property('radial_fog_extinction',.018)
     c.set_editor_property('height_fog_extinction',0.)
@@ -346,9 +477,10 @@ for name,seconds in [('DesertWind',12),('WindHarp',12),('TempleBell',6)]:
 
 sun=u.EditorLevelLibrary.spawn_actor_from_class(u.DirectionalLight,u.Vector(0,0,80000),u.Rotator(pitch=-25,yaw=-75))
 sun.light_component.set_mobility(u.ComponentMobility.MOVABLE);sun.light_component.set_intensity(80000);sun.light_component.set_atmosphere_sun_light(True)
-sky=u.EditorLevelLibrary.spawn_actor_from_class(u.SkyLight,u.Vector());sky.light_component.set_mobility(u.ComponentMobility.MOVABLE);sky.light_component.set_editor_property('real_time_capture',True);sky.light_component.set_intensity(1.)
+sky=u.EditorLevelLibrary.spawn_actor_from_class(u.SkyLight,u.Vector());sky.light_component.set_mobility(u.ComponentMobility.MOVABLE);sky.light_component.set_editor_property('real_time_capture',False);sky.light_component.set_intensity(1.)
 u.EditorLevelLibrary.spawn_actor_from_class(u.SkyAtmosphere,u.Vector())
 fog=u.EditorLevelLibrary.spawn_actor_from_class(u.ExponentialHeightFog,u.Vector());fog.component.set_editor_property('fog_density',.0018)
+yunsha_sky_material()
 views=[((33000,-85000,33000),(3000,-50000,1800)),((-22000,-70000,10000),(-43000,-55000,8000)),
        ((24000,18000,17000),(4500,14000,7000)),((45000,17000,48000),(-16000,39000,23000)),
        ((-16000,116000,65000),(-6500,126000,63000)),((17000,-69000,2000),(13000,-49000,1800)),
@@ -390,4 +522,3 @@ for path in E.list_assets(ROOT+'/Meshes',recursive=True,include_folder=False):
     if package not in generated_meshes:assert E.delete_asset(package),package
 u.log('YUNSHA_MAP_READY seed=221022 sky_temples=5 grotto_mouths=60')
 if not globals().get('B2F_GENERATION_BATCH'):u.SystemLibrary.execute_console_command(None,'quit')
-

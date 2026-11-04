@@ -39,15 +39,18 @@ const TArray<FBorn2FlapSeason>& Seasons()
     //   InsectFactor/LeafFactor/LeafShed reshape the living world. NativeWeather
     //   names the weather the season drifts toward; SnowBias deepens winter snow.
     //   RadioCue is the (future) seasonal soundtrack playlist hint.
+    //   WindSpeedScale/GustScale/WindRandom/WindThermalScale/DirBias are the
+    //   season's prevailing-wind defaults — the weather/time profile rides on
+    //   them, and the player's explicit wind overrides multiply on top.
     static const TArray<FBorn2FlapSeason> Values={
-        // Id, Label,  SunAz, SunElev, SunLux, LightTint,             SkyInt, FogBias, ExpBias, InsectF, LeafF, LeafShed, LeafTint,                NativeWeather, SnowBias, RadioCue
-        { TEXT("spring"), TEXT("Spring"), -12.f,  4.f, 1.05f, FLinearColor(1.00f,.97f,.88f), 1.10f, -.002f,  .15f, 1.35f,  .85f,  .55f, FLinearColor(.55f,.85f,.32f), TEXT("mist"),   0.00f, TEXT("spring"), 0.55f },
-        { TEXT("summer"), TEXT("Summer"),   8.f, 12.f, 1.20f, FLinearColor(1.00f,.91f,.76f), 1.20f,  .000f,  .30f, 1.65f, 1.00f,  .40f, FLinearColor(.18f,.62f,.22f), TEXT("sunny"),  0.00f, TEXT("summer"), 0.15f },
-        { TEXT("autumn"), TEXT("Autumn"),  15.f, -8.f,  .85f, FLinearColor(1.00f,.76f,.52f),  .95f,  .006f, -.10f,  .80f, 1.85f, 1.60f, FLinearColor(.78f,.45f,.15f), TEXT("mist"),   0.00f, TEXT("autumn"), 0.70f },
-        { TEXT("winter"), TEXT("Winter"), -20.f,-16.f,  .60f, FLinearColor(.72f,.83f,1.00f),  .80f,  .004f, -.25f,  .22f,  .18f,  .10f, FLinearColor(.62f,.60f,.58f), TEXT("snow"),   1.00f, TEXT("winter"), 0.40f },
-        { TEXT("dry"), TEXT("Dry"), 0.f, 6.f, 1.15f, FLinearColor(1.f,.91f,.76f), .9f, .001f, .1f, 0.f, 0.f, 0.f, FLinearColor(.7f,.6f,.3f), TEXT("sunny"), 0.f, TEXT("dry"), 0.08f },
-        { TEXT("monsoon"), TEXT("Monsoon"), 0.f, -3.f, .6f, FLinearColor(.72f,.79f,1.f), .8f, .009f, -.2f, .1f, .1f, 0.f, FLinearColor(.4f,.6f,.2f), TEXT("rain"), 0.f, TEXT("monsoon"), 0.85f },
-        { TEXT("cool"), TEXT("Cool"), -12.f, -12.f, .75f, FLinearColor(.83f,.9f,1.f), 1.f, -.001f, 0.f, 0.f, 0.f, 0.f, FLinearColor(.5f,.6f,.3f), TEXT("sunny"), 0.f, TEXT("cool"), 0.60f },
+        // Id, Label,  SunAz, SunElev, SunLux, LightTint,             SkyInt, FogBias, ExpBias, InsectF, LeafF, LeafShed, LeafTint,                NativeWeather, SnowBias, RadioCue,   WindSpd, WindGust, WindRnd, WindThm, DirBias
+        { TEXT("spring"), TEXT("Spring"), -12.f,  4.f, 1.05f, FLinearColor(1.00f,.97f,.88f), 1.10f, -.002f,  .15f, 1.35f,  .85f,  .55f, FLinearColor(.55f,.85f,.32f), TEXT("mist"),   0.00f, TEXT("spring"), 0.55f, 1.05f, .90f, 1.15f, .95f,  0.f },
+        { TEXT("summer"), TEXT("Summer"),   8.f, 12.f, 1.20f, FLinearColor(1.00f,.91f,.76f), 1.20f,  .000f,  .30f, 1.65f, 1.00f,  .40f, FLinearColor(.18f,.62f,.22f), TEXT("sunny"),  0.00f, TEXT("summer"), 0.15f, .80f, .70f, .60f, 1.50f,  0.f },
+        { TEXT("autumn"), TEXT("Autumn"),  15.f, -8.f,  .85f, FLinearColor(1.00f,.76f,.52f),  .95f,  .006f, -.10f,  .80f, 1.85f, 1.60f, FLinearColor(.78f,.45f,.15f), TEXT("mist"),   0.00f, TEXT("autumn"), 0.70f, 1.35f, 1.50f, 1.50f, .80f, 12.f },
+        { TEXT("winter"), TEXT("Winter"), -20.f,-16.f,  .60f, FLinearColor(.72f,.83f,1.00f),  .80f,  .004f, -.25f,  .22f,  .18f,  .10f, FLinearColor(.62f,.60f,.58f), TEXT("snow"),   1.00f, TEXT("winter"), 0.40f, 1.45f, 1.20f, .50f, .30f, -18.f },
+        { TEXT("dry"), TEXT("Dry"), 0.f, 6.f, 1.15f, FLinearColor(1.f,.91f,.76f), .9f, .001f, .1f, 0.f, 0.f, 0.f, FLinearColor(.7f,.6f,.3f), TEXT("sunny"), 0.f, TEXT("dry"), 0.08f, 1.10f, 1.35f, 1.30f, 1.60f,  0.f },
+        { TEXT("monsoon"), TEXT("Monsoon"), 0.f, -3.f, .6f, FLinearColor(.72f,.79f,1.f), .8f, .009f, -.2f, .1f, .1f, 0.f, FLinearColor(.4f,.6f,.2f), TEXT("rain"), 0.f, TEXT("monsoon"), 0.85f, 1.50f, 1.60f, 1.10f, .40f, 25.f },
+        { TEXT("cool"), TEXT("Cool"), -12.f, -12.f, .75f, FLinearColor(.83f,.9f,1.f), 1.f, -.001f, 0.f, 0.f, 0.f, 0.f, FLinearColor(.5f,.6f,.3f), TEXT("sunny"), 0.f, TEXT("cool"), 0.60f, .70f, .60f, .80f, .60f,  0.f },
     };
     return Values;
 }
@@ -178,22 +181,25 @@ FVector Wind(const FString& Level,const FBorn2FlapConditions& C,const FVector& P
 {
     const auto& W=Profile(C.Weather);
     const auto& D=DayTime(C.Time);
-    // Explicit (>=0) overrides layer on top of the weather/time defaults;
-    // negative values mean "auto" (follow the profile).
+    const auto& S=Season(C.Season);
+    // Explicit (>=0) overrides layer on top of the season/weather/time defaults;
+    // negative values mean "auto" (follow the season's prevailing-wind defaults).
     const double SpeedScale   = C.WindSpeed>=0.   ? (double)C.WindSpeed   : 1.;
     const double GustScale    = C.WindGust>=0.    ? (double)C.WindGust    : 1.;
     const double RandomScale  = C.WindRandom>=0.  ? (double)C.WindRandom  : 1.;
     const double ThermalScale = C.WindThermal>=0. ? (double)C.WindThermal : 1.;
-    const double Strength=W.WindSpeed*(Level==TEXT("Training") ? .5 : 1.)*(D.Night ? .65 : 1.)*SpeedScale;
-    const double HeadingDeg = C.WindDir>=0. ? (double)C.WindDir : (double)DefaultWindDirection(Level);
+    const double Strength=W.WindSpeed*S.WindSpeedScale*(Level==TEXT("Training") ? .5 : 1.)*(D.Night ? .65 : 1.)*SpeedScale;
+    const double HeadingDeg = (C.WindDir>=0. ? (double)C.WindDir : (double)DefaultWindDirection(Level)) + (double)S.WindDirBias;
     const double Heading=FMath::DegreesToRadians(HeadingDeg);
     // Directional wander: a slow deterministic swing plus a perlin drift, both
-    // scaled by the randomness override.
-    const double Drift=.12*RandomScale*FMath::Sin(Time*.018)+.06*RandomScale*FMath::PerlinNoise1D((float)(Time*.05));
+    // scaled by the season's prevailing randomness and the player override.
+    const double Wander=S.WindRandom*RandomScale;
+    const double Drift=.12*Wander*FMath::Sin(Time*.018)+.06*Wander*FMath::PerlinNoise1D((float)(Time*.05));
     const double GX=FMath::PerlinNoise3D(FVector(P.X*.0008,P.Y*.0008,Time*.18));
     const double GY=FMath::PerlinNoise3D(FVector(P.X*.0008+71,P.Y*.0008-24,Time*.15+18));
-    FVector Result(FMath::Cos(Heading+Drift)*Strength+GX*W.Gust*GustScale,
-                   FMath::Sin(Heading+Drift)*Strength+GY*W.Gust*GustScale,0);
+    const double GustMag=W.Gust*S.WindGustScale*GustScale;
+    FVector Result(FMath::Cos(Heading+Drift)*Strength+GX*GustMag,
+                   FMath::Sin(Heading+Drift)*Strength+GY*GustMag,0);
     if(Level==TEXT("Shiomori"))
     {
         Result*=Born2FlapBay::WindExposure(P,Result);
@@ -207,7 +213,7 @@ FVector Wind(const FString& Level,const FBorn2FlapConditions& C,const FVector& P
     }
     else if(Level!=TEXT("Training"))
     {
-        Result.Z=Born2FlapWind::Sample(P,Time).Z*W.Thermals*ThermalScale*(D.Night ? .02 : (D.Id==TEXT("noon") ? 1. : .45));
+        Result.Z=Born2FlapWind::Sample(P,Time).Z*W.Thermals*S.WindThermalScale*ThermalScale*(D.Night ? .02 : (D.Id==TEXT("noon") ? 1. : .45));
         // Terrain, buildings and the treeline add real windward lift.
         Result.Z+=Born2FlapWind::WindwardLift(P,Result,&ABorn2FlapValley::TopHeight);
     }

@@ -90,25 +90,42 @@ void ABorn2FlapFlightPawn::UpdateLandingCamera(float Dt)
     }
     else if(!Supported) bCameraGrounded=false;
 }
+void ABorn2FlapFlightPawn::SyncCameraState()
+{
+    // Two orthogonal axes: focus (bird vs on-foot pilot) and distance
+    // (first vs third person) expand into the four exclusive views.
+    bFpvAirView       = !bFocusActor && bFirstPerson;   // onboard bird (1st)
+    bGroundView       = bFocusActor && bFirstPerson;    // pilot's eyes   (1st)
+    bThirdPersonActor = bFocusActor && !bFirstPerson;   // follow pilot   (3rd)
+}
 void ABorn2FlapFlightPawn::ToggleGroundView()
 {
-    bGroundView=!bGroundView;
+    // F6: switch focus between the bird and the on-foot pilot (actor).
+    bFocusActor = !bFocusActor;
+    bActorZoomFirstPerson = false;
+    SyncCameraState();
     bGroundGazeReady=false;
     if(auto* PC=Cast<APlayerController>(GetController())) { PC->SetViewTarget(this); if(PC->PlayerCameraManager) PC->PlayerCameraManager->SetGameCameraCutThisFrame(); }
+    if(!bFlightTest && !bDesktopInputTest) SaveFlightPreferences();
 }
 void ABorn2FlapFlightPawn::ToggleFpvView()
 {
-    bFpvAirView=!bFpvAirView;
+    // V: switch between first- and third-person within the current focus.
+    bFirstPerson = !bFirstPerson;
+    bActorZoomFirstPerson = false;
+    SyncCameraState();
     if(auto* PC=Cast<APlayerController>(GetController()); PC && PC->PlayerCameraManager) PC->PlayerCameraManager->SetGameCameraCutThisFrame();
     if(!bFlightTest && !bDesktopInputTest) SaveFlightPreferences();
 }
 void ABorn2FlapFlightPawn::CycleCamera()
 {
-    // CHASE → FPV → GROUND → CHASE. The three states are exclusive; this keeps
-    // the mobile perspective button a single affordance instead of two toggles.
-    if (!bGroundView && !bFpvAirView)      { bFpvAirView = true;  bGroundView = false; }
-    else if (bFpvAirView)                   { bFpvAirView = false; bGroundView = true;  }
-    else                                    { bFpvAirView = false; bGroundView = false; }
+    // BIRD-3RD → BIRD-1ST → PILOT-3RD → PILOT-1ST → BIRD-3RD. One affordance
+    // for the mobile camera button; desktop uses the two toggles (V / F6).
+    if (!bFocusActor && !bFirstPerson)      { bFirstPerson = true;  }
+    else if (!bFocusActor && bFirstPerson)  { bFocusActor = true; bFirstPerson = false; }
+    else if (bFocusActor && !bFirstPerson)  { bFirstPerson = true;  }
+    else                                    { bFocusActor = false; bFirstPerson = false; }
+    SyncCameraState();
     bGroundGazeReady = false;
     if (auto* PC = Cast<APlayerController>(GetController()))
     {
@@ -119,7 +136,10 @@ void ABorn2FlapFlightPawn::CycleCamera()
 }
 FString ABorn2FlapFlightPawn::GetCameraLabel() const
 {
-    return bGroundView ? TEXT("GROUND / LAST LANDING") : bFpvAirView ? TEXT("FPV / ONBOARD") : TEXT("CHASE / FOLLOW");
+    return bGroundView        ? TEXT("PILOT / 1ST PERSON")
+         : bFpvAirView        ? TEXT("BIRD / ONBOARD 1ST")
+         : bThirdPersonActor  ? TEXT("PILOT / 3RD PERSON")
+                              : TEXT("BIRD / FOLLOW 3RD");
 }
 void ABorn2FlapFlightPawn::CalcCamera(float Dt,FMinimalViewInfo& Out)
 {
@@ -149,6 +169,23 @@ void ABorn2FlapFlightPawn::CalcCamera(float Dt,FMinimalViewInfo& Out)
         // flap-coupled terms are only a subtle hand-held wobble on top.
         FpvCamera->SetRelativeRotation(FRotator(FpvCameraAngleDeg + (LeftFlap+RightFlap)*.004, 0, (LeftFlap-RightFlap)*.005));
         FpvCamera->GetCameraView(Dt,Out);
+    }
+    else if(bThirdPersonActor)
+    {
+        // Third-person follow of the on-foot pilot: an over-the-shoulder rig
+        // behind the avatar. MMB-drag rotates the pilot (ActorOrbitYaw) and tilts
+        // the lens up/down (ActorOrbitPitch); the wheel dollies the arm length
+        // (ActorArmLength, zoom — close enough switches to first person).
+        FVector ToBird = Body->GetComponentLocation() - GroundAnchor;
+        ToBird.Z = 0.f;
+        const float BaseYaw = ToBird.IsNearlyZero() ? float(GroundGaze.Yaw) : ToBird.Rotation().Yaw;
+        const float FaceYaw = BaseYaw + ActorOrbitYaw;
+        const FVector Fwd = FRotator(0.f, FaceYaw, 0.f).Vector();
+        const FVector CamPos = GroundAnchor - Fwd * ActorArmLength + FVector(0.f, 0.f, 70.f);
+        // Look along the pilot's gaze, tilted by the orbit pitch (up/down look).
+        const FRotator Look = FRotator(FMath::Clamp(ActorOrbitPitch, -80.f, 80.f), FaceYaw, 0.f);
+        ActorCamera->SetWorldLocationAndRotation(CamPos, Look);
+        ActorCamera->GetCameraView(Dt, Out);
     }
     else
     {

@@ -46,8 +46,8 @@ module Born2Flap
             season_index: seasons.index(world[:season]) || 0,
             seasons: seasons,
             # Wind config (per-world). The C++ host publishes the *effective*
-            # value (explicit override when >= 0, else the weather/time profile
-            # default) plus a flag that reveals the reset button only once tuned.
+            # value (explicit override when >= 0, else the season's prevailing
+            # wind default) plus a flag that reveals the reset button once tuned.
             wind_dir: wind_dir,
             wind_speed: wind_speed,
             wind_gust: (world[:wind_gust] || 1).to_f,

@@ -30,6 +30,7 @@ def main():
     ap.add_argument('--dll', type=Path, default=f.fixture.DLL)
     ap.add_argument('--preferences', type=Path, default=ROOT/'Unreal/Born2Flap/Saved/Config/FlightPreferences.ini')
     ap.add_argument('--speed', type=float, default=5)
+    ap.add_argument('--alpha', type=float, default=0, help='Body angle to the airstream, degrees; independent of pitch stick')
     ap.add_argument('--throttle', type=float, default=.72)
     ap.add_argument('--wheel', type=float, nargs='+', default=[.5],
                     help='Mouse-wheel speed modifier, 0..1')
@@ -47,7 +48,7 @@ def main():
     if any(not 0 <= w <= 1 for w in args.wheel) or abs(args.yaw) > 1:
         ap.error('wheel must be in [0,1] and yaw in [-1,1]')
     lib = c.CDLL(str(args.dll.resolve()))
-    assert lib.b2f_math_runtime_init() == 1 and lib.b2f_math_abi_version() == 17
+    assert lib.b2f_math_runtime_init() == 1 and lib.b2f_math_abi_version() in (17, 18)
 
     def bind(name, arguments, result=c.c_int):
         fn = getattr(lib, 'b2f_math_'+name)
@@ -65,8 +66,9 @@ def main():
     cfg = configparser.ConfigParser()
     assert cfg.read(args.preferences), args.preferences
     base = f.Tuning(*[cfg.getfloat('Flight' if n == 'BodyMassKg' else 'Tuning', n,
-                                  **({'fallback': 35} if n == 'AmpMaxDeg' else {}))
+                                  **({'fallback': 60} if n == 'YawScale' else {}))
                       for n, _ in f.Tuning._fields_])
+    cg_x = -cfg.getfloat('Flight', 'CgOffsetMm', fallback=0)/1000
 
     def run(centre, pitch, wheel):
         tuning = f.Tuning.from_buffer_copy(base)
@@ -80,7 +82,12 @@ def main():
         assert ctx
         try:
             assert configure(ctx, c.byref(tuning)) == 1
-            body = f.Body(1/args.hz, (args.speed, 0, 0), (0, 0, 0), 1000, 1e3, (0, 0, 1))
+            # Prescribed body motion: leave the spatial host integration off.
+            # Enabling it and discarding dv would NOT constrain translation.
+            # CG still enters every reported physical moment reference below.
+            alpha=math.radians(args.alpha)
+            body = f.Body(1/args.hz, (args.speed*math.cos(alpha), 0, -args.speed*math.sin(alpha)),
+                          (0, 0, 0), 1000, 1e3, (math.sin(alpha), 0, math.cos(alpha)))
             pilot, out = f.Pilot(args.throttle, 0, pitch, args.yaw, wheel, 1), f.Output()
             left, right = (f.Field*16)(), (f.Field*16)()
             ll, rr = (yaw.Loads*16)(), (yaw.Loads*16)()
@@ -100,6 +107,10 @@ def main():
                         crests.append(len(samples))
                     fs, ls = [*left, *right], [*ll, *rr]
                     sample = dict(angle_deg=angle, frequency_hz=out.flap_hz,
+                                  tip_bend_mm=500*(sl[15].bend+sr[15].bend),
+                                  tip_twist_deg=math.degrees((sl[15].elastic_twist+sr[15].elastic_twist)/2),
+                                  root_camber=(sl[0].camber+sr[0].camber)/2,
+                                  tip_camber=(sl[15].camber+sr[15].camber)/2,
                                   tip_bend_abs_mm=500*(abs(sl[15].bend)+abs(sr[15].bend)),
                                   tip_twist_abs_deg=math.degrees((abs(sl[15].elastic_twist)+abs(sr[15].elastic_twist))/2),
                                   power_w=out.power, separation=out.separation,
@@ -108,6 +119,11 @@ def main():
                                   wing_pitch_nm=sum(s.moment[1] for s in ls),
                                   tail_pitch_nm=sum(t.moment[1] for t in tail),
                                   host_pitch_nm=out.moment[1])
+                    sample['wing_pitch_cg_nm'] = sum(s.moment[1]+cg_x*s.force[2] for s in ls)
+                    sample['tail_pitch_cg_nm'] = sum(t.moment[1]+cg_x*(t.lift[2]+t.pressure[2]+t.drag[2]) for t in tail)
+                    sample['wing_forward_force_pitch_nm'] = sum(v.position[2]*s.force[0] for v,s in zip(fs,ls))
+                    sample['wing_vertical_force_pitch_cg_nm'] = sum(-(v.position[0]-cg_x)*s.force[2] for v,s in zip(fs,ls))
+                    sample['wing_section_pitch_nm'] = sum(s.moment[1]-(v.position[2]*s.force[0]-v.position[0]*s.force[2]) for v,s in zip(fs,ls))
                     for side, strips in [('left', ll), ('right', rr)]:
                         for axis, j in [('x', 0), ('y', 1), ('z', 2)]:
                             sample[side+'_force_'+axis+'_n'] = sum(s.force[j] for s in strips)
@@ -146,7 +162,9 @@ def main():
     results = [run(centre, pitch, wheel) for centre in (args.centre or [None])
                for pitch in args.pitch for wheel in args.wheel]
     report = dict(dll=str(args.dll), preferences=str(args.preferences), hz=args.hz,
-                  speed=args.speed, throttle=args.throttle, dry_weight_n=base.BodyMassKg*9.81, results=results)
+                  speed=args.speed, alpha_deg=args.alpha, throttle=args.throttle, dry_weight_n=base.BodyMassKg*9.81, results=results)
+    report['cg_x_m'] = cg_x
+    report['pitch_sign'] = 'positive is nose down; moments in Nm'
     output = json.dumps(report, indent=2)
     if args.output:
         args.output.write_text(output, encoding='utf-8')

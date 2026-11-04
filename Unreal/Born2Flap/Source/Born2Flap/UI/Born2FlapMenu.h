@@ -100,9 +100,12 @@ private:
     FBorn2FlapRcController* ActiveRc();
     // Craft length + CG travel (mirrors ABorn2FlapFlightPawn's model-dependent
     // values) so the FLIGHT DESK CG slider has the right range on the home screen.
-    float CraftLengthCm() const { return CurBirdModel() == 2 ? 106.f : CurBirdModel() == 1 ? 144.f : 182.f; }
+    float CraftLengthCm() const { return CurBirdModel() == 2 || CurBirdModel() == 4 ? 58.3f : CurBirdModel() == 1 ? 144.f : 182.f; }
     float CgRangeCm() const { return FMath::Max(1.f, FMath::RoundToFloat(CraftLengthCm() * 0.10f)); }
     float CgRangeMm() const { return CgRangeCm() * 10.f; }
+    // Push the persisted window-mode / follow-system-resolution / resolution
+    // state into UGameUserSettings and apply + save it.
+    void ApplyDisplaySettings();
 
     // Semantic action from a button ("menu.play" / "menu.settings" / "menu.quit"
     // / "settings.page" / "bird.model.0" / "tuning.ServoSpeed" / ...).

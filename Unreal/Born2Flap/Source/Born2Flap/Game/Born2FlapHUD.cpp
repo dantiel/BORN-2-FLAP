@@ -218,8 +218,8 @@ void ABorn2FlapHUD::DrawHUD()
     DrawRect(FLinearColor(.015f, .035f, .045f, .82f), 20, Y, Canvas->SizeX - 40, 65);
     DrawText(TEXT("SPACE launch   W throttle   CTRL+W low   SHIFT+W full   WHEEL fine   MOUSE + ARROWS/A/D steering   R reset"),
              Cream, 38, Y + 12, GEngine->GetSmallFont(), 1.05f);
-    DrawText(TEXT("CLICK centres mouse   F6 ground / air   V chase / FPV   F8 bird + controls   F2 channels   F3 RC   F4 level   F7 HUD"),
-             Muted, 38, Y + 38, GEngine->GetSmallFont(), 1.f);
+    DrawText(TEXT("CLICK centres mouse   F6 bird/pilot   V 1st/3rd   F8 bird + controls   F2 channels   F3 RC   F4 level   F7 HUD"),
+              Muted, 38, Y + 38, GEngine->GetSmallFont(), 1.f);
     if (Rc && Rc->IsPanelOpen())
         DrawRcPanel(*Rc);
     DrawText(Bird->GetCameraLabel(), FLinearColor(.68f,.74f,.70f), 47, 110, GEngine->GetSmallFont(), .8f);

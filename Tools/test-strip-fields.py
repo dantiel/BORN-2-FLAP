@@ -44,7 +44,7 @@ def main():
                    help='Legacy support-spring acceptance gate; NOT a physical requirement')
     args = p.parse_args()
     lib = c.CDLL(str(args.dll.resolve()))
-    assert lib.b2f_math_abi_version() == 17
+    assert lib.b2f_math_abi_version() in (17, 18)
     assert lib.b2f_math_runtime_init() == 1
     lib.b2f_math_create_firmware_vehicle.argtypes = [c.c_void_p]
     lib.b2f_math_create_firmware_vehicle.restype = c.c_void_p
@@ -58,7 +58,8 @@ def main():
         fields.argtypes = [c.c_void_p, c.c_uint32, c.POINTER(Field), c.POINTER(Field)]
     cfg = configparser.ConfigParser()
     cfg.read(args.preferences)
-    tuning = Tuning(*(cfg.getfloat('Flight' if n == 'BodyMassKg' else 'Tuning', n) for n, _ in Tuning._fields_))
+    tuning = Tuning(*(cfg.getfloat('Flight' if n == 'BodyMassKg' else 'Tuning', n,
+        **({'fallback': 60} if n == 'YawScale' else {})) for n, _ in Tuning._fields_))
 
     def run(direction):
         ctx = lib.b2f_math_create_firmware_vehicle(None)

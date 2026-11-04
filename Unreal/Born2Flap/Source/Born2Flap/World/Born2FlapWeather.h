@@ -45,6 +45,15 @@ struct FBorn2FlapSeason
     // and oases exhale low-lying mist banks at dawn/morning. Hermetic — the player
     // only picks the season; this one number sets where morning mist lives.
     float MorningMist = 0.f;
+    // Wind narrative — the season's prevailing-wind defaults. These are the base
+    // multipliers the weather/time profile rides on, and the player's explicit
+    // conditions overrides (non-negative) multiply on top as before. Negative
+    // override = "auto" → follow these season defaults (then weather, then time).
+    float WindSpeedScale = 1.f;   // multiplier on base horizontal wind strength
+    float WindGustScale = 1.f;    // multiplier on gust turbulence magnitude
+    float WindRandom = 1.f;       // heading wander / directional randomness (1 → .12/.06 rad drift)
+    float WindThermalScale = 1.f; // multiplier on thermal updraft strength
+    float WindDirBias = 0.f;      // +deg added to the level's prevailing wind heading
 };
 struct FBorn2FlapConditions
 {
@@ -53,8 +62,8 @@ struct FBorn2FlapConditions
     // knob that cascades into the whole hidden stage art (see FBorn2FlapSeason).
     FString Season;
     // Wind overrides (per-level, persisted). Negative = "auto": follow the
-    // weather/time profile defaults. Explicit non-negative values are the
-    // player's further tuning on top of those defaults.
+    // season's prevailing-wind defaults (then the weather/time profile).
+    // Explicit non-negative values are the player's further tuning on top.
     //   WindDir      — compass heading the wind blows toward, degrees 0..360
     //   WindSpeed    — multiplier on base horizontal wind strength
     //   WindGust     — multiplier on gust turbulence magnitude
@@ -149,6 +158,9 @@ private:
     UPROPERTY() TObjectPtr<UPostProcessComponent> PostProcess;
     UPROPERTY() TObjectPtr<UMaterialInstanceDynamic> HaloMaterial;
     UPROPERTY() TObjectPtr<UMaterialInstanceDynamic> CloudMaterial;
+    // Yunsha's desert-sky optics (dust aureole, dust sun-pillar, horizon mirage,
+    // night star field). The gorge's analogue of HaloMaterial (M_SunParhelion).
+    UPROPERTY() TObjectPtr<UMaterialInstanceDynamic> YunshaSkyMaterial;
     // Mobile sky-sphere dome (cooked via CDO reference — SkyAtmosphere is SM5-only).
     UPROPERTY() TObjectPtr<UStaticMesh> MobileSkyMesh;
     UPROPERTY() TObjectPtr<UMaterialInterface> MobileSkyMaterial;

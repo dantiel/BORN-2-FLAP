@@ -11,15 +11,15 @@ class BORN2FLAP_API UBorn2FlapWingMesh : public UProceduralMeshComponent
     GENERATED_BODY()
 public:
     void InitializeWing(int32 Side, int32 Design);
-    void ApplyShape(const B2F_WingSection* Shape);
+    void ApplyShape(const B2F_WingSection* Shape, double MountIncidenceRad = 0);
     UFUNCTION(BlueprintCallable, Category="Wing")
     void SetPaintTexture(UTexture2D* Texture);
     int32 GetWingDesign() const { return WingDesign; }
     bool HasValidDeformation();
-    // Rest (unflapped) wingtip in mesh-local space — the outboard span extreme.
+    // Deformed wingtip in mesh-local space — the outboard span extreme.
     // Used to anchor the outboard end of the leading-edge contact capsule.
     FVector GetWingTipLocal() const;
-    // Rest (unflapped) wing root in mesh-local space — the inboard span anchor.
+    // Deformed wing root in mesh-local space — the inboard span anchor.
     FVector GetWingRootLocal() const;
 private:
     int32 WingSide = 1;
