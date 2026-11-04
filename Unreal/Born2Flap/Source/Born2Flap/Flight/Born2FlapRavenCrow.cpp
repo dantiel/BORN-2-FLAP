@@ -230,10 +230,17 @@ void BuildTurtleHindFins(AActor* Owner, USceneComponent* Parent)
 // silhouette. The wing membrane (Born2FlapWingMesh, Design 2) hangs from the
 // shoulders at RavenRoot X=+3 and its trailing-edge root reaches X=-35.3, so the
 // fuselage must extend aft of that to overlap the tail fan.
-constexpr float KestrelNoseX = 28.5f;                // nose position (+forward); shifted aft 4 cm
-constexpr float KestrelFuselageLengthCm = 82.f;      // nose -> aft end of the body (elongated, slim)
-constexpr float KestrelFuselageWidthCm = 15.f;       // full side-to-side width (de-bulked)
-constexpr float KestrelFuselageHeightScale = 0.62f;  // authored height (~16.7 cm, slim)
+//
+// The whole kestrel (fuselage + tail) is uniformly scaled by KestrelScale = 0.55,
+// the same factor as Born2FlapWingMesh::KestrelMeshScale, so the body/tail stay
+// mutually proportional to the 0.55 m physics half-span. All centimetre lengths
+// and scale factors below are the authored silhouette multiplied by this one
+// factor (the wing membrane is scaled separately, inside Born2FlapWingMesh).
+constexpr float KestrelScale = 0.55f;             // matches Born2FlapWingMesh::KestrelMeshScale
+constexpr float KestrelNoseX = 28.5f * KestrelScale;                // nose position (+forward); shifted aft 4 cm
+constexpr float KestrelFuselageLengthCm = 82.f * KestrelScale;      // nose -> aft end of the body (elongated, slim)
+constexpr float KestrelFuselageWidthCm = 15.f * KestrelScale;       // full side-to-side width (de-bulked)
+constexpr float KestrelFuselageHeightScale = 0.62f * KestrelScale;  // authored height (~16.7 cm, slim)
 constexpr float KestrelFuselageXScale = KestrelFuselageLengthCm / 100.f;
 constexpr float KestrelFuselageYScale = KestrelFuselageWidthCm / 15.34f;
 
@@ -247,12 +254,12 @@ constexpr float KestrelFuselageYScale = KestrelFuselageWidthCm / 15.34f;
 // (span 42.5 -> 39.5 cm); then 5% narrower again (Y 1.215 -> 1.154).
 constexpr float KestrelTailAuthoredRootX = -61.f;
 constexpr float KestrelTailAuthoredTipX = -112.0293f;
-constexpr float KestrelTailRootX = -38.f;
+constexpr float KestrelTailRootX = -38.f * KestrelScale;
 // Pinned to a literal (not derived from KestrelNoseX) so shifting the body aft
 // does not drag the tail with it: the wing-to-tail distance stays fixed while
 // the fuselage overlaps the fan more.
-constexpr float KestrelTailTipX = -77.5f;
-constexpr float KestrelTailYScale = 1.15425f;   // 5% narrower than 1.215
+constexpr float KestrelTailTipX = -77.5f * KestrelScale;
+constexpr float KestrelTailYScale = 1.15425f * KestrelScale;   // 5% narrower than 1.215
 constexpr float RavenTailRootX = -61.f;         // raven/crow tail base (where the fan meets the body)
 FVector KestrelTailPosition(FVector P)
 {
@@ -400,12 +407,10 @@ USceneComponent* Born2FlapRaven::Build(AActor* Owner, USceneComponent* Parent,
 
         BuildKestrelTail(Owner, TailPivot);
 
-        // Shoulder distance is 1 cm per side (matching the physics wsShoulderM):
-        // the wing root sits 1 cm outboard of the body centreline, so the two
-        // roots are 2 cm apart instead of spreading a body-width apart.
+        // Preserve the authored shoulder; the physics includes this offset.
         for (int Side : {-1, 1})
         {
-            auto* Shoulder = Node(*FString::Printf(TEXT("RavenShoulder%d"), Side), RavenRoot, FVector(3, Side * 1.0, 4));
+            auto* Shoulder = Node(*FString::Printf(TEXT("RavenShoulder%d"), Side), RavenRoot, FVector(3, Side * 1., 4));
             if (Side < 0) OutLeftShoulder = Shoulder; else OutRightShoulder = Shoulder;
             auto* Wing = NewObject<UBorn2FlapWingMesh>(Owner, *FString::Printf(TEXT("RavenWing%d_%d"), Side, Design));
             Owner->AddInstanceComponent(Wing);
@@ -468,11 +473,28 @@ void ABorn2FlapFlightPawn::BuildRavenCrow()
 void ABorn2FlapFlightPawn::SelectBirdModel(int32 Index)
 {
     BirdModel = FMath::Clamp(Index, 0, 5);
-    if (PrototypeRoot) PrototypeRoot->SetVisibility(BirdModel == 1, true);
-    if (RavenRoot) RavenRoot->SetVisibility(BirdModel == 0, true);
-    if (MembraneRoot) MembraneRoot->SetVisibility(BirdModel == 2 || BirdModel == 4, true);
-    if (PterosaurRoot) PterosaurRoot->SetVisibility(BirdModel == 5, true);
-    if (TurtleRoot) TurtleRoot->SetVisibility(BirdModel == 3, true);
+    // Belt-and-suspenders: the silhouettes are runtime-created components
+    // (NewObject + AddInstanceComponent), which can miss one render-state path.
+    // Set BOTH visibility flags and propagate to children, then reveal exactly
+    // one silhouette — the other four must never render stacked on top of it.
+    auto ApplyRoot = [](USceneComponent* Root, bool bShow)
+    {
+        if (!Root) return;
+        Root->SetVisibility(bShow, /*bPropagateToChildren=*/true);
+        Root->SetHiddenInGame(!bShow, /*bPropagateToChildren=*/true);
+    };
+    ApplyRoot(PrototypeRoot, BirdModel == 1);
+    ApplyRoot(RavenRoot, BirdModel == 0);
+    ApplyRoot(MembraneRoot, BirdModel == 2 || BirdModel == 4);
+    ApplyRoot(PterosaurRoot, BirdModel == 5);
+    ApplyRoot(TurtleRoot, BirdModel == 3);
+    UE_LOG(LogTemp, Display, TEXT("SelectBirdModel model=%d roots: prototype=%s raven=%s membrane=%s pterosaur=%s turtle=%s"),
+        BirdModel,
+        PrototypeRoot ? TEXT("ok") : TEXT("NULL"),
+        RavenRoot ? TEXT("ok") : TEXT("NULL"),
+        MembraneRoot ? TEXT("ok") : TEXT("NULL"),
+        PterosaurRoot ? TEXT("ok") : TEXT("NULL"),
+        TurtleRoot ? TEXT("ok") : TEXT("NULL"));
     // Each silhouette is a distinct bird: its own dry mass (fed to Chaos) and
     // its own wing planform + carbon-rod inventory (fed to the Haskell solver
     // via SetWingModel). Per-model mass lives in the Haskell model config

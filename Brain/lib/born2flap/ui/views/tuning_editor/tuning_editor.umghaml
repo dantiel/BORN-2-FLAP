@@ -5,7 +5,8 @@
       %Segment{ options: #{tabs}, value: #{page}, action: "settings.page" }
     %VBox{ spacing: 16 }
       %Section{ title: "#{t('hangar.silhouette')}", open: true, visible: #{page == 0} }
-        %Select{ label: "#{t('hangar.bird')}", options: #{birds}, value: #{bird_model}, action: "bird.select" }
+        %Dropdown{ label: "#{t('hangar.bird')}", options: #{birds}, value: #{bird_model}, action: "bird.select" }
+        %TextBlock{ text: #{craft_info.inspect}, tone: "dim", size: "s", wrap: true }
         %Segment{ options: #{profiles}, value: #{profile_index}, action: "profile.select" }
         %Toggle{ label: "#{t('settings.airborne_camera')}", value: #{camera_fpv}, on: "FPV", off: "CHASE", action: "camera.fpv" }
       %Section{ title: "#{t('tuning.bird')}", open: true, visible: #{page == 1} }
@@ -28,6 +29,7 @@
         %Slider{ label: "#{t('settings.radio_volume')}", value: #{radio_volume}, min: 0, max: 1, step: 0.05, action: "radio.volume" }
       %VBox{ visible: #{page == 4}, spacing: 12 }
         %Dropdown{ label: "#{t('tuning.servo_preset')}", options: ["Blue Arrow AF D43S", "VOTIK 7465", "VOTIK 7465 Plus", "Blue Arrow D0576", "Inservos D0474", "KST MR320", "SAVOX SV-1270TG"], action: "servo.preset", value: -1 }
+        %Button{ label: "#{t('tuning.reset_to_default')}", action: "tuning.reset", tone: "warn", tooltip: "#{t('tuning.reset_to_default_help')}" }
       - groups.each do |name, rows|
         %Section{ title: #{name.inspect}, open: true, visible: #{page == 4} }
           - rows.each do |r|

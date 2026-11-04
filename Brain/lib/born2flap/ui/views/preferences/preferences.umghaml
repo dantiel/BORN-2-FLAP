@@ -10,6 +10,13 @@
         %Toggle{ label: "#{t('settings.airborne_camera')}", value: #{camera_fpv}, on: "FPV", off: "CHASE", action: "camera.fpv" }
         %Slider{ label: "#{t('settings.fpv_camera_angle')}", value: #{fpv_angle}, min: -45, max: 45, step: 1, unit: "°", action: "camera.angle" }
         %Toggle{ label: "#{t('settings.invert_free_look')}", value: #{freelook_invert}, action: "camera.freelook.invert" }
+        %TextBlock{ text: "DISPLAY / CAMERA", tone: "accent", size: "s" }
+        %Dropdown{ label: "WINDOW MODE", options: ["FULLSCREEN", "BORDERLESS", "WINDOWED"], value: #{display_mode}, action: "display.mode" }
+        %Toggle{ label: "FOLLOW SYSTEM RESOLUTION", value: #{display_follow_system}, on: "ON", off: "OFF", action: "display.follow_system" }
+        %Dropdown{ label: "RESOLUTION", options: ["NATIVE", "3840×2160", "2560×1440", "1920×1080", "1600×900", "1366×768", "1280×720"], value: #{display_resolution}, action: "display.resolution" }
+        %TextBlock{ text: "PILOT AVATAR", tone: "accent", size: "s" }
+        %Toggle{ label: "SHOW ON-FOOT PILOT", value: #{avatar_enabled}, on: "ON", off: "OFF", action: "avatar.enabled" }
+        %Dropdown{ label: "PILOT STYLE", options: ["FOUNDER", "COAST", "NEON", "BRONZE"], value: #{avatar_person}, action: "avatar.person" }
       - if page == 1
         %Slider{ label: "#{t('settings.wingbeat_volume')}", value: #{wingbeat_volume}, min: 0, max: 4, step: 0.05, action: "audio.wingbeat", tooltip: "Changes wingbeat audio only; wind and surf are unaffected." }
         %Slider{ label: "#{t('settings.radio_volume')}", value: #{radio_volume}, min: 0, max: 1, step: 0.05, action: "radio.volume" }

@@ -273,7 +273,7 @@ b2f_math_get_wing_forces contextPointer capacity leftPointer rightPointer
     failure :: SomeException -> IO Int32
     failure _ = pure 0
 b2f_math_abi_version :: IO Word32
-b2f_math_abi_version = pure 18
+b2f_math_abi_version = pure 19
 
 b2f_math_runtime_init :: IO Int32
 b2f_math_runtime_init = pure 1
@@ -381,6 +381,8 @@ data TuningConfig = TuningConfig
   , tgVerticalMountAngleDeg :: !Double  -- ^ real wing mount incidence (nose-up +) [deg]
   , tgReturnFerocity     :: !Double  -- ^ upstroke/return ferocity [0..100] (ABI v15)
   , tgYawScale           :: !Double  -- ^ rudder amplitude differential (YAW SCALE) [0..100] (ABI v18)
+  , tgStrokeSkew         :: !Double  -- ^ downstroke centre-skew [-100..+100] (ABI v19)
+  , tgReturnSkew         :: !Double  -- ^ upstroke centre-skew [-100..+100] (ABI v19)
   }
 
 b2f_math_create_firmware_vehicle :: Ptr () -> IO (Ptr ())
@@ -487,10 +489,10 @@ b2f_math_reconfigure_firmware_vehicle contextPointer tuningPointer
 
 peekTuning :: Ptr () -> IO TuningConfig
 peekTuning pointer = do
-  values <- mapM (peekElemOff (castPtr pointer :: Ptr CDouble)) [0 .. 18]
+  values <- mapM (peekElemOff (castPtr pointer :: Ptr CDouble)) [0 .. 20]
   case map (\(CDouble value) -> value) values of
-    [speed, stall, backdrive, voltage, resistance, capacity, cRating, burstRating, freq, tailElev, glide, ferocity, aileron, elevator, flapCentre, mass, verticalMount, returnFerocity, yawScale] ->
-      pure (TuningConfig speed stall backdrive voltage resistance capacity cRating burstRating freq tailElev glide ferocity aileron elevator flapCentre mass verticalMount returnFerocity yawScale)
+    [speed, stall, backdrive, voltage, resistance, capacity, cRating, burstRating, freq, tailElev, glide, ferocity, aileron, elevator, flapCentre, mass, verticalMount, returnFerocity, yawScale, strokeSkew, returnSkew] ->
+      pure (TuningConfig speed stall backdrive voltage resistance capacity cRating burstRating freq tailElev glide ferocity aileron elevator flapCentre mass verticalMount returnFerocity yawScale strokeSkew returnSkew)
     _ -> error "unreachable tuning layout"
 
 applyTuning :: TuningConfig -> FwContext -> FwContext
@@ -516,6 +518,8 @@ applyTuning t ctx =
         , profAileronScale = clampRange 0 100 (tgAileronScale t)
         , profElevatorScale = clampRange 0 100 (tgElevatorScale t)
         , profRudderAmplitudeDiff = clampRange 0 100 (tgYawScale t)
+        , profStrokeSkew = clampRange (-100) 100 (tgStrokeSkew t)
+        , profReturnSkew = clampRange (-100) 100 (tgReturnSkew t)
         }
       -- Preserve the requested frequency. The mixer limits cadence using the
       -- actual arc and waveform derivative, once all control mixes are known.

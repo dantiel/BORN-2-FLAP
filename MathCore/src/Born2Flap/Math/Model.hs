@@ -16,13 +16,17 @@
 module Born2Flap.Math.Model
   ( WingModel(..)
   , kestrelModel
+  , kestrelGeometryScale
   , ravenModel
   , prototypeModel
   , turtleModel
   , kestrelLightModel
   ) where
 
-import Born2Flap.Math.Planform (WingShape(..), defaultBirdWing, scaleWing)
+import Born2Flap.Math.Planform
+  ( WingShape(..), ShapeStation(..), defaultBirdWing, scaleWing
+  , shapeTwistRad, shapeSection, shapeStructure )
+import Born2Flap.Math.Section (SectionProfile(..))
 import Born2Flap.Math.Structure
   ( Spar(..), SparKind(..), SparInventory(..), kestrelSpars )
 
@@ -37,14 +41,45 @@ data WingModel = WingModel
 -- 2.0 mm inner → 1.6 mm outer LE mainspar + diagonal/mid-chord brace box.
 -- PTK 7465 (or 7465 Plus) servo.
 kestrelModel :: WingModel
-kestrelModel = WingModel "kestrel" defaultBirdWing flightSpars 0.050
+kestrelModel = WingModel "kestrel" kestrelMembraneWing flightSpars 0.050
   where
     -- Effective skin/brace calibration (not measured carbon material values).
-    -- Reduce span bending from 8 to 6 for visible load-dependent spar flex.
-    -- Retain the torsion calibration of 20 used for the yaw/lift response.
+    -- Increase load-dependent bending without lengthening the carbon rods.
+    -- Slightly softer torsion (20 -> 17) lets the membrane feather and spring
+    -- back more visibly. Keep the established span-bending calibration.
     -- These scales affect the physical beam solve,
     -- including section flow and torque, not a visual deformation multiplier.
-    flightSpars = kestrelSpars { siBendScale = 6, siTwistScale = 20 }
+    flightSpars = kestrelSpars { siBendScale = 4, siTwistScale = 17 }
+
+-- Matches the current native KestrelMeshScale and KestrelScale. Shoulder
+-- placement remains (3, +/-1, 4) cm; it is not scaled by the renderer.
+-- The attached root defines zero incidence. Preserve relative washout from
+-- the template, not its old +6.5 degree root mounting offset: the actual
+-- mounting incidence is supplied separately by VerticalMountAngle.
+kestrelGeometryScale :: Double
+kestrelGeometryScale = 0.55
+
+kestrelMembraneWing :: WingShape
+kestrelMembraneWing = defaultBirdWing
+  { wsSpanM=kestrelGeometryScale, wsShoulderM=0.01,
+    wsStations=zipWith at [0..] outline }
+  where
+    outline = [(8.9537,-38.3238),(1.8829,-35.2478),(0.4742,-34.5084),
+      (0.2523,-33.7690),(0.0303,-33.0296),(-0.1917,-32.2902),
+      (-0.8824,-30.8563),(-1.7554,-29.4212),(-2.6284,-27.9861),
+      (-3.5014,-25.0872),(-4.3744,-20.0466),(-5.2475,-14.3027),
+      (-6.1205,-6.1205)]
+    at i (le,te) =
+      let f=fromIntegral (i::Int)/12
+          profile=shapeSection defaultBirdWing f
+          attachment=min 1 (f/0.16)
+          freedom=attachment*attachment*(3-2*attachment)
+          scaleCm=kestrelGeometryScale/100
+      in ShapeStation f (-(0.03+le*scaleCm)) ((le-te)*scaleCm)
+           ((shapeTwistRad defaultBirdWing f-shapeTwistRad defaultBirdWing 0)*180/pi) 0
+           (profile {spRestCamber=freedom*spRestCamber profile,
+                     spMembraneK=freedom*spMembraneK profile})
+           (shapeStructure defaultBirdWing f)
 
 -- | Horizontal servo mount angle of the RavenCrow ornithopter [deg]. The flap
 -- hinge axis is yawed this much in the horizontal plane, so each stroke sweeps
@@ -96,7 +131,7 @@ turtleModel = WingModel "turtle" defaultBirdWing kestrelSpars 0.050
 -- D43S-6.0-MG), whose higher no-load speed earns a faster flap at the lighter
 -- bird's natural cadence.
 kestrelLightModel :: WingModel
-kestrelLightModel = WingModel "kestrel-light" defaultBirdWing kestrelLightSpars 0.025
+kestrelLightModel = WingModel "kestrel-light" kestrelMembraneWing kestrelLightSpars 0.025
 
 -- | Rod-diameter scale that halves stiffness: EI, GJ ∝ d⁴ ⇒ half stiffness at
 -- Ø × 0.5^(1/4).

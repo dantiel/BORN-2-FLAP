@@ -66,6 +66,22 @@ module Born2Flap
 
         BIRD_KEYS = %w[bird.ravencrow bird.prototype bird.peregrine bird.turtle bird.kestrel_light bird.pterosaur].freeze
 
+        # Dossier for the selected craft, in BIRD_KEYS order. Mirrors the native
+        # C++ flight-desk dossier (name, role, full wingspan, dry mass).
+        CRAFT_INFO = [
+          { name: "RAVENCROW",      role: "valley night hunter", span: "1.32 m", mass: "86 g" },
+          { name: "PROTOTYPE",      role: "training workhorse",  span: "0.99 m", mass: "36 g" },
+          { name: "COMMON KESTREL", role: "coast falcon",        span: "1.10 m", mass: "50 g" },
+          { name: "NEON TURTLE",    role: "aether swimmer",      span: "1.10 m", mass: "50 g" },
+          { name: "KESTREL LIGHT",  role: "light membrane",      span: "1.10 m", mass: "25 g" },
+          { name: "PTEROSAUR",      role: "desert glider",       span: "1.10 m", mass: "50 g" }
+        ].freeze
+
+        def self.craft_info_text(index)
+          c = CRAFT_INFO[index.to_i] || CRAFT_INFO[0]
+          "#{c[:name]} · #{c[:role]} · #{c[:span]} span · #{c[:mass]}"
+        end
+
         PROFILE_KEYS = {
 
           "CRUISE" => "profile.cruise",
@@ -138,6 +154,19 @@ module Born2Flap
 
         }.freeze
 
+        # Canonical grouping of the 18 firmware knobs. Field names are the
+        # PascalCase keys shared by the C++ Rows `key` and the fallback `action`
+        # (e.g. "BatteryCRating", "YawScale"). FEROCITY pairs stroke + return
+        # ferocity; AUTHORITY pairs the pitch/roll/yaw authority scales.
+        FIRMWARE_GROUPS = [
+          ['tuning.group_servos',    %w[ServoSpeed StallTorque Backdrive]],
+          ['tuning.group_battery',   %w[BatteryVoltage BatteryResistance BatteryCapacity BatteryCRating BatteryBurstCRating]],
+          ['tuning.group_geometry',  %w[FlapBaseFreq TailElevatorAngle GlideAngle FlapCentre VerticalMountAngle]],
+          ['tuning.group_ferocity',  %w[StrokeFerocity ReturnFerocity]],
+          ['tuning.group_waveform',  %w[StrokeSkew ReturnSkew]],
+          ['tuning.group_authority', %w[AileronScale ElevatorScale YawScale]]
+        ].freeze
+
         def self.values_from_telemetry(locals)
 
           TUNING_TELEMETRY.each_with_object({}) do |(knob, telemetry_key), out|
@@ -160,13 +189,16 @@ module Born2Flap
               r.to_h.merge(label:I18n.t(r.action,lang:lang),action:r.action.split('.').last.split('_').map(&:capitalize).join,decimals:2,help:'')
             end
           end
-          groups=locals[:tuning_fields] ? [[I18n.t('tuning.live_firmware',lang:lang),rows]] :
-            %w[hangar.servo hangar.battery hangar.geometry hangar.authority].each_with_index.map { |key,i| [I18n.t(key,lang:lang),rows.slice(i*3,3)] }
+          groups = FIRMWARE_GROUPS.map do |group_key, field_keys|
+            members = field_keys.map { |fk| rows.find { |r| (r[:key] || r[:action]).to_s == fk } }.compact
+            [I18n.t(group_key, lang: lang), members]
+          end.reject { |_title, members| members.empty? }
           { page:locals.fetch(:settings_page,0).to_i.clamp(0,4),tabs:TABS.map { |k| I18n.t("tab.#{k.downcase}", lang: lang) },
             birds:BIRD_KEYS.map { |k| I18n.t(k,lang:lang) },
             profiles:FLIGHT_PROFILES.map { |k| I18n.t(PROFILE_KEYS[k],lang:lang) },
             profile_index:FLIGHT_PROFILES.index(locals[:profile]) || 0,
-            bird_model:locals.fetch(:bird_model,0), camera_fpv:locals.fetch(:camera_fpv,false),
+            bird_model:locals.fetch(:bird_model,0), craft_info:self.class.craft_info_text(locals.fetch(:bird_model,0)),
+            camera_fpv:locals.fetch(:camera_fpv,false),
             fpv_angle:locals.fetch(:fpv_angle,0),body_mass_kg:locals.fetch(:body_mass_kg,0.45),
             cg_offset_mm:locals.fetch(:cg_offset_mm,0),coupled_throttle:locals.fetch(:coupled_throttle,true),
             freelook_invert:locals.fetch(:freelook_invert,false),mouse_gains:locals.fetch(:mouse_gains,[1,-1,1]),

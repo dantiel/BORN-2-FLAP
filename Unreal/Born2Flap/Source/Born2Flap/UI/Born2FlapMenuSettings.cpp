@@ -7,6 +7,8 @@
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
 #include "HAL/FileManager.h"
+#include "Engine/Engine.h"
+#include "GameFramework/GameUserSettings.h"
 
 namespace
 {
@@ -40,6 +42,10 @@ float MenuSettingsTuningClamp(ETuningField Field, float Value)
     case ETuningField::ElevatorScale:     return FMath::Clamp(Value, 0.f, 100.f);
     case ETuningField::FlapCentre:        return FMath::Clamp(Value, -15.f, 15.f);
     case ETuningField::VerticalMountAngle: return FMath::Clamp(Value, -15.f, 15.f);
+    case ETuningField::ReturnFerocity:    return FMath::Clamp(Value, 0.f, 100.f);
+    case ETuningField::YawScale:          return FMath::Clamp(Value, 0.f, 100.f);
+    case ETuningField::StrokeSkew:        return FMath::Clamp(Value, -100.f, 100.f);
+    case ETuningField::ReturnSkew:        return FMath::Clamp(Value, -100.f, 100.f);
     default: return 0.f;
     }
 }
@@ -64,6 +70,10 @@ float MenuSettingsGetTuning(const FMenuSettings& S, ETuningField Field)
     case ETuningField::ElevatorScale:     return float(S.Tuning.elevator_scale);
     case ETuningField::FlapCentre:        return float(S.Tuning.flap_centre_deg);
     case ETuningField::VerticalMountAngle: return float(S.Tuning.vertical_mount_angle_deg);
+    case ETuningField::ReturnFerocity:    return float(S.Tuning.return_ferocity);
+    case ETuningField::YawScale:          return float(S.Tuning.yaw_scale);
+    case ETuningField::StrokeSkew:        return float(S.Tuning.stroke_skew_percent);
+    case ETuningField::ReturnSkew:        return float(S.Tuning.return_skew_percent);
     default: return 0.f;
     }
 }
@@ -90,7 +100,56 @@ void MenuSettingsSetTuning(FMenuSettings& S, ETuningField Field, float Value)
     case ETuningField::ElevatorScale:     S.Tuning.elevator_scale = Value; break;
     case ETuningField::FlapCentre:        S.Tuning.flap_centre_deg = Value; break;
     case ETuningField::VerticalMountAngle: S.Tuning.vertical_mount_angle_deg = Value; break;
+    case ETuningField::ReturnFerocity:    S.Tuning.return_ferocity = Value; break;
+    case ETuningField::YawScale:          S.Tuning.yaw_scale = Value; break;
+    case ETuningField::StrokeSkew:        S.Tuning.stroke_skew_percent = Value; break;
+    case ETuningField::ReturnSkew:        S.Tuning.return_skew_percent = Value; break;
     default: return;
+    }
+}
+
+FString MenuSettingsModelTuningSection(int32 Model)
+{
+    return FString::Printf(TEXT("Tuning.Model%d"), FMath::Clamp(Model, 0, 5));
+}
+
+void MenuSettingsResetTuningForModel(FMenuSettings& S, int32 Model)
+{
+    S.Tuning = born2flap::tuning::DefaultTuningForModel(Model);
+    S.BodyMassKg = born2flap::tuning::DefaultBodyMassForModel(Model);
+    S.CgOffsetMm = born2flap::tuning::DefaultCgOffsetForModel(Model);
+}
+
+void MenuSettingsLoadModelProfile(FMenuSettings& S, int32 Model)
+{
+    if (Model < 0 || Model > 5)
+        return;
+    const FString Path = PreferencesPath();
+    FConfigFile Config;
+    Config.Read(Path);
+    Config.bCanSaveAllSections = true;
+    const FString Section = MenuSettingsModelTuningSection(Model);
+    if (Config.Contains(Section))
+    {
+        for (uint8 I = 0; I < uint8(ETuningField::Count); ++I)
+        {
+            const ETuningField Field = ETuningField(I);
+            float Value = MenuSettingsGetTuning(S, Field);
+            Config.GetFloat(*Section, born2flap::tuning::Key(Field), Value);
+            MenuSettingsSetTuning(S, Field, Value);
+        }
+        float ModelMass = S.BodyMassKg;
+        Config.GetFloat(*Section, TEXT("BodyMassKg"), ModelMass);
+        S.BodyMassKg = FMath::IsFinite(ModelMass) ? FMath::Clamp(ModelMass, 0.01f, 2.0f) : S.BodyMassKg;
+        float ModelCg = S.CgOffsetMm;
+        Config.GetFloat(*Section, TEXT("CgOffsetMm"), ModelCg);
+        S.CgOffsetMm = FMath::IsFinite(ModelCg) ? FMath::Clamp(ModelCg, -300.f, 300.f) : S.CgOffsetMm;
+    }
+    else
+    {
+        S.Tuning = born2flap::tuning::DefaultTuningForModel(Model);
+        S.BodyMassKg = born2flap::tuning::DefaultBodyMassForModel(Model);
+        S.CgOffsetMm = born2flap::tuning::DefaultCgOffsetForModel(Model);
     }
 }
 
@@ -161,6 +220,35 @@ void MenuSettingsLoad(FMenuSettings& Out)
     Config.GetInt(TEXT("Flight"), TEXT("BirdModel"), Model);
     Out.BirdModel = (Model >= 0 && Model <= 5) ? Model : -1;
 
+    // Per-model profile: a saved override wins; otherwise this model starts from
+    // its factory defaults (not another model's edits).
+    if (Out.BirdModel >= 0)
+    {
+        const FString Section = MenuSettingsModelTuningSection(Out.BirdModel);
+        if (Config.Contains(Section))
+        {
+            for (uint8 I = 0; I < uint8(ETuningField::Count); ++I)
+            {
+                const ETuningField Field = ETuningField(I);
+                float Value = MenuSettingsGetTuning(Out, Field);
+                Config.GetFloat(*Section, born2flap::tuning::Key(Field), Value);
+                MenuSettingsSetTuning(Out, Field, Value);
+            }
+            float ModelMass = Out.BodyMassKg;
+            Config.GetFloat(*Section, TEXT("BodyMassKg"), ModelMass);
+            Out.BodyMassKg = FMath::IsFinite(ModelMass) ? FMath::Clamp(ModelMass, 0.01f, 2.0f) : Out.BodyMassKg;
+            float ModelCg = Out.CgOffsetMm;
+            Config.GetFloat(*Section, TEXT("CgOffsetMm"), ModelCg);
+            Out.CgOffsetMm = FMath::IsFinite(ModelCg) ? FMath::Clamp(ModelCg, -300.f, 300.f) : Out.CgOffsetMm;
+        }
+        else
+        {
+            Out.Tuning = born2flap::tuning::DefaultTuningForModel(Out.BirdModel);
+            Out.BodyMassKg = born2flap::tuning::DefaultBodyMassForModel(Out.BirdModel);
+            Out.CgOffsetMm = born2flap::tuning::DefaultCgOffsetForModel(Out.BirdModel);
+        }
+    }
+
     bool AvatarEnabled = Out.bAvatarEnabled;
     Config.GetBool(TEXT("Avatar"), TEXT("Enabled"), AvatarEnabled);
     Out.bAvatarEnabled = AvatarEnabled;
@@ -177,6 +265,16 @@ void MenuSettingsLoad(FMenuSettings& Out)
     float Scale = Out.UIScale;
     Config.GetFloat(TEXT("General"), TEXT("UIScale"), Scale);
     Out.UIScale = FMath::IsFinite(Scale) ? FMath::Clamp(Scale, 0.5f, 2.0f) : 1.0f;
+
+    int32 WM = Out.WindowMode;
+    Config.GetInt(TEXT("Display"), TEXT("WindowMode"), WM);
+    Out.WindowMode = (WM >= 0 && WM <= 2) ? WM : 1;
+    Config.GetBool(TEXT("Display"), TEXT("FollowSystemResolution"), Out.bFollowSystemResolution);
+    int32 ResX = Out.Resolution.X;
+    int32 ResY = Out.Resolution.Y;
+    Config.GetInt(TEXT("Display"), TEXT("ResolutionX"), ResX);
+    Config.GetInt(TEXT("Display"), TEXT("ResolutionY"), ResY);
+    Out.Resolution = FIntPoint(FMath::Max(0, ResX), FMath::Max(0, ResY));
 }
 
 void MenuSettingsSave(const FMenuSettings& In)
@@ -209,11 +307,26 @@ void MenuSettingsSave(const FMenuSettings& In)
         Config.SetFloat(TEXT("Tuning"), born2flap::tuning::Key(Field), MenuSettingsGetTuning(In, Field));
     }
     if (In.BirdModel >= 0 && In.BirdModel <= 5)
+    {
+        const FString Section = MenuSettingsModelTuningSection(In.BirdModel);
+        for (uint8 I = 0; I < uint8(ETuningField::Count); ++I)
+        {
+            const ETuningField Field = ETuningField(I);
+            Config.SetFloat(*Section, born2flap::tuning::Key(Field), MenuSettingsGetTuning(In, Field));
+        }
+        Config.SetFloat(*Section, TEXT("BodyMassKg"), In.BodyMassKg);
+        Config.SetFloat(*Section, TEXT("CgOffsetMm"), In.CgOffsetMm);
+    }
+    if (In.BirdModel >= 0 && In.BirdModel <= 5)
         Config.SetInt64(TEXT("Flight"), TEXT("BirdModel"), In.BirdModel);
     Config.SetBool(TEXT("Avatar"), TEXT("Enabled"), In.bAvatarEnabled);
     Config.SetInt64(TEXT("Avatar"), TEXT("Person"), In.AvatarPerson);
     Config.SetString(TEXT("General"), TEXT("Language"), *In.Language);
     Config.SetFloat(TEXT("General"), TEXT("UIScale"), In.UIScale);
+    Config.SetInt64(TEXT("Display"), TEXT("WindowMode"), In.WindowMode);
+    Config.SetBool(TEXT("Display"), TEXT("FollowSystemResolution"), In.bFollowSystemResolution);
+    Config.SetInt64(TEXT("Display"), TEXT("ResolutionX"), In.Resolution.X);
+    Config.SetInt64(TEXT("Display"), TEXT("ResolutionY"), In.Resolution.Y);
 
     Config.Write(Path);
 }
@@ -273,6 +386,34 @@ void MenuSettingsToPawn(const FMenuSettings& In, ABorn2FlapFlightPawn* Pawn)
     Pawn->SetReplaySpiritsEnabled(In.bReplaySpirits);
     Pawn->SetFlightSafety(In.FlightSafety);
     Pawn->SetWingbeatVolume(In.WingbeatVolume);
+}
+
+void ApplyDisplaySettings(const FMenuSettings& Settings)
+{
+    UGameUserSettings* GUS = GEngine ? GEngine->GetGameUserSettings() : nullptr;
+    if (!GUS)
+        return;
+
+    EWindowMode::Type Mode = EWindowMode::WindowedFullscreen;  // 1 = borderless (default)
+    if (Settings.WindowMode == 0)
+        Mode = EWindowMode::Fullscreen;
+    else if (Settings.WindowMode == 2)
+        Mode = EWindowMode::Windowed;
+    GUS->SetFullscreenMode(Mode);
+
+    if (Settings.bFollowSystemResolution)
+    {
+        const FIntPoint Desktop = GUS->GetDesktopResolution();
+        if (Desktop.X > 0 && Desktop.Y > 0)
+            GUS->SetScreenResolution(Desktop);
+    }
+    else if (Settings.Resolution.X > 0 && Settings.Resolution.Y > 0)
+    {
+        GUS->SetScreenResolution(Settings.Resolution);
+    }
+
+    GUS->ApplyResolutionSettings(false);
+    GUS->SaveSettings();
 }
 
 }  // namespace born2flap

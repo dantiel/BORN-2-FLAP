@@ -30,7 +30,7 @@ enum class ETuningField : uint8
     ServoSpeed, StallTorque, Backdrive, BatteryVoltage, BatteryResistance, BatteryCapacity,
     BatteryCRating, BatteryBurstCRating,
     FlapBaseFreq, TailElevatorAngle, GlideAngle, StrokeFerocity, AileronScale, ElevatorScale,
-    FlapCentre, VerticalMountAngle, ReturnFerocity, YawScale, Count
+    FlapCentre, VerticalMountAngle, ReturnFerocity, YawScale, StrokeSkew, ReturnSkew, Count
 };
 // RC channels drive the native actuators. All forces and moments are aerodynamic.
 UCLASS()
@@ -148,8 +148,8 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     {
         switch (BirdModel)
         {
-        case 2:  return 106.f;   // common kestrel (falcon): nose +28.5 -> tail -77.5
-        case 4:  return 106.f;   // kestrel light: same silhouette as the common kestrel
+        case 2:  return 58.3f;   // common kestrel (falcon): nose +15.7 -> tail -42.6 (0.55 scale)
+        case 4:  return 58.3f;   // kestrel light: same silhouette as the common kestrel
         case 1:  return 144.f;   // prototype: beak +59 -> tail plate -85
         case 5:  return 150.f;  // pterosaur: extended crest and counterweighted bill
         case 3:  return 90.f;    // neon turtle: nose +43 -> hind-fin tip -46
@@ -259,6 +259,16 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     // camera from its auto-aim so the pilot can look away from the bird.
     float ChaseOrbitYaw = 0.f, ChaseOrbitPitch = -12.f;
     float GroundLookYaw = 0.f, GroundLookPitch = 0.f;
+    // In the actor-follow (3rd person pilot) view MMB-drag rotates the pilot
+    // (yaw) and tilts the over-the-shoulder lens up/down (pitch). The wheel only
+    // dollies the arm (zoom) — close enough switches to first person, scrolling
+    // out returns to third. Default 0 = face the bird as usual.
+    float ActorOrbitYaw = 0.f;
+    float ActorOrbitPitch = -12.f;
+    float ActorArmLength = 240.f;
+    // True when the actor's first-person was entered by wheel-zoom (so the next
+    // wheel-out returns to third person instead of doing the ground lens zoom).
+    bool bActorZoomFirstPerson = false;
     // Scroll-wheel zoom (MMB held). GroundZoom scales the ground lens FOV;
     // ChaseArmLength dollies the chase spring arm (auto-FPV when close enough).
     float GroundZoom = 1.f;
@@ -293,7 +303,7 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     // When the avatar is enabled, the throw is shown as "holding the bird":
     // attach the bird to the pilot's hands during the wind-up, then release and
     // launch at the natural throw moment. Disabled avatar -> instant launch.
-    void HoldBird();
+    bool HoldBird();
     void ReleaseBird();
     TUniquePtr<FBorn2FlapMathBridge> MathBridge;
     TUniquePtr<FBorn2FlapRcController> RcController;
@@ -345,7 +355,7 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     float Throttle = 0, RollInput = 0, YawInput = 0, PitchInput = 0, LeftFlap = 0, RightFlap = 0, BatterySoc = 1;
     void DrawVectorOverlay(class UCanvas* Canvas, APlayerController* DebugController);
     FDelegateHandle VectorOverlayHandle;
-    FString VectorLegend, VectorDetail, VectorTotals, VectorAverage, VectorFlow, VectorTail;
+    FString VectorLegend, VectorDetail, VectorTotals, VectorAverage, VectorFlow, VectorTail, VectorPitch;
     FVector SmoothedStripStats[2]{}; // world vertical lift, forward airflow, body roll moment
     bool bStripStatsValid = false;
     double YawTestBankIntegral = 0, YawTestDuration = 0, YawTestStartHeading = 0;

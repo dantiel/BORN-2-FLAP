@@ -29,8 +29,8 @@ const born2flap::keybinds::FAction DefaultCatalog[] = {
     { TEXT("Reset"),        TEXT("RESET"),             TEXT("FLIGHT"), EKeys::R },
     { TEXT("ThrottleMode"), TEXT("THROTTLE MODE"),     TEXT("FLIGHT"), EKeys::T },
     // ---- CAMERA ----
-    { TEXT("GroundView"),   TEXT("GROUND VIEW"),       TEXT("CAMERA"), EKeys::F6 },
-    { TEXT("FpvView"),      TEXT("FPV VIEW"),          TEXT("CAMERA"), EKeys::V },
+    { TEXT("GroundView"),   TEXT("FOCUS BIRD/PILOT"),  TEXT("CAMERA"), EKeys::F6 },
+    { TEXT("FpvView"),      TEXT("PERSPECTIVE 1ST/3RD"),TEXT("CAMERA"), EKeys::V },
     { TEXT("FpvAngleDown"), TEXT("FPV ANGLE DOWN"),    TEXT("CAMERA"), EKeys::Q },
     { TEXT("FpvAngleUp"),   TEXT("FPV ANGLE UP"),      TEXT("CAMERA"), EKeys::E },
     { TEXT("FreeCamera"),   TEXT("FREE CAMERA"),       TEXT("CAMERA"), EKeys::MiddleMouseButton },

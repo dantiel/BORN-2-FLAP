@@ -11,6 +11,7 @@
 #include "Flight/Born2FlapTuning.h"
 #include "GameFramework/PlayerController.h"
 #include "Components/InputComponent.h"
+#include "Components/PrimitiveComponent.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
 #include "Containers/Ticker.h"
@@ -173,18 +174,19 @@ void ABorn2FlapFlightSettings::BuildTree()
     Rows.push_back(Nd("TextBlock", P({ {"text", Sv(TEXT("Flight paused  •  choose your silhouette"))}, {"tone", S("dim")}, {"size", S("s")} })));
 
     const int32 CraftStart=Rows.size();
-    // Bird model — three full-width buttons with a ●/○ selection marker.
-    for (int32 M = 0; M < 6; ++M)
+    // Aircraft — a single dropdown (six silhouettes), so none are pushed off
+    // the right edge by a horizontal row.
     {
-        FString Label;
-        Label += ModelNames[M];
+        FValue Options; Options.kind = FValue::Kind::Array;
+        for (int32 M = 0; M < 6; ++M) Options.arr.push_back(Sv(FString(ModelNames[M])));
         FProps Props;
-        Props["label"] = Sv(Label);
-        Props["action"] = Sv(FString::Printf(TEXT("bird.model.%d"), M));
-        Props["tone"] = S(M==CurModel ? "good" : "normal");
-        Props["tooltip"] = S("Select this aircraft for the current flight.");
+        Props["action"] = S("bird.select");
+        Props["label"] = S("CRAFT");
+        Props["options"] = std::move(Options);
+        Props["value"] = N(CurModel);
+        Props["tooltip"] = S("Choose your aircraft silhouette for the current flight.");
         ModelButtons.Add(RowPath((int32)Rows.size()));
-        Rows.push_back(Nd("Button", std::move(Props)));
+        Rows.push_back(Nd("Dropdown", std::move(Props)));
     }
 
     // Camera mode toggle (FPV / chase).
@@ -210,9 +212,9 @@ void ABorn2FlapFlightSettings::BuildTree()
         Rows.push_back(Nd("Toggle", std::move(TProps)));
     }
     {
-        static const TCHAR* PersonNames[] = { TEXT("FOUNDER") };
+        static const TCHAR* PersonNames[] = { TEXT("FOUNDER"), TEXT("COAST"), TEXT("NEON"), TEXT("BRONZE") };
         const int32 CurPerson = Bird->GetAvatarPerson();
-        for (int32 P = 0; P < 1; ++P)
+        for (int32 P = 0; P < 4; ++P)
         {
             FProps Props;
             Props["label"] = Sv(PersonNames[P]);
@@ -442,7 +444,7 @@ void ABorn2FlapFlightSettings::BuildTree()
     // dissolve bands).
     FNode Root = Nd("Overlay", P({ {"align", S("center")}, {"valign", S("center")} }),
     {
-        Nd("SizeBox", P({ {"width", N(900)}, {"height", N(SelectedPage==0 ? 510 : 800)} }),
+        Nd("SizeBox", P({ {"width", N(900)}, {"height", N(SelectedPage==0 ? 720 : 800)} }),
         {
             Nd("Panel", P({ {"bg", S("solid")}, {"padding", N(24)}, {"spacing",N(12)} }),
             {
@@ -466,27 +468,10 @@ void ABorn2FlapFlightSettings::BuildTree()
 
 void ABorn2FlapFlightSettings::RefreshModelButtons()
 {
-    if (!Renderer || !Bird.IsValid())
+    if (!Renderer || !Bird.IsValid() || ModelButtons.Num() < 1)
         return;
-    static const TCHAR* ModelNames[] =
-    {
-        TEXT("RAVENCROW  /  folded obsidian & comb pinions"),
-        TEXT("PROTOTYPE  /  elliptical feathers"),
-        TEXT("COMMON KESTREL  /  falcon"),
-        TEXT("NEON TURTLE  /  aether swimmer"),
-        TEXT("KESTREL LIGHT  /  light membrane"),
-        TEXT("PTEROSAUR  /  desert membrane"),
-    };
     const int32 Cur = Bird->GetBirdModel();
-    for (int32 M = 0; M < 6 && M < ModelButtons.Num(); ++M)
-    {
-        FString Label;
-        Label += ModelNames[M];
-        FProps Props;
-        Props["label"] = Sv(Label);
-        Props["tone"] = S(M==Cur ? "good" : "normal");
-        SendUpdate(Renderer, ModelButtons[M], std::move(Props));
-    }
+    SendUpdate(Renderer, ModelButtons[0], P({ {"value", N(Cur)} }));
 }
 
 void ABorn2FlapFlightSettings::RefreshMouseGains()
@@ -535,6 +520,28 @@ void ABorn2FlapFlightSettings::RefreshFlapRange()
     SendUpdate(Renderer, FlapRangePath, P({ { "text", Sv(FlapRangeText()) } }));
 }
 
+bool ABorn2FlapFlightSettings::TestCgSlider()
+{
+    if (!Bird.IsValid() || !Renderer) return false;
+    const float Saved = Bird->GetCgOffsetMm();
+    SelectedPage = 4;
+    BuildTree();
+    bool Pass = true;
+    for (float Cm : {-5.f, 0.f, 5.f})
+    {
+        const bool Routed = Renderer->TestActivateAction(TEXT("bird.cg"), Cm);
+        const auto* Body = Cast<UPrimitiveComponent>(Bird->GetRootComponent());
+        const FVector LocalCg = Body ? Body->GetComponentTransform().InverseTransformPosition(Body->GetCenterOfMass()) : FVector(1.e6);
+        const bool Sample = Routed && FMath::IsNearlyEqual(Bird->GetCgOffsetMm(), Cm*10.f, .001f)
+            && FMath::IsNearlyEqual(LocalCg.X, -Cm, .001);
+        UE_LOG(LogTemp, Display, TEXT("CgSliderTest %s inputCm=%.1f settingMm=%.1f actualXcm=%.3f"),
+            Sample ? TEXT("PASS") : TEXT("FAIL"), Cm, Bird->GetCgOffsetMm(), LocalCg.X);
+        Pass &= Sample;
+    }
+    Bird->SetCgOffsetMm(Saved);
+    return Pass;
+}
+
 void ABorn2FlapFlightSettings::HandleAction(const FString& Action, float Value, const FString& Text)
 {
     if (!Bird.IsValid())
@@ -542,6 +549,15 @@ void ABorn2FlapFlightSettings::HandleAction(const FString& Action, float Value, 
 
     if(Action==TEXT("settings.page")){SelectedPage=FMath::Clamp(FMath::RoundToInt(Value),0,4);BuildTree();return;}
     if (Action == TEXT("settings.close")) { Bird->CloseFlightSettings(); return; }
+
+    if (Action == TEXT("bird.select"))
+    {
+        const int32 Model = FMath::Clamp(FMath::RoundToInt(Value), 0, 5);
+        Bird->SelectBirdModel(Model);
+        // Rebuild: the CG slider's min/max scale with the new craft's length.
+        BuildTree();
+        return;
+    }
 
     if (Action.StartsWith(TEXT("bird.model.")))
     {

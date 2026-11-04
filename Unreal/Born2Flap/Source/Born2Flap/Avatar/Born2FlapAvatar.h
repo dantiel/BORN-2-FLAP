@@ -25,10 +25,12 @@ public:
     // The on-foot pilot currently has a single Founder character; Person maps
     // onto the skin palette (kept so the menu selector and settings persist).
     void SetPerson(int32 Index);
-    static int32 GetPersonCount() { return 1; }
+    static int32 GetPersonCount() { return 4; }
 
     void SetPlacement(const FVector& WorldFeet, float WorldYaw);
-    void SetWalkSpeed(float CmPerSecond);
+    // Movement relative to the avatar's facing direction: +X = forward (walk),
+    // +Y = strafe right, in cm/s. Drives gait selection and cadence matching.
+    void SetLocalVelocity(const FVector& LocalVelocity);
     void SetCarrying(bool bCarry);
     void SetFirstPerson(bool bFirstPerson);
 
@@ -44,6 +46,7 @@ public:
 private:
     void ResolveSkeleton();
     int32 FindBone(const TCHAR* Substring) const;
+    void DetectForwardAxis();
     void CaptureRestPoses();
     void ApplySkin();
     void PoseBody(bool bMoving, float Dt);
@@ -62,6 +65,9 @@ private:
     UPROPERTY() UAnimSequence* AnimRun = nullptr;
     UPROPERTY() UAnimSequence* AnimThrow = nullptr;
     UPROPERTY() UAnimSequence* AnimCatch = nullptr;
+    UPROPERTY() UAnimSequence* AnimStand = nullptr;     // relaxed idle stance
+    UPROPERTY() UAnimSequence* AnimStrafe = nullptr;    // sideways gait
+    UPROPERTY() UAnimSequence* AnimWalkBack = nullptr;  // backward gait
     UAnimSequence* CurrentAnim = nullptr;
 
     int32 BoneHips = INDEX_NONE, BoneSpine = INDEX_NONE, BoneHead = INDEX_NONE;
@@ -78,7 +84,12 @@ private:
     FVector FeetWorld = FVector::ZeroVector;
     float FacingYaw = 0.f;
     float TargetFacingYaw = 0.f;
-    float GaitSpeed = 0.f;
+    // Yaw of the mesh's own forward axis (in the skeleton's local frame) relative
+    // to +X. Detected at BeginPlay so any glTF axis convention is handled. The
+    // Founder rig faces +Y, so this is typically +90 degrees.
+    float ForwardYawOffset = 0.f;
+    float LocalForwardSpeed = 0.f;
+    float LocalStrafeSpeed = 0.f;
     float GaitPhase = 0.f;
     float GaitBlend = 0.f;
     float MeshScale = 1.f;

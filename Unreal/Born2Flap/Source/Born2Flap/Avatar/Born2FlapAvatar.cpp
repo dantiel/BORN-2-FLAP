@@ -16,6 +16,22 @@ constexpr float ThrowDuration = 0.65f;
 constexpr float ThrowReleaseFraction = 0.30f;
 // Normalise any imported character to this standing height (cm).
 constexpr float TargetHeightCm = 180.f;
+// Native (authored) ground speed each baked clip implies, in cm/s. The baked
+// Mixamo clips are in-place (no root motion), so cadence is matched to the
+// pawn's actual ground speed by scaling the play rate: rate = speed / native.
+// Native (authored) ground speed each baked clip implies, in cm/s. The baked
+// Mixamo clips are in-place (no root motion), so cadence is matched to the
+// pawn's actual ground speed by scaling the play rate: rate = speed / native.
+// These are tuned so the feet don't slide at the pawn's 220 cm/s walk / 440 cm/s run.
+constexpr float WalkNativeSpeed = 105.f;
+// A run cycle is much shorter than a walk cycle. With the baked clips all
+// authored at the same 1.0 s cycle, the run must play back faster so its
+// cadence exceeds the walk's (otherwise 440 cm/s runs "too slow").
+constexpr float RunNativeSpeed = 200.f;
+constexpr float StrafeNativeSpeed = 90.f;   // lateral side-step, shorter stride
+constexpr float WalkBackNativeSpeed = 85.f;
+constexpr float PlayRateMin = 0.6f;
+constexpr float PlayRateMax = 3.0f;
 
 // Colour palettes per skin index. Cloth / Skin / Hair / Accent.
 struct FB2FAvatarPalette
@@ -73,6 +89,7 @@ void ABorn2FlapAvatar::BeginPlay()
     }
 
     ResolveSkeleton();
+    DetectForwardAxis();
 
     // Load the Mixamo locomotion clips baked directly into the Founder GLB (so
     // they share the skeleton's glTF frame — no FBX retarget axis mismatch).
@@ -81,12 +98,18 @@ void ABorn2FlapAvatar::BeginPlay()
     AnimRun   = LoadObject<UAnimSequence>(nullptr, TEXT("/Game/Actor/SK_Founder/SkeletalMeshes/SK_FounderRun.SK_FounderRun"));
     AnimThrow = LoadObject<UAnimSequence>(nullptr, TEXT("/Game/Actor/SK_Founder/SkeletalMeshes/SK_FounderThrow.SK_FounderThrow"));
     AnimCatch = LoadObject<UAnimSequence>(nullptr, TEXT("/Game/Actor/SK_Founder/SkeletalMeshes/SK_FounderCatch.SK_FounderCatch"));
+    AnimStand = LoadObject<UAnimSequence>(nullptr, TEXT("/Game/Actor/SK_Founder/SkeletalMeshes/SK_FounderStanding.SK_FounderStanding"));
+    AnimStrafe = LoadObject<UAnimSequence>(nullptr, TEXT("/Game/Actor/SK_Founder/SkeletalMeshes/SK_FounderStrafeRight.SK_FounderStrafeRight"));
+    AnimWalkBack = LoadObject<UAnimSequence>(nullptr, TEXT("/Game/Actor/SK_Founder/SkeletalMeshes/SK_FounderWalkBackward.SK_FounderWalkBackward"));
 
+    // Start in the relaxed idle stance. NOTE: SK_FounderStanding is a kneel/crouch
+    // clip (legs folded), not a standing pose, so the neutral Idle is used here.
+    UAnimSequence* Initial = AnimIdle;
     Body->SetAnimationMode(EAnimationMode::AnimationSingleNode);
-    if (AnimIdle)
+    if (Initial)
     {
-        CurrentAnim = AnimIdle;
-        Body->SetAnimation(AnimIdle);
+        CurrentAnim = Initial;
+        Body->SetAnimation(Initial);
         Body->Play(true);
     }
 
@@ -122,20 +145,49 @@ void ABorn2FlapAvatar::Tick(float DeltaSeconds)
 
     FacingYaw = FMath::FInterpTo(FacingYaw, TargetFacingYaw, DeltaSeconds, 10.f);
     Root->SetWorldLocation(FeetWorld);
-    Root->SetWorldRotation(FRotator(0.f, FacingYaw, 0.f));
+    // The mesh's forward axis is not necessarily +X (the Founder faces +Y), so
+    // rotate by the detected offset to actually face the target yaw.
+    Root->SetWorldRotation(FRotator(0.f, FacingYaw - ForwardYawOffset, 0.f));
 
-    const bool bMoving = FMath::Abs(GaitSpeed) > 12.f;
+    const float Fwd = LocalForwardSpeed;
+    const float Str = LocalStrafeSpeed;
+    const float Speed = FMath::Sqrt(Fwd * Fwd + Str * Str);
+    const float AbsFwd = FMath::Abs(Fwd);
+    const float AbsStr = FMath::Abs(Str);
+    const bool bMoving = Speed > 12.f;
 
-    // Pick the locomotion clip and loop it.
+    // Pick the locomotion clip and loop it. Lateral-dominant motion uses the
+    // strafe gait (the avatar orbits the bird), backward motion walks backward.
     UAnimSequence* Target = nullptr;
+    float NativeSpeed = 1.f;
     if (bThrowing)
+    {
         Target = AnimThrow;
-    else if (GaitSpeed > 240.f)
+    }
+    else if (!bMoving)
+    {
+        Target = AnimIdle;   // relaxed idle (Standing is a kneel, not a stance)
+    }
+    else if (AbsStr > AbsFwd * 1.5f)
+    {
+        Target = AnimStrafe ? AnimStrafe : AnimWalk;
+        NativeSpeed = StrafeNativeSpeed;
+    }
+    else if (Fwd < -12.f)
+    {
+        Target = AnimWalkBack ? AnimWalkBack : AnimWalk;
+        NativeSpeed = WalkBackNativeSpeed;
+    }
+    else if (Speed > 260.f)
+    {
         Target = AnimRun;
-    else if (bMoving)
-        Target = AnimWalk;
+        NativeSpeed = RunNativeSpeed;
+    }
     else
-        Target = AnimIdle;
+    {
+        Target = AnimWalk;
+        NativeSpeed = WalkNativeSpeed;
+    }
 
     if (Target && Target != CurrentAnim)
     {
@@ -143,6 +195,13 @@ void ABorn2FlapAvatar::Tick(float DeltaSeconds)
         Body->SetAnimation(Target);
         Body->Play(!bThrowing);   // one-shot for throw, loop otherwise
     }
+
+    // Match limb cadence to the actual ground speed so the feet don't slide.
+    // (The baked clips play too slowly at native rate for the pawn's pace.)
+    if (Target && !bThrowing && bMoving)
+        Body->SetPlayRate(FMath::Clamp(Speed / NativeSpeed, PlayRateMin, PlayRateMax));
+    else if (!bThrowing)
+        Body->SetPlayRate(1.f);
 
     // One-shot throw bookkeeping: release at 30% of the clip, auto-return to idle/walk.
     if (bThrowing)
@@ -193,6 +252,27 @@ void ABorn2FlapAvatar::ResolveSkeleton()
     BoneRUpLeg = FindBone(TEXT("RightUpLeg"));
     BoneRLeg = FindBone(TEXT("RightLeg"));
     BoneRFoot = FindBone(TEXT("RightFoot"));
+}
+
+void ABorn2FlapAvatar::DetectForwardAxis()
+{
+    // Work out which local axis the character actually faces, from the rest-pose
+    // skeleton, so the glTF import's axis convention is handled automatically.
+    if (!Body || BoneHead == INDEX_NONE || BoneHips == INDEX_NONE ||
+        BoneLHand == INDEX_NONE || BoneRHand == INDEX_NONE)
+        return;
+
+    const FVector Up = (Body->GetBoneLocation(Body->GetBoneName(BoneHead), EBoneSpaces::ComponentSpace) -
+                        Body->GetBoneLocation(Body->GetBoneName(BoneHips), EBoneSpaces::ComponentSpace)).GetSafeNormal();
+    // Side points from the left hand toward the right hand (the character's right).
+    const FVector Side = (Body->GetBoneLocation(Body->GetBoneName(BoneRHand), EBoneSpaces::ComponentSpace) -
+                          Body->GetBoneLocation(Body->GetBoneName(BoneLHand), EBoneSpaces::ComponentSpace)).GetSafeNormal();
+    // In UE's left-handed basis, forward = cross(side, up).
+    FVector Fwd = FVector::CrossProduct(Side, Up);
+    Fwd.Z = 0.f;
+    if (!Fwd.Normalize())
+        return;
+    ForwardYawOffset = FMath::RadiansToDegrees(FMath::Atan2(Fwd.Y, Fwd.X));
 }
 
 void ABorn2FlapAvatar::CaptureRestPoses()
@@ -268,9 +348,10 @@ void ABorn2FlapAvatar::SetPlacement(const FVector& WorldFeet, float WorldYaw)
         Root->SetWorldLocation(WorldFeet);
 }
 
-void ABorn2FlapAvatar::SetWalkSpeed(float CmPerSecond)
+void ABorn2FlapAvatar::SetLocalVelocity(const FVector& LocalVelocity)
 {
-    GaitSpeed = CmPerSecond;
+    LocalForwardSpeed = LocalVelocity.X;
+    LocalStrafeSpeed = LocalVelocity.Y;
 }
 
 void ABorn2FlapAvatar::SetCarrying(bool bCarry)

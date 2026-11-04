@@ -55,7 +55,8 @@ class _Tuning(c.Structure):
         "BatteryResistance", "BatteryCapacity", "BatteryCRating",
         "BatteryBurstCRating", "FlapBaseFreq", "TailElevatorAngle", "GlideAngle",
         "StrokeFerocity", "AileronScale", "ElevatorScale", "MountAngle",
-        "BodyMassKg", "VerticalMountAngle", "ReturnFerocity", "YawScale")]
+        "BodyMassKg", "VerticalMountAngle", "ReturnFerocity", "YawScale",
+        "StrokeSkew", "ReturnSkew")]
 
 
 class B2F:
@@ -144,6 +145,7 @@ def tuning(servo: Servo, *, body_mass_kg: float = 0.050,
            return_ferocity: float = 50.0,
            aileron_scale: float = 100.0, elevator_scale: float = 100.0,
            yaw_scale: float = 60.0,
+           stroke_skew: float = 0.0, return_skew: float = 0.0,
            tail_elevator: float = 0.0, glide_angle: float = 0.0,
            flap_centre: float = 0.0, vertical_mount: float = 0.0,
            battery_resistance: float = 0.05, battery_capacity: float = 0.35,
@@ -153,7 +155,7 @@ def tuning(servo: Servo, *, body_mass_kg: float = 0.050,
         battery_resistance, battery_capacity, battery_c, battery_burst_c,
         flap_base_freq_dhz, tail_elevator, glide_angle, stroke_ferocity,
         aileron_scale, elevator_scale, flap_centre, body_mass_kg, vertical_mount,
-        return_ferocity, yaw_scale,
+        return_ferocity, yaw_scale, stroke_skew, return_skew,
     )
 
 

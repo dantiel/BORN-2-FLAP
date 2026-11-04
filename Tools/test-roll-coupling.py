@@ -39,7 +39,7 @@ class Tuning(c.Structure):
         'ServoSpeed', 'StallTorque', 'Backdrive', 'BatteryVoltage',
         'BatteryResistance', 'BatteryCapacity', 'BatteryCRating', 'BatteryBurstCRating', 'FlapBaseFreq',
         'TailElevatorAngle', 'GlideAngle', 'StrokeFerocity', 'AileronScale',
-        'ElevatorScale', 'FlapCentre', 'BodyMassKg', 'VerticalMountAngle', 'ReturnFerocity')]
+        'ElevatorScale', 'FlapCentre', 'BodyMassKg', 'VerticalMountAngle', 'ReturnFerocity', 'YawScale')]
 
 
 def main():
@@ -55,7 +55,7 @@ def main():
     args = parser.parse_args()
     if args.hz < 120 or args.ramp_seconds < 0: parser.error('invalid rate or ramp duration')
     lib = c.CDLL(str(args.dll.resolve()))
-    assert lib.b2f_math_abi_version() == 17
+    assert lib.b2f_math_abi_version() in (17, 18)
     assert lib.b2f_math_runtime_init() == 1
     create = lib.b2f_math_create_firmware_vehicle
     create.argtypes, create.restype = [c.c_void_p], c.c_void_p
@@ -67,7 +67,7 @@ def main():
     if args.preferences:
         config = configparser.ConfigParser()
         config.read(args.preferences)
-        tuning = Tuning(*(config.getfloat('Flight' if n == 'BodyMassKg' else 'Tuning', n)
+        tuning = Tuning(*(config.getfloat('Flight' if n == 'BodyMassKg' else 'Tuning', n, **({'fallback': 60} if n == 'YawScale' else {}))
                           for n, _ in Tuning._fields_))
     reconfigure = lib.b2f_math_reconfigure_firmware_vehicle
     reconfigure.argtypes = [c.c_void_p, c.POINTER(Tuning)]

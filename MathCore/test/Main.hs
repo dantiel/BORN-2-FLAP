@@ -49,6 +49,38 @@ main = do
   if and [spatialCase cg l r | cg<-[-0.1,0,0.1],l<-[-1,0,1],r<-[-1,0,1]]
      && abs(flatMass!!0!!0-0.05)<1e-12 && flatMass!!2!!2>0.05 && flatMass!!4!!4>dryPitch
     then pure () else fail "spatial wing inertia must preserve positive energy, dry weight and pitch added mass"
+  let steadyPitchBias cg u w =
+        let (_,bias,_)=Spatial.spatialSystem kestrelModel 0.05 cg
+              (airframeInertia kestrelModel 0.05 cg) airDensity (0,0) [u,0,w,0,0,0,0,0] zeroVec
+        in abs(bias!!4)<1e-12
+  if and [steadyPitchBias cg u w | cg<-[-0.1,0,0.1],u<-[-5,5],w<-[-1,1]]
+    then pure () else fail "added air must not duplicate the steady quarter-chord pitching moment"
+  -- The fixed fan must use the same physical motion at every CG. Moving the
+  -- reference point changes COM velocity, never the kinetic energy of the air.
+  let tailEnergy cg incidence =
+        let u=[5,0.2+0.4*cg,-0.3-0.7*cg,0.2,0.7,0.4,0,0]
+            (m,_)=Spatial.tailFluidInertia cg airDensity incidence u
+        in sum(zipWith (*) u (Spatial.multiply m u))
+      tailCase cg incidence =
+        let u=[5,0.2,-0.3,0.2,0.7,0.4,0,0]
+            (m,b)=Spatial.tailFluidInertia cg airDensity incidence u
+            rotating=[0.7*(-0.3)-0.4*0.2,0.4*5-0.2*(-0.3),0.2*0.2-0.7*5,0,0,0,0,0]
+            p=take 3 (Spatial.multiply m u)
+            overlap=[0,0,0,0.2*(p!!2)+0.3*(p!!1),-0.3*(p!!0)-5*(p!!2),5*(p!!1)-0.2*(p!!0),0,0]
+            power=sum(zipWith (*) u (zipWith (+) overlap (zipWith (+) b (Spatial.multiply m rotating))))
+            (_,steady)=Spatial.tailFluidInertia cg airDensity incidence [5,0.2,-0.3,0,0,0,0,0]
+        in and [abs(m!!i!!j-m!!j!!i)<1e-12 | i<-[0..7],j<-[0..7]]
+           && abs(power)<1e-12 && m!!4!!4>0
+           && maximum(map abs steady)<1e-12
+           && abs(tailEnergy cg incidence-tailEnergy 0 incidence)<1e-12
+  if and [tailCase cg incidence | cg<-[-0.1,0,0.1],incidence<-[-0.3,0,0.3]]
+    then pure () else fail "fan inertia must preserve CG invariance and avoid duplicating the steady polar moment"
+  let membrane=wmWing kestrelModel
+  if abs(wsSpanM membrane-0.55)<1e-12 && shapeChord membrane 1==0 &&
+     abs(shapeLeadingEdgeX membrane 0+(0.03+0.089537*0.55))<1e-12 &&
+     abs(shapeTwistRad membrane 0)<1e-12 &&
+     spRestCamber (shapeSection membrane 0)==0 && spMembraneK (shapeSection membrane 0)==0
+    then pure () else fail "visible membrane outline and attached root must define kestrel physics"
   -- A pressure patch may return stored energy, but never create it. Check
   -- changing surface direction, reversal, and relaxation at several steps.
   let fieldCase dt normal velocity =
@@ -106,14 +138,15 @@ main = do
       fanLoad incidence=foldr (addVec . tailForce) zeroVec (kestrelTailLoads incidence (Vec3 8 0 0) zeroVec)
       fanMoment incidence=foldr (addVec . tfMoment) zeroVec (kestrelTailLoads incidence (Vec3 8 0 0) zeroVec)
       rotateX a (Vec3 x y z)=Vec3 x (cos a*y-sin a*z) (sin a*y+cos a*z)
-      banked a=let force=rotateX a (fanLoad (-2.3)); moment=rotateX a (fanMoment (-2.3))
-               in a*vy force>0 && a*vz moment<0
+      banked a incidence=let force=rotateX a (fanLoad incidence); moment=rotateX a (fanMoment incidence)
+                          in a*incidence*vy force<0 && a*incidence*vz moment>0
       rollDamping p=sum(map (vx.tfMoment) (kestrelTailLoads (-2.3) (Vec3 8 0 0) (Vec3 p 0 0)))
                     -vx(fanMoment (-2.3))
   if and [tailCase a (Vec3 u v w) (Vec3 p 0 r) | a<-[-15,-2.3,0,10],u<-[-8,0,8],v<-[-2,2],w<-[-3,0,3],p<-[-1,1],r<-[-1,1]]
      && vz(fanLoad (-2.3))<0 && vy(fanMoment (-2.3))<0
      && vz(fanLoad 2.3)>0 && vy(fanMoment 2.3)>0
-     && all banked [-0.6,0.6] && all (\p -> p*rollDamping p<0) [-1,1]
+     && and [banked a incidence | a<-[-0.6,0.6],incidence<-[-8,8]]
+     && all (\p -> p*rollDamping p<0) [-1,1]
     then pure () else fail "fixed fan must rotate negative lift into yaw, damp roll, and use passive local airflow"
   let mixTail angle throttle =
         let params=defaultFirmwareParams {fwProfile=(fwProfile defaultFirmwareParams) {profTailElevatorAngleDeg=angle}}
@@ -122,7 +155,7 @@ main = do
     then pure () else fail "tail incidence setting must not move wing stroke targets"
   let (bodyMass,wingMass,tailMass)=airframeMasses 0.05
       (ix,iy,iz)=airframeInertia kestrelModel 0.05 0
-      wingDry=shapeFlapInertia wingMass 0 defaultBirdWing
+      wingDry=shapeFlapInertia wingMass 0 (wmWing kestrelModel)
   if abs (bodyMass-0.038)<1e-12 && wingMass==0.005 && tailMass==0.002 &&
      abs (bodyMass+2*wingMass+tailMass-0.05)<1e-12 &&
      ix>2*wingDry && ix<2*wingDry*1.15 && iy>0 && iz>0
@@ -485,17 +518,18 @@ main = do
     then pure ()
     else fail "neutral glide must hold a static symmetric stroke, no cadence"
   -- Positive aileron raises the RIGHT wing (stick-right, like a real aileron):
-  -- body counter-rotates the wing movement and banks right. Rudder must use
-  -- the same orientation after removing the hidden ruddervators. Neither may
+  -- body counter-rotates the wing movement and banks right. Amplitude-only yaw
+  -- has no actuator in glide and must leave the neutral commands intact. Neither may
   -- shift the common centre — the centre stays the pitch trim (+4° flap
   -- deviation from the −4° glide angle). Pitch (elevator) shifts the centre.
   if mixRightFlapDevDeg rollTop > mixLeftFlapDevDeg rollTop
-     && mixRightFlapDevDeg yawTop > mixLeftFlapDevDeg yawTop
+     && mixRightFlapDevDeg yawTop == mixRightFlapDevDeg neutral
+     && mixLeftFlapDevDeg yawTop == mixLeftFlapDevDeg neutral
      && abs (centre rollTop - 4) < 1e-9
      && abs (centre yawTop - 4) < 1e-9
      && centre pitchTop < 4
     then pure ()
-    else fail "glide roll/yaw must be a static differential stroke, pitch a common centre trim only"
+    else fail "glide roll must be differential, pitch common trim, and amplitude-only yaw inactive"
    -- Powered roll must still command position at both stroke reversals.
   let positionParams = defaultFirmwareParams
         { fwProfile = (fwProfile defaultFirmwareParams) { profAileronSkewMix = 0 } }
@@ -507,19 +541,27 @@ main = do
         (pilotToRc (pilot4 throttle 0 pitch yaw)) positionParams
         (defaultFirmwareState { fwOscillator = defaultOscillator { oscBasePhase = phase, oscPhase = phase } }) (1/960))
       phases = [fromIntegral i*2*pi/720 | i<-[0..720::Int]]
-      yawConsistent throttle sign = all (\phase ->
-        let o=mixerAt throttle 0 (sign*0.5) phase
-        in sign*(mixRightFlapDevDeg o-mixLeftFlapDevDeg o)>0) phases
+      yawAmplitude throttle sign =
+        let outputs=map (mixerAt throttle 0 (sign*0.5)) phases
+            ls=map mixLeftFlapDevDeg outputs; rs=map mixRightFlapDevDeg outputs
+            arc xs=maximum xs-minimum xs
+            midpoint xs=(maximum xs+minimum xs)/2
+        in sign*(arc ls-arc rs)>0 && abs(midpoint ls-midpoint rs)<0.05
+      yawMirror throttle phase =
+        let l=mixerAt throttle 0 0.5 phase; r=mixerAt throttle 0 (-0.5) phase
+        in abs(mixLeftFlapDevDeg l-mixRightFlapDevDeg r)<1e-9
+           && abs(mixRightFlapDevDeg l-mixLeftFlapDevDeg r)<1e-9
       travel pitch = let angles=map (mixLeftFlapDevDeg . mixerAt 1 pitch 0) phases
                      in maximum angles-minimum angles
-  if and [yawConsistent throttle sign | throttle<-[0,0.3,0.72,1],sign<-[-1,1]]
-    then pure () else fail "yaw hinge commands must initiate the same bank at every beat phase and through glide transition"
+  if and [yawAmplitude throttle sign | throttle<-[0.3,0.72,1],sign<-[-1,1]]
+     && and [yawMirror throttle phase | throttle<-[0,0.3,0.72,1],phase<-phases]
+    then pure () else fail "yaw must mirror unequal stroke arcs without a hidden differential centre tilt"
   if all (\pitch -> abs(travel pitch-travel 0)<1e-8) [-1,1]
     then pure () else fail "extreme anhedral/dihedral trim must preserve full powered stroke travel"
   if all (\o -> abs (mixRudderUs o - 1500) < 1e-10)
        ([rollTop,rollBot] ++ map rollAt [0,pi/2,pi,3*pi/2])
-       && mixRudderUs yawTop > 1500
-    then pure () else fail "roll alone must leave the tail rudder neutral in glide and powered flight"
+       && abs(mixRudderUs yawTop-1500)<1e-10
+    then pure () else fail "roll and amplitude-only glide yaw must leave the fixed tail rudder neutral"
   let coherent output = abs (mixLeftFlapDevDeg output + (mixLeftWingDeg output-100)/2) < 1e-10
                      && abs (mixRightFlapDevDeg output - (mixRightWingDeg output-100)/2) < 1e-10
   if all coherent [neutral,rollTop,rollBot,yawTop,yawBot,pitchTop,pitchBot]
@@ -670,12 +712,12 @@ main = do
       skewMoment roll =
         let rc = pilotToRc (pilot4 0.72 roll 0 0)
             tick (_,s) =
-              let (out,next)=stepFirmwareVehicle True rc skewParams skewServo skewBattery kestrelModel
+              let (out,next)=stepFirmwareVehicleWithInertia 1e3 True rc skewParams skewServo skewBattery kestrelModel
                               (1/240) (Vec3 8 0 (-1)) (Vec3 0 0 0) 1000 s
                   -- The tunnel constrains body attitude. Reconcile that with
                   -- the free-body predictor just as the Unreal host does;
                   -- otherwise air memory rotates while the fixture does not.
-                  predictedAngle=x(totalMomentNm out)/0.008/(240*240)
+                  predictedAngle=x(totalMomentNm out)/1e3/(240*240)
               in (out,transportAirfields (Vec3 predictedAngle 0 0) next)
             samples = drop 481 $ take 1921 $ iterate tick (zeroVehicleOutput,defaultFirmwareVehicleState)
         in if any ((/=0) . outputFlags . fst) samples then error "stroke timing integration rejected a step"
@@ -686,9 +728,10 @@ main = do
   -- authority; the asymmetric feathering (downstroke loaded, upstroke shed)
   -- legitimately shifts the sign and magnitude versus the old symmetric stroke,
   -- so the sign is not asserted here.
-  -- The finite-difference nonlinear solve converges to 1e-7 rad/s; compare
-  -- mirrored time-averaged torques within 1e-8 Nm, above its roundoff floor.
-  if abs (leftSkewMoment + rightSkewMoment) < 1e-8
+  -- A 1e3 kg m^2 tunnel clamp keeps the body fixed inside the predictor too.
+  -- Host torque is that inertia times a tiny solved rate increment; allow
+  -- 1e-6 Nm absolute roundoff while retaining the nonzero authority gate.
+  if abs (leftSkewMoment + rightSkewMoment) < 1e-6
      && abs leftSkewMoment > 5e-5
     then pure () else fail ("opposite stroke timing alone must generate mirrored aerodynamic roll: " ++ show (leftSkewMoment,rightSkewMoment))
   -- ONDAS Rubedo M0: ferocity-price anchors (audit-verified 9.5).

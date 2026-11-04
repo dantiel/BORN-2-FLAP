@@ -11,6 +11,7 @@
 #include "UI/Born2FlapRadio.h"
 #include "Flight/Born2FlapFlightPawn.h"
 #include "Flight/Born2FlapTuning.h"
+#include "Avatar/Born2FlapAvatar.h"
 #include "Rendering/Born2FlapGraphics.h"
 #include "Input/Born2FlapRcController.h"
 #include "Input/Born2FlapKeybinds.h"
@@ -52,8 +53,29 @@ FNode Nd(const char* Type, FProps Props = {}, std::vector<FNode> Children = {})
     return N_;
 }
 
+// One-line dossier per silhouette for the flight-desk CRAFT tab: name, role and
+// the hard physics numbers. Full span is the Haskell wing half-span ×2; dry
+// mass is the Haskell model config mass. The pterosaur flies on the kestrel
+// physics model (PhysicsBirdModel maps 5 → 2), so it reports kestrel numbers.
+FString CraftInfoText(int32 Model)
+{
+    static const struct { const TCHAR* Name; const TCHAR* Role; const TCHAR* Span; const TCHAR* Mass; } Crafts[] =
+    {
+        { TEXT("RAVENCROW"),      TEXT("Nature-valley night hunter; comb pinions + drag rudder."), TEXT("1.32 m"), TEXT("86 g") },
+        { TEXT("PROTOTYPE"),      TEXT("Training-arena workhorse; elliptical feathers."),          TEXT("0.99 m"), TEXT("36 g") },
+        { TEXT("COMMON KESTREL"), TEXT("Shiomori coast falcon; the 50 g reference bird."),         TEXT("1.10 m"), TEXT("50 g") },
+        { TEXT("NEON TURTLE"),    TEXT("Aether swimmer for the weightless Neon Abyss."),           TEXT("1.10 m"), TEXT("50 g") },
+        { TEXT("KESTREL LIGHT"),  TEXT("Light membrane; halved rods + weight for the fast servo."),TEXT("1.10 m"), TEXT("25 g") },
+        { TEXT("PTEROSAUR"),      TEXT("Desert membrane glider; kestrel physics, pterosaur skin."), TEXT("1.10 m"), TEXT("50 g") },
+    };
+    const int32 I = FMath::Clamp(Model, 0, 5);
+    return FString::Printf(TEXT("%s  ·  %s\nWing span %s   ·   dry mass %s"),
+        Crafts[I].Name, Crafts[I].Role, Crafts[I].Span, Crafts[I].Mass);
+}
+
 // DISPLAY / CAMERA "Resolution" list: native first, then standard 16:9 steps
-// strictly smaller than the panel. Index 0 always means native (borderless).
+// strictly smaller than the panel. Index 0 always means "follow the system's
+// native resolution"; index > 0 is an explicit size applied in the window mode.
 void BuildResolutionOptions(FIntPoint& OutNative, TArray<FIntPoint>& OutResolutions, int32& OutCurrentIndex)
 {
     UGameUserSettings* GUS = GEngine ? GEngine->GetGameUserSettings() : nullptr;
@@ -84,6 +106,14 @@ void BuildResolutionOptions(FIntPoint& OutNative, TArray<FIntPoint>& OutResoluti
         for (int32 I = 1; I < OutResolutions.Num(); ++I)
             if (OutResolutions[I] == Cur) { OutCurrentIndex = I; break; }
     }
+}
+
+// Map the menu's WindowMode int to UGameUserSettings' EWindowMode::Type.
+static EWindowMode::Type WindowModeFromInt(int32 Mode)
+{
+    if (Mode == 0) return EWindowMode::Fullscreen;
+    if (Mode == 2) return EWindowMode::Windowed;
+    return EWindowMode::WindowedFullscreen;   // 1 = borderless (default)
 }
 
 // A scroll page: the ScrollBlur fills the whole content area (top to bottom)
@@ -294,6 +324,26 @@ void ABorn2FlapMenu::PersistSettings()
     born2flap::MenuSettingsSave(Settings);
 }
 
+void ABorn2FlapMenu::ApplyDisplaySettings()
+{
+    UGameUserSettings* GUS = GEngine ? GEngine->GetGameUserSettings() : nullptr;
+    if (!GUS)
+        return;
+    GUS->SetFullscreenMode(WindowModeFromInt(Settings.WindowMode));
+    if (Settings.bFollowSystemResolution)
+    {
+        const FIntPoint Desktop = GUS->GetDesktopResolution();
+        if (Desktop.X > 0 && Desktop.Y > 0)
+            GUS->SetScreenResolution(Desktop);
+    }
+    else if (Settings.Resolution.X > 0 && Settings.Resolution.Y > 0)
+    {
+        GUS->SetScreenResolution(Settings.Resolution);
+    }
+    GUS->ApplyResolutionSettings(false);
+    GUS->SaveSettings();
+}
+
 float ABorn2FlapMenu::TuningValue(ETuningField Field) const
 {
     return born2flap::MenuSettingsGetTuning(Settings, Field);
@@ -317,6 +367,10 @@ void ABorn2FlapMenu::BeginPlay()
     Renderer->ViewportZOrder = 90; // under the splash (100), above the cockpit (0)
     Renderer->OnComponentAction.AddDynamic(this, &ABorn2FlapMenu::OnAction);
     born2flap::MenuSettingsLoad(Settings);
+    // Restore the persisted window mode + resolution right away, so a session
+    // never boots into a stale exclusive-fullscreen state left over from an
+    // older build (default is borderless at the desktop's native size).
+    ApplyDisplaySettings();
     // Key-capture pre-processor for the KEY BINDINGS page (UIOnly input mode
     // routes keyboard away from PlayerInput while the menu is open).
     {
@@ -437,16 +491,17 @@ void ABorn2FlapMenu::Build()
         PaneChildren.push_back(Nd("TextBlock", P({ {"text", S(FString::Printf(TEXT("Wind %.1f m/s | %s"), Speed, W.Gust < .5f ? TEXT("gentle gusts") : TEXT("variable breeze")))}, {"size", S("s")} })));
         // WIND overrides — direction / strength / gusts / randomness / thermals.
         // Each slider shows the *effective* value: the player's explicit override
-        // when one was saved (>= 0), otherwise the weather/time profile default
-        // (1× = auto; direction = the level's base heading). Reset returns all
-        // five to "auto". Persisted per level and carried into level travel.
+        // when one was saved (>= 0), otherwise the season's prevailing-wind
+        // "auto" default (then weather, then time). Reset returns all five to
+        // "auto". Persisted per level and carried into level travel.
         {
+            const FBorn2FlapSeason& WindSeason = Born2FlapWeather::Season(C.Season);
             const bool bWindCustom = C.WindDir >= 0.f || C.WindSpeed >= 0.f || C.WindGust >= 0.f || C.WindRandom >= 0.f || C.WindThermal >= 0.f;
-            const float WindDirEff    = C.WindDir     >= 0.f ? C.WindDir     : Born2FlapWeather::DefaultWindDirection(Level);
-            const float WindSpeedEff  = C.WindSpeed   >= 0.f ? C.WindSpeed   : 1.f;
-            const float WindGustEff   = C.WindGust    >= 0.f ? C.WindGust    : 1.f;
-            const float WindRandomEff = C.WindRandom  >= 0.f ? C.WindRandom  : 1.f;
-            const float WindThermalEff= C.WindThermal >= 0.f ? C.WindThermal : 1.f;
+            const float WindDirEff    = C.WindDir     >= 0.f ? C.WindDir     : Born2FlapWeather::DefaultWindDirection(Level) + WindSeason.WindDirBias;
+            const float WindSpeedEff  = C.WindSpeed   >= 0.f ? C.WindSpeed   : WindSeason.WindSpeedScale;
+            const float WindGustEff   = C.WindGust    >= 0.f ? C.WindGust    : WindSeason.WindGustScale;
+            const float WindRandomEff = C.WindRandom  >= 0.f ? C.WindRandom  : WindSeason.WindRandom;
+            const float WindThermalEff= C.WindThermal >= 0.f ? C.WindThermal : WindSeason.WindThermalScale;
             auto WindSlider = [&](const char* Label, const char* Action, float Value_, float Min, float Max, float Step, const char* Unit, const char* Help)
             {
                 return Nd("Slider", P({
@@ -455,13 +510,13 @@ void ABorn2FlapMenu::Build()
                 }));
             };
             PaneChildren.push_back(Nd("TextBlock", P({ {"text", S("WIND")}, {"size", S("xs")}, {"tone", S("dim")} })));
-            PaneChildren.push_back(WindSlider("DIRECTION",  "wind.dir",     WindDirEff,     0.f, 360.f, 5.f,  "°", "Compass heading the wind blows toward. Auto follows the weather profile."));
+            PaneChildren.push_back(WindSlider("DIRECTION",  "wind.dir",     WindDirEff,     0.f, 360.f, 5.f,  "°", "Compass heading the wind blows toward. Auto follows the season's prevailing wind."));
             PaneChildren.push_back(WindSlider("STRENGTH",   "wind.speed",   WindSpeedEff,   0.f, 5.f,   0.1f, "×", "Multiplier on base horizontal wind strength."));
             PaneChildren.push_back(WindSlider("GUSTS",      "wind.gust",    WindGustEff,    0.f, 8.f,   0.1f, "×", "Multiplier on gust turbulence magnitude."));
             PaneChildren.push_back(WindSlider("RANDOMNESS", "wind.random",  WindRandomEff,  0.f, 8.f,   0.1f, "×", "Multiplier on heading drift / directional wander."));
             PaneChildren.push_back(WindSlider("THERMALS",   "wind.thermal", WindThermalEff, 0.f, 5.f,   0.1f, "×", "Multiplier on thermal updraft strength."));
             if (bWindCustom)
-                PaneChildren.push_back(Nd("Button", P({ {"label", S("RESET WIND TO WEATHER DEFAULT")}, {"action", S("wind.reset")}, {"tone", S("dim")} })));
+                PaneChildren.push_back(Nd("Button", P({ {"label", S("RESET WIND TO SEASON DEFAULT")}, {"action", S("wind.reset")}, {"tone", S("dim")} })));
         }
         // Travel destinations: a scrollable list of this world's points of
         // interest. Choosing one makes it the reset start point the FLY button
@@ -669,18 +724,27 @@ void ABorn2FlapMenu::BuildFlightDesk(std::vector<FNode>& Out)
         Push(Nd("Slider", std::move(Props)), Page);
     };
 
-    // ---- CRAFT (0): choose the silhouette (segmented, one selection) ----
+    // ---- CRAFT (0): choose the silhouette (a dropdown, so none are cut off) ----
     Push(Nd("TextBlock", P({ {"text", S("CHOOSE YOUR SILHOUETTE")}, {"tone", S("accent")}, {"size", S("l")} })), 0);
     {
         FValue Silhouettes; Silhouettes.kind = FValue::Kind::Array;
         for (const TCHAR* Name : { TEXT("RAVENCROW"), TEXT("PROTOTYPE"), TEXT("COMMON KESTREL"), TEXT("NEON TURTLE"), TEXT("KESTREL LIGHT"), TEXT("PTEROSAUR") }) Silhouettes.arr.push_back(S(FString(Name)));
-        Push(Nd("Segment", P({
+        Push(Nd("Dropdown", P({
+            {"label", S("CRAFT")},
             {"options", std::move(Silhouettes)},
             {"value", N(CurModel)},
             {"action", S("bird.model")},
             {"tooltip", S("Select the aircraft silhouette for the next flight — it applies to whichever world you enter.")}
         })), 0);
     }
+    // Dossier for the current pick: role + hard span/mass numbers, so the
+    // dropdown's single line is backed by the physics behind the silhouette.
+    Push(Nd("TextBlock", P({
+        {"text", S(CraftInfoText(CurModel))},
+        {"tone", S("dim")},
+        {"size", S("s")},
+        {"wrap", B(true)}
+    })), 0);
 
     // ---- CRAFT (0): pilot avatar — on/off toggle + which person ----
     Push(Nd("TextBlock", P({ {"text", S("CHOOSE YOUR PILOT")}, {"tone", S("accent")}, {"size", S("l")} })), 0);
@@ -696,7 +760,7 @@ void ABorn2FlapMenu::BuildFlightDesk(std::vector<FNode>& Out)
     }
     {
         FValue Persons; Persons.kind = FValue::Kind::Array;
-        for (const TCHAR* Name : { TEXT("FOUNDER") }) Persons.arr.push_back(S(FString(Name)));
+        for (const TCHAR* Name : { TEXT("FOUNDER"), TEXT("COAST"), TEXT("NEON"), TEXT("BRONZE") }) Persons.arr.push_back(S(FString(Name)));
         Push(Nd("Segment", P({
             {"options", std::move(Persons)},
             {"value", N(Settings.AvatarPerson)},
@@ -972,6 +1036,32 @@ void ABorn2FlapMenu::BuildPreferences(std::vector<FNode>& Out)
             MouseGainSliders.Reset();
             std::vector<FNode> Rows;
 
+            // DISPLAY / CAMERA
+            Rows.push_back(Nd("TextBlock", P({ {"text", S("DISPLAY  /  CAMERA")}, {"tone", S("accent")}, {"size", S("l")} })));
+            {
+                // WINDOW MODE — fullscreen / borderless / windowed.
+                FValue ModeOpts; ModeOpts.kind = FValue::Kind::Array;
+                ModeOpts.arr.push_back(S("FULLSCREEN"));
+                ModeOpts.arr.push_back(S("BORDERLESS"));
+                ModeOpts.arr.push_back(S("WINDOWED"));
+                FProps Props;
+                Props["action"] = S("display.windowmode");
+                Props["label"] = S("WINDOW MODE");
+                Props["tooltip"] = S("How the window is presented. Borderless fills the screen without taking exclusive control; windowed shows a titled, resizable window.");
+                Props["options"] = std::move(ModeOpts);
+                Props["value"] = N(Settings.WindowMode);
+                Rows.push_back(Nd("Dropdown", std::move(Props)));
+            }
+            {
+                FProps Props;
+                Props["action"] = S("display.followres");
+                Props["label"] = S("FOLLOW SYSTEM RESOLUTION");
+                Props["on"] = S("ON  /  click to set a custom size");
+                Props["off"] = S("OFF  /  click to follow system");
+                Props["tooltip"] = S("When on, the render size always matches the display's native resolution. Turn off to pick a specific resolution below.");
+                Props["value"] = B(Settings.bFollowSystemResolution);
+                Rows.push_back(Nd("Toggle", std::move(Props)));
+            }
             // LANGUAGE
             Rows.push_back(Nd("TextBlock", P({ {"text", S(Born2Flap::I18n::T("settings.language"))}, {"tone", S("accent")}, {"size", S("l")} })));
             {
@@ -991,9 +1081,6 @@ void ABorn2FlapMenu::BuildPreferences(std::vector<FNode>& Out)
                 Props["value"] = N(CurrentLang);
                 Rows.push_back(Nd("Dropdown", std::move(Props)));
             }
-
-            // DISPLAY / CAMERA
-            Rows.push_back(Nd("TextBlock", P({ {"text", S("DISPLAY  /  CAMERA")}, {"tone", S("accent")}, {"size", S("l")} })));
             {
                 // UI SCALE — global font/element scale, relative to the screen.
                 FValue ScaleOptions; ScaleOptions.kind = FValue::Kind::Array;
@@ -1013,6 +1100,30 @@ void ABorn2FlapMenu::BuildPreferences(std::vector<FNode>& Out)
                 Props["value"] = N(CurScale);
                 Rows.push_back(Nd("Dropdown", std::move(Props)));
             }
+
+            // PILOT AVATAR — the on-foot thrower seen from the bird's follower view.
+            Rows.push_back(Nd("TextBlock", P({ {"text", S("PILOT AVATAR")}, {"tone", S("accent")}, {"size", S("l")} })));
+            {
+                FProps TProps;
+                TProps["action"] = S("avatar.enabled");
+                TProps["label"] = S("SHOW ON-FOOT PILOT");
+                TProps["on"] = S("SHOWN  /  click to hide");
+                TProps["off"] = S("HIDDEN  /  click to show");
+                TProps["tooltip"] = S("Shows or hides the on-foot pilot who carries and throws the bird. Turn off to throw the bird directly.");
+                TProps["value"] = B(Settings.bAvatarEnabled);
+                Rows.push_back(Nd("Toggle", std::move(TProps)));
+            }
+            {
+                FValue Persons; Persons.kind = FValue::Kind::Array;
+                for (const TCHAR* Name : { TEXT("FOUNDER"), TEXT("COAST"), TEXT("NEON"), TEXT("BRONZE") }) Persons.arr.push_back(S(FString(Name)));
+                Rows.push_back(Nd("Dropdown", P({
+                    {"label", S("PILOT STYLE")},
+                    {"options", std::move(Persons)},
+                    {"value", N(Settings.AvatarPerson)},
+                    {"action", S("avatar.person")},
+                    {"tooltip", S("Select the pilot's visual style — the thrower seen from the bird's follower view.")}
+                })));
+            }
             {
                 // RESOLUTION — native (borderless) or a specific exclusive size.
                 FIntPoint Native;
@@ -1031,7 +1142,7 @@ void ABorn2FlapMenu::BuildPreferences(std::vector<FNode>& Out)
                 FProps Props;
                 Props["action"] = S("resolution.set");
                 Props["label"] = S("RESOLUTION");
-                Props["tooltip"] = S("Native fills the display borderless at its own size. Picking a specific size switches to exclusive fullscreen at that resolution.");
+                Props["tooltip"] = S("Render resolution. Native follows the display's own size; picking a specific size applies it inside the chosen window mode (and turns off Follow System Resolution).");
                 Props["options"] = std::move(ResOpts);
                 Props["value"] = N(CurRes);
                 Rows.push_back(Nd("Dropdown", std::move(Props)));
@@ -1635,7 +1746,7 @@ void ABorn2FlapMenu::OnAction(const FString& Action, float Value, const FString&
     }
     if (Action == TEXT("avatar.person"))
     {
-        Settings.AvatarPerson = FMath::Clamp(FMath::RoundToInt(Value), 0, 0);
+        Settings.AvatarPerson = FMath::Clamp(FMath::RoundToInt(Value), 0, ABorn2FlapAvatar::GetPersonCount() - 1);
         if (Bird.IsValid()) Bird->SetAvatarPerson(Settings.AvatarPerson);
         Build();
         return;
@@ -1696,6 +1807,22 @@ void ABorn2FlapMenu::OnAction(const FString& Action, float Value, const FString&
         Build();   // rebuild at the new scale so every token re-resolves
         return;
     }
+    if (Action == TEXT("display.windowmode"))
+    {
+        Settings.WindowMode = FMath::Clamp(FMath::RoundToInt(Value), 0, 2);
+        ApplyDisplaySettings();
+        PersistSettings();
+        Build();
+        return;
+    }
+    if (Action == TEXT("display.followres"))
+    {
+        Settings.bFollowSystemResolution = !Settings.bFollowSystemResolution;
+        ApplyDisplaySettings();
+        PersistSettings();
+        Build();
+        return;
+    }
     if (Action == TEXT("resolution.set"))
     {
         FIntPoint Native;
@@ -1704,23 +1831,19 @@ void ABorn2FlapMenu::OnAction(const FString& Action, float Value, const FString&
         BuildResolutionOptions(Native, Resolutions, CurRes);
         const int32 Idx = FMath::Clamp(FMath::RoundToInt(Value), 0, Resolutions.Num() - 1);
 
-        UGameUserSettings* GUS = GEngine ? GEngine->GetGameUserSettings() : nullptr;
-        if (GUS)
+        if (Idx == 0)
         {
-            if (Idx == 0)
-            {
-                // Native → borderless fullscreen (fills the panel at its own size).
-                GUS->SetFullscreenMode(EWindowMode::WindowedFullscreen);
-            }
-            else
-            {
-                // Specific size → exclusive fullscreen so the resolution takes effect.
-                GUS->SetScreenResolution(Resolutions[Idx]);
-                GUS->SetFullscreenMode(EWindowMode::Fullscreen);
-            }
-            GUS->ApplyResolutionSettings(false);
-            GUS->SaveSettings();
+            // "Native" → follow the display's own size.
+            Settings.bFollowSystemResolution = true;
+            Settings.Resolution = FIntPoint(0, 0);
         }
+        else
+        {
+            Settings.bFollowSystemResolution = false;
+            Settings.Resolution = Resolutions[Idx];
+        }
+        ApplyDisplaySettings();
+        PersistSettings();
         Build();
         return;
     }

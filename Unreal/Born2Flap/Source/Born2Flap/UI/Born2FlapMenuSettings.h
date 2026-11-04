@@ -42,6 +42,10 @@ struct FMenuSettings
         Tuning.elevator_scale = 55;
         Tuning.flap_centre_deg = 0;
         Tuning.vertical_mount_angle_deg = 0;
+        Tuning.return_ferocity = 50;
+        Tuning.yaw_scale = 60;
+        Tuning.stroke_skew_percent = 0;
+        Tuning.return_skew_percent = 0;
     }
     // -1 = never explicitly chosen → the level's default bird applies.
     int32 BirdModel = -1;
@@ -72,6 +76,13 @@ struct FMenuSettings
     // Global UI scale (mobile "UI scale" setting). 1.0 = design-token default;
     // applied to fonts, spacing, element sizes and corner radius via theme::Scale.
     float UIScale = 1.0f;
+    // Display: window mode + resolution. WindowMode 0 = exclusive fullscreen,
+    // 1 = borderless windowed (default), 2 = windowed. FollowSystemResolution
+    // pins the render size to the desktop's native size; Resolution holds the
+    // last explicit pick so toggling follow back off restores it.
+    int32 WindowMode = 1;
+    bool bFollowSystemResolution = true;
+    FIntPoint Resolution = FIntPoint(0, 0);
 };
 
 // Load/save the store from Config/FlightPreferences.ini (same keys as the pawn).
@@ -88,5 +99,21 @@ void MenuSettingsToPawn(const FMenuSettings& In, ABorn2FlapFlightPawn* Pawn);
 float MenuSettingsGetTuning(const FMenuSettings& S, ETuningField Field);
 void  MenuSettingsSetTuning(FMenuSettings& S, ETuningField Field, float Value);
 float MenuSettingsTuningClamp(ETuningField Field, float Value);
+
+// Reset a model's active tuning/mass/CG to its factory defaults and clear the
+// saved per-model profile so the next load falls back to the defaults.
+void MenuSettingsResetTuningForModel(FMenuSettings& S, int32 Model);
+// Load one model's saved tuning/mass/CG into the store (factory defaults when
+// no profile exists). Used on craft switch so the flight desk reflects the
+// newly selected silhouette immediately.
+void MenuSettingsLoadModelProfile(FMenuSettings& S, int32 Model);
+// INI section that holds a model's saved tuning override (empty if none).
+FString MenuSettingsModelTuningSection(int32 Model);
+
+// Apply the persisted window mode + resolution to the engine's
+// UGameUserSettings. Shared by the native menu (ABorn2FlapMenu) and the
+// Brain-authored menu (Born2FlapGameMode), so both paths honour the same
+// [Display] store.
+void ApplyDisplaySettings(const FMenuSettings& Settings);
 
 }  // namespace born2flap

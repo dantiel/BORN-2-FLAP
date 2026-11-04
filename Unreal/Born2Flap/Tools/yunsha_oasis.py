@@ -16,9 +16,13 @@ float n=(F.f(P.xy/2900)-.5)*.24;
 float fertile=1-smoothstep(.77,1.12,length(q)+n);
 float soil=smoothstep(.38,.67,F.f(P.xy/2400));
 '''+DRY_COLOUR+'''
-float3 grass=Texture2DSample(G,GSampler,P.xy/270).rgb*float3(.55,.88,.48);
-float3 earth=Texture2DSample(E,ESampler,P.xy/320).rgb*float3(.30,.22,.13);
-return lerp(dry,lerp(grass,earth,soil*.72),fertile);''',{
+float3 ground=dry;
+if (fertile>0.001){
+    float3 grass=Texture2DSample(G,GSampler,P.xy/270).rgb*float3(.55,.88,.48);
+    float3 earth=Texture2DSample(E,ESampler,P.xy/320).rgb*float3(.30,.22,.13);
+    ground=lerp(dry,lerp(grass,earth,soil*.72),fertile);
+}
+return ground;''',{
         'P':expr(mat,'WorldPosition'),'C':expr(mat,'CameraVectorWS'),
         'S':expr(mat,'TextureObject',texture=u.load_asset('/Game/Shiomori/Textures/T_SandBeach_Diffuse')),
         'G':expr(mat,'TextureObject',texture=u.load_asset('/Game/Nature/T_CampusGrass_Diffuse')),
