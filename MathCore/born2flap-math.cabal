@@ -12,6 +12,10 @@ library
       Born2Flap.Math.Section
       Born2Flap.Math.Structure
       Born2Flap.Math.Model
+      Born2Flap.Math.Json
+      Born2Flap.Math.B2fModel
+      Born2Flap.Math.B2fPackage
+      Born2Flap.Math.ModelCatalog
       Born2Flap.Math.Waveform
       Born2Flap.Math.Vehicle
       Born2Flap.Math.Firmware
@@ -26,7 +30,10 @@ library
       Born2Flap.Math.ResponsePhase
       Born2Flap.Math.Simulation
   hs-source-dirs: src
-  build-depends: base >=4.17 && <5
+  build-depends:
+      base >=4.17 && <5
+    , directory
+    , filepath
   default-language: GHC2021
   ghc-options: -Wall -Wcompat -O2
 
@@ -47,6 +54,9 @@ foreign-library born2flap_math
       Born2Flap.Math.Section
       Born2Flap.Math.Structure
       Born2Flap.Math.Model
+      Born2Flap.Math.Json
+      Born2Flap.Math.B2fModel
+      Born2Flap.Math.ModelCatalog
       Born2Flap.Math.Waveform
       Born2Flap.Math.Firmware
       Born2Flap.Math.Servo
@@ -62,6 +72,16 @@ foreign-library born2flap_math
   build-depends: base >=4.17 && <5
   default-language: GHC2021
   ghc-options: -Wall -Wcompat -O2
+
+executable born2flap-export-models
+  main-is: Main.hs
+  hs-source-dirs: tools/export-models
+  build-depends:
+      base >=4.17 && <5
+    , born2flap-math
+    , directory
+    , filepath
+  default-language: GHC2021
 
 test-suite math-properties
   type: exitcode-stdio-1.0

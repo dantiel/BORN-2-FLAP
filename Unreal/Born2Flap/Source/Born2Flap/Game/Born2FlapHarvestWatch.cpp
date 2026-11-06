@@ -116,7 +116,7 @@ void ABorn2FlapHarvestWatch::PoseBirds()
 FString ABorn2FlapHarvestWatch::Status() const
 {
     if(Round.Finished)return FString::Printf(TEXT("HARVEST WATCH | %s | %.0f / 1000 points | ENTER: retry"),Round.Score>0?TEXT("HARVEST SAVED"):TEXT("CROP LOST"),Round.Score);
-    if(!Round.Running)return TEXT("HARVEST WATCH | Launch the falcon to begin a 3-minute patrol");
+    if(!Round.Running)return TEXT("HARVEST WATCH | Launch the kestrel to begin a 3-minute patrol");
     return FString::Printf(TEXT("HARVEST WATCH | %02d:%02d | %.0f / 1000 crop points | %d scattered"),FMath::CeilToInt(Round.Remaining)/60,FMath::CeilToInt(Round.Remaining)%60,Round.Score,Round.Scares);
 }
 FString ABorn2FlapHarvestWatch::PlotStatus() const
@@ -180,7 +180,7 @@ void ABorn2FlapHarvestWatch::Validate()
     {Pass &= OK;UE_LOG(LogTemp,Display,TEXT("HarvestBehaviour %s: %s"),OK?TEXT("PASS"):TEXT("FAIL"),Name);};
     Check(CrowMeshes.Num()==18 && CrowEat && CrowLook && CrowFly && CrowGlide,TEXT("crow assets loaded"));
     for(const auto& C:CrowMeshes)Check(C && C->GetSkeletalMeshAsset() && C->GetMaterial(0),TEXT("crow mesh and material"));
-    Check(GM && GM->IsHarvestWatch() && Player && Player->GetBirdModel()==2,TEXT("activity and falcon selected"));
+    Check(GM && GM->IsHarvestWatch() && Player && Player->GetBirdModel()==2,TEXT("activity and kestrel selected"));
     Check(Player && FVector::Dist2D(Player->GetActorLocation(),FVector(0,-19400,480))<500,TEXT("field launch location"));
     const FVector Far(100000,100000,100000);
     FRound Test;Test.Reset();const auto Initial=Test.Birds;
@@ -190,7 +190,7 @@ void ABorn2FlapHarvestWatch::Validate()
     Test.Reset();Test.Running=true;Test.Step(.05f,Far,false);
     Check(Test.Score<1000 && Test.Scares==0,TEXT("feeding damage"));
     Test.Reset();const FVector Near=Test.Birds[0].Position;
-    Test.Step(.05f,Near,false);Check(Test.Scares==0,TEXT("parked falcon does not clear crops"));
+    Test.Step(.05f,Near,false);Check(Test.Scares==0,TEXT("parked kestrel does not clear crops"));
     Test.Step(.05f,Near,true);Check(Test.Birds[0].State==EState::Fleeing && Test.Scares>0,TEXT("takeoff before score starts"));
     const int Scares=Test.Scares;Test.Step(.05f,Near,true);Check(Test.Scares==Scares,TEXT("no repeated scare points during escape"));
     Test.Birds.SetNum(1);Test.Birds[0].Position=Test.Birds[0].Target;Test.Birds[0].Timer=10;

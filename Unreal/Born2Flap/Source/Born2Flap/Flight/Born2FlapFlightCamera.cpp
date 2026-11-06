@@ -148,9 +148,26 @@ void ABorn2FlapFlightPawn::CalcCamera(float Dt,FMinimalViewInfo& Out)
     if(bGroundView)
     {
         const FVector BirdPosition=Body->GetComponentLocation();
-        const FRotator Aim=(BirdPosition-GroundAnchor).Rotation();
-        GroundGaze=bGroundGazeReady ? FMath::RInterpTo(GroundGaze,Aim,Dt,18.f) : Aim;
-        bGroundGazeReady=true;
+        // A held/carried bird sits in (or right by) the pilot's hand, so the
+        // anchor→bird vector is a tiny hand-local vector that swings with the
+        // avatar's own facing. Auto-aiming GroundGaze at it chases the pilot's
+        // hand → the view spins and the throw launches in a random direction.
+        // Freeze GroundGaze at its last stable aim while held/carried; the mouse
+        // still re-aims via GroundLookYaw/Pitch during the throw wind-up.
+        if(!bBirdHeld && !bBirdCarried)
+        {
+            const FRotator Aim=(BirdPosition-GroundAnchor).Rotation();
+            GroundGaze=bGroundGazeReady ? FMath::RInterpTo(GroundGaze,Aim,Dt,18.f) : Aim;
+            bGroundGazeReady=true;
+        }
+        else if(!bGroundGazeReady)
+        {
+            // First-person entered while already holding/carrying: seed the gaze
+            // from the stable aim base so the view isn't stale/zero.
+            const float SeedYaw = bBirdHeld ? ThrowBaseYaw : CarryBaseYaw;
+            GroundGaze = FRotator(0.f, SeedYaw, 0.f);
+            bGroundGazeReady = true;
+        }
         auto Noise=[this](float Rate,float Seed) { return FMath::PerlinNoise1D(float(CameraTime)*Rate+Seed); };
         const FVector Drift(Noise(.8f,31)*1.1,Noise(.6f,93)*1.1,Noise(1.3f,17)*.5);
         const FRotator Tremor(Noise(2.2f,51)*.22,Noise(1.8f,12)*.28,Noise(.7f,85)*.15);
@@ -178,7 +195,14 @@ void ABorn2FlapFlightPawn::CalcCamera(float Dt,FMinimalViewInfo& Out)
         // (ActorArmLength, zoom — close enough switches to first person).
         FVector ToBird = Body->GetComponentLocation() - GroundAnchor;
         ToBird.Z = 0.f;
-        const float BaseYaw = ToBird.IsNearlyZero() ? float(GroundGaze.Yaw) : ToBird.Rotation().Yaw;
+        // While carrying, the bird is in the pilot's hand so the anchor→bird
+        // direction is degenerate; anchor the over-the-shoulder rig to the facing
+        // captured at pickup instead, so MMB-drag keeps rotating the pilot.
+        const float BaseYaw = bBirdHeld
+            ? ThrowBaseYaw
+            : bBirdCarried
+                ? CarryBaseYaw
+                : (ToBird.IsNearlyZero() ? float(GroundGaze.Yaw) : ToBird.Rotation().Yaw);
         const float FaceYaw = BaseYaw + ActorOrbitYaw;
         const FVector Fwd = FRotator(0.f, FaceYaw, 0.f).Vector();
         const FVector CamPos = GroundAnchor - Fwd * ActorArmLength + FVector(0.f, 0.f, 70.f);

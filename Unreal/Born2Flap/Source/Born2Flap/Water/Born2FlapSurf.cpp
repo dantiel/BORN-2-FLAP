@@ -151,7 +151,7 @@ void ABorn2FlapSurf::Tick(float Dt)
             if(Kind==0) Z+=LiquidZ+50+2;
             else Z=FMath::Max(Z,LiquidZ+4);
             Vertices.Add(FVector(X,Shore+Y,Z));
-            Normals.Add(FVector::UpVector);
+            Normals.Add(FVector::ZeroVector);
             UV.Add(FVector2D(X*.003,V));
             Colors.Add(FLinearColor(Foam,Kind==1 ? 1.f : 0.f,0,Alpha));
         }
@@ -165,16 +165,29 @@ void ABorn2FlapSurf::Tick(float Dt)
             Triangles.Append({A,B,A+1,A+1,B,B+1});
         }
     }
-    // Geometric normals retain the curl silhouette and catch low sunlight.
-    for(int I=0;I<Vertices.Num();++I) Normals[I]=FVector::ZeroVector;
-    for(int I=0;I<Triangles.Num();I+=3)
+    // Smooth normals from the curled-crest geometry so the foam shades like a
+    // breaking wave (top bright, under-curl slightly darker) instead of a flat
+    // uniformly-lit sheet. Faces are averaged per-vertex (no hard facets), and
+    // the Z is biased upward so overhang faces never flip to read as top-lit —
+    // this avoids the old shoreline-orthogonal "ribs" and dark facets under low
+    // sun while still giving the 3D curl water-like form.
+    for(FVector& N : Normals) N = FVector::ZeroVector;
+    for(int t=0;t+2<Triangles.Num();t+=3)
     {
-        int A=Triangles[I],B=Triangles[I+1],C=Triangles[I+2];
-        FVector N=FVector::CrossProduct(Vertices[B]-Vertices[A],Vertices[C]-Vertices[A]);
-        if(N.Z<0) N=-N;
-        Normals[A]+=N;Normals[B]+=N;Normals[C]+=N;
+        const FVector A=Vertices[Triangles[t]], B=Vertices[Triangles[t+1]], C=Vertices[Triangles[t+2]];
+        const FVector FN=FVector::CrossProduct(B-A, C-A);
+        if(FN.IsNearlyZero()) continue;
+        Normals[Triangles[t]]+=FN;
+        Normals[Triangles[t+1]]+=FN;
+        Normals[Triangles[t+2]]+=FN;
     }
-    for(auto& N:Normals) N=N.GetSafeNormal();
+    for(FVector& N : Normals)
+    {
+        if(N.IsNearlyZero()) { N=FVector::UpVector; continue; }
+        N.Normalize();
+        N.Z=FMath::Max(N.Z, 0.35);
+        N.Normalize();
+    }
     if(!bCreated) Mesh->CreateMeshSection_LinearColor(0,Vertices,Triangles,Normals,UV,Colors,{},false);
     else Mesh->UpdateMeshSection_LinearColor(0,Vertices,Normals,UV,Colors,{});
     bCreated=true;

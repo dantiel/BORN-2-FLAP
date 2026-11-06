@@ -95,7 +95,11 @@ noise=node(m,'Noise',levels=3,output_min=0.,output_max=1.);connect(scaled,noise,
 # connect_material_expressions silently drops the FExpressionInput in UE 5.8 —
 # the SM6 shader then fails ("missing input 1 (F)") and the mesh falls back to
 # the grey Default Material checkerboard. Inline the foam mask instead.
-color=custom(m,'return lerp(float3(.05,.42,.46),float3(.92,.95,.95),saturate(C.r*(.20+1.35*N)));',{'N':noise,'C':vc},3)
+# Foam is bright white with only a whisper of noise and crest brightening. The
+# old lerp toward a dark teal base (0.05,0.42,0.46) left a dark translucent band
+# at the base of the crest that read as an unnatural shadow over the water.
+# Fade-to-liquid is carried by OPACITY, so BASE_COLOR stays white.
+color=custom(m,'return float3(.94,.96,.96)*(0.85+0.10*N+0.05*C.r);',{'N':noise,'C':vc},3)
 output(color,'BASE_COLOR')
 output(node(m,'Constant',r=.35),'ROUGHNESS')
 # The VertexColor node's output pin is MCT_Float3 (alpha masked out) — passing

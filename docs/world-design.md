@@ -30,7 +30,7 @@ the lesson *and* the mood of an existing world, it is a reskin, not a world.
 | Yúnshā *(planned)* | vast, ancient, sun-scorched sacred silence | thermal + ridge soaring — read invisible air, earn altitude, land on a cloud-summit |
 
 > **Cosmology:** Yúnshā is the **Age of Iron (玄铁)** — the present-day
-> threshold of the Ages frame (Source 鸿蒙, Gold 鎏金, Silver 素银, Bronze 赤铜,
+> threshold of the Ages frame (Source 空迷殿, Gold 鎏金, Silver 素银, Bronze 赤铜,
 > Jade 玉京), woven into [yunsha.md](yunsha.md) as six realms threaded through
 > one gorge by time and space.
 

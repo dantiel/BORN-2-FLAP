@@ -13,7 +13,7 @@
 extern "C" {
 #endif
 
-#define B2F_MATH_ABI_VERSION 19u
+#define B2F_MATH_ABI_VERSION 20u
 
 typedef struct B2F_MathContext B2F_MathContext;
 
@@ -165,6 +165,20 @@ B2F_API int32_t b2f_math_set_wing_model(B2F_MathContext* context, uint32_t model
  * mass, so per-model mass lives in the math core's model config, never as a
  * host-side constant. Additive ABI v13 extension. */
 B2F_API double b2f_math_get_model_mass_kg(uint32_t model_id);
+/* ── Model-format ABI (additive v20) ───────────────────────────────────────
+ * A Born2Flap model is data, not code. b2f_math_load_model() parses a
+ * .b2f-model manifest (JSON text) and registers the bird in the runtime
+ * catalog by its `name`; b2f_math_set_wing_model_by_name() then selects it.
+ * The count/name pair enumerates the catalog (built-ins + loaded). These are
+ * the exchange/custom-model entry points; the id-based dispatch above remains
+ * for backward compatibility. Older hosts simply never call these. */
+B2F_API int32_t b2f_math_load_model(const char* manifest_json);
+B2F_API int32_t b2f_math_set_wing_model_by_name(B2F_MathContext* context, const char* name);
+B2F_API uint32_t b2f_math_get_model_count(void);
+/* Writes the NUL-terminated name of catalog model `index` into `buffer`
+ * (capacity `buffer_size` bytes). Returns 1 on success, 0 on out-of-range or
+ * an undersized buffer. */
+B2F_API int32_t b2f_math_get_model_name(uint32_t index, char* buffer, uint32_t buffer_size);
 /* Optional, read-only ABI v4 extension. No changes to existing output layouts.
  * Root-to-tip strip midpoints, left then right in separate caller-owned arrays.
  * Returns station count, or 0 for invalid arguments/insufficient capacity or an

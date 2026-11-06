@@ -73,12 +73,14 @@ DesertRelief desert;
 DRY_COLOUR = r'''
 float2 ray = C.xy / max(abs(C.z), 0.3);
 float2 sandUV = P.xy - clamp(desert.height(P.xy) * ray, float2(-5, -5), float2(5, 5));
-float3 sdFine  = shore.sampleSurface(S, SSampler, sandUV / 360.0, false);
+float3 sdFine  = shore.sampleSurface(S, SSampler, sandUV / 110.0, false);
+float3 sdMid   = shore.sampleSurface(S, SSampler, sandUV / 360.0, false);
 float3 sdBroad = shore.sampleSurface(S, SSampler, sandUV / 2200.0, false);
-float3 sdTex = lerp(sdFine, sdBroad, 0.32);
+float3 sdTex = lerp(lerp(sdFine, sdMid, 0.5), sdBroad, 0.30);
 float sdVar = relief.fbm(sandUV * 0.00009) + 0.5;
-float3 dry = sdTex * lerp(float3(0.90, 0.72, 0.52), float3(1.06, 0.86, 0.62), sdVar);
-dry *= 0.93 + 0.07 * saturate(desert.height(sandUV) + 0.6);
+// Wider tonal swing so the grain reads clearly instead of washing flat.
+float3 dry = sdTex * lerp(float3(0.84, 0.66, 0.46), float3(1.10, 0.90, 0.66), sdVar);
+dry *= 0.90 + 0.10 * saturate(desert.height(sandUV) + 0.6);
 '''
 
 

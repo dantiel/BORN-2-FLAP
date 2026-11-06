@@ -36,8 +36,8 @@ double EastShoreHeight(double X,double Y,double Original)
     H+=Shoulder*(260+310*FMath::PerlinNoise2D(FVector2D(X*.00045,Y*.00045))
         +95*FMath::PerlinNoise2D(FVector2D(X*.002,Y*.002)));
     // The concrete compound occupies a small cut terrace behind the shoulder.
-    const double Pad=(1-FMath::SmoothStep(2300.,3400.,FMath::Abs(X-81600)))
-        *(1-FMath::SmoothStep(1800.,2900.,FMath::Abs(Y-28800)));
+    const double Pad=(1-FMath::SmoothStep(4400.,5600.,FMath::Abs(X-81600)))
+        *(1-FMath::SmoothStep(4000.,5200.,FMath::Abs(Y-41800)));
     H=FMath::Lerp(H,740.,Pad);
     return FMath::Lerp(Original,H,Mask);
 }
@@ -91,7 +91,7 @@ void ABorn2FlapBayTerrain::BuildEastShore()
     for(int I=0;I<170;++I)
     {
         const double X=R.FRandRange(59500,96000),Y=R.FRandRange(16500,43500);
-        if(FMath::Abs(X-81600)<3900 && FMath::Abs(Y-28800)<3400)continue;
+        if(FMath::Abs(X-81600)<5400 && FMath::Abs(Y-41800)<5200)continue;
         if(Born2FlapBay::Height(X,Y)<220)continue;
         const double Size=R.FRandRange(230,760);
         Place(Stone,X,Y,Size,true,Size*.43,R);
@@ -132,7 +132,7 @@ void ABorn2FlapBayTerrain::BuildEastShore()
     for(int I=0;I<23000;++I)
     {
         const double X=R.FRandRange(53000,101000),Y=R.FRandRange(12000,53000);
-        if(FMath::Abs(X-81600)<3500 && FMath::Abs(Y-28800)<2900)continue;
+        if(FMath::Abs(X-81600)<5400 && FMath::Abs(Y-41800)<5200)continue;
         if(Born2FlapBay::EastShoreMask(X,Y)<.35)continue;
         const double H=Born2FlapBay::Height(X,Y),D=Y-Born2FlapBay::EastShoreEdge(X);
         if(H<115 || D>-1700)continue;

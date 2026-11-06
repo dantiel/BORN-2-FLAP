@@ -64,7 +64,7 @@ circulationLiftEfficiency = 0.85
 -- Shared membrane/plate coefficients for wings and ruddervators. Effective
 -- low-Re calibration, not measured material data. Pressure is always passive.
 surfaceSkinCd :: Double
-surfaceSkinCd = 0.009
+surfaceSkinCd = 0.012
 
 -- Flat-plate normal-pressure coefficient for wings and ruddervators.
 surfacePressureCp :: Double
@@ -101,6 +101,15 @@ springLoadTau = 0.05
 -- (a livelier "bounce") without fully undamping the structure.
 structuralDampingRatio :: Double
 structuralDampingRatio = 0.15
+
+-- | Rotational (Kramer) lift coefficient: the extra circulation a section gains
+-- when it pitches about its span axis. Flat-plate theory gives pi*(3/4-x0) times
+-- (c*pitchRate)/V, i.e. ~2.36 for a leading-edge pivot and ~0.785 for a mid-chord
+-- pivot (the classic pi/4). The aeroelastic twist pivots about the LE spar, so
+-- 0.785 is the conservative lower bound — the previous 0.20 was a ~4x-de-tuned
+-- calibration, not a measured value.
+rotationalLiftCoefficient :: Double
+rotationalLiftCoefficient = 0.785
 
 groundEffectLiftGain, groundEffectDragRelief :: Double
 groundEffectLiftGain = 0.30
@@ -498,7 +507,7 @@ stepStripPreparedMotion station aspectRatio implicitLoads _phaseRate _flapping s
       -- The latter duplicated added-air inertia and introduced timestep feedback.
       sectionPitchRate = stripTwistRateRadS old - side * dot
                            (addVec rates (Vec3 (side*strokeRate) 0 0)) spanAxis
-      rotationalCl = clamp (-0.65) 0.65 (0.20 * chord * sectionPitchRate / safeSpeed)
+      rotationalCl = clamp (-0.65) 0.65 (rotationalLiftCoefficient * chord * sectionPitchRate / safeSpeed)
       -- Keep separation/LEV memory fixed during the implicit mechanical solve.
       -- Updating its discrete vortex gate at each trial velocity can leave no
       -- root at all. Advance that memory once in `next` after convergence.

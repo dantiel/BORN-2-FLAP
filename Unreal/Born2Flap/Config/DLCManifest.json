@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "worlds": [
+    {
+      "name": "Murex",
+      "chunk_id": 1,
+      "world_version": "1.0.0",
+      "download_url": "https://github.com/OWNER/born2flap-worlds/releases/download/murex-v1.0.0/Murex.b2f-world",
+      "size_bytes": 0,
+      "sha1": ""
+    },
+    {
+      "name": "NeonAbyss",
+      "chunk_id": 2,
+      "world_version": "1.0.0",
+      "download_url": "https://github.com/OWNER/born2flap-worlds/releases/download/neonabyss-v1.0.0/NeonAbyss.b2f-world",
+      "size_bytes": 0,
+      "sha1": ""
+    },
+    {
+      "name": "Ravenstonefield",
+      "chunk_id": 3,
+      "world_version": "1.0.0",
+      "download_url": "https://github.com/OWNER/born2flap-worlds/releases/download/ravenstonefield-v1.0.0/Ravenstonefield.b2f-world",
+      "size_bytes": 0,
+      "sha1": ""
+    },
+    {
+      "name": "Yunsha",
+      "chunk_id": 4,
+      "world_version": "1.0.0",
+      "download_url": "https://github.com/OWNER/born2flap-worlds/releases/download/yunsha-v1.0.0/Yunsha.b2f-world",
+      "size_bytes": 0,
+      "sha1": ""
+    }
+  ]
+}

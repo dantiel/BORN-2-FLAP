@@ -383,7 +383,7 @@ void ABorn2FlapMenu::BeginPlay()
     // Apply the persisted language before the first Build() so every localized
     // string (nav rail, pane titles, HUD/status via the shared locale) is right.
     Born2Flap::I18n::SetLocale(Settings.Language);
-    for(const FString Level:{FString(TEXT("Ravenstonefield")),FString(TEXT("Shiomori")),FString(TEXT("Training")),FString(TEXT("NeonAbyss")),FString(TEXT("Yunsha")),FString(TEXT("Murex"))})
+    for(const FString& Level:{FString(TEXT("Ravenstonefield")),FString(TEXT("Shiomori")),FString(TEXT("Training")),FString(TEXT("NeonAbyss")),FString(TEXT("Yunsha")),FString(TEXT("Murex"))})
         LevelConditions.Add(Level,Born2FlapWeather::Load(Level));
     Build();
     if(FParse::Param(FCommandLine::Get(),TEXT("B2FWeatherMenuTest")))

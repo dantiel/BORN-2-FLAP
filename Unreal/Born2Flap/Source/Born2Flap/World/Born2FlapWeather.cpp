@@ -126,7 +126,7 @@ void ABorn2FlapWeather::Apply()
         auto* Fog=GetWorld()->SpawnActor<AExponentialHeightFog>();
         Fog->GetComponent()->SetFogDensity(W.Fog);
     }
-    // Yunsha's standing cloud (the perpetual gorge mist, 鸿蒙 the Source) thins in
+    // Yunsha's standing cloud (the perpetual gorge mist, 空迷殿 the Source) thins in
     // the dry season and thickens under monsoon/mist. The map authored it as
     // LocalFogVolumes tagged YunshaCloud; re-tune their density to weather+season.
     if(Level==TEXT("Yunsha"))
@@ -228,7 +228,7 @@ void ABorn2FlapWeather::Apply()
     Wetness=W.Rain ? .45f : 0;
     // Winter snow settles deeper and lingers; summer/spring snow is a light dust.
     SnowCoverage=W.Snow ? (.30f+.25f*Ssn.SnowBias) : 0;
-    Splashes->ClearInstances();SplashPositions.SetNum(96);SplashAges.Init(1.f,96);
+    Splashes->ClearInstances();SplashPositions.Init(FVector::ZeroVector,96);SplashAges.Init(1.f,96);
     Splashes->SetStaticMesh(LoadObject<UStaticMesh>(nullptr,TEXT("/Engine/BasicShapes/Plane")));
     Splashes->SetMaterial(0,LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Weather/M_RainSplash")));
     for(int I=0;I<96;++I) Splashes->AddInstance(FTransform(FQuat::Identity,FVector::ZeroVector,FVector::ZeroVector));
@@ -557,8 +557,8 @@ void ABorn2FlapWeather::CheckExperienceTest()
         CastChecked<ACameraActor>(ExperienceCamera)->GetCameraComponent()->SetFieldOfView(70);
         if(FParse::Param(FCommandLine::Get(),TEXT("B2FEasternStationTest")))
         {
-            const FVector StationEyes[]={FVector(50500,17000,Born2FlapBay::Height(50500,17000)+180),FVector(76900,27900,Born2FlapBay::Height(76900,27900)+180),FVector(86500,55000,1100),FVector(73500,36500,6500)};
-            const FVector StationTargets[]={FVector(81100,29000,1500),FVector(81200,29300,1100),FVector(88500,52000,0),FVector(81500,29000,900)};
+            const FVector StationEyes[]={FVector(50500,17000,Born2FlapBay::Height(50500,17000)+180),FVector(76900,39900,Born2FlapBay::Height(76900,39900)+180),FVector(86500,57000,1100),FVector(74000,47000,6500)};
+            const FVector StationTargets[]={FVector(80800,42800,1500),FVector(80800,43100,1100),FVector(83500,44500,0),FVector(81200,42600,900)};
             ExperienceCamera->SetActorLocationAndRotation(StationEyes[Index],(StationTargets[Index]-StationEyes[Index]).Rotation());
         }
         if(FParse::Param(FCommandLine::Get(),TEXT("B2FEastStrandTest")))

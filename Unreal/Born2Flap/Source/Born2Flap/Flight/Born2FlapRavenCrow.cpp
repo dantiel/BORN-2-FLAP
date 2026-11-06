@@ -246,7 +246,7 @@ constexpr float KestrelFuselageYScale = KestrelFuselageWidthCm / 15.34f;
 
 // Tail fan: the root tucks under the elongated body taper (body aft end ~-53.5)
 // so the body extends a bit further over the fan; the tip sits at the overall
-// falcon length. Authored tail points run X -61 (root) to -112.0293 (tip) with
+// kestrel length. Authored tail points run X -61 (root) to -112.0293 (tip) with
 // Y +/-22; UVs stay pinned to the T_KestrelTail feather raster. The mapping is
 // expressed through the authored span (negative delta) so the fan always sweeps
 // AFT — root nearer the nose, tip further aft. Tuning pass: fan moved forward
@@ -388,7 +388,7 @@ USceneComponent* Born2FlapRaven::Build(AActor* Owner, USceneComponent* Parent,
     }
     if (Design == 2)
     {
-        // Kestrel (falcon): the authored fuselage mesh + textured tail membrane.
+        // Common kestrel: the authored fuselage mesh + textured tail membrane.
         // The mesh is yawed 180 (nose forward) and scaled by the layout constants
         // above; the fuselage reaches aft past the wing TE to overlap the tail fan.
         auto* Fuselage = NewObject<UStaticMeshComponent>(Owner, TEXT("KestrelFuselage_2"));
@@ -407,10 +407,11 @@ USceneComponent* Born2FlapRaven::Build(AActor* Owner, USceneComponent* Parent,
 
         BuildKestrelTail(Owner, TailPivot);
 
-        // Preserve the authored shoulder; the physics includes this offset.
+        // Authored shoulder lowered 2 cm so the wing sits on the scaled fuselage;
+        // the span offset (Side * 1) is also present in the physics.
         for (int Side : {-1, 1})
         {
-            auto* Shoulder = Node(*FString::Printf(TEXT("RavenShoulder%d"), Side), RavenRoot, FVector(3, Side * 1., 4));
+            auto* Shoulder = Node(*FString::Printf(TEXT("RavenShoulder%d"), Side), RavenRoot, FVector(3, Side * 1., 2));
             if (Side < 0) OutLeftShoulder = Shoulder; else OutRightShoulder = Shoulder;
             auto* Wing = NewObject<UBorn2FlapWingMesh>(Owner, *FString::Printf(TEXT("RavenWing%d_%d"), Side, Design));
             Owner->AddInstanceComponent(Wing);

@@ -1024,7 +1024,7 @@ void ABorn2FlapGameMode::Tick(float DeltaSeconds)
             {
                 // New granite shoulder and terrace probes deliberately avoid
                 // placed stones: terrain collision must agree with flight height.
-                for(const FVector2D Point:{FVector2D(65000,20000),FVector2D(72000,32000),FVector2D(81600,28800)})
+                for(const FVector2D Point:{FVector2D(65000,20000),FVector2D(72000,32000),FVector2D(81600,41800)})
                 {
                     FHitResult Hit;const double H=Born2FlapBay::Height(Point.X,Point.Y);
                     const bool Found=GetWorld()->LineTraceSingleByChannel(Hit,FVector(Point.X,Point.Y,H+50),FVector(Point.X,Point.Y,H-100),ECC_Visibility);
@@ -1033,7 +1033,7 @@ void ABorn2FlapGameMode::Tick(float DeltaSeconds)
                     UE_LOG(LogTemp,Display,TEXT("EastGraniteCollision x=%.0f y=%.0f error=%.1f"),Point.X,Point.Y,Error);
                 }
                 FHitResult Door;
-                const bool Locked=GetWorld()->LineTraceSingleByChannel(Door,FVector(79500,28130,900),FVector(79900,28130,900),ECC_Visibility);
+                const bool Locked=GetWorld()->LineTraceSingleByChannel(Door,FVector(78600,40795,900),FVector(79000,40795,900),ECC_Visibility);
                 EastShorePass &= Locked;
                 UE_LOG(LogTemp,Display,TEXT("EastBunkerDoor blocked=%d"),Locked);
                 UE_LOG(LogTemp,Display,TEXT("EastShoreCollisionTest %s: shore, granite, terrace and locked bunker"),EastShorePass?TEXT("PASS"):TEXT("FAIL"));

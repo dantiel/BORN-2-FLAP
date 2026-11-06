@@ -127,3 +127,6 @@ $null
 /.build-tmp/
 /scratch/
 /scratch_mathcore.diff
+# wasm3/ghc-wasm native build outputs (regenerate via Tools/build-wasm3-android.sh)
+Native/lib/
+MathCore/tools/export-models/

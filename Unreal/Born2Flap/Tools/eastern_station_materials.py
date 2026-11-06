@@ -20,7 +20,7 @@ def build(scope):
     lib, ela = u.MaterialEditingLibrary, u.EditorAssetLibrary
     for name, tint, rough in [('EastGranite',(.36,.355,.335),.88),
                               ('EastBasalt',(.065,.07,.068),.94),
-                              ('EastConcrete',(.28,.29,.27),.92),
+                              ('EastConcrete',(.60,.59,.56),.88),
                               ('EastMetal',(.105,.13,.12),.71),
                               ('EastDish',(.43,.45,.42),.78)]:
         m=scope['pbr_material'](name,color=tint,rough=rough)

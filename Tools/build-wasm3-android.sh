@@ -64,6 +64,7 @@ WASM3_SRCS=(
     "$WASM3/source/m3_info.c"
     "$WASM3/source/m3_module.c"
     "$WASM3/source/m3_parse.c"
+    "$WASM3/source/m3_validate.c"
 )
 
 OBJS=()
@@ -72,7 +73,10 @@ for src in "${WASM3_SRCS[@]}"; do
     obj="$OUT_DIR/$(basename "${src%.c}").o"
     "$CLANG" -O2 -fno-strict-aliasing -fno-omit-frame-pointer \
         -Dd_m3VerboseErrorMessages=1 \
-        -I"$WASM3/source" -c "$src" -o "$obj"
+        -Dd_m3HasWASI=1 \
+        -I"$WASM3/source" \
+        -include "$REPO_ROOT/Native/include/getentropy_shim.h" \
+        -c "$src" -o "$obj"
     OBJS+=("$obj")
 done
 

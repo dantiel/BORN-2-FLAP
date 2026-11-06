@@ -119,4 +119,36 @@ double WindwardLift(const FVector& P, const FVector& Wind, FHeightSampler Height
     }
     return FMath::Clamp(W * Best * 2.5, 0.0, 18.0);
 }
+
+double LeeDraft(const FVector& P, const FVector& Wind, FHeightSampler Height)
+{
+    const double W = FMath::Sqrt(Wind.X * Wind.X + Wind.Y * Wind.Y);
+    if (W < 0.25 || !Height) return 0.0;
+
+    // Lee downdraft lives on the sheltered face the air spills down after
+    // crossing a crest — which is upwind of a bird caught in the sinking rotor.
+    // Probe upwind (against the wind) so the obstacle the flow just descended
+    // (sea wall, headland, ridge, treeline, building) reads correctly on its
+    // lee side, not the upwash face. Work in metres.
+    const FVector2D Up = -FVector2D(Wind.X, Wind.Y).GetSafeNormal();
+    const double X = P.X / 100.0, Y = P.Y / 100.0, Z = P.Z / 100.0;
+    const double Ground = Height(P.X, P.Y) / 100.0;   // metres under the bird
+
+    // The sink is a foot-of-the-lee-slope effect: its reach is a few obstacle
+    // heights downwind of the crest and fades with height above it. Higher
+    // terrain (more relief) spills more air — the tallest/steepest obstacle
+    // upwind dominates locally.
+    double Best = 0.0;
+    for (double D : { 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0, 256.0, 512.0, 1024.0, 2048.0, 4096.0 })
+    {
+        const double H = Height((X + Up.X * D) * 100.0, (Y + Up.Y * D) * 100.0) / 100.0;
+        const double Relief = H - Ground;
+        if (Relief <= 0.0) continue;
+        if (D > Relief * 5.0) continue;   // beyond the lee-sink reach
+        const double Falloff = FMath::Exp(-FMath::Max(0.0, Z - H) / FMath::Max(60.0, Relief * 0.9));
+        Best = FMath::Max(Best, (Relief / (D + Relief)) * Falloff);
+    }
+    // Signed downward: callers add it straight onto Result.Z.
+    return -FMath::Clamp(W * Best * 2.0, 0.0, 14.0);
+}
 }

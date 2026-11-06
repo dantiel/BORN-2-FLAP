@@ -187,7 +187,7 @@ B2F_EXPORT HsWord32 b2f_math_abi_version(void) {
      * constant instead of a call into the (uninitialised) Haskell RTS.
       * KEEP IN SYNC with B2F_MATH_ABI_VERSION in Native/include/born2flap_math.h
       * and b2f_math_abi_version in MathCore/src/Born2Flap/Math/FFI.hs. */
-     return 19;
+     return 20;
 }
 
 B2F_EXPORT HsInt32 b2f_math_runtime_init(void) {
@@ -261,6 +261,22 @@ B2F_EXPORT HsInt32 b2f_math_set_wing_model(HsPtr context, HsWord32 model_id) {
 extern HsDouble hs_b2f_math_get_model_mass_kg(HsWord32 model_id);
 B2F_EXPORT HsDouble b2f_math_get_model_mass_kg(HsWord32 model_id) {
     return hs_b2f_math_get_model_mass_kg(model_id);
+}
+extern HsInt32 hs_b2f_math_load_model(HsPtr manifest_json);
+B2F_EXPORT HsInt32 b2f_math_load_model(const char* manifest_json) {
+    return hs_b2f_math_load_model((HsPtr)manifest_json);
+}
+extern HsInt32 hs_b2f_math_set_wing_model_by_name(HsPtr context, HsPtr name);
+B2F_EXPORT HsInt32 b2f_math_set_wing_model_by_name(HsPtr context, const char* name) {
+    return hs_b2f_math_set_wing_model_by_name(context, (HsPtr)name);
+}
+extern HsWord32 hs_b2f_math_get_model_count(void);
+B2F_EXPORT HsWord32 b2f_math_get_model_count(void) {
+    return hs_b2f_math_get_model_count();
+}
+extern HsInt32 hs_b2f_math_get_model_name(HsWord32 index, HsPtr buffer, HsWord32 buffer_size);
+B2F_EXPORT HsInt32 b2f_math_get_model_name(HsWord32 index, char* buffer, HsWord32 buffer_size) {
+    return hs_b2f_math_get_model_name(index, (HsPtr)buffer, buffer_size);
 }
 extern HsInt32 hs_b2f_math_get_mass_properties(HsPtr context, HsDouble cg_x, HsPtr output);
 B2F_EXPORT HsInt32 b2f_math_get_mass_properties(HsPtr context, HsDouble cg_x, HsPtr output) {

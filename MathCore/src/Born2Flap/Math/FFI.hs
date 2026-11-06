@@ -21,10 +21,13 @@ import Control.Exception (SomeException, catch)
 import Data.IORef
 import Data.Int (Int32)
 import Data.Word (Word32)
-import Foreign.C.Types (CDouble(..), CInt(..), CUInt(..))
+import Foreign.C.String (CString, peekCString)
+import Foreign.C.Types (CDouble(..), CChar(..), CInt(..), CUInt(..))
+import Foreign.Marshal.Array (pokeArray)
 import Foreign.Ptr
 import Foreign.StablePtr
 import Foreign.Storable
+import Born2Flap.Math.ModelCatalog
 
 foreign export ccall "hs_b2f_math_abi_version" b2f_math_abi_version :: IO Word32
 foreign export ccall "hs_b2f_math_get_wing_loads" b2f_math_get_wing_loads :: Ptr () -> Word32 -> Ptr () -> Ptr () -> IO Int32
@@ -41,6 +44,10 @@ foreign export ccall "hs_b2f_math_set_wind_phase_noise" b2f_math_set_wind_phase_
 foreign export ccall "hs_b2f_math_reconfigure_firmware_vehicle" b2f_math_reconfigure_firmware_vehicle :: Ptr () -> Ptr () -> IO Int32
 foreign export ccall "hs_b2f_math_set_wing_model" b2f_math_set_wing_model :: Ptr () -> Word32 -> IO Int32
 foreign export ccall "hs_b2f_math_get_model_mass_kg" b2f_math_get_model_mass_kg :: Word32 -> IO Double
+foreign export ccall "hs_b2f_math_load_model" b2f_math_load_model :: CString -> IO Int32
+foreign export ccall "hs_b2f_math_set_wing_model_by_name" b2f_math_set_wing_model_by_name :: Ptr () -> CString -> IO Int32
+foreign export ccall "hs_b2f_math_get_model_count" b2f_math_get_model_count :: IO Word32
+foreign export ccall "hs_b2f_math_get_model_name" b2f_math_get_model_name :: Word32 -> Ptr CChar -> Word32 -> IO Int32
 foreign export ccall "hs_b2f_math_get_wing_shape" b2f_math_get_wing_shape :: Ptr () -> Word32 -> Ptr () -> Ptr () -> IO Int32
 foreign export ccall "hs_b2f_math_get_wing_forces" b2f_math_get_wing_forces :: Ptr () -> Word32 -> Ptr () -> Ptr () -> IO Int32
 foreign export ccall "hs_b2f_math_get_wing_fields" b2f_math_get_wing_fields :: Ptr () -> Word32 -> Ptr () -> Ptr () -> IO Int32
@@ -273,7 +280,7 @@ b2f_math_get_wing_forces contextPointer capacity leftPointer rightPointer
     failure :: SomeException -> IO Int32
     failure _ = pure 0
 b2f_math_abi_version :: IO Word32
-b2f_math_abi_version = pure 19
+b2f_math_abi_version = pure 20
 
 b2f_math_runtime_init :: IO Int32
 b2f_math_runtime_init = pure 1
@@ -409,7 +416,7 @@ b2f_math_create_firmware_vehicle configPointer = do
         , fwFlapBaseFreqDh = 32
         , fwProfile = (fwProfile defaultFirmwareParams)
             { profThrottleFrequencyMix = 100, profAileronSkewMix = 100
-            , profRudderAmplitudeDiff = 60, profRudderFerocityRange = 20
+            , profRudderAmplitudeDiff = 100, profRudderFerocityRange = 20
             , profAileronScale = 10, profElevatorScale = 55 }
         }
       context = FwContext flightParams servo battery defaultFirmwareVehicleState kestrelModel 0.050
@@ -468,6 +475,68 @@ modelById _ = kestrelModel     -- unknown ??? safe reference default
 -- mass, so per-model mass lives with the model config, never as a C++ constant.
 b2f_math_get_model_mass_kg :: Word32 -> IO Double
 b2f_math_get_model_mass_kg = pure . wmMassKg . modelById
+
+-- | Load a @.b2f-model@ manifest (JSON text) into the runtime catalog, keyed by
+-- the model's @name@. Returns 1 on success (model registered and selectable by
+-- name), 0 on parse/validation failure. Additive ABI v20 extension — the
+-- exchange/custom-model entry point; old hosts simply never call it.
+b2f_math_load_model :: CString -> IO Int32
+b2f_math_load_model jsonPointer
+  | jsonPointer == nullPtr = pure 0
+  | otherwise = run `catch` failure
+  where
+    run = do
+      text <- peekCString jsonPointer
+      result <- loadModelFromManifestText text
+      pure (case result of Right _ -> 1; Left _ -> 0)
+    failure :: SomeException -> IO Int32
+    failure _ = pure 0
+
+-- | Select the bird's physical model by its catalog @name@ (as loaded by
+-- 'b2f_math_load_model' or one of the built-ins). Returns 1 on success, 0 if
+-- the name is unknown. Additive ABI v20 extension — the name-based counterpart
+-- of the legacy id-based 'b2f_math_set_wing_model'.
+b2f_math_set_wing_model_by_name :: Ptr () -> CString -> IO Int32
+b2f_math_set_wing_model_by_name contextPointer namePointer
+  | contextPointer == nullPtr || namePointer == nullPtr = pure 0
+  | otherwise = run `catch` failure
+  where
+    run = do
+      name <- peekCString namePointer
+      mModel <- lookupModelByName name
+      case mModel of
+        Nothing -> pure 0
+        Just model -> do
+          contextRef <- deRefStablePtr (castPtrToStablePtr contextPointer :: StablePtr (IORef FwContext))
+          modifyIORef' contextRef (\context -> context { fwcModel = model, fwcMass = wmMassKg model })
+          pure 1
+    failure :: SomeException -> IO Int32
+    failure _ = pure 0
+
+-- | Number of models in the runtime catalog (built-ins + loaded). Additive ABI
+-- v20 extension; pairs with 'b2f_math_get_model_name' for enumeration.
+b2f_math_get_model_count :: IO Word32
+b2f_math_get_model_count = fromIntegral <$> modelCount
+
+-- | Name of the catalog model at @index@ (0-based, alphabetical), written
+-- NUL-terminated into the caller's buffer of @bufferSize@ bytes. Returns 1 on
+-- success, 0 if the index is out of range or the buffer is too small.
+b2f_math_get_model_name :: Word32 -> Ptr CChar -> Word32 -> IO Int32
+b2f_math_get_model_name index buffer bufferSize
+  | buffer == nullPtr || bufferSize < 2 = pure 0
+  | otherwise = run `catch` failure
+  where
+    run = do
+      mName <- modelNameAt (fromIntegral index)
+      case mName of
+        Nothing -> pure 0
+        Just name -> do
+          let budget = fromIntegral bufferSize - 1
+              cs = map (fromIntegral . fromEnum) (take budget name) :: [CChar]
+          pokeArray buffer (cs ++ [0])
+          pure 1
+    failure :: SomeException -> IO Int32
+    failure _ = pure 0
 
 -- | Apply a complete live tuning profile to an existing firmware-vehicle
 -- context. Servo, battery and the exposed controller knobs are swapped in

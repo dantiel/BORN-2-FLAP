@@ -824,7 +824,7 @@ UWidget* UBorn2FlapUIRenderer::CreateInstance(const std::string& Type)
         T == TEXT("Slider") || T == TEXT("Toggle") || T == TEXT("Select") ||
         T == TEXT("Segment") || T == TEXT("Dropdown") || T == TEXT("NumberBox") || T == TEXT("Field") ||
         T == TEXT("Caption") || T == TEXT("Section") ||
-        T == TEXT("Divider") || T == TEXT("ScrollBlur") || T == TEXT("Throttle"))
+        T == TEXT("Divider") || T == TEXT("ScrollBlur") || T == TEXT("ScrollBox") || T == TEXT("Throttle"))
     {
         return BuildComponent(T);
     }
@@ -838,15 +838,6 @@ UWidget* UBorn2FlapUIRenderer::CreateInstance(const std::string& Type)
     if (Type == "ProgressBar")   return NewObject<UProgressBar>(this);
     if (Type == "Image")         return NewObject<UImage>(this);
     if (Type == "Spacer")        return NewObject<USpacer>(this);
-    if (Type == "ScrollBox")
-    {
-        auto* Scroll = NewObject<UScrollBox>(this);
-        // Keep the scrollbar visible on touch devices: a bare UScrollBox with
-        // no scrollbar reads as a clipped list (only the first row visible)
-        // because nothing signals that more rows sit below the fold.
-        Scroll->SetScrollBarVisibility(ESlateVisibility::Visible);
-        return Scroll;
-    }
     if (Type == "ScaleBox") { auto* Scale=NewObject<UScaleBox>(this); Scale->SetStretch(EStretch::ScaleToFit); Scale->SetStretchDirection(EStretchDirection::DownOnly); return Scale; }
     if (Type == "SizeBox")       return NewObject<USizeBox>(this);
     if (Type == "WindArrow")     return NewObject<UBorn2FlapWindArrow>(this);
@@ -1505,6 +1496,10 @@ UBorn2FlapComposite* UBorn2FlapUIRenderer::BuildComponent(const FString& Type)
         C->SetPadding(FMargin(0.f));
 
         UScrollBox* Scroll = NewObject<UScrollBox>(this);
+        // Touch devices need a visible scrollbar or the clipped list reads as
+        // if it ends at the first row. The retainer material keeps the bar
+        // sharp inside the safe zone; only the edge band dissolves.
+        Scroll->SetScrollBarVisibility(ESlateVisibility::Visible);
 
         URetainerBox* Retainer = NewObject<URetainerBox>(this);
         static TStrongObjectPtr<UMaterialInterface> ScrollRetainerMat(

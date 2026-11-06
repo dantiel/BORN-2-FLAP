@@ -653,7 +653,11 @@ kestrelTailLoads incidenceDeg velocity rates = map at tailSamples
           pressure = scaleVec (surfacePressure patchArea ((-si)*u+ci*w)) normal
           (fx,fz) = tailSurfaceForAspect aspect patchArea incidence u w
           -- Spanwise skin drag is dissipative too; a flat fan has no hidden
-          -- vertical-fin area when the flow is along its span.
+          -- vertical-fin area when the flow is along its span. No ruddervator
+          -- or additional yaw/roll torque is injected here: the horizontal fan
+          -- only carries its real chordwise/normal forces plus this skin drag.
+          -- Roll→yaw (proverse) belongs to the wing's differential lift/drag and
+          -- the aft-fuselage side panel, both of which are real surfaces.
           fy = -0.5*airDensity*patchArea*surfaceSkinCd*abs(y flow)*y flow
           force = Vec3 fx fy fz
           drag = addVec force (scaleVec (-1) (addVec lift pressure))
@@ -671,7 +675,8 @@ bodyLiftPolar = PanelPolar 0.45 0.034 0.10 2.5
 -- supplies both sideslip resistance and the restoring yaw moment. Keep the
 -- zero-sideslip profile drag and the pitch panel unchanged.
 kestrelSidePolar :: PanelPolar
-kestrelSidePolar = bodyLiftPolar { ppClSlope = 0.52, ppCdPressureK = 2.875 }
+kestrelSidePolar = bodyLiftPolar { ppClSlope = 0.70, ppCdPressureK = 3.60 }
+
 
 -- | Centre of pressure of the fuselage aft-body + tail boom, BEHIND the CG.
 -- Everything aft acts like a wing fence / vertical stabiliser; this lever arm

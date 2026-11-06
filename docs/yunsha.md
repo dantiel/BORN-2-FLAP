@@ -10,7 +10,7 @@
 > threshold of the Ages cosmology (Hesiod's *Works and Days*, re-imagined as a
 > map threaded by time and space). Its Sky-Temples are the gates to the five
 > elder realms — the Jade Kingdom 玉京, Bronze 赤铜, Silver 素银, Gold 鎏金,
-> and the Source 鸿蒙. See **The Ages**, below.
+> and the Source 空迷殿. See **The Ages**, below.
 
 ---
 
@@ -55,7 +55,7 @@ invitation, and the Sky-Temples are its gates.
 
 | Realm | 名 Name | Sky (time) | Space (architecture) | Home on the map |
 | --- | --- | --- | --- | --- |
-| the Source | 鸿蒙 Hóngméng | beyond time — no sun | unformed cloud | the standing cloud + sky above the pillars |
+| the Source | 空迷殿 Kōngmí Diàn | beyond time — no sun | unformed cloud | the standing cloud + sky above the pillars |
 | Gold | 鎏金 Liújīn | eternal noon | golden peaks, sun-temples | the pillar summits — 鎏金顶 Liújīndǐng, "the Gilded Peaks" |
 | Silver | 素银 Sùyín | eternal moonlight | mirror-lakes, mirror-halls | the monsoon wadis — 素银镜湖 Sùyín Jìnghú, "the Silver Mirror-Lakes" |
 | Bronze | 赤铜 Chìtóng | storm-dawn | bronze cliffs, forge-cathedrals | the Grotto Cliff — 赤铜崖 Chìtóngyá, "the Bronze Cliff" |
@@ -94,7 +94,7 @@ Mirror-Lakes 素银镜湖 Sùyín Jìnghú** — the one age you can *remember b
 hold*, because its architecture is a reflection that vanishes with the water.
 
 **The Source — the cloud.** Above the peaks, the perpetual standing cloud is the
-**Source (鸿蒙 Hóngméng)** — the unformed vastness before the first sunrise. No
+**Source (空迷殿 Kōngmí Diàn — 'the aether')** — the unformed vastness before the first sunrise. No
 sun, no ground, only becoming. To go back to the source is to fly into the
 cloud and beyond.
 
@@ -218,7 +218,7 @@ sand-corridor, where the Pteronauts left three marks on the stone:
    — the "mist mountains". Their walls are sheer; no stair, no trail, no ramp
    reaches the top. The Pteronauts built their sun-temples on the summits
    precisely so that **only flight could enter** — and above the peaks, the
-   standing cloud is the Source 鸿蒙. Reaching one unassisted was the rite of
+   the standing cloud is the Source 空迷殿. Reaching one unassisted was the rite of
    passage for every young Pteronaut; in the game it is the world's central
    challenge and its crown POI.
 

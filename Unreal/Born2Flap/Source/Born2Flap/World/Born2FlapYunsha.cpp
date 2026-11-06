@@ -55,13 +55,41 @@ double ABorn2FlapYunsha::GroundHeight(double X,double Y)
         const double T=Phase-FMath::FloorToDouble(Phase);
         return T<.78 ? Smooth(0.,.78,T) : 1-Smooth(.78,1.,T);
     };
-    const double Warp=1600*FMath::Sin(Y*.000041)+900*FMath::Sin(X*.000027+Y*.000019);
+    // Multi-octave domain warp: the third octave makes the field sensitive to
+    // position (a "butterfly effect" of local forms), so no two dune lines repeat.
+    const double Warp=1600*FMath::Sin(Y*.000041)+900*FMath::Sin(X*.000027+Y*.000019)
+        +380*FMath::Sin(X*.000083-Y*.000061+1.7);
     const double Primary=Dune((X*.85+Y*.53+Warp)/11500);
     const double Secondary=Dune((-X*.46+Y*.89+1100*FMath::Sin(X*.000055))/7800);
     const double WindMix=Smooth(-.6,.6,FMath::Sin(X*.000013-Y*.000009));
-    const double Envelope=850+650*(.5+.5*FMath::Sin(X*.000018+Y*.000023));
-    double Height=100+Envelope*FMath::Lerp(Primary,Secondary,WindMix)
+    const double Envelope=1000+820*(.5+.5*FMath::Sin(X*.000018+Y*.000023));
+    double Height=120+Envelope*FMath::Lerp(Primary,Secondary,WindMix)
         +180*Dune((X*.96-Y*.28+Warp*.3)/3200);
+    // Grand characteristic dunes: a deterministic constellation of tall star /
+    // barchan peaks. Each carries its own height, footprint and a steep lee
+    // (slip) face, so the range reads as unique and monumental rather than a
+    // repeating ridge. The oasis, crescent and excavation are carved afterwards
+    // on top of these, so they never disturb the inhabited ground.
+    for(int i=0;i<14;i++)
+    {
+        const double Seed=i*12.9898+4.1415;
+        const double Hx=FMath::Frac(FMath::Sin(Seed*1.73)*43758.5453);
+        const double Hy=FMath::Frac(FMath::Sin(Seed*2.37)*43758.5453);
+        const double Hs=FMath::Frac(FMath::Sin(Seed*3.11)*43758.5453);
+        const double Ha=FMath::Frac(FMath::Sin(Seed*4.77)*43758.5453);
+        const double Cx=-220000+Hx*440000;
+        const double Cy=-140000+Hy*520000;
+        const double H=2600+Hs*5200;      // 26..78 m — genuinely grand
+        const double R=20000+Ha*30000;    // 200..500 m footprint
+        const double Ang=(Ha-.5)*1.3;     // slip-face orientation variety
+        const double DX=X-Cx,DY=Y-Cy;
+        const double Along=DX*FMath::Cos(Ang)+DY*FMath::Sin(Ang);
+        const double Across=-DX*FMath::Sin(Ang)+DY*FMath::Cos(Ang);
+        const double R2=FMath::Square(Along/R)+FMath::Square(Across/(R*1.35));
+        const double Dome=FMath::Exp(-R2*2.8);
+        const double Lee=FMath::Clamp(Along/R*.9+.5,0.,1.);
+        Height+=H*Dome*(1.-.45*Lee*Dome);
+    }
     const double Oasis=1-Smooth(1.,2.3,FMath::Sqrt(FMath::Square((X-4000)/23000)+FMath::Square((Y+50000)/19500)));
     Height=FMath::Lerp(Height,140.,Oasis);
     // The crescent is excavated in the same sampler used by generation.
@@ -185,13 +213,13 @@ void ABorn2FlapYunsha::ValidateWorld()
     Check(Harp->Sound && Bell->Sound,TEXT("generated-audio"));
     if(GM && GM->GetConditions().Time!=TEXT("night"))
     {
-        for(TActorIterator<ADirectionalLight> It(GetWorld());It;++It)
+        TActorIterator<ADirectionalLight> It(GetWorld());
+        if(It)
         {
             const FVector P(-14000,-52000,300);
             FHitResult Hit;FCollisionQueryParams Q(SCENE_QUERY_STAT(YunshaDaylight),true);
             Check(!GetWorld()->LineTraceSingleByObjectType(Hit,P,P-It->GetActorForwardVector()*400000,
                 FCollisionObjectQueryParams(ECC_WorldStatic),Q),TEXT("oasis-open-sunlight"));
-            break;
         }
     }
     for(const FVector P:{FVector(-6000,-59000,0),FVector(0,-22000,0),FVector(4500,14000,0),FVector(45000,60000,0),FVector(180000,170000,0),FVector(-220000,-130000,0),FVector(80000,360000,0)})

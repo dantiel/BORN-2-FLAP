@@ -43,7 +43,7 @@ struct FMenuSettings
         Tuning.flap_centre_deg = 0;
         Tuning.vertical_mount_angle_deg = 0;
         Tuning.return_ferocity = 50;
-        Tuning.yaw_scale = 60;
+        Tuning.yaw_scale = 100;
         Tuning.stroke_skew_percent = 0;
         Tuning.return_skew_percent = 0;
     }

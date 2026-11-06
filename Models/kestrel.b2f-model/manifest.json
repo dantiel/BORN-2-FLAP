@@ -1,0 +1,312 @@
+{
+  "format": "born2flap.model",
+  "version": 1.0,
+  "name": "kestrel",
+  "mass_kg": 5.0e-2,
+  "wing": {
+    "span_m": 0.55,
+    "shoulder_m": 1.0e-2,
+    "mount_angle_deg": 0.0,
+    "arm_angle_deg": 0.0,
+    "stations": [
+      {
+        "fraction": 0.0,
+        "lead_x_m": -7.924534999999999e-2,
+        "chord_m": 0.26002625,
+        "twist_deg": 0.0,
+        "dihedral_deg": 0.0,
+        "section": {
+          "rest_camber": 0.0,
+          "reflex": 0.15,
+          "membrane_k": 0.0,
+          "membrane_tau": 2.5e-2
+        },
+        "structure": {
+          "bend_ei": 0.8482300164692441,
+          "twist_gj": 0.12499195057868463,
+          "tau_bend": 5.0e-2,
+          "tau_twist": 5.0e-2
+        }
+      },
+      {
+        "fraction": 8.333333333333333e-2,
+        "lead_x_m": -4.035595e-2,
+        "chord_m": 0.20421885,
+        "twist_deg": -0.5555555555555556,
+        "dihedral_deg": 0.0,
+        "section": {
+          "rest_camber": 1.0624638310185184e-2,
+          "reflex": 0.15,
+          "membrane_k": 7.968478732638888e-3,
+          "membrane_tau": 2.5e-2
+        },
+        "structure": {
+          "bend_ei": 0.8482300164692441,
+          "twist_gj": 0.12499195057868463,
+          "tau_bend": 5.0e-2,
+          "tau_twist": 5.0e-2
+        }
+      },
+      {
+        "fraction": 0.16666666666666666,
+        "lead_x_m": -3.26081e-2,
+        "chord_m": 0.19240430000000006,
+        "twist_deg": -1.1111111111111105,
+        "dihedral_deg": 0.0,
+        "section": {
+          "rest_camber": 2.0e-2,
+          "reflex": 0.15,
+          "membrane_k": 1.5e-2,
+          "membrane_tau": 2.5e-2
+        },
+        "structure": {
+          "bend_ei": 0.8482300164692441,
+          "twist_gj": 0.12499195057868463,
+          "tau_bend": 5.0e-2,
+          "tau_twist": 5.0e-2
+        }
+      },
+      {
+        "fraction": 0.25,
+        "lead_x_m": -3.1387649999999996e-2,
+        "chord_m": 0.18711715,
+        "twist_deg": -1.6666666666666676,
+        "dihedral_deg": 0.0,
+        "section": {
+          "rest_camber": 2.0e-2,
+          "reflex": 0.15,
+          "membrane_k": 1.5e-2,
+          "membrane_tau": 2.5e-2
+        },
+        "structure": {
+          "bend_ei": 0.8482300164692441,
+          "twist_gj": 0.12499195057868463,
+          "tau_bend": 5.0e-2,
+          "tau_twist": 5.0e-2
+        }
+      },
+      {
+        "fraction": 0.3333333333333333,
+        "lead_x_m": -3.016665e-2,
+        "chord_m": 0.18182945,
+        "twist_deg": -2.222222222222223,
+        "dihedral_deg": 0.0,
+        "section": {
+          "rest_camber": 2.0e-2,
+          "reflex": 0.15,
+          "membrane_k": 1.5e-2,
+          "membrane_tau": 2.5e-2
+        },
+        "structure": {
+          "bend_ei": 0.8482300164692441,
+          "twist_gj": 0.12499195057868463,
+          "tau_bend": 5.0e-2,
+          "tau_twist": 5.0e-2
+        }
+      },
+      {
+        "fraction": 0.4166666666666667,
+        "lead_x_m": -2.894565e-2,
+        "chord_m": 0.17654175000000003,
+        "twist_deg": -2.777777777777778,
+        "dihedral_deg": 0.0,
+        "section": {
+          "rest_camber": 2.0e-2,
+          "reflex": 0.15,
+          "membrane_k": 1.5e-2,
+          "membrane_tau": 2.5e-2
+        },
+        "structure": {
+          "bend_ei": 0.8482300164692441,
+          "twist_gj": 0.12499195057868463,
+          "tau_bend": 5.0e-2,
+          "tau_twist": 5.0e-2
+        }
+      },
+      {
+        "fraction": 0.5,
+        "lead_x_m": -2.5146799999999997e-2,
+        "chord_m": 0.16485645000000002,
+        "twist_deg": -3.181818181818182,
+        "dihedral_deg": 0.0,
+        "section": {
+          "rest_camber": 2.0e-2,
+          "reflex": 0.17272727272727273,
+          "membrane_k": 1.5909090909090907e-2,
+          "membrane_tau": 2.4363636363636365e-2
+        },
+        "structure": {
+          "bend_ei": 0.8027031981307494,
+          "twist_gj": 0.11963676910665691,
+          "tau_bend": 5.181818181818182e-2,
+          "tau_twist": 5.181818181818182e-2
+        }
+      },
+      {
+        "fraction": 0.5833333333333334,
+        "lead_x_m": -2.0345299999999997e-2,
+        "chord_m": 0.1521619,
+        "twist_deg": -3.4848484848484853,
+        "dihedral_deg": 0.0,
+        "section": {
+          "rest_camber": 2.0e-2,
+          "reflex": 0.2106060606060606,
+          "membrane_k": 1.7424242424242425e-2,
+          "membrane_tau": 2.3303030303030305e-2
+        },
+        "structure": {
+          "bend_ei": 0.7268251675665915,
+          "twist_gj": 0.11071146665327739,
+          "tau_bend": 5.4848484848484855e-2,
+          "tau_twist": 5.4848484848484855e-2
+        }
+      },
+      {
+        "fraction": 0.6666666666666666,
+        "lead_x_m": -1.5543799999999997e-2,
+        "chord_m": 0.13946735000000002,
+        "twist_deg": -3.7878787878787885,
+        "dihedral_deg": 0.0,
+        "section": {
+          "rest_camber": 2.0e-2,
+          "reflex": 0.24848484848484845,
+          "membrane_k": 1.8939393939393936e-2,
+          "membrane_tau": 2.2242424242424244e-2
+        },
+        "structure": {
+          "bend_ei": 0.6509471370024338,
+          "twist_gj": 0.10178616419989786,
+          "tau_bend": 5.787878787878788e-2,
+          "tau_twist": 5.787878787878788e-2
+        }
+      },
+      {
+        "fraction": 0.75,
+        "lead_x_m": -1.0742299999999996e-2,
+        "chord_m": 0.1187219,
+        "twist_deg": -4.090909090909092,
+        "dihedral_deg": 0.0,
+        "section": {
+          "rest_camber": 2.0e-2,
+          "reflex": 0.2863636363636364,
+          "membrane_k": 2.0454545454545454e-2,
+          "membrane_tau": 2.1181818181818184e-2
+        },
+        "structure": {
+          "bend_ei": 0.5750691064382759,
+          "twist_gj": 9.286086174651834e-2,
+          "tau_bend": 6.090909090909091e-2,
+          "tau_twist": 6.090909090909091e-2
+        }
+      },
+      {
+        "fraction": 0.8333333333333334,
+        "lead_x_m": -5.9407999999999996e-3,
+        "chord_m": 8.619710000000001e-2,
+        "twist_deg": -4.393939393939394,
+        "dihedral_deg": 0.0,
+        "section": {
+          "rest_camber": 2.0e-2,
+          "reflex": 0.3242424242424242,
+          "membrane_k": 2.196969696969697e-2,
+          "membrane_tau": 2.0121212121212123e-2
+        },
+        "structure": {
+          "bend_ei": 0.4991910758741181,
+          "twist_gj": 8.39355592931388e-2,
+          "tau_bend": 6.393939393939395e-2,
+          "tau_twist": 6.393939393939395e-2
+        }
+      },
+      {
+        "fraction": 0.9166666666666666,
+        "lead_x_m": -1.1387499999999974e-3,
+        "chord_m": 4.98036e-2,
+        "twist_deg": -4.696969696969697,
+        "dihedral_deg": 0.0,
+        "section": {
+          "rest_camber": 2.0e-2,
+          "reflex": 0.36212121212121207,
+          "membrane_k": 2.3484848484848483e-2,
+          "membrane_tau": 1.9060606060606063e-2
+        },
+        "structure": {
+          "bend_ei": 0.42331304530996033,
+          "twist_gj": 7.501025683975927e-2,
+          "tau_bend": 6.696969696969697e-2,
+          "tau_twist": 6.696969696969697e-2
+        }
+      },
+      {
+        "fraction": 1.0,
+        "lead_x_m": 3.6627500000000063e-3,
+        "chord_m": 0.0,
+        "twist_deg": -5.000000000000001,
+        "dihedral_deg": 0.0,
+        "section": {
+          "rest_camber": 2.0e-2,
+          "reflex": 0.4,
+          "membrane_k": 2.5e-2,
+          "membrane_tau": 1.8e-2
+        },
+        "structure": {
+          "bend_ei": 0.3474350147458024,
+          "twist_gj": 6.608495438637974e-2,
+          "tau_bend": 7.0e-2,
+          "tau_twist": 7.0e-2
+        }
+      }
+    ]
+  },
+  "spars": {
+    "youngs_modulus_pa": 1.35e11,
+    "shear_modulus_pa": 5.0e9,
+    "bend_scale": 3.6,
+    "twist_scale": 13.0,
+    "membrane_gj": 1.0e-2,
+    "brace_scale": 0.4,
+    "rods": [
+      {
+        "name": "inner main",
+        "kind": "main",
+        "diameter_m": 2.0e-3,
+        "length_m": 0.222,
+        "lever_m": 0.0,
+        "root_frac": 0.0,
+        "tip_frac": 0.4036363636363636
+      },
+      {
+        "name": "outer main",
+        "kind": "main",
+        "diameter_m": 1.6e-3,
+        "length_m": 0.31,
+        "lever_m": 0.0,
+        "root_frac": 0.4036363636363636,
+        "tip_frac": 1.0
+      },
+      {
+        "name": "diagonal",
+        "kind": "brace",
+        "diameter_m": 8.0e-4,
+        "length_m": 0.213,
+        "lever_m": 0.211,
+        "root_frac": 0.0,
+        "tip_frac": 0.4036363636363636
+      },
+      {
+        "name": "mid chord",
+        "kind": "brace",
+        "diameter_m": 8.0e-4,
+        "length_m": 0.177,
+        "lever_m": 0.171,
+        "root_frac": 0.0,
+        "tip_frac": 0.4036363636363636
+      }
+    ]
+  },
+  "visual": {},
+  "solvers": [
+    "wing-strip",
+    "tail-fixed-fan"
+  ]
+}

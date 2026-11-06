@@ -90,6 +90,16 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     // Touch hook: the HUD "THROW" overlay button hand-launches a grounded bird.
     // Safe to call while airborne — LaunchFlight() no-ops unless perched/grounded.
     void RequestHandLaunch();
+    // Optional shortcut: pick the grounded ornithopter up into the pilot's hand
+    // (carry while walking/standing), or set it back down. The carried bird turns
+    // with the pilot's gaze, which also sets the throw trajectory.
+    void PickupOrnithopter();
+    // Charged throw: press SPACE to wind up (charge 0..1), release to throw.
+    // Longer hold = stronger launch. Start/Finish drive the wind-up and release.
+    void StartThrowCharge();
+    void FinishThrowCharge();
+    void GetThrowAim(float& OutYaw, float& OutPitch) const;
+    FVector GetThrowOrigin() const;
     bool IsFlying() const { return bFlying; }
     bool IsHealthy() const { return bHealthy; }
     // F7 "remove all UI" toggle: collapses the cockpit/radio overlays.
@@ -148,7 +158,7 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     {
         switch (BirdModel)
         {
-        case 2:  return 58.3f;   // common kestrel (falcon): nose +15.7 -> tail -42.6 (0.55 scale)
+        case 2:  return 58.3f;   // common kestrel: nose +15.7 -> tail -42.6 (0.55 scale)
         case 4:  return 58.3f;   // kestrel light: same silhouette as the common kestrel
         case 1:  return 144.f;   // prototype: beak +59 -> tail plate -85
         case 5:  return 150.f;  // pterosaur: extended crest and counterweighted bill
@@ -246,6 +256,23 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     int32 AvatarPerson = 0;
     bool bAvatarEnabled = true;
     bool bBirdHeld = false;
+    // Bird picked up and carried in one hand while walking/standing. Carrying
+    // keeps locomotion live (unlike the throw wind-up, which freezes the pilot);
+    // the carried bird rotates with the pilot's gaze, which sets the trajectory.
+    bool bBirdCarried = false;
+    // Facing captured when the bird is picked up. While carried the pilot keeps
+    // this base + the actor-orbit offset (MMB-drag), instead of re-anchoring to
+    // the hand-held bird (which would chase its own hand and spin).
+    float CarryBaseYaw = 0.f;
+    // Facing captured when the throw wind-up starts (or the bird is picked up).
+    // During the wind-up the pilot keeps aiming around this base + ActorOrbitYaw,
+    // since the hand-held bird makes the anchor→bird direction degenerate.
+    float ThrowBaseYaw = 0.f;
+    // Charged throw state: hold SPACE to wind up (ThrowCharge 0..1), release to
+    // throw. PendingThrowCharge is what LaunchFlight actually reads at release.
+    float ThrowCharge = 0.f;
+    float PendingThrowCharge = 0.f;
+    bool bThrowCharging = false;
     FVector PrevAvatarFeet = FVector::ZeroVector;
     double CameraTime = 0, GroundSettleTime = 0;
     // True once the pilot has walked away from the auto-anchor beside the bird:
@@ -310,6 +337,9 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     // launch at the natural throw moment. Disabled avatar -> instant launch.
     bool HoldBird();
     void ReleaseBird();
+    // Preview the charged throw's ballistic arc (wind-aware) while the player
+    // holds SPACE — a lightweight "simulate before you throw" aiming aid.
+    void DrawThrowPreview(float Charge, const FVector& Origin, float Yaw, float Pitch);
     TUniquePtr<FBorn2FlapMathBridge> MathBridge;
     TUniquePtr<FBorn2FlapRcController> RcController;
     double Accumulator = 0, LogTime = 0, WorldTime = 0;

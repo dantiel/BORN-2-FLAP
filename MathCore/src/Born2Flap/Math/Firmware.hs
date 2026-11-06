@@ -119,7 +119,7 @@ angularMultiplier = 2
 neutralAngleDeg = 100
 
 rollAuthorityGain :: Double
-rollAuthorityGain = 2.0
+rollAuthorityGain = 2.5
 
 -- | Differential-dihedral roll authority (flapping branch only). This is kept
 -- SMALL on purpose: a static flap-centre tilt lifts one wing's lift inward and
@@ -251,8 +251,11 @@ defaultFirmwareParams = FirmwareParams
   , fwFlapBaseFreqDh = 50
   , fwFlapCentreDeg = 0
   , fwVerticalMountIncidenceDeg = 0
-  , fwRudderYawWeight = 65
-  -- Roll moves the wings against the air; it must not secretly steer the tail.
+  , fwRudderYawWeight = 85
+  -- Roll must NOT secretly steer the tail: an aileron→rudder interconnect here
+  -- fought the wing's own glide yaw and read as OPPOSING in flight. The tail
+  -- fin's PASSIVE weathervane (sideslip → yaw) is the aerodynamic roll→yaw
+  -- path; the active rudder belongs to the yaw stick (fwRudderYawWeight) only.
   , fwRudderRollWeight = 0
   , fwAnchorGain = anchorGainDefault
   , fwCadenceGain = cadenceGainDefault
@@ -393,15 +396,17 @@ glideBranch :: FlightProfile -> Double -> Double -> RcChannels
             -> FirmwareParams -> FirmwareState -> Double
             -> (MixerOutput, FirmwareState)
 glideBranch prof aileronNorm elevatorNorm rc params state _dt =
-  let -- Pitch trim: the common stroke centre carries the glide angle + elevator.
+  let rudderNorm = crsfToNorm (rcRudder rc)
+      -- Pitch trim: the common stroke centre carries the glide angle + elevator.
       common = negate (profGlideAngleDeg prof + elevatorNorm * profElevatorScale prof * 0.01 * steerMaxDeg)
       -- Roll commands hinge position; the multibody solve supplies recoil.
-      -- YAW has NO glide authority: it only modulates the flapping amplitude
-      -- differential, so the held wing position and tail are aileron-only here.
       aileronDiff = aileronNorm * profAileronScale prof * 0.01 * glideAileronMaxDeg
-      left = clamp (-80) 80 (common - aileronDiff)
-      right = clamp (-80) 80 (common + aileronDiff)
-      rudderMix = clamp (-1) 1 (aileronNorm * fwRudderRollWeight params * 0.01)
+      -- Yaw initiates the SAME bank as roll; the fixed tail then follows it.
+      rudderDiff = rudderNorm * profRudderAmplitudeDiff prof * 0.01 * glideRudderMaxDeg
+      left = clamp (-80) 80 (common - aileronDiff - rudderDiff)
+      right = clamp (-80) 80 (common + aileronDiff + rudderDiff)
+      rudderMix = clamp (-1) 1 (rudderNorm * fwRudderYawWeight params * 0.01
+                                + aileronNorm * fwRudderRollWeight params * 0.01)
       output = MixerOutput
         { mixIsFlapping = False, mixFlapHz = 0, mixThrottlePct = 0
         , mixLeftWingDeg = neutralAngleDeg - left * angularMultiplier
@@ -520,21 +525,21 @@ flappingBranch coupled prof aileronNorm elevatorNorm rc params state dt =
       reversalShift = clamp (-0.3) 0.3 (0.6 * (aileronRollShift + aileronRateBoost))
       reversalL = clamp (0.2 * 2*pi) (0.8 * 2*pi) (limiarShared * (1 - reversalShift))
       reversalR = clamp (0.2 * 2*pi) (0.8 * 2*pi) (limiarShared * (1 + reversalShift))
-      yawAmpDiff = clamp (-1) 1 rudderAmpDiff
+      -- 100% YAW SCALE + full rudder must all but stop the weak wing: clamp at
+      -- 0.97 leaves it ~3% of the commanded stroke (visually dead) while the
+      -- strong wing saturates at the mechanical ceiling — the dramatic
+      -- "one wing stops beating" turn the knob promises.
+      yawAmpDiff = clamp (-0.97) 0.97 rudderAmpDiff
       -- Aileron commands the real flap hinge position in glide and powered
       -- flight. Reserve travel for its centre shift; there is no incidence servo.
       aileronCmd = aileronNorm
                    * profAileronScale prof * 0.01 * steerMaxDeg * rollAuthorityGain
-      -- Positive yaw needs more forward force on the LEFT (outside) wing:
-      -- tau_z = -y*Fx. Amplitude differential must help the turn, not oppose it.
-      -- Multiplicative (reciprocal) differential: full stick at YAW SCALE 100%
-      -- gives the LEFT wing 2× and the RIGHT wing 0.5× the base stroke. The
-      -- deeper wing may exceed the servo-honest amplitude (up to the mechanical
-      -- ±80° shaft travel below) — its servo saturates locally, the physically
-      -- correct consequence — while the shared cadence stays on the base stroke.
-      yawFactor = 2 ** yawAmpDiff
-      amplitudeL = clamp 0 80 (amplitude * yawFactor)
-      amplitudeR = clamp 0 ampMaxDeg (amplitude / yawFactor)
+      -- Positive yaw (right rudder) gives the LEFT wing the larger stroke and
+      -- the RIGHT wing the near-stopped stroke: the outside wing drives and the
+      -- inside wing slows, the intuitive thrust-asymmetry turn. This is the
+      -- visual amplitude differential the YAW SCALE knob controls.
+      amplitudeL = clamp 0 ampMaxDeg (amplitude * (1 + yawAmpDiff))
+      amplitudeR = clamp 0 ampMaxDeg (amplitude * (1 - yawAmpDiff))
       -- Allocate the finite linkage travel BEFORE choosing the common centre.
       -- Previously strong pitch/anhedral consumed the stroke arc (down to five
       -- degrees), losing power while cadence still assumed the full amplitude.

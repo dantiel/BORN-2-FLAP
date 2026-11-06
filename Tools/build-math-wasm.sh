@@ -47,8 +47,33 @@ echo "== Building MathCore WASM (wasm32-wasi) =="
 # -no-hs-main: library, no `main`. -optl-mexec-model=reactor: WASI reactor,
 # the RTS stays resident between exported calls (the simulation holds state
 # behind StablePtr across Step() invocations).
+# GHC's wasm backend does NOT auto-export `foreign export ccall` symbols;
+# each must be listed with an explicit --export linker flag (see the
+# ghc-wasm-meta README "Compiling to WASI reactor module"). The host (wasm3)
+# looks up the b2f_math_* C bridge wrappers from bridge.c by name, plus
+# malloc/free for linear-memory struct marshalling and hs_init for RTS init.
+EXPORTS=(
+    hs_init malloc free
+    b2f_math_abi_version b2f_math_runtime_init b2f_math_runtime_shutdown
+    b2f_math_create_default_vehicle b2f_math_destroy_vehicle b2f_math_step_vehicle
+    b2f_math_create_firmware_vehicle b2f_math_destroy_firmware_vehicle
+    b2f_math_step_firmware_vehicle b2f_math_set_stabilization
+    b2f_math_set_wind_phase_noise b2f_math_reconfigure_firmware_vehicle
+    b2f_math_set_wing_model b2f_math_get_model_mass_kg
+    b2f_math_get_wing_shape b2f_math_get_wing_forces b2f_math_get_wing_fields
+    b2f_math_set_strip_wind b2f_math_transport_airfields
+    b2f_math_get_tail_incidence b2f_math_get_tail_fields
+    b2f_math_get_external_force b2f_math_set_mass_frame
+    b2f_math_get_wing_loads b2f_math_get_mass_properties
+)
+EXPORT_FLAGS=()
+for name in "${EXPORTS[@]}"; do
+    EXPORT_FLAGS+=("-optl-Wl,--export=$name")
+done
+
 wasm32-wasi-ghc -isrc -icbits -O2 -no-hs-main \
     -optl-mexec-model=reactor \
+    "${EXPORT_FLAGS[@]}" \
     src/Born2Flap/Math/FFI.hs cbits/bridge.c \
     -o "$OUT"
 
@@ -59,5 +84,5 @@ command -v wasm-objdump >/dev/null && wasm-objdump -x "$OUT" | grep -i b2f || tr
 # Emit a C header embedding the module bytes for the wasm3 adapter.
 INC="${OUT%.wasm}_wasm.inc"
 echo "== Embedding as $INC =="
-xxd -i "$OUT" > "$INC"
+xxd -i -n born2flap_math_wasm "$OUT" > "$INC"
 echo "== (run a wasmtime smoke test before wiring into the app) =="

@@ -58,13 +58,13 @@ module Born2Flap
 
           "PROTOTYPE  /  elliptical feathers",
 
-          "PEREGRINE  /  falcon"
+          "COMMON KESTREL  /  falcon"
 
         ].freeze
 
         FLIGHT_PROFILES = %w[CRUISE THERMAL AEROBATIC CALM].freeze
 
-        BIRD_KEYS = %w[bird.ravencrow bird.prototype bird.peregrine bird.turtle bird.kestrel_light bird.pterosaur].freeze
+        BIRD_KEYS = %w[bird.ravencrow bird.prototype bird.kestrel bird.turtle bird.kestrel_light bird.pterosaur].freeze
 
         # Dossier for the selected craft, in BIRD_KEYS order. Mirrors the native
         # C++ flight-desk dossier (name, role, full wingspan, dry mass).

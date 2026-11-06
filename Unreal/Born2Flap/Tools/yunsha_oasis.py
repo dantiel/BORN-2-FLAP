@@ -68,3 +68,32 @@ def plant(imported,ground):
             placed+=1
             if placed==count:break
         assert placed==count,(name,placed,count)
+
+
+def plant_lake(imported,ground):
+    """Reeds, ferns and a few palms ring the crescent shore; lotus is on the
+    water itself (built in create_yunsha_map). Ground height selects the band,
+    so planting hugs the actual waterline rather than an analytic ellipse."""
+    rng=random.Random(110520)
+    grass=u.load_asset('/Game/Nature/SM_Grass1');fern=u.load_asset('/Game/Nature/SM_Fern0')
+    palm=imported('OasisPalm')
+    def radius(x,y):return math.hypot(x/15600,(y+52000)/9600)
+    def scatter(sm,count,band,ground_lo,ground_hi,height_range,block):
+        a=u.EditorLevelLibrary.spawn_actor_from_class(u.Born2FlapYunshaBatch,u.Vector())
+        a.set_actor_label('Yunsha lake shore '+sm.get_name());a.tags=['Yunsha','YunshaLakeShore']
+        c=a.instances;c.set_static_mesh(sm);c.set_collision_profile_name('BlockAll' if block else 'NoCollision')
+        bounds=sm.get_bounds();placed=0
+        for attempt in range(count*18):
+            if placed>=count:break
+            x=rng.uniform(-17500,17500);y=rng.uniform(-62800,-41600)
+            r=radius(x,y)
+            if not(band[0]<r<band[1]):continue
+            gh=ground(x,y)
+            if not(ground_lo<gh<ground_hi):continue
+            height=rng.uniform(*height_range);sc=height/(2*bounds.box_extent.z)
+            c.add_instance(u.Transform(location=u.Vector(x,y,gh-sc*(bounds.origin.z-bounds.box_extent.z)),
+                rotation=u.Rotator(yaw=rng.uniform(0,360)),scale=u.Vector(sc,sc,sc)),False)
+            placed+=1
+    scatter(grass,700,(1.02,1.16),2,70,(35,85),False)   # reeds at the waterline
+    scatter(fern,320,(1.05,1.30),30,120,(50,140),False)  # ferns up the slope
+    scatter(palm,26,(1.12,1.42),90,165,(700,1400),True)  # palms on the bank

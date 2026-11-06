@@ -10,12 +10,12 @@ namespace Born2FlapWeather
 const TArray<FBorn2FlapWeather>& Profiles()
 {
     static const TArray<FBorn2FlapWeather> Values={
-        {TEXT("sunny"),TEXT("Sunny"),2.2f,.65f,.65f,.08f,.001f,1.f},
-        {TEXT("cloudy"),TEXT("Cloudy"),3.4f,1.1f,.20f,.72f,.004f,.45f},
-        {TEXT("rain"),TEXT("Gentle rain"),3.8f,1.25f,.05f,.92f,.009f,.28f,true},
-        {TEXT("mist"),TEXT("Mist"),.7f,.22f,.02f,.35f,.045f,.45f},
-        {TEXT("snow"),TEXT("Light snow"),1.8f,.65f,.02f,.85f,.015f,.40f,false,true},
-        {TEXT("parhelion"),TEXT("Parhelion"),3.2f,.3f,.35f,.12f,.0008f,1.f,false,false,true}
+        {TEXT("sunny"),TEXT("Sunny"),3.0f,.65f,.65f,.08f,.001f,1.f},
+        {TEXT("cloudy"),TEXT("Cloudy"),4.4f,1.1f,.20f,.72f,.004f,.45f},
+        {TEXT("rain"),TEXT("Gentle rain"),4.9f,1.25f,.05f,.92f,.009f,.28f,true},
+        {TEXT("mist"),TEXT("Mist"),.9f,.22f,.02f,.35f,.045f,.45f},
+        {TEXT("snow"),TEXT("Light snow"),2.3f,.65f,.02f,.85f,.015f,.40f,false,true},
+        {TEXT("parhelion"),TEXT("Parhelion"),4.1f,.3f,.35f,.12f,.0008f,1.f,false,false,true}
     };
     return Values;
 }
@@ -205,7 +205,7 @@ FVector Wind(const FString& Level,const FBorn2FlapConditions& C,const FVector& P
         Result*=Born2FlapBay::WindExposure(P,Result);
         // Wind piles against the sea wall, headlands and hinterland slopes: the
         // upwash is derived from actual obstacle height (direction-aware).
-        Result.Z=Born2FlapWind::WindwardLift(P,Result,&Born2FlapBay::TopHeight);
+        Result.Z=Born2FlapWind::WindwardLift(P,Result,&Born2FlapBay::TopHeight)+Born2FlapWind::LeeDraft(P,Result,&Born2FlapBay::TopHeight);
     }
     else if(Level==TEXT("Yunsha"))
     {
@@ -216,6 +216,9 @@ FVector Wind(const FString& Level,const FBorn2FlapConditions& C,const FVector& P
         Result.Z=Born2FlapWind::Sample(P,Time).Z*W.Thermals*S.WindThermalScale*ThermalScale*(D.Night ? .02 : (D.Id==TEXT("noon") ? 1. : .45));
         // Terrain, buildings and the treeline add real windward lift.
         Result.Z+=Born2FlapWind::WindwardLift(P,Result,&ABorn2FlapValley::TopHeight);
+        // The sheltered lee of each ridge, treeline and building spills a
+        // rotor downdraft — the flip side of the upwash, harder to fly through.
+        Result.Z+=Born2FlapWind::LeeDraft(P,Result,&ABorn2FlapValley::TopHeight);
     }
     return Result;
 }

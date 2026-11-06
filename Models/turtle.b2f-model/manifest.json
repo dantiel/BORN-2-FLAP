@@ -1,0 +1,121 @@
+{
+  "format": "born2flap.model",
+  "version": 1.0,
+  "name": "turtle",
+  "mass_kg": 5.0e-2,
+  "wing": {
+    "span_m": 0.55,
+    "shoulder_m": 1.27e-2,
+    "mount_angle_deg": 0.0,
+    "arm_angle_deg": 0.0,
+    "stations": [
+      {
+        "fraction": 0.0,
+        "lead_x_m": 0.0,
+        "chord_m": 0.279,
+        "twist_deg": 6.5,
+        "dihedral_deg": 0.0,
+        "section": {
+          "rest_camber": 2.0e-2,
+          "reflex": 0.15,
+          "membrane_k": 1.5e-2,
+          "membrane_tau": 2.5e-2
+        },
+        "structure": {
+          "bend_ei": 0.8482300164692441,
+          "twist_gj": 0.12499195057868463,
+          "tau_bend": 5.0e-2,
+          "tau_twist": 5.0e-2
+        }
+      },
+      {
+        "fraction": 0.45,
+        "lead_x_m": 0.11,
+        "chord_m": 0.235,
+        "twist_deg": 3.5,
+        "dihedral_deg": 0.0,
+        "section": {
+          "rest_camber": 2.0e-2,
+          "reflex": 0.15,
+          "membrane_k": 1.5e-2,
+          "membrane_tau": 2.5e-2
+        },
+        "structure": {
+          "bend_ei": 0.8482300164692441,
+          "twist_gj": 0.12499195057868463,
+          "tau_bend": 5.0e-2,
+          "tau_twist": 5.0e-2
+        }
+      },
+      {
+        "fraction": 1.0,
+        "lead_x_m": 0.333,
+        "chord_m": 0.114,
+        "twist_deg": 1.5,
+        "dihedral_deg": 0.0,
+        "section": {
+          "rest_camber": 2.0e-2,
+          "reflex": 0.4,
+          "membrane_k": 2.5e-2,
+          "membrane_tau": 1.8e-2
+        },
+        "structure": {
+          "bend_ei": 0.34743501474580246,
+          "twist_gj": 6.608495438637974e-2,
+          "tau_bend": 7.0e-2,
+          "tau_twist": 7.0e-2
+        }
+      }
+    ]
+  },
+  "spars": {
+    "youngs_modulus_pa": 1.35e11,
+    "shear_modulus_pa": 5.0e9,
+    "bend_scale": 8.0,
+    "twist_scale": 5.0,
+    "membrane_gj": 1.0e-2,
+    "brace_scale": 0.4,
+    "rods": [
+      {
+        "name": "inner main",
+        "kind": "main",
+        "diameter_m": 2.0e-3,
+        "length_m": 0.222,
+        "lever_m": 0.0,
+        "root_frac": 0.0,
+        "tip_frac": 0.4036363636363636
+      },
+      {
+        "name": "outer main",
+        "kind": "main",
+        "diameter_m": 1.6e-3,
+        "length_m": 0.31,
+        "lever_m": 0.0,
+        "root_frac": 0.4036363636363636,
+        "tip_frac": 1.0
+      },
+      {
+        "name": "diagonal",
+        "kind": "brace",
+        "diameter_m": 8.0e-4,
+        "length_m": 0.213,
+        "lever_m": 0.211,
+        "root_frac": 0.0,
+        "tip_frac": 0.4036363636363636
+      },
+      {
+        "name": "mid chord",
+        "kind": "brace",
+        "diameter_m": 8.0e-4,
+        "length_m": 0.177,
+        "lever_m": 0.171,
+        "root_frac": 0.0,
+        "tip_frac": 0.4036363636363636
+      }
+    ]
+  },
+  "visual": {},
+  "solvers": [
+    "wing-strip"
+  ]
+}

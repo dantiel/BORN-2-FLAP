@@ -155,9 +155,17 @@ def material_usage_flags(m):
     for prop in ('used_with_nanite', 'b_used_with_nanite'):
         try:
             m.set_editor_property(prop, True)
-            return
+            break
         except Exception:
             pass
+    # InstancedStaticMeshComponent usage (the east-shore rocks, shrubs and the
+    # whole Eastern Station are ISMs). Without it the game logs "missing usage
+    # flag InstancedStaticMeshes" and silently swaps in the grey Default
+    # Material — the same checkerboard symptom as a missing Nanite flag.
+    try:
+        m.set_editor_property('used_with_instanced_static_meshes', True)
+    except Exception:
+        pass
 
 
 def pbr_material(name, color=None, diffuse=None, normal=None, rough=0.8,
@@ -312,7 +320,7 @@ def coastal_terrain_material(name, sand, grass, rock, scale_cm=240.0, normal_str
 
     # Shared close-up sand shading keeps the beach/headland boundary seamless.
     from sand_surface import surface
-    s_c, s_n, s_r = surface(m, sd, sn, sr, node, custom)
+    s_c, s_n, s_r = surface(m, sd, sn, sr, node, custom, mpc=make_water_mpc())
     if name == 'Headland':
         from east_strand_material import blend
         s_c, s_n, s_r = blend(m, pos, s_c, s_n, s_r, node, custom)
@@ -402,14 +410,22 @@ def water_material(name, color, rough=0.08, specular=0.6, shore_color=(0.03, 0.2
     m = u.load_asset(path) if ela.does_asset_exist(path) else assets.create_asset(
         'M_' + name, '/Game/Shiomori/Materials', u.Material, u.MaterialFactoryNew())
     lib.delete_all_material_expressions(m)
-    m.set_editor_property('shading_model',u.MaterialShadingModel.MSM_SINGLE_LAYER_WATER)
+    # Shading model is implied by the SingleLayerWaterMaterialOutput node below
+    # (Material.cpp GetShadingModels() adds MSM_SingleLayerWater when that node is
+    # present). Setting shading_model explicitly auto-creates a SECOND
+    # SingleLayerWater node, which fails compilation with
+    # "The material can contain only one Single Layer Water Material node".
+    # The saved asset may still carry a stale shading_model from an older bake,
+    # so reset it to DefaultLit first: the SLW node alone then supplies the
+    # water shading model, leaving exactly one SLW node.
+    m.set_editor_property('shading_model', u.MaterialShadingModel.MSM_DEFAULT_LIT)
     m.set_editor_property('blend_mode',u.BlendMode.BLEND_OPAQUE)
     m.set_editor_property('two_sided',True)
     m.set_editor_property('disable_depth_test',False)
     m.set_editor_property('refraction_method',u.RefractionMode.RM_PIXEL_NORMAL_OFFSET)
     m.set_editor_property('refraction_depth_bias',80.)
     output(node(m,'Constant',r=1.08),'REFRACTION')
-    output(node(m,'Constant3Vector',constant=u.LinearColor(.005,.014,.018)),'BASE_COLOR')
+    output(node(m,'Constant3Vector',constant=u.LinearColor(.009,.022,.026)),'BASE_COLOR')
     output(node(m,'Constant',r=.025),'ROUGHNESS')
     output(node(m,'Constant',r=.5),'SPECULAR')
     output(node(m,'Constant',r=0.),'OPACITY')
@@ -425,39 +441,45 @@ n+=float2(sin(q.x*2.6+q.y*3.1-T*1.6),cos(q.y*2.9-q.x*2.3+T*1.4))*.035;
 float2 r=P.xy*.025;
 n+=float2(sin(r.x*1.7+r.y*1.1+T*3.4),cos(r.y*2.1-r.x*.8-T*3.0))*.014;
 return normalize(float3(n,1.0));''',{'P':p,'T':t})
-    output(n,'NORMAL')
+    # NORMAL is emitted below, after the Gerstner-derived surface slope is
+    # available, so the displaced wave shape shades like water instead of the
+    # hand-authored noise normal (which was spatially unrelated to the Gerstner
+    # displacement and left unnatural highlights/shadows on the 3D waves).
     # Deterministic Gerstner spectrum (16 components: 2 swell + 14 wind/detail).
     # De-harmonised lengths and a broad directional spread (+-~65 deg) so the open
     # sea reads as uneven cross-chop instead of repeating parallel diagonals.
     # Driven entirely by the global ocean MPC, so the rendered surface stays in
     # lock-step with AShiomoriWaterDirector / Born2FlapWater.cpp SampleWaveHeight.
+    # The spectrum is shared verbatim via gerstner_hlsl.py.
+    from gerstner_hlsl import HEIGHT_INLINE, HEIGHT_GRAD, SHORE_EDGE
     def _mpc(name):
         return node(m, 'CollectionParameter', collection=mpc, parameter_name=name)
-    gerst = custom(m, '''float Wl=max(1.0,WL);
- float Cs=max(0.0,CS);
- float ampScale=lerp(0.35,1.6,Sea/6.0);
- float d2r=0.01745329251;
- float H=0.0;
- float lenF[16]={1.0,0.5,0.33,0.22,0.151,0.107,0.079,0.059,0.045,0.034,0.0265,0.0205,0.016,0.0125,0.0098,0.0076};
- float ampF[16]={1.00,0.42,0.30,0.21,0.15,0.105,0.075,0.054,0.038,0.027,0.019,0.0135,0.0095,0.0067,0.0047,0.0033};
- float dirOff[16]={0.0,-8.0,12.0,-20.0,28.0,-35.0,45.0,-55.0,65.0,-50.0,40.0,-30.0,50.0,-60.0,22.0,-15.0};
- float phase[16]={0.0,1.7,3.1,4.4,5.7,1.1,2.4,3.7,5.0,0.6,1.9,3.2,4.5,5.8,0.9,2.2};
- for(int i=0;i<16;i++)
- {
-  float L=Wl*lenF[i];
-  float A=Amp*ampF[i]*ampScale;
-  float ang=(Dir+dirOff[i])*d2r;
-  float K=6.28318530718/L;
-  float Om=6.28318530718*Cs/(Wl*sqrt(lenF[i]));
-  H+=A*cos(K*(P.x*cos(ang)+P.y*sin(ang))-Om*WT+phase[i]);
- }
- float edge=10000+520*sin(P.x*.00030+1.7)+300*sin(P.x*.00105+4.2)+160*sin(P.x*.0024+.6)+85*sin(P.x*.0056+2.3)+45*sin(P.x*.013+5.1);
- float shore=smoothstep(100.0,3000.0,P.y-edge);
- return float3(0.0,0.0,H*shore);''',
-        {'P': p, 'Amp': _mpc('SwellAmplitude'), 'WL': _mpc('SwellLength'),
-         'CS': _mpc('SwellSpeed'), 'Sea': _mpc('SeaState'),
-         'Dir': _mpc('PrimaryWaveDirection'), 'WT': _mpc('WaveTime')}, 3)
+    wave_inputs = {'P': p, 'Amp': _mpc('SwellAmplitude'), 'WL': _mpc('SwellLength'),
+                   'CS': _mpc('SwellSpeed'), 'Sea': _mpc('SeaState'),
+                   'Dir': _mpc('PrimaryWaveDirection'), 'WT': _mpc('WaveTime')}
+    gerst = custom(m, SHORE_EDGE + '''
+    float shore=smoothstep(100.0,3000.0,P.y-edge);
+''' + HEIGHT_INLINE + '''
+    H*=shore;
+    return float3(0.0,0.0,H);''',
+        wave_inputs, 3)
     output(gerst, 'WORLD_POSITION_OFFSET')
+    # Surface normal from the Gerstner displacement gradient (finite difference)
+    # so crests catch the sun and troughs recede — the 3D wave shape reads as
+    # water. The fine noise normal is added back at 40% for lively shimmer.
+    gerst_normal = custom(m, SHORE_EDGE + '''
+    float e=60.0;
+    float shore=smoothstep(100.0,3000.0,P.y-edge);
+''' + HEIGHT_GRAD + '''
+    // Softened slope: the full gradient made wave faces shade almost black when
+    // they turned away from the sun. 0.72 keeps the 3D form readable without the
+    // deep trough shadows.
+    h0*=shore; hx*=shore; hy*=shore;
+    return normalize(float3(-(hx-h0)/e*0.72,-(hy-h0)/e*0.72,1.0));''',
+        wave_inputs, 3)
+    wave_normal = custom(m, 'return normalize(A + float3(B.xy*0.30,0.0));',
+                         {'A': gerst_normal, 'B': n}, 3)
+    output(wave_normal, 'NORMAL')
     material_usage_flags(m)
     lib.recompile_material(m)
     assert ela.save_asset(path), 'Failed to save ' + path
@@ -484,7 +506,7 @@ def sand_material(name, diffuse, normal, rough=0.8, rough_tex=None, tiling_cm=30
     m.set_editor_property('tangent_space_normal', False)
     from sand_surface import surface
     bc, sand_normal, sand_rough = surface(
-        m, diffuse, normal, rough_tex, node, custom,
+        m, diffuse, normal, rough_tex, node, custom, mpc=make_water_mpc(),
         macro_cm=tiling_cm, relief_strength=relief_strength,
         normal_strength=normal_strength)
     # Stone/pebble strand: a value-noise-wobbled ramp on |x| grades the fine sand

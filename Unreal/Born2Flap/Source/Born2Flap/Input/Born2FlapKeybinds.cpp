@@ -26,6 +26,7 @@ const born2flap::keybinds::FAction DefaultCatalog[] = {
     { TEXT("YawLeft"),      TEXT("YAW LEFT"),          TEXT("FLIGHT"), EKeys::A },
     { TEXT("YawRight"),     TEXT("YAW RIGHT"),         TEXT("FLIGHT"), EKeys::D },
     { TEXT("Launch"),       TEXT("LAUNCH"),            TEXT("FLIGHT"), EKeys::SpaceBar },
+    { TEXT("Pickup"),       TEXT("PICKUP / CARRY"),    TEXT("FLIGHT"), EKeys::G },
     { TEXT("Reset"),        TEXT("RESET"),             TEXT("FLIGHT"), EKeys::R },
     { TEXT("ThrottleMode"), TEXT("THROTTLE MODE"),     TEXT("FLIGHT"), EKeys::T },
     // ---- CAMERA ----

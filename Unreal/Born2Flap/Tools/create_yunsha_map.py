@@ -162,13 +162,13 @@ def yunsha_sky_material():
     M.recompile_material(m);assert E.save_loaded_asset(m)
     return m
 
-sand=material('WindRippleSand',(1.0,.77,.48),'/Game/Shiomori/Textures/T_SandBeach_Diffuse')
+sand=material('WindRippleSand',(1.0,.77,.48))
 from yunsha_sand import normal_code
 out(custom(sand,normal_code(),{
     'P':expr(sand,'WorldPosition'),'N':expr(sand,'VertexNormalWS')}),'NORMAL')
 sand.set_editor_property('tangent_space_normal',False)
 M.recompile_material(sand);E.save_loaded_asset(sand)
-from yunsha_oasis import ground_material, plant as plant_oasis
+from yunsha_oasis import ground_material, plant as plant_oasis, plant_lake
 ground_material(sand,expr,custom,out)
 rock=material('RedSandstone',(1.12,.78,.53),'/Game/Shiomori/Cliffs/Textures/T_Cliff_rock_face_03_Diffuse')
 # Photographic mineral variation and relief at two scales break up the smooth
@@ -293,14 +293,58 @@ skirt=actor('Distant sand sea',mesh('DistantSandSea',verts,tris,sand,False),coll
 skirt.static_mesh_component.set_editor_property('affect_distance_field_lighting',False)
 skirt.static_mesh_component.set_cast_shadow(False)
 
-# Water uses the exact crescent mask: clip a fine grid to the native basin.
+# Water follows the actual terrain zero-contour so the shoreline is smooth and
+# matches the crescent basin exactly: no spilled water, no dry rim, no stair-step
+# cells at the waterline (the old analytic mask overshot the shore).
 verts=[];tris=[]
-for y in range(-61700,-42199,150):
-    for x in range(-15700,15701,150):
-        corners=[(x,y),(x+150,y),(x+150,y+150),(x,y+150)]
-        if all(u.Born2FlapYunsha.spring_contains(px,py) for px,py in corners):
+CELL=120
+for y in range(-62000,-42000,CELL):
+    for x in range(-15800,15801,CELL):
+        corners=[(x,y),(x+CELL,y),(x+CELL,y+CELL),(x,y+CELL)]
+        if all(ground(px,py)<-4 for px,py in corners):
             k=len(verts);verts.extend((px,py,0) for px,py in corners);tris.extend([(k,k+1,k+2),(k,k+2,k+3)])
 actor('Lunya crescent spring',mesh('Lunya',verts,tris,water,False),collision=False)
+
+# Lotus: a floating pad and a cup of petals scattered on the crescent so the
+# lake reads inhabited and alive. One shared pad + one shared flower mesh are
+# instanced via batch actors, not dozens of unique meshes.
+lotus_pad_mat=material('LotusPad',(.08,.36,.19))
+lotus_petal_mat=material('LotusPetal',(.86,.46,.60))
+lotus_petal_mat.set_editor_property('two_sided',True)
+M.recompile_material(lotus_pad_mat);E.save_loaded_asset(lotus_pad_mat)
+M.recompile_material(lotus_petal_mat);E.save_loaded_asset(lotus_petal_mat)
+def fan(radius,z,n):
+    v=[(0,0,z)];t=[]
+    for j in range(n):
+        a=math.tau*j/n;v.append((radius*math.cos(a),radius*math.sin(a),z))
+    for j in range(n):t.append((0,j+1,(j+1)%n+1))
+    return v,t
+padv,patris=fan(85,2,26)
+petv=[];pettris=[]
+def petal(a0,abase,rbase,rtip,ztip):
+    b1=(rbase*math.cos(a0-abase),rbase*math.sin(a0-abase),2)
+    b2=(rbase*math.cos(a0+abase),rbase*math.sin(a0+abase),2)
+    tip=(rtip*math.cos(a0),rtip*math.sin(a0),ztip)
+    k=len(petv);petv.extend([b1,b2,tip]);pettris.append((k,k+1,k+2))
+for j in range(7):petal(math.tau*j/7,.34,16,42,32)
+for j in range(5):petal(math.tau*j/5+math.tau/10,.30,8,12,52)
+pad_mesh=mesh('LotusPad',padv,patris,lotus_pad_mat,False)
+petal_mesh=mesh('LotusPetal',petv,pettris,lotus_petal_mat,False)
+pad_batch=u.EditorLevelLibrary.spawn_actor_from_class(u.Born2FlapYunshaBatch,u.Vector())
+pad_batch.set_actor_label('Yunsha lotus pads');pad_batch.tags=['Yunsha','YunshaLakeFlora']
+pad_batch.instances.set_static_mesh(pad_mesh);pad_batch.instances.set_collision_profile_name('NoCollision')
+flower_batch=u.EditorLevelLibrary.spawn_actor_from_class(u.Born2FlapYunshaBatch,u.Vector())
+flower_batch.set_actor_label('Yunsha lotus flowers');flower_batch.tags=['Yunsha','YunshaLakeFlora']
+flower_batch.instances.set_static_mesh(petal_mesh);flower_batch.instances.set_collision_profile_name('NoCollision')
+lotus_rng=random.Random(110519);placed=0
+for attempt in range(6000):
+    if placed>=120:break
+    x=lotus_rng.uniform(-15000,15000);y=lotus_rng.uniform(-61500,-42500)
+    if not u.Born2FlapYunsha.spring_contains(x,y) or ground(x,y)>-8:continue
+    s=lotus_rng.uniform(.7,1.4);ang=lotus_rng.uniform(0,360)
+    tr=u.Transform(location=u.Vector(x,y,0),rotation=u.Rotator(yaw=ang),scale=u.Vector(s,s,s))
+    pad_batch.instances.add_instance(tr,False);flower_batch.instances.add_instance(tr,False)
+    placed+=1
 
 # Authored architecture preserves its source geometry, UVs and weathering.
 def imported(name):
@@ -327,6 +371,7 @@ def temple(name,x,y,z,size=1.,summit=False):
 from yunsha_palace import build as build_palace
 build_palace(imported,place_asset,mesh,actor,material,ground,scan,expr,custom,out)
 plant_oasis(imported,ground)
+plant_lake(imported,ground)
 from yunsha_excavation import build as build_excavation
 # Regional translation preserves authored dimensions, including tiny fossils.
 def shifted_actor(offset):

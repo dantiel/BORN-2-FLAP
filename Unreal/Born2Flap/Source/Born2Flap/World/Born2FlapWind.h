@@ -32,4 +32,11 @@ namespace Born2FlapWind
     // Height = the level's obstacle-top sampler. Zero when calm, unsampled, or
     // on the sheltered (lee) side of the obstacle.
     double WindwardLift(const FVector& P, const FVector& Wind, FHeightSampler Height);
+
+    // Lee downdraft [m/s, signed]: horizontal wind sinking on the sheltered
+    // (lee) side of terrain, buildings and trees after crossing the crest.
+    // Wind = horizontal wind (m/s); Height = the level's obstacle-top sampler.
+    // Zero when calm, unsampled, or on the windward side. Returns a downward
+    // value (<=0) so callers can `Result.Z += ...` directly.
+    double LeeDraft(const FVector& P, const FVector& Wind, FHeightSampler Height);
 }

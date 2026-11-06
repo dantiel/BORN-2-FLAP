@@ -17,7 +17,7 @@ public class Born2Flap : ModuleRules
         PrivateDependencyModuleNames.AddRange(new[]
         {
             "Slate", "SlateCore", "UMG", "ProceduralMeshComponent", "ApplicationCore",
-            "AudioMixer", "Json", "MoviePlayer", "Niagara"
+            "AudioMixer", "Json", "MoviePlayer", "Niagara", "HTTP", "PakFile"
         });
 
         if (Target.Platform == UnrealTargetPlatform.Win64)

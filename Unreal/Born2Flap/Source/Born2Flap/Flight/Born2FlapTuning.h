@@ -147,7 +147,7 @@ FORCEINLINE B2F_TuningConfig DefaultTuningForModel(int32 Model)
     T.body_mass_kg = 0.050;
     T.vertical_mount_angle_deg = 0;
     T.return_ferocity = 50;
-    T.yaw_scale = 60;
+    T.yaw_scale = 100;
     T.stroke_skew_percent = 0;
     T.return_skew_percent = 0;
 
