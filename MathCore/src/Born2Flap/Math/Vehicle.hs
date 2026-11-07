@@ -86,6 +86,19 @@ surfacePressure area normalSpeed =
   -0.5 * airDensity * area * surfacePressureCp
     * normalSpeed * sqrt (normalSpeed*normalSpeed + lowSpeedNormalFloor*lowSpeedNormalFloor)
 
+-- Speed-agnostic DIFFERENTIAL pressure glue: the compressed-air field resists
+-- the wings' SCISSORING motion (roll rate + flap-rate deviation from the common
+-- beat + aeroelastic deformation) with a CONSTANT Coulomb-like force from a
+-- minimum dynamic pressure (0.5 * rho * Cp * v0^2). The magnitude is independent
+-- of speed and of load, so a slow aileron sweep or a slow body roll still
+-- anchors the wings to the air; the pressure law above is only the speed-
+-- PROPORTIONAL (quadratic + low-speed linear) part that vanishes as the
+-- differential velocity tends to zero.
+glueFloorMS, glueKneeMS, glueShearCp :: Double
+glueFloorMS = 4.5
+glueKneeMS = 0.05
+glueShearCp = 0.5
+
 finiteWingLiftSlope :: Double -> Double
 finiteWingLiftSlope aspect = 2*pi*aspect/(aspect+2)*circulationLiftEfficiency
 
@@ -167,9 +180,11 @@ data StripState = StripState
   , stripMoment :: !Vec3     -- ^ aerodynamic r cross F plus section couple
   , stripAirVelocity :: !Vec3 -- ^ complete velocity through the sampled local wind
   , stripWindDelta :: !Vec3   -- ^ local wind minus body-origin wind, body frame
+  , stripGripLoad :: !Double  -- ^ speed-agnostic field grip strength [N]: the compressed-air anchor's Coulomb floor, independent of instantaneous speed
+  , stripGlueVel :: !Vec3     -- ^ field-inertia low-passed differential glue velocity [m/s]: fast flap-asymmetry chatter is filtered while slow aileron/roll sees the full grip
   } deriving stock (Eq, Show)
 emptyStrip :: StripState
-emptyStrip = StripState 0 0 0 0 0 0 0 0 0 0 0 0 emptyPressureField zeroVec (Vec3 0 0 1) zeroVec zeroVec zeroVec zeroVec zeroVec zeroVec
+emptyStrip = StripState 0 0 0 0 0 0 0 0 0 0 0 0 emptyPressureField zeroVec (Vec3 0 0 1) zeroVec zeroVec zeroVec zeroVec zeroVec zeroVec 0 zeroVec
 
 data VehicleState = VehicleState
   { vehicleOscillator :: !OscillatorState
@@ -312,8 +327,8 @@ wingLoadsWithStroke flapping side stroke rate phaseRate input model incidenceRad
 -- solves these four elastic coordinates together with body roll and hinges.
 data WingSystem = WingSystem
   { wingInitialRates :: (Double,Double)
-  , wingTrialLoads :: Double -> Double -> (Double,Double) -> [StripResult]
-  , wingTrialMotion :: Vec3 -> Vec3 -> Double -> (Double,Double) -> [StripResult]
+  , wingTrialLoads :: Double -> Double -> Double -> (Double,Double) -> [StripResult]
+  , wingTrialMotion :: Vec3 -> Vec3 -> Double -> Double -> (Double,Double) -> [StripResult]
   , wingElasticResidual :: (Double,Double) -> [StripResult] -> (Double,Double)
   , wingCommit :: [StripResult] -> ([StripResult],[StripState])
   }
@@ -324,10 +339,10 @@ prepareWingSystem flapping side stroke phaseRate input model incidenceRad states
       stations = shapeStationsAt wp stripCount
       aspect = shapeAspectRatio wp
       (initial,deform,residual,finish) = prepareStructure side stroke (wmSpars model) wp input states
-      rawMotion rates deltaVelocity rate elastic = zipWith3
-        (\station s sup -> stepStripPreparedMotion station aspect True phaseRate flapping side stroke input incidenceRad wp 0 s sup centre supportPosDev rates deltaVelocity rate)
+      rawMotion rates deltaVelocity rate commonRate elastic = zipWith3
+        (\station s sup -> stepStripPreparedMotion station aspect True phaseRate flapping side stroke input incidenceRad wp 0 s sup centre supportPosDev rates deltaVelocity rate commonRate)
         stations (deform elastic) supports
-      raw rollRate = rawMotion (Vec3 rollRate (vy(bodyRatesRadS input)) (vz(bodyRatesRadS input))) zeroVec
+      raw rollRate rate commonRate = rawMotion (Vec3 rollRate (vy(bodyRatesRadS input)) (vz(bodyRatesRadS input))) zeroVec rate commonRate
       commit rs = let results=transportSeparation side input wp (map finish rs)
                   in (results,map resultState results)
   in WingSystem initial raw rawMotion residual commit
@@ -337,8 +352,8 @@ prepareWingLoads :: Bool -> Double -> Double -> Double -> VehicleInput -> WingMo
 prepareWingLoads flapping side stroke phaseRate input model incidenceRad states supports centre supportPosDev =
   let system=prepareWingSystem flapping side stroke phaseRate input model incidenceRad states supports centre supportPosDev
       (vb,vt)=wingInitialRates system
-  in \rollRate rate _common ->
-    let loads b t=wingTrialLoads system rollRate rate (b,t)
+  in \rollRate rate common ->
+    let loads b t=wingTrialLoads system rollRate rate common (b,t)
         residual [b,t]=let (rb,rt)=wingElasticResidual system (b,t) (loads b t) in [rb,rt]
         residual _=error "elastic coordinate count"
         solved=solveImplicitSystem residual [vb,vt]
@@ -368,11 +383,11 @@ stepStrip implicitLoads phaseRate flapping side stroke input incidenceRad wp ind
 -- across all trial elastic velocities instead of sorting/resampling the
 -- outline again for each Jacobian column.
 stepStripPrepared :: SpanStation -> Double -> Bool -> Double -> Bool -> Double -> Double -> VehicleInput -> Double -> WingShape -> Int -> StripState -> Double -> Double -> Double -> Double -> Double -> Double -> StripResult
-stepStripPrepared station aspectRatio implicitLoads phaseRate flapping side stroke input incidenceRad wp index old support centre supportPosDev rollRate rate _common =
+stepStripPrepared station aspectRatio implicitLoads phaseRate flapping side stroke input incidenceRad wp index old support centre supportPosDev rollRate rate common =
   stepStripPreparedMotion station aspectRatio implicitLoads phaseRate flapping side stroke input incidenceRad wp index old support centre supportPosDev
-    (Vec3 rollRate (vy(bodyRatesRadS input)) (vz(bodyRatesRadS input))) zeroVec rate
+    (Vec3 rollRate (vy(bodyRatesRadS input)) (vz(bodyRatesRadS input))) zeroVec rate common
 
-stepStripPreparedMotion :: SpanStation -> Double -> Bool -> Double -> Bool -> Double -> Double -> VehicleInput -> Double -> WingShape -> Int -> StripState -> Double -> Double -> Double -> Vec3 -> Vec3 -> Double -> StripResult
+stepStripPreparedMotion :: SpanStation -> Double -> Bool -> Double -> Bool -> Double -> Double -> VehicleInput -> Double -> WingShape -> Int -> StripState -> Double -> Double -> Double -> Vec3 -> Vec3 -> Double -> Double -> StripResult
 {-# NOINLINE stepStripPreparedMotion #-}
 stepStripPreparedMotion station aspectRatio implicitLoads _phaseRate _flapping side stroke input incidenceRad wp _index old _supportN _centre _supportPosDev =
   let !dt = stepSeconds input
@@ -452,7 +467,7 @@ stepStripPreparedMotion station aspectRatio implicitLoads _phaseRate _flapping s
       -- genuinely sweeps through the air and RESISTS. That resistance, acting
       -- at the spanwise lever arm (position), is what rolls the fuselage — the
       -- fuselage/tail sit on the centreline and carry no roll lever arm.
-  in \rates deltaVelocity strokeRate ->
+  in \rates deltaVelocity strokeRate commonRate ->
   let flapVelocity = crossVec (Vec3 (side * strokeRate) 0 0)
                        (addVec position (Vec3 0 0 (-wingRootHeight)))
       bendAngleRate = stripBendSlopeRate old / (1+bendSlope*bendSlope)
@@ -549,14 +564,45 @@ stepStripPreparedMotion station aspectRatio implicitLoads _phaseRate _flapping s
       chordForce = scaleVec (-drag * flowX - lift * flowZ) chordAxis
       normalForce = scaleVec (-drag * flowZ + lift * flowX) normal
       spanDrag = scaleVec (-0.5 * airDensity * area * sideCd * abs spanVelocity * spanVelocity) spanAxis
+      -- Speed-agnostic DIFFERENTIAL pressure glue: a CONSTANT Coulomb-like force
+      -- from a minimum dynamic pressure (0.5 * rho * Cp * v0^2), saturating via
+      -- tanh(v/knee). Only the DIFFERENTIAL motion is glued — the roll rate, the
+      -- flap-rate deviation from the common beat, and the aeroelastic deformation
+      -- — so the grip anchors a slow roll/aileron sweep while leaving common
+      -- translation, pitch/yaw and the symmetric beat free (the bird can still
+      -- fly and fall).
+      commonFlapVel = crossVec (Vec3 (side * commonRate) 0 0)
+                       (addVec position (Vec3 0 0 (-wingRootHeight)))
+      rollDiffVel = crossVec (Vec3 (vx rates) 0 0)
+                       (addVec position (Vec3 0 0 (-wingRootHeight)))
+      diffFlapVel = addVec flapVelocity (scaleVec (-1) commonFlapVel)
+      rawGlueVel = addVec elasticVelocity (addVec rollDiffVel diffFlapVel)
+      -- The compressed-air field has INERTIA: its reaction builds with a lag, so
+      -- fast flap-asymmetry chatter is filtered before it can fight the servo,
+      -- while the slow aileron sweep and body roll meet the full grip.
+      glueFieldTau = 0.8
+      glueFilter = 1 - exp (-dt / glueFieldTau)
+      glueVel = addVec (stripGlueVel old)
+                        (scaleVec glueFilter (addVec rawGlueVel (scaleVec (-1) (stripGlueVel old))))
+      glueNormalVel = dot glueVel normal
+      glueChordVel = dot glueVel chordAxis
+      glueSpanVel = dot glueVel spanAxis
+      tangentialSpeed = sqrt (glueChordVel * glueChordVel + glueSpanVel * glueSpanVel)
+      gripLoad = 0.5 * airDensity * area * surfacePressureCp * glueFloorMS * glueFloorMS
+      gripNormalMag = gripLoad * tanh (glueNormalVel / glueKneeMS)
+      gripShearMag = 0.5 * airDensity * area * glueShearCp * glueFloorMS * glueFloorMS
+                     * tanh (tangentialSpeed / glueKneeMS)
+      gripForce = addVec (scaleVec (-gripNormalMag) normal)
+                   (scaleVec (-gripShearMag / max 1e-9 tangentialSpeed)
+                             (addVec (scaleVec glueChordVel chordAxis) (scaleVec glueSpanVel spanAxis)))
       -- Every strip sees complete local flow in glide and flap. No cross-wing
       -- positional spring: air does not retain a fixed bank/support plane.
       -- Non-circulatory added-air inertia is in the coupled mass solve.
       oldPatch = stripPressureField old
       quadraticPressure = scaleVec (surfacePressure area normalVelocity) normal
       liftPart = addVec (scaleVec (lift * flowX) normal)
-                       (scaleVec (-lift * flowZ) chordAxis)
-      force = addVec quadraticPressure (addVec chordForce (addVec normalForce spanDrag))
+                        (scaleVec (-lift * flowZ) chordAxis)
+      force = addVec gripForce (addVec quadraticPressure (addVec chordForce (addVec normalForce spanDrag)))
       aeroForce = force
       nextLoad = fieldLoad oldPatch + (1-exp(-dt/0.15))
                    * (magnitude liftPart + magnitude quadraticPressure - fieldLoad oldPatch)
@@ -587,7 +633,8 @@ stepStripPreparedMotion station aspectRatio implicitLoads _phaseRate _flapping s
                  , stripDrag = addVec (scaleVec (-drag*flowX) chordAxis)
                      (addVec (scaleVec (-drag*flowZ) normal) spanDrag)
                  , stripMoment = moment
-                 , stripAirVelocity = sectionVelocity }
+                 , stripAirVelocity = sectionVelocity
+                 , stripGripLoad = gripLoad, stripGlueVel = glueVel }
   in StripResult next force moment power sectionTwistMoment sectionBendMoment (position,chordAxis,spanAxis,normal,sectionVelocity,flapVelocity)
 
 transportSeparation :: Double -> VehicleInput -> WingShape -> [StripResult] -> [StripResult]

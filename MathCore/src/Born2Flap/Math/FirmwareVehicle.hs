@@ -287,8 +287,9 @@ advanceFirmwareVehicle totalMass hostInertia coupled rc params servo battery mod
           initial = [x oldRates,y oldRates,z oldRates,vbL,vtL,vbR,vtR,y bodyRates,z bodyRates,0,0,0]
           trial [p,l,r,bL,tL,bR,tR,q,s,dvx,dvy,dvz] =
             let motion = Vec3 p q s
+                common = 0.5 * (l + r)
                 deltaVelocity = addVec (Vec3 dvx dvy dvz) (crossVec (addVec bodyRates (scaleVec (-1) motion)) cg)
-            in (wingTrialMotion leftSystem motion deltaVelocity l (bL,tL), wingTrialMotion rightSystem motion deltaVelocity r (bR,tR))
+            in (wingTrialMotion leftSystem motion deltaVelocity l common (bL,tL), wingTrialMotion rightSystem motion deltaVelocity r common (bR,tR))
           trial _ = error "coupled coordinate count"
           -- Dry-wing first mass moment from the same planform as hinge inertia.
           wp = wmWing model
