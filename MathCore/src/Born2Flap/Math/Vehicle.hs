@@ -68,7 +68,7 @@ surfaceSkinCd = 0.012
 
 -- Flat-plate normal-pressure coefficient for wings and ruddervators.
 surfacePressureCp :: Double
-surfacePressureCp = 1.8
+surfacePressureCp = 2.0
 
 -- Low-speed normal-pressure floor [m/s]. A purely quadratic v·|v| pressure
 -- vanishes as the relative speed tends to zero, so a slowly-drifting surface
@@ -78,7 +78,7 @@ surfacePressureCp = 1.8
 -- flapping or forward glide. Raised 0.5 → 1.0 so the roll-rate coupling of a
 -- held differential stroke has a real grip below 1 m/s of normal motion.
 lowSpeedNormalFloor :: Double
-lowSpeedNormalFloor = 1.0
+lowSpeedNormalFloor = 1.5
 
 -- Shared wing/tail normal pressure; circulation supplies forward-flow lift.
 surfacePressure :: Double -> Double -> Double
@@ -109,7 +109,7 @@ structuralDampingRatio = 0.15
 -- 0.785 is the conservative lower bound — the previous 0.20 was a ~4x-de-tuned
 -- calibration, not a measured value.
 rotationalLiftCoefficient :: Double
-rotationalLiftCoefficient = 0.785
+rotationalLiftCoefficient = 1.0
 
 groundEffectLiftGain, groundEffectDragRelief :: Double
 groundEffectLiftGain = 0.30
