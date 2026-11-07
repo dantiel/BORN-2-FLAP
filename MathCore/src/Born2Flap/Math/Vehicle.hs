@@ -99,6 +99,30 @@ glueFloorMS = 4.5
 glueKneeMS = 0.05
 glueShearCp = 0.5
 
+-- Static weight support ("compressed-air" lift field): a flap-gated vertical
+-- cushion that carries the strip's weight share at low horizontal speed and
+-- hands over to circulation lift at cruise. The position-based weight
+-- distribution (supportLiftMod) and the hang-glider pendulum
+-- (supportPendulumMoment) are the rate-independent slow-roll grip restored
+-- from the known-good state.
+supportHandoverMS :: Double
+supportHandoverMS = 4.0
+
+fieldCompressionPerRate :: Double
+fieldCompressionPerRate = 0.06
+
+liftModVelRef :: Double
+liftModVelRef = 0.3
+
+fieldTranslationSlope :: Double
+fieldTranslationSlope = 6.0
+
+supportPositionSlope :: Double
+supportPositionSlope = 0.75
+
+supportHangExtra :: Double
+supportHangExtra = 0.038
+
 finiteWingLiftSlope :: Double -> Double
 finiteWingLiftSlope aspect = 2*pi*aspect/(aspect+2)*circulationLiftEfficiency
 
@@ -389,7 +413,7 @@ stepStripPrepared station aspectRatio implicitLoads phaseRate flapping side stro
 
 stepStripPreparedMotion :: SpanStation -> Double -> Bool -> Double -> Bool -> Double -> Double -> VehicleInput -> Double -> WingShape -> Int -> StripState -> Double -> Double -> Double -> Vec3 -> Vec3 -> Double -> Double -> StripResult
 {-# NOINLINE stepStripPreparedMotion #-}
-stepStripPreparedMotion station aspectRatio implicitLoads _phaseRate flapping side stroke input incidenceRad wp _index old _supportN centre _supportPosDev =
+stepStripPreparedMotion station aspectRatio implicitLoads _phaseRate flapping side stroke input incidenceRad wp _index old supportN centre supportPosDev =
   let !dt = stepSeconds input
       !fraction = spanFraction station
       !spanM = wsSpanM wp
@@ -613,7 +637,22 @@ stepStripPreparedMotion station aspectRatio implicitLoads _phaseRate flapping si
       liftPart = scaleVec liftMod
                    (addVec (scaleVec (lift * flowX) normal)
                            (scaleVec (-lift * flowZ) chordAxis))
-      force = addVec gripForce (addVec quadraticPressure (addVec chordForce (addVec normalForce spanDrag)))
+      -- Static weight support ("compressed-air" lift field): flap-gated vertical
+      -- cushion carrying the strip's weight share, with position-based weight
+      -- distribution (wing held UP carries less, held-DOWN carries more) — the
+      -- rate-independent slow-roll grip — plus a speed gate handing the load
+      -- over to circulation lift at cruise.
+      supportGate = supportHandoverMS * supportHandoverMS
+                    / (supportHandoverMS * supportHandoverMS
+                         + vx velocity * vx velocity + vy velocity * vy velocity)
+      liftModField = clamp 0.3 3.0 (1 - fieldTranslationSlope * dot (bodyUpB input) velocity / liftModVelRef)
+      fieldRate = max (-8) (min 8 strokeRate)
+      supportLiftMod = clamp 0.3 3.0 (1 - supportPositionSlope * supportPosDev)
+      flapGate = if flapping then 1.0 else 0.0
+      supportForce = scaleVec (flapGate * supportLiftMod * liftModField * supportGate * supportN
+                                 * (1 + fieldCompressionPerRate * sqrt (fieldRate * fieldRate + 0.25))) normal0
+      supportPendulumMoment = crossVec (Vec3 0 0 supportHangExtra) supportForce
+      force = addVec supportForce (addVec gripForce (addVec quadraticPressure (addVec chordForce (addVec normalForce spanDrag))))
       aeroForce = force
       nextLoad = fieldLoad oldPatch + (1-exp(-dt/0.15))
                    * (magnitude liftPart + magnitude quadraticPressure - fieldLoad oldPatch)
@@ -633,8 +672,9 @@ stepStripPreparedMotion station aspectRatio implicitLoads _phaseRate flapping si
       -- Section Cm is positive nose-up. With body +x forward,+y right,+z up,
       -- the axial +Y moment rotates the nose DOWN, so convert the sign here.
       -- Keep the scalar section moment in its original convention for twist.
-      moment = addVec (crossVec position force)
-                      (scaleVec (-side * sectionPitchMoment) spanAxis)
+      moment = addVec supportPendulumMoment
+                (addVec (crossVec position force)
+                        (scaleVec (-side * sectionPitchMoment) spanAxis))
       power = max 0 (negate (dot force flapVelocity))
       next = old { stripSeparation = relaxed, stripPreviousAlpha = alpha
                  , stripPreviousNormalVelocity = normalVelocity, stripLevStrength = lev

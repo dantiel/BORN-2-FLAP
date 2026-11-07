@@ -66,6 +66,8 @@ data FirmwareVehicleState = FirmwareVehicleState
   , fvExternalForce :: !Vec3                 -- ^ surface forces before host added-mass/recoil conversion
   , fvMassFrame :: !(Maybe (Double,Double,Double)) -- ^ CG x, dry pitch/yaw inertia; enables spatial coupling; absent = legacy prescribed-motion fixture
   , fvPreviousDifferenceTarget :: !(Maybe Double) -- ^ previous commanded half-difference, radians
+  , fvSupportPosL :: !Double  -- ^ low-passed left support-position deviation [rad] (field inertia)
+  , fvSupportPosR :: !Double  -- ^ low-passed right support-position deviation [rad] (field inertia)
   } deriving stock (Eq, Show)
 
 defaultFirmwareVehicleState :: FirmwareVehicleState
@@ -91,6 +93,8 @@ defaultFirmwareVehicleState = FirmwareVehicleState
   , fvExternalForce = zeroVec
   , fvMassFrame = Nothing
   , fvPreviousDifferenceTarget = Nothing
+  , fvSupportPosL = 0
+  , fvSupportPosR = 0
   }
 
 -- Reconcile the solver's predicted pose with an authoritative host pose.
@@ -276,12 +280,28 @@ advanceFirmwareVehicle totalMass hostInertia coupled rc params servo battery mod
                  (mixLeftFlapDevDeg mix,mixRightFlapDevDeg mix)
                  (y aeroLoad,z aeroLoad)
                  (wingInertia,differenceInertia) (atEnd angleL oldL l,atEnd angleR oldR r) (l,r)
-          -- Compatibility arguments for the legacy pure-wing API. No load
-          -- depends on commanded angle, aircraft weight, or a flap/glide flag.
+          -- Support-field attachment: the compressed-air cushion's position
+          -- deviation follows the MEAN wing position, low-passed so the
+          -- flap-frequency servo-lag ripple cannot pump the hanging-body
+          -- pendulum (supportPosTau matches the known-good field inertia).
           centreStroke = 0.5 * (angleL + angleR)
-          supportShares = replicate stripCount 0
-          leftSystem = prepareWingSystem (mixIsFlapping mix) (-1) angleL (y oldRates) input model mountIncidence (fvLeftStrips state) supportShares centreStroke 0
-          rightSystem = prepareWingSystem (mixIsFlapping mix) 1 angleR (z oldRates) input model mountIncidence (fvRightStrips state) supportShares centreStroke 0
+          supportDiff = 0.5 * (angleL - angleR)
+          supportPosTau = 0.25
+          supportPosLNext = fvSupportPosL state + (supportDiff - fvSupportPosL state) * dt / supportPosTau
+          supportPosRNext = fvSupportPosR state + (-supportDiff - fvSupportPosR state) * dt / supportPosTau
+          -- Static weight support per strip [N]: body weight PLUS the
+          -- entrained-air added mass, distributed across BOTH wings by chord
+          -- area. The strip applies the share VERTICALLY and modulates it by
+          -- the flap position (supportLiftMod), so a held differential stroke
+          -- produces a rate-independent roll couple; circulation lift takes
+          -- the load over at cruise instead of double-carrying it.
+          supportShares =
+            let chords = map (shapeChord wp . (\i -> (fromIntegral i + 0.5) / fromIntegral stripCount)) [0 .. stripCount - 1]
+                totalChord = 2 * sum chords
+                weightN = (totalMass + 2 * addedMass) * 9.81
+            in map (\c -> weightN * c / totalChord) chords
+          leftSystem = prepareWingSystem (mixIsFlapping mix) (-1) angleL (y oldRates) input model mountIncidence (fvLeftStrips state) supportShares centreStroke supportPosLNext
+          rightSystem = prepareWingSystem (mixIsFlapping mix) 1 angleR (z oldRates) input model mountIncidence (fvRightStrips state) supportShares centreStroke supportPosRNext
           (vbL,vtL) = wingInitialRates leftSystem
           (vbR,vtR) = wingInitialRates rightSystem
           initial = [x oldRates,y oldRates,z oldRates,vbL,vtL,vbR,vtR,y bodyRates,z bodyRates,0,0,0]
@@ -554,6 +574,8 @@ advanceFirmwareVehicle totalMass hostInertia coupled rc params servo battery mod
             , fvTailFields = if fixedFan then fanAt bodyRatesNext velocityDeltaNext else []
             , fvExternalForce = externalForce
             , fvPreviousDifferenceTarget = Just differenceTarget
+            , fvSupportPosL = supportPosLNext
+            , fvSupportPosR = supportPosRNext
             }
 
           output = VehicleOutput force moment power maximumSeparation (-1) 0
