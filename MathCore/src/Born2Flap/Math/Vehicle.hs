@@ -473,10 +473,14 @@ stepStripPreparedMotion station aspectRatio implicitLoads _phaseRate _flapping s
       bendAngleRate = stripBendSlopeRate old / (1+bendSlope*bendSlope)
       bendRotationVelocity = scaleVec bendAngleRate
         (crossVec (Vec3 side 0 0) (scaleVec (-0.25*chord) chordAxis))
-      elasticVelocity = addVec bendRotationVelocity (addVec
+      -- Glue elastic velocity is the KNOWN-GOOD form (bend rate + twist rate
+      -- only). The coupled solver's extra AC-point rotation (bendRotationVelocity)
+      -- stays in sectionVelocity for aero, but is excluded from the glue so the
+      -- slow-roll grip matches the pre-67bc731 behavior exactly.
+      elasticVelocity = addVec
         (scaleVec (stripBendRateMS old) (Vec3 0 (-side*sin dihedral) (cos dihedral)))
-        (scaleVec (-0.25*chord*stripTwistRateRadS old) normal))
-      sectionVelocity = addVec deltaVelocity (addVec elasticVelocity (addVec velocity (addVec (crossVec rates position) flapVelocity)))
+        (scaleVec (-0.25*chord*stripTwistRateRadS old) normal)
+      sectionVelocity = addVec deltaVelocity (addVec bendRotationVelocity (addVec elasticVelocity (addVec velocity (addVec (crossVec rates position) flapVelocity))))
       dot (Vec3 a b c) (Vec3 d e f) = a*d + b*e + c*f
       chordVelocity = dot sectionVelocity chordAxis
       normalVelocity = dot sectionVelocity normal
