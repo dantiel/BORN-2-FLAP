@@ -389,7 +389,7 @@ stepStripPrepared station aspectRatio implicitLoads phaseRate flapping side stro
 
 stepStripPreparedMotion :: SpanStation -> Double -> Bool -> Double -> Bool -> Double -> Double -> VehicleInput -> Double -> WingShape -> Int -> StripState -> Double -> Double -> Double -> Vec3 -> Vec3 -> Double -> Double -> StripResult
 {-# NOINLINE stepStripPreparedMotion #-}
-stepStripPreparedMotion station aspectRatio implicitLoads _phaseRate _flapping side stroke input incidenceRad wp _index old _supportN _centre _supportPosDev =
+stepStripPreparedMotion station aspectRatio implicitLoads _phaseRate flapping side stroke input incidenceRad wp _index old _supportN centre _supportPosDev =
   let !dt = stepSeconds input
       !fraction = spanFraction station
       !spanM = wsSpanM wp
@@ -604,8 +604,15 @@ stepStripPreparedMotion station aspectRatio implicitLoads _phaseRate _flapping s
       -- Non-circulatory added-air inertia is in the coupled mass solve.
       oldPatch = stripPressureField old
       quadraticPressure = scaleVec (surfacePressure area normalVelocity) normal
-      liftPart = addVec (scaleVec (lift * flowX) normal)
-                        (scaleVec (-lift * flowZ) chordAxis)
+      -- Position-based lift modulation (the counter-rotation coupling): a wing
+      -- held UP loses part of its aero lift, a held-DOWN wing gains it — odd in
+      -- the deviation from the common stroke centre. This anchors a slow glide
+      -- roll positionally (the aileron differential is resisted by the geometry
+      -- itself), distinct from the rate-based Coulomb glue below.
+      liftMod = clamp 0.3 3.0 (1 - (if flapping then 2.4 else 24.0) * (stroke - centre))
+      liftPart = scaleVec liftMod
+                   (addVec (scaleVec (lift * flowX) normal)
+                           (scaleVec (-lift * flowZ) chordAxis))
       force = addVec gripForce (addVec quadraticPressure (addVec chordForce (addVec normalForce spanDrag)))
       aeroForce = force
       nextLoad = fieldLoad oldPatch + (1-exp(-dt/0.15))
