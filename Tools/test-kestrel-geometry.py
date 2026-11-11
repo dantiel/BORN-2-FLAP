@@ -29,22 +29,32 @@ def sample(points, fraction):
             return x+(z-x)*(y-a)/(b-a)
     return points[-1][1]
 lib = c.CDLL(str(args.dll.resolve()))
-assert lib.b2f_math_abi_version() == 18 and lib.b2f_math_runtime_init() == 1
+abi = lib.b2f_math_abi_version()
+assert abi in (18, 21) and lib.b2f_math_runtime_init() == 1
+class Tuning(c.Structure):
+    _fields_ = f.Tuning._fields_ + ([(n, c.c_double) for n in (
+        'StrokeSkew', 'ReturnSkew', 'ShapeMix', 'ThrottleThrustShapeMix',
+        'ThrottleThrustExpo', 'AileronSkewMix', 'ThrottleSkewRateMix',
+        'AileronSkewRateMix', 'ElevatorFerocityMix')] if abi == 21 else [])
 def bind(name, types, result=c.c_int):
     fn = getattr(lib,'b2f_math_'+name)
     fn.argtypes, fn.restype = types, result
     return fn
 create = bind('create_firmware_vehicle',[c.c_void_p],c.c_void_p)
 destroy = bind('destroy_firmware_vehicle',[c.c_void_p],None)
-tune = bind('reconfigure_firmware_vehicle',[c.c_void_p,c.POINTER(f.Tuning)])
+tune = bind('reconfigure_firmware_vehicle',[c.c_void_p,c.POINTER(Tuning)])
 step = bind('step_firmware_vehicle',[c.c_void_p,c.POINTER(f.Pilot),c.POINTER(f.Body),c.POINTER(f.Output)])
 shapes = bind('get_wing_shape',[c.c_void_p,c.c_uint32,c.POINTER(audit.Shape),c.POINTER(audit.Shape)])
 fields = bind('get_wing_fields',[c.c_void_p,c.c_uint32,c.POINTER(f.Field),c.POINTER(f.Field)])
 tails = bind('get_tail_fields',[c.c_void_p,c.c_uint32,c.POINTER(audit.Tail)])
 cfg = configparser.ConfigParser()
 assert cfg.read(args.preferences)
-tuning = f.Tuning(*[cfg.getfloat('Flight' if n=='BodyMassKg' else 'Tuning', n,
-    **({'fallback':60} if n=='YawScale' else {})) for n,_ in f.Tuning._fields_])
+def setting(name):
+    section = 'Flight' if name == 'BodyMassKg' else ('Tuning.Model2' if cfg.has_option('Tuning.Model2', name) else 'Tuning')
+    fallback = dict.fromkeys([n for n,_ in Tuning._fields_[19:]], 0)
+    fallback['YawScale'] = 60
+    return cfg.getfloat(section, name, **({'fallback': fallback[name]} if name in fallback else {}))
+tuning = Tuning(*[setting(n) for n,_ in Tuning._fields_])
 tuning.VerticalMountAngle = 0
 ctx = create(None)
 try:

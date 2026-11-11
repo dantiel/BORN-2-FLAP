@@ -68,6 +68,10 @@ private:
     FString LastWindDesc;
     FString LastStatus;
     FString LastCamera;
+    // Hint banner (reward toast / handcatch-window cue): cached displayed text
+    // and tone so Refresh only re-drives the node when either actually changes.
+    FString LastHint;
+    FString LastHintTone;
     // True while the action bar (THROW/POI/CAM/MENU) is folded away by the HIDE
     // toggle, leaving only the tiny eye glyph. Mirrors CachedBird->IsUIHidden().
     bool bButtonsHidden = false;

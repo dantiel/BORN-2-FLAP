@@ -98,12 +98,21 @@ void AShiomoriWaterDirector::Tick(float DeltaSeconds)
     if(auto* GM=Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode()))
     {
         const FVector Wind=GM->WindAt(GetActorLocation(),TimeSeconds);
-        Parameters.WindSpeed=Wind.Size2D();
-        Parameters.WindDirection=FMath::RadiansToDegrees(FMath::Atan2(Wind.Y,Wind.X));
-        // SeaState is a 0..6 scale. Persistent ocean swell survives light wind.
-        Parameters.SeaState=FMath::Clamp(1.6f+Parameters.WindSpeed*.35f,1.6f,3.5f);
-        Parameters.ShoreBreakIntensity=.85f+Parameters.WindSpeed*.065f;
-        Parameters.FoamAmount=1.1f+Parameters.WindSpeed*.08f;
+                Parameters.WindSpeed=Wind.Size2D();
+                Parameters.WindDirection=FMath::RadiansToDegrees(FMath::Atan2(Wind.Y,Wind.X));
+                // The dominant swell weathervanes into the wind: long ocean waves turn
+                // slowly, so the big crest lines converge on the live wind direction
+                // over ~15 s while the material's streak field follows instantly. This
+                // is what makes the wind direction READ on the water surface.
+                const float SwellErr=FMath::UnwindDegrees(Parameters.WindDirection-Parameters.PrimaryWaveDirection);
+                Parameters.PrimaryWaveDirection+=SwellErr*FMath::Clamp(DeltaSeconds*0.07f,0.0f,1.0f);
+                // Swell size and sea state are wind-determined: a calm breeze leaves a
+                // long, low, glassy swell; a fresh wind stacks the waves up and roughens
+                // the chop. (SeaState is a 0..6 scale feeding the shared Gerstner amp.)
+                Parameters.SwellAmplitude=FMath::Clamp(18.f+Parameters.WindSpeed*2.6f,18.f,60.f);
+                Parameters.SeaState=FMath::Clamp(1.1f+Parameters.WindSpeed*.24f,1.1f,2.8f);
+                Parameters.ShoreBreakIntensity=.85f+Parameters.WindSpeed*.065f;
+                Parameters.FoamAmount=1.1f+Parameters.WindSpeed*.08f;
         Parameters.StormAmount=0.f; // these presets intentionally exclude storms
         ApplyParameters();
     }

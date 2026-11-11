@@ -52,6 +52,8 @@ module Born2Flap
             climb: climb,
             climb_tone: climb > 0.4 ? "good" : (climb < -0.4 ? "warn" : "normal"),
             speed: (locals[:speed] || 0).round(1),
+            # Flap cadence the pilot reads on the INSTRUMENTS panel (Hz).
+            flap_hz: (locals[:flap_hz] || 0).to_f.round(1),
             battery: battery,
             battery_tone: battery > 50 ? "good" : (battery > 20 ? "warn" : "danger"),
             # Native HUD computes "4.18V × 3 = 12.5V"; the Brain accepts an

@@ -42,6 +42,17 @@ def custom(mat,code,inputs):
     for name,value in inputs.items():link(value,n,name)
     return n
 
+def material_usage_flags(m):
+    """Enable the UE5.8 usage flags programmatically-built materials need.
+
+    Without used_with_nanite a material on a Nanite-enabled mesh silently falls
+    back to the grey Default Material (the checkerboard); without
+    used_with_instanced_static_meshes the ISM dunes/desert swath do the same.
+    Mirrors Tools/create_shiomori_map.py material_usage_flags."""
+    m.set_editor_property('used_with_nanite',True)
+    m.set_editor_property('used_with_instanced_static_meshes',True)
+
+
 def material(name,tint,texture=None,metal=0.,emission=0.,cloud=False,mural=False):
     path=ROOT+'/Materials/M_'+name
     mat=u.load_asset(path) if E.does_asset_exist(path) else A.create_asset('M_'+name,ROOT+'/Materials',u.Material,u.MaterialFactoryNew())
@@ -73,7 +84,7 @@ def material(name,tint,texture=None,metal=0.,emission=0.,cloud=False,mural=False
         glow=expr(mat,'ScalarParameter',parameter_name='Afterglow',default_value=0.)
         blend=expr(mat,'LinearInterpolate');link(color(mat,(.31,.13,.07)),blend,'A');link(base,blend,'B');link(reveal,blend,'Alpha');out(blend,'BASE_COLOR')
         em=expr(mat,'Multiply');link(base,em,'A');link(glow,em,'B');out(em,'EMISSIVE_COLOR');mat.set_editor_property('two_sided',True)
-    M.set_material_usage(mat,u.MaterialUsage.MATUSAGE_INSTANCED_STATIC_MESHES)
+    material_usage_flags(mat)
     mat.set_editor_property('two_sided',True)
     M.recompile_material(mat);assert E.save_loaded_asset(mat)
     return mat
@@ -155,17 +166,16 @@ def yunsha_sky_material():
     for nm in ('SunDir','Dust','Mirage','Night','SkyWind','ViewToCamera','SceneColor','SceneDepth'):
         p=u.CustomInput();p.set_editor_property('input_name',nm);pins.append(p)
     h.set_editor_property('inputs',pins)
-    link(sd,h,'SunDir');link(dust,h,'Dust');link(mirage,h,'Mirage');link(night,h,'Night');link(skywind,h,'SkyWind')
+    link(sd,h,'SunDir');link(dust,h,'Dust');link(mirage,h,'Mirage');link(night,h,'Night');link(skywind,h,'SkyWind','RGBA')
     link(view,h,'ViewToCamera');link(scene,h,'SceneColor','Color');link(depth,h,'SceneDepth','Color')
     out(h,'EMISSIVE_COLOR')
-    M.set_material_usage(m,u.MaterialUsage.MATUSAGE_INSTANCED_STATIC_MESHES)
+    material_usage_flags(m)
     M.recompile_material(m);assert E.save_loaded_asset(m)
     return m
 
 sand=material('WindRippleSand',(1.0,.77,.48))
-from yunsha_sand import normal_code
-out(custom(sand,normal_code(),{
-    'P':expr(sand,'WorldPosition'),'N':expr(sand,'VertexNormalWS')}),'NORMAL')
+from yunsha_sand import normal_code, normal_inputs
+out(custom(sand,normal_code(),normal_inputs(sand,expr)),'NORMAL')
 sand.set_editor_property('tangent_space_normal',False)
 M.recompile_material(sand);E.save_loaded_asset(sand)
 from yunsha_oasis import ground_material, plant as plant_oasis, plant_lake
@@ -207,7 +217,7 @@ if not E.does_asset_exist(ROOT+'/Materials/M_Pterosaur'):
 
 generated_meshes=set()
 
-def mesh(name,verts,tris,mat,collision=True):
+def mesh(name,verts,tris,mat,collision=True,recompute_normals=None):
     name=re.sub(r'[^A-Za-z0-9_]', '_',name)
     path=ROOT+'/Meshes/SM_'+name
     generated_meshes.add(path)
@@ -220,6 +230,13 @@ def mesh(name,verts,tris,mat,collision=True):
         v=md.create_vertex();md.set_vertex_position(v,u.Vector(x,y,z));i=md.create_vertex_instance(v)
         md.set_vertex_instance_uv(i,u.Vector2D(x/400,y/400),0);ids.append(i)
     for a,b,c in tris:md.create_triangle(pg,[ids[a],ids[c],ids[b]])
+    if recompute_normals is not None:
+        editor=u.get_editor_subsystem(u.StaticMeshEditorSubsystem) or u.new_object(u.StaticMeshEditorSubsystem)
+        bs=editor.get_lod_build_settings(sm,0)
+        bs.set_editor_property('recompute_normals',recompute_normals)
+        bs.set_editor_property('recompute_tangents',True)
+        bs.set_editor_property('use_mikk_t_space',True)
+        editor.set_lod_build_settings(sm,0,bs)
     sm.set_editor_property('allow_cpu_access',True);sm.build_from_static_mesh_descriptions([md],False,False)
     if collision:sm.get_editor_property('body_setup').set_editor_property('collision_trace_flag',u.CollisionTraceFlag.CTF_USE_COMPLEX_AS_SIMPLE)
     if name.startswith('Dunes_') or name in ('BoneArchiveTerrain','DistantSandSea'):
@@ -259,18 +276,37 @@ def box(kind,p,size,yaw=0):
 
 # Native height sampler is the source of truth for both collision and flight.
 ground=u.Born2FlapYunsha.ground_height
-# Six kilometre desert, 10m cells; all tiles share the native dune sampler.
+
+
+def _smoothstep(e0,e1,x):
+    t=0.0 if x<=e0 else (1.0 if x>=e1 else (x-e0)/(e1-e0))
+    return t*t*(3.0-2.0*t)
+
+
+def _lerp(a,b,t):
+    return a+(b-a)*t
+
+
+def surf(x,y):
+    return ground(x,y)
+
+
+
+
+# Six kilometre desert on 5m cells; tiles share the native dune sampler plus a
+# resolved irregular relief. Native smooth normals and baked wind-flow UVs
+# are shared across tile edges; fine ripples live in surface-gradient shading.
 for row in range(6):
     for col in range(6):
         x0=-300000+col*100000;y0=-180000+row*100000;verts=[];tris=[]
-        for j in range(101):
-            for i in range(101):
-                x=x0+i*1000;y=y0+j*1000;verts.append((x,y,ground(x,y)))
-        for j in range(100):
-            for i in range(100):
-                if 124000<=x0+i*1000<170000 and -30000<=y0+j*1000<8000:continue
-                k=j*101+i;tris.extend([(k,k+1,k+101),(k+1,k+102,k+101)])
-        terrain=actor('dunes %d %d'%(row,col),mesh('Dunes_%d_%d'%(row,col),verts,tris,sand))
+        for j in range(201):
+            for i in range(201):
+                x=x0+i*500;y=y0+j*500;verts.append((x,y,surf(x,y)))
+        for j in range(200):
+            for i in range(200):
+                if 124000<=x0+i*500<170000 and -30000<=y0+j*500<8000:continue
+                k=j*201+i;tris.extend([(k,k+1,k+201),(k+1,k+202,k+201)])
+        terrain=actor('dunes %d %d'%(row,col),mesh('Dunes_%d_%d'%(row,col),verts,tris,sand,recompute_normals=True))
         terrain.static_mesh_component.set_editor_property('affect_distance_field_lighting',False)
 
 # Horizon apron begins exactly on the perimeter of the playable terrain.
@@ -555,6 +591,9 @@ views.extend([((95000,-95000,8000),(125000,-55000,700)),
               ((-65000,-110000,18000),(15000,-40000,0)),
               ((70000,140000,8500),(95000,180000,800)),
               ((90000,-70000,ground(90000,-70000)+120),(90500,-69800,ground(90500,-69800)+20))])
+# Ground-level wind-ripple checks, exposed sand and lee side.
+for x,y in ((0,-95000),(82000,-6000)):
+    views.append(((x,y,ground(x,y)+100),(x+250,y+160,ground(x+250,y+160)+8)))
 for i,(p,target) in enumerate(views):
     a=u.EditorLevelLibrary.spawn_actor_from_class(u.CameraActor,u.Vector(*p),u.MathLibrary.find_look_at_rotation(u.Vector(*p),u.Vector(*target)))
     a.tags=['YunshaView%d'%i];a.set_actor_label('Yunsha view %d'%i)
@@ -566,4 +605,21 @@ for path in E.list_assets(ROOT+'/Meshes',recursive=True,include_folder=False):
     package=path.split('.')[0]
     if package not in generated_meshes:assert E.delete_asset(package),package
 u.log('YUNSHA_MAP_READY seed=221022 sky_temples=5 grotto_mouths=60')
-if not globals().get('B2F_GENERATION_BATCH'):u.SystemLibrary.execute_console_command(None,'quit')
+if not globals().get('B2F_GENERATION_BATCH'):
+    # Shutdown flush (UE 5.8 stock teardown bug): PythonScriptPlugin finalizes
+    # Python at engine exit and its Py_Finalize pass crashes deep in
+    # python311.dll (write AV after QUIT_EDITOR, process exit 3) when the
+    # session leaves a large object graph behind -- the finalize GC deallocs
+    # thousands of unreal wrapper objects against partially-torn-down module
+    # state. Map/assets/metrics are already saved at this point, so shrink the
+    # graph while the interpreter is still healthy: the finalize pass then has
+    # no dealloc storm left to corrupt.
+    import gc as _gc
+    _keep = {'u', 'E', '_gc'}
+    for _n in list(globals()):
+        if not _n.startswith('_') and _n not in _keep:
+            globals().pop(_n, None)
+    _gc.collect()
+    u.SystemLibrary.collect_garbage()
+    _gc.collect()
+    u.SystemLibrary.execute_console_command(None, 'quit')

@@ -35,10 +35,12 @@ double EastShoreHeight(double X,double Y,double Original)
         *FMath::SmoothStep(11000.,19000.,Y)*(1-FMath::SmoothStep(-6500.,-1800.,D));
     H+=Shoulder*(260+310*FMath::PerlinNoise2D(FVector2D(X*.00045,Y*.00045))
         +95*FMath::PerlinNoise2D(FVector2D(X*.002,Y*.002)));
-    // The concrete compound occupies a small cut terrace behind the shoulder.
-    const double Pad=(1-FMath::SmoothStep(4400.,5600.,FMath::Abs(X-81600)))
-        *(1-FMath::SmoothStep(4000.,5200.,FMath::Abs(Y-41800)));
-    H=FMath::Lerp(H,740.,Pad);
+    // The concrete compound occupies a flat cut terrace on the east headland,
+    // close in across the water from the beach. The builder in
+    // Born2FlapEasternStation.cpp reads the same centre and pad height.
+    const double Pad=(1-FMath::SmoothStep(4400.,5600.,FMath::Abs(X-65000)))
+        *(1-FMath::SmoothStep(4000.,5200.,FMath::Abs(Y-29500)));
+    H=FMath::Lerp(H,1000.,Pad);
     return FMath::Lerp(Original,H,Mask);
 }
 }
@@ -91,7 +93,7 @@ void ABorn2FlapBayTerrain::BuildEastShore()
     for(int I=0;I<170;++I)
     {
         const double X=R.FRandRange(59500,96000),Y=R.FRandRange(16500,43500);
-        if(FMath::Abs(X-81600)<5400 && FMath::Abs(Y-41800)<5200)continue;
+        if(FMath::Abs(X-65000)<6200 && FMath::Abs(Y-29500)<5800)continue;
         if(Born2FlapBay::Height(X,Y)<220)continue;
         const double Size=R.FRandRange(230,760);
         Place(Stone,X,Y,Size,true,Size*.43,R);
@@ -100,6 +102,7 @@ void ABorn2FlapBayTerrain::BuildEastShore()
     for(int I=0;I<24;++I)
     {
         const double X=R.FRandRange(60000,94000),Y=R.FRandRange(34500,43500),Size=R.FRandRange(35,95);
+        if(FMath::Abs(X-65000)<6200 && FMath::Abs(Y-29500)<5800)continue;
         Place(DarkStone,X,Y,Size,true,Size*.55,R);
     }
     for(int I=0;I<65;++I)
@@ -132,7 +135,7 @@ void ABorn2FlapBayTerrain::BuildEastShore()
     for(int I=0;I<23000;++I)
     {
         const double X=R.FRandRange(53000,101000),Y=R.FRandRange(12000,53000);
-        if(FMath::Abs(X-81600)<5400 && FMath::Abs(Y-41800)<5200)continue;
+        if(FMath::Abs(X-65000)<6200 && FMath::Abs(Y-29500)<5800)continue;
         if(Born2FlapBay::EastShoreMask(X,Y)<.35)continue;
         const double H=Born2FlapBay::Height(X,Y),D=Y-Born2FlapBay::EastShoreEdge(X);
         if(H<115 || D>-1700)continue;
@@ -145,6 +148,7 @@ void ABorn2FlapBayTerrain::BuildEastShore()
     for(int I=0;I<1400;++I)
     {
         const double X=R.FRandRange(53000,77000),Y=R.FRandRange(5000,34000);
+        if(FMath::Abs(X-65000)<6200 && FMath::Abs(Y-29500)<5800)continue;
         const double H=Born2FlapBay::Height(X,Y);
         if(H<280 || R.FRand()>1-FMath::SmoothStep(15000.,34500.,Y))continue;
         if(FMath::PerlinNoise2D(FVector2D(X*.0008,Y*.0008))<-.08)continue;

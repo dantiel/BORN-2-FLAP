@@ -1,6 +1,10 @@
 -- | Implicit parallel-hinge roll dynamics. Coordinates are body roll and
 -- left/right flap deviation; positive deviation raises either wing.
-module Born2Flap.Math.RollDynamics (stepRoll, rollMomentum, rollEnergy, stepRollWithMass, supportMassMatrix, supportedRollSystem, supportGravity, solveImplicitSystem, solveImplicitSystemCached) where
+-- The static weight-support mass matrix and its Schur reduction
+-- (supportMassMatrix / supportedRollSystem / supportGravity) were REMOVED:
+-- weight is carried by the vehicle mass budget in the spatial solve, never by
+-- a flap-gated cushion, and gravity acts at the CG — no pendulum torques.
+module Born2Flap.Math.RollDynamics (stepRoll, rollMomentum, rollEnergy, stepRollWithMass, solveImplicitSystem, solveImplicitSystemCached) where
 
 import Born2Flap.Math.Types (Vec3(..))
 import Data.List (maximumBy, transpose)
@@ -141,82 +145,3 @@ stepRollWithMass (row0,row1,row2) dt old (angleL,angleR) loads
                  [] -> case previousJacobian of
                    Just _ -> newton (n+1) v f Nothing
                    Nothing -> Nothing
--- | Planar airframe mass matrix in coordinates [Y,Z,roll,left,right].
--- The body origin is the neutral dry CG; wing mass moves relative to it.
--- Translational added air (ma) resists the wing moving normally through the
--- air and is folded into the translation diagonal and, via its first moment
--- (mar), into the roll/flap coupling. Rotational added air stays in
--- locked/wing. mr and mar are first mass moments about the body centreline;
--- h is the hinge height above the origin.
-supportMassMatrix :: Double -> Double -> Double -> Double -> Double -> Double -> Double -> Double -> Double
-                  -> (Double,Double,Double) -> [[Double]]
-supportMassMatrix mass ma locked dry wing rotor mr mar h (phi,l,r) =
-  let m1 = mr + mar
-      sy = m1*(cos r-cos l); sz = m1*(sin l+sin r)
-      rotate (a,b) = (cos phi*a-sin phi*b,sin phi*a+cos phi*b)
-      (py,pz) = rotate (-sz,sy)
-      (ly,lz) = rotate (m1*sin l,m1*cos l)
-      (ry,rz) = rotate (-m1*sin r,m1*cos r)
-      ll = wing+rotor; rr = ll
-      pp = locked+2*h*m1*(sin l+sin r)
-      pl = -wing-h*m1*sin l
-      pr = wing+h*m1*sin r
-      mt = mass+2*ma
-      -- dry is part of wing and locked, not an extra inertia contribution.
-      validDry = dry >= 0 && wing >= dry && ma >= 0
-  in if not validDry then error "invalid dry/added wing inertia" else
-     [[mt,0,py,ly,ry],[0,mt,pz,lz,rz],
-      [py,pz,pp,pl,pr],[ly,lz,pl,ll,0],[ry,rz,pr,0,rr]]
-
--- | Eliminate lateral/heave acceleration by a Schur complement. In a freely
--- falling reference frame dry gravity cancels from the relative joint equations
--- only when added air is absent. With added air, apply 'supportGravity' too:
--- the surrounding fluid does not fall with the aircraft.
--- Returns reduced inertia, the generalized support/Coriolis load correction,
--- the translational recoil force to return to the host integrator, and the
--- dry/full translation mass ratio the host must scale external force by (the
--- translational added air is not part of the host's own mass, so it shields
--- part of the force and reappears as inertial recoil).
-supportedRollSystem :: Double -> Double -> Double -> Double -> Double -> Double -> Double -> Double -> Double
-                    -> (Double,Double) -> Vec3
-                    -> ((Vec3,Vec3,Vec3), Vec3 -> Vec3, Vec3 -> Vec3, Double)
-supportedRollSystem mass ma locked dry wing rotor mr mar h (l,r) (Vec3 p vl vr) =
-  let matrix = supportMassMatrix mass ma locked dry wing rotor mr mar h
-      m = matrix (0,l,r)
-      mt = mass+2*ma
-      ratio = mass / mt
-      eps = 1e-5
-      difference plus minus = zipWith (zipWith (\a b -> (a-b)/(2*eps))) (matrix plus) (matrix minus)
-      ds = [replicate 5 (replicate 5 0),replicate 5 (replicate 5 0),
-            difference (eps,l,r) (-eps,l,r),
-            difference (0,l+eps,r) (0,l-eps,r),
-            difference (0,l,r+eps) (0,l,r-eps)]
-      v = [0,0,p,vl,vr]
-      coriolis i = sum [(ds!!k!!i!!j-0.5*ds!!i!!j!!k)*v!!j*v!!k | j<-[2..4],k<-[2..4]]
-      cy = coriolis 0; cz = coriolis 1
-      cp = coriolis 2; cl = coriolis 3; cr = coriolis 4
-      reduced i j = m!!i!!j-(m!!0!!i*m!!0!!j+m!!1!!i*m!!1!!j)/mt
-      row i = Vec3 (reduced i 2) (reduced i 3) (reduced i 4)
-      correction (Vec3 _ fy fz) = let f i c = -c-(m!!0!!i*(fy-cy)+m!!1!!i*(fz-cz))/mt
-                                  in Vec3 (f 2 cp) (f 3 cl) (f 4 cr)
-      reaction (Vec3 ap al ar) = let a = [ap,al,ar]
-                                     f i c = -c-sum (zipWith (*) (drop 2 (m!!i)) a)
-                                 in Vec3 0 (ratio * f 0 cy) (ratio * f 1 cz)
-  in ((row 2,row 3,row 4),correction,reaction,ratio)
-
--- | Gravity correction for the same Schur reduction. Only dry mass has
--- weight; added mass resists acceleration. The host already integrates g,
--- so return its correction (ratio-1)*m*g, never a second copy of weight.
--- Dry-wing gravity torques must also enter the reduced joint equations:
--- B_dry^T*g - B_full^T*(m*g)/(m+2*ma). This vanishes exactly in vacuum.
--- Coordinates and gravity are in the body frame; no upright target exists.
-supportGravity :: Double -> Double -> Double -> Double -> (Double,Double) -> Vec3
-               -> (Vec3,Vec3)
-supportGravity mass ma mr mar (l,r) (Vec3 _ gy gz) =
-  let ratio = mass/(mass+2*ma)
-      first = mr-ratio*(mr+mar)
-      roll = first * (-(sin l+sin r)*gy+(cos r-cos l)*gz)
-      left = first * (sin l*gy+cos l*gz)
-      right = first * (-sin r*gy+cos r*gz)
-      correction = mass*(ratio-1)
-  in (Vec3 roll left right,Vec3 0 (correction*gy) (correction*gz))

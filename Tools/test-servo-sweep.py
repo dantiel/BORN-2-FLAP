@@ -145,7 +145,7 @@ def main():
     args = parser.parse_args()
 
     lib = c.CDLL(str(args.dll.resolve()))
-    assert lib.b2f_math_abi_version() == 14, "ABI mismatch"
+    assert lib.b2f_math_abi_version() == 20, "ABI mismatch"
     assert lib.b2f_math_runtime_init() == 1
 
     create = lib.b2f_math_create_firmware_vehicle
@@ -178,7 +178,7 @@ def main():
                 row[f"v{int(airspeed)}"] = dict(error=str(exc))
         results.append(row)
 
-    report = dict(abi=14, results=results)
+    report = dict(abi=20, results=results)
     if args.json:
         args.json.write_text(json.dumps(report, indent=2))
     print(json.dumps(report, indent=2))

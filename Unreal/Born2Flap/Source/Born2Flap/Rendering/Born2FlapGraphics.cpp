@@ -24,6 +24,14 @@ void SetCVar(const TCHAR* Name, int32 Value)
         Var->Set(Value, ECVF_SetByCode);
     }
 }
+
+void SetCVarF(const TCHAR* Name, float Value)
+{
+    if (IConsoleVariable* Var = IConsoleManager::Get().FindConsoleVariable(Name))
+    {
+        Var->Set(Value, ECVF_SetByCode);
+    }
+}
 }  // namespace
 
 namespace Born2FlapGraphics
@@ -73,6 +81,26 @@ void Apply(const FSettings& S)
     SetCVar(TEXT("r.Lumen.HardwareRayTracing"), S.bHardwareLumenGI ? 1 : 0);
     SetCVar(TEXT("r.Lumen.ScreenProbeGather.HardwareRayTracing"), S.bHardwareLumenGI ? 1 : 0);
     SetCVar(TEXT("r.MegaLights"), S.bMegaLights ? 1 : 0);
+
+    // Lumen fidelity ladder. EPIC gathers at 2x quality, doubles the
+    // surface-cache card resolution (foliage cards keep their real
+    // silhouettes) and traces rougher surfaces; lower tiers stay on the
+    // engine defaults.
+    const bool bEpic = S.bHardwareLumenGI;
+    SetCVarF(TEXT("r.LumenFinalGatherQuality"), bEpic ? 2.f : 1.f);
+    SetCVar(TEXT("r.LumenScene.SurfaceCache.CardMaxResolution"), bEpic ? 512 : 256);
+    SetCVarF(TEXT("r.Lumen.Reflections.MaxRoughnessToTrace"), bEpic ? .6f : .4f);
+    SetCVar(TEXT("r.Lumen.TranslucencyVolume.Enable"), 1);
+    // Ambient floor: skylight leaks through surface occlusion into the
+    // blackest pockets — under-canopy forest shade, rock creases, dense
+    // grass. EPIC leaks hardest (sky light visibly reaches sheltered
+    // ground), HIGH leaks moderately, LOW/MEDIUM keep engine defaults.
+    SetCVarF(TEXT("r.Lumen.SkylightLeaking"), bEpic ? .12f : (S.bHardwareRayTracing ? .04f : .005f));
+
+    // Shadow softness: VSM is disabled (Nanite fault), so HIGH/EPIC run the
+    // conventional shadow maps through PCSS (distance-dependent penumbra)
+    // while LOW/MEDIUM keep the cheap uniform filter.
+    SetCVar(TEXT("r.Shadow.FilterMethod"), (S.bHardwareRayTracing || bEpic) ? 1 : 0);
 }
 
 int32 LoadQuality()

@@ -148,6 +148,12 @@ public:
     // destroying a panel so its window disappears in the same frame.
     void Close();
 
+    // Dynamic text wrapping: UMG wraps only when WrapTextAt > 0, so after each
+    // layout pass every auto-wrap TextBlock re-syncs its wrap width to the slot
+    // width UMG actually allotted. The wrapped height (and the vertical layout
+    // of the owning container) is then computed dynamically from the text.
+    void SyncAutoWrap();
+
     // --- semantic component actions (the interactivity "prowess") ----------
     // Broadcast when an interactive component is manipulated. The native
     // editor / gameplay code subscribes and routes the value into the bird's

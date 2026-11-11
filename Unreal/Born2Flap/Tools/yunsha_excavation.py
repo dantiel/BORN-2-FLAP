@@ -2,7 +2,7 @@
 import math
 import random
 import unreal as u
-from yunsha_sand import HLSL, RELIEF, DRY_COLOUR, normal_code
+from yunsha_sand import HLSL, RELIEF, DRY_COLOUR, normal_code, normal_inputs
 
 
 def build(mesh, actor, material, ground, imported, expr, custom, out):
@@ -20,8 +20,7 @@ return lerp(rock*bed,dry,smoothstep(-180,80,P.z));''',{
         'P':expr(strata,'WorldPosition'),'N':expr(strata,'VertexNormalWS'),'C':expr(strata,'CameraVectorWS'),
         'T':expr(strata,'TextureObject',texture=u.load_asset('/Game/Shiomori/Cliffs/Textures/T_Cliff_rock_face_03_Diffuse')),
         'S':expr(strata,'TextureObject',texture=u.load_asset('/Game/Shiomori/Textures/T_SandBeach_Diffuse'))}),'BASE_COLOR')
-    out(custom(strata,normal_code(),{
-        'P':expr(strata,'WorldPosition'),'N':expr(strata,'VertexNormalWS')}),'NORMAL')
+    out(custom(strata,normal_code(),normal_inputs(strata,expr)),'NORMAL')
     strata.set_editor_property('tangent_space_normal',False)
     u.MaterialEditingLibrary.recompile_material(strata);u.EditorAssetLibrary.save_loaded_asset(strata)
     # Replace coarse terrain, including every bench and the east access ramp.

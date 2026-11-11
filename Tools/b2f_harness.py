@@ -24,7 +24,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DLL_DEFAULT = ROOT / "Unreal/Born2Flap/Binaries/ThirdParty/born2flap_math.dll"
-ABI = 18
+ABI = 21
 
 # --------------------------------------------------------------------------- #
 # ctypes FFI layouts (match Native/include/born2flap_math.h)
@@ -46,7 +46,8 @@ class _Output(c.Structure):
                 ("power", c.c_double), ("separation", c.c_double),
                 ("left", c.c_double), ("right", c.c_double), ("soc", c.c_double),
                 ("envelope", c.c_double), ("coverage", c.c_double),
-                ("phase", c.c_double), ("gain", c.c_double), ("flags", c.c_uint32)]
+                ("phase", c.c_double), ("gain", c.c_double),
+                ("flap_hz", c.c_double), ("flags", c.c_uint32)]
 
 
 class _Tuning(c.Structure):
@@ -56,7 +57,9 @@ class _Tuning(c.Structure):
         "BatteryBurstCRating", "FlapBaseFreq", "TailElevatorAngle", "GlideAngle",
         "StrokeFerocity", "AileronScale", "ElevatorScale", "MountAngle",
         "BodyMassKg", "VerticalMountAngle", "ReturnFerocity", "YawScale",
-        "StrokeSkew", "ReturnSkew")]
+        "StrokeSkew", "ReturnSkew", "ShapeMix", "ThrottleThrustShapeMix",
+        "ThrottleThrustExpo", "AileronSkewMix", "ThrottleSkewRateMix",
+        "AileronSkewRateMix", "ElevatorFerocityMix")]
 
 
 class B2F:
@@ -146,6 +149,10 @@ def tuning(servo: Servo, *, body_mass_kg: float = 0.050,
            aileron_scale: float = 100.0, elevator_scale: float = 100.0,
            yaw_scale: float = 60.0,
            stroke_skew: float = 0.0, return_skew: float = 0.0,
+           shape_mix: float = 0.0, throttle_thrust_shape_mix: float = 0.0,
+           throttle_thrust_expo: float = 0.0, aileron_skew_mix: float = 0.0,
+           throttle_skew_rate_mix: float = 0.0, aileron_skew_rate_mix: float = 0.0,
+           elevator_ferocity_mix: float = 0.0,
            tail_elevator: float = 0.0, glide_angle: float = 0.0,
            flap_centre: float = 0.0, vertical_mount: float = 0.0,
            battery_resistance: float = 0.05, battery_capacity: float = 0.35,
@@ -155,7 +162,9 @@ def tuning(servo: Servo, *, body_mass_kg: float = 0.050,
         battery_resistance, battery_capacity, battery_c, battery_burst_c,
         flap_base_freq_dhz, tail_elevator, glide_angle, stroke_ferocity,
         aileron_scale, elevator_scale, flap_centre, body_mass_kg, vertical_mount,
-        return_ferocity, yaw_scale, stroke_skew, return_skew,
+        return_ferocity, yaw_scale, stroke_skew, return_skew, shape_mix,
+        throttle_thrust_shape_mix, throttle_thrust_expo, aileron_skew_mix,
+        throttle_skew_rate_mix, aileron_skew_rate_mix, elevator_ferocity_mix,
     )
 
 

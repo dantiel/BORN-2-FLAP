@@ -89,3 +89,52 @@ test-suite math-properties
   hs-source-dirs: test
   build-depends: base >=4.17 && <5, born2flap-math
   default-language: GHC2021
+
+executable born2flap-yaw-probe
+  main-is: YawProbe.hs
+  hs-source-dirs: test
+  build-depends: base >=4.17 && <5, born2flap-math
+  default-language: GHC2021
+  ghc-options: -O1
+
+executable born2flap-flap-step-probe
+  main-is: FlapStepProbe.hs
+  hs-source-dirs: test
+  build-depends: base >=4.17 && <5, born2flap-math
+  default-language: GHC2021
+  ghc-options: -O1
+
+executable born2flap-servo-probe
+  main-is: ServoLoadProbe.hs
+  hs-source-dirs: test
+  build-depends: base >=4.17 && <5, born2flap-math
+  default-language: GHC2021
+  ghc-options: -O1
+
+executable born2flap-tumble-probe
+  main-is: TumbleProbe.hs
+  hs-source-dirs: test
+  build-depends: base >=4.17 && <5, born2flap-math
+  default-language: GHC2021
+  ghc-options: -O1
+
+executable born2flap-diffroll-probe
+  main-is: DifferentialRollProbe.hs
+  hs-source-dirs: test
+  build-depends: base >=4.17 && <5, born2flap-math
+  default-language: GHC2021
+  ghc-options: -O1
+
+executable born2flap-aero-roll-probe
+  main-is: AerodynamicRollProbe.hs
+  hs-source-dirs: test
+  build-depends: base >=4.17 && <5, born2flap-math
+  default-language: GHC2021
+  ghc-options: -O1
+
+executable born2flap-wing-air-audit
+  main-is: WingAirAudit.hs
+  hs-source-dirs: test
+  build-depends: base >=4.17 && <5, born2flap-math
+  default-language: GHC2021
+  ghc-options: -O1

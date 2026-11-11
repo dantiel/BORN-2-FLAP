@@ -70,16 +70,30 @@ float inland=(1-smoothstep(-9300,-2700,d))*smoothstep(70,260,P.z);
 float bedrock=saturate((1-N.z)*2.6+smoothstep(.54,.82,patch)*.65);
 return float3(inland,bedrock,patch);''',{'P':p,'N':n},3)
 args['W']=weights
-bc=custom(m,HLSL+'''float3 w=pow(abs(normalize(N)),4);w/=max(.0001,w.x+w.y+w.z);
+bc=custom(m,HLSL+'''struct GroundNoise{
+ float hash(float2 p){float3 q=frac(float3(p.xyx)*float3(.1031,.1030,.0973));q+=dot(q,q.yzx+33.33);return frac((q.x+q.yz)*q.zy).x;}
+ float gnoise(float2 p){
+  float2 i=floor(p),f=frac(p);float2 u=f*f*(3-2*f);
+  float a=hash(i),b=hash(i+float2(1,0)),c=hash(i+float2(0,1)),d=hash(i+float2(1,1));
+  return lerp(lerp(a,b,u.x),lerp(c,d,u.x),u.y)*2-1;}};
+GroundNoise gn;
+float3 w=pow(abs(normalize(N)),4);w/=max(.0001,w.x+w.y+w.z);
 float3 pebbles=shore.sampleSurface(Pebble,PebbleSampler,P.xy/190,false);
 float3 sand=shore.sampleSurface(Sand,SandSampler,P.xy/310,false);
 float3 stone=shore.sampleSurface(Rock,RockSampler,P.yz/440,false)*w.x+shore.sampleSurface(Rock,RockSampler,P.xz/440,false)*w.y+shore.sampleSurface(Rock,RockSampler,P.xy/440,false)*w.z;
 float3 grass=shore.sampleSurface(Grass,GrassSampler,P.xy/290,false)*float3(.53,.69,.44);
 float3 forest=shore.sampleSurface(Forest,ForestSampler,P.xy/340,false)*.8;
-float3 soil=lerp(grass,forest,(1-smoothstep(18000,32000,P.y))*.65);
+// A second fine octave gives the turf two grain frequencies instead of one
+// repeating tile, and a large-scale domain-warped value noise breaks the flat
+// repeating ground into soft light/dark patches (like the beach sand macro).
+float forestMix=(1-smoothstep(18000,32000,P.y))*.65;
+float3 soilFine=lerp(shore.sampleSurface(Grass,GrassSampler,P.xy/96,false)*float3(.53,.69,.44),shore.sampleSurface(Forest,ForestSampler,P.xy/112,false)*.8,forestMix);
+float3 soil=lerp(lerp(grass,forest,forestMix),soilFine,.28);
 soil=lerp(soil,sand*.69,smoothstep(.59,.81,W.z)*.3);
 float3 shoreColour=lerp(lerp(pebbles*.86,sand*.83,W.z*.45),stone*.87,W.y);
-return lerp(shoreColour,soil,W.x)*(1-(1-smoothstep(-45,75,P.z))*.36);''',args,3)
+float2 mq=P.xy*.0003;float2 mw=float2(gn.gnoise(mq+3.7),gn.gnoise(mq*1.7+9.2))*2.;
+float mac=gn.gnoise(mq*2.1+mw)+gn.gnoise(mq*4.3-mw*1.3+5.5);
+return lerp(shoreColour,soil,W.x)*(1-.16*mac)*(1-(1-smoothstep(-45,75,P.z))*.36);''',args,3)
 detail=custom(m,HLSL+'''float3 peb=shore.sampleSurface(T,TSampler,P.xy/190,true);
 float3 grass=shore.sampleSurface(G,GSampler,P.xy/290,true);
 float3 t=lerp(peb,grass,W.x);

@@ -44,7 +44,7 @@ const born2flap::keybinds::FAction DefaultCatalog[] = {
     // ---- DEBUG / HUD ----
     { TEXT("ToggleChannels"),TEXT("CHANNELS"),         TEXT("DEBUG"),  EKeys::F2 },
     { TEXT("ToggleVectors"), TEXT("VECTORS"),          TEXT("DEBUG"),  EKeys::F5 },
-    { TEXT("ToggleMouseInd"),TEXT("MOUSE INDICATOR"),  TEXT("DEBUG"),  EKeys::F9 },
+    { TEXT("ToggleMouseInd"),TEXT("INPUT OVERLAY"),    TEXT("DEBUG"),  EKeys::F9 },
     { TEXT("ToggleFps"),     TEXT("FPS"),             TEXT("DEBUG"),  EKeys::F12 },
     // ---- AUDIO ----
     { TEXT("RadioMute"),   TEXT("RADIO MUTE"),         TEXT("AUDIO"),  EKeys::M },

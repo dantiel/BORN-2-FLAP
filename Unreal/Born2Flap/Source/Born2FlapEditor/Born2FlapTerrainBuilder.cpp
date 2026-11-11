@@ -3,6 +3,7 @@
 #include "Engine/StaticMesh.h"
 #include "MeshDescription.h"
 #include "StaticMeshAttributes.h"
+#include "YunshaRippleSolver.h"
 
 void UBorn2FlapTerrainBuilder::SmoothYunshaTerrain(UStaticMesh* Mesh,FVector2D Offset,bool bHorizon)
 {
@@ -11,6 +12,9 @@ void UBorn2FlapTerrainBuilder::SmoothYunshaTerrain(UStaticMesh* Mesh,FVector2D O
     check(Description);
     FStaticMeshAttributes Attributes(*Description);
     const auto Positions=Attributes.GetVertexPositions();
+    static const FYunshaRippleSolver Ripple;
+    auto UVs=Attributes.GetVertexInstanceUVs();
+    UVs.SetNumChannels(FMath::Max(2,UVs.GetNumChannels()));
     auto Normals=Attributes.GetVertexInstanceNormals();
     for(const FVertexInstanceID Instance:Description->VertexInstances().GetElementIDs())
     {
@@ -18,9 +22,13 @@ void UBorn2FlapTerrainBuilder::SmoothYunshaTerrain(UStaticMesh* Mesh,FVector2D O
         const double X=P.X+Offset.X,Y=P.Y+Offset.Y;
         const double DX=bHorizon?0:(ABorn2FlapYunsha::GroundHeight(X+50,Y)-ABorn2FlapYunsha::GroundHeight(X-50,Y))/100;
         const double DY=bHorizon?0:(ABorn2FlapYunsha::GroundHeight(X,Y+50)-ABorn2FlapYunsha::GroundHeight(X,Y-50))/100;
+        UVs.Set(Instance,1,bHorizon?FVector2f(0,0):Ripple.At(X,Y));
         Normals[Instance]=FVector3f(FVector(-DX,-DY,1).GetSafeNormal());
     }
     auto& Settings=Mesh->GetSourceModel(0).BuildSettings;
+    Settings.DistanceFieldResolutionScale=0; // These terrain actors disable distance-field lighting.
+    Settings.bUseFullPrecisionUVs=true;
+    Settings.bGenerateLightmapUVs=false;
     Settings.bRecomputeNormals=false;
     Settings.bRecomputeTangents=true;
     Settings.bUseMikkTSpace=true;

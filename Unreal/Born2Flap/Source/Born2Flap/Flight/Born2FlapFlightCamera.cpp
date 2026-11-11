@@ -90,6 +90,33 @@ void ABorn2FlapFlightPawn::UpdateLandingCamera(float Dt)
     }
     else if(!Supported) bCameraGrounded=false;
 }
+void ABorn2FlapFlightPawn::AutoFramePilot()
+{
+    // Cut to a third-person view of the pilot so the throw wind-up / catch arc
+    // is actually visible, whatever view the player had chosen.
+    if (bFocusActor && !bFirstPerson)
+        return;   // already framing the pilot
+    bAutoFramePrevFocus = bFocusActor;
+    bAutoFramePrevFirst = bFirstPerson;
+    bAutoFramed = true;
+    bFocusActor = true;
+    bFirstPerson = false;
+    bActorZoomFirstPerson = false;
+    SyncCameraState();
+    if (auto* PC = Cast<APlayerController>(GetController()); PC && PC->PlayerCameraManager)
+        PC->PlayerCameraManager->SetGameCameraCutThisFrame();
+}
+void ABorn2FlapFlightPawn::RestoreAutoFrame()
+{
+    if (!bAutoFramed)
+        return;
+    bAutoFramed = false;
+    bFocusActor = bAutoFramePrevFocus;
+    bFirstPerson = bAutoFramePrevFirst;
+    SyncCameraState();
+    if (auto* PC = Cast<APlayerController>(GetController()); PC && PC->PlayerCameraManager)
+        PC->PlayerCameraManager->SetGameCameraCutThisFrame();
+}
 void ABorn2FlapFlightPawn::SyncCameraState()
 {
     // Two orthogonal axes: focus (bird vs on-foot pilot) and distance
@@ -101,6 +128,7 @@ void ABorn2FlapFlightPawn::SyncCameraState()
 void ABorn2FlapFlightPawn::ToggleGroundView()
 {
     // F6: switch focus between the bird and the on-foot pilot (actor).
+    bAutoFramed = false;   // explicit user choice overrides the auto-frame
     bFocusActor = !bFocusActor;
     bActorZoomFirstPerson = false;
     SyncCameraState();
@@ -111,6 +139,7 @@ void ABorn2FlapFlightPawn::ToggleGroundView()
 void ABorn2FlapFlightPawn::ToggleFpvView()
 {
     // V: switch between first- and third-person within the current focus.
+    bAutoFramed = false;   // explicit user choice overrides the auto-frame
     bFirstPerson = !bFirstPerson;
     bActorZoomFirstPerson = false;
     SyncCameraState();
@@ -119,8 +148,9 @@ void ABorn2FlapFlightPawn::ToggleFpvView()
 }
 void ABorn2FlapFlightPawn::CycleCamera()
 {
-    // BIRD-3RD → BIRD-1ST → PILOT-3RD → PILOT-1ST → BIRD-3RD. One affordance
+    // BIRD-3RD → BIRD-1ST → PILOT-3RD → PILOT-1ST. One affordance
     // for the mobile camera button; desktop uses the two toggles (V / F6).
+    bAutoFramed = false;   // explicit user choice overrides the auto-frame
     if (!bFocusActor && !bFirstPerson)      { bFirstPerson = true;  }
     else if (!bFocusActor && bFirstPerson)  { bFocusActor = true; bFirstPerson = false; }
     else if (bFocusActor && !bFirstPerson)  { bFirstPerson = true;  }

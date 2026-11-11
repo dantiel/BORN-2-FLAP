@@ -19,30 +19,37 @@ void ABorn2FlapBayTerrain::BuildEasternStation()
     auto* Metal=Group(TEXT("/Engine/BasicShapes/Cube"),TEXT("/Game/Shiomori/Materials/M_EastMetal"));
     auto* Poles=Group(TEXT("/Engine/BasicShapes/Cylinder"),TEXT("/Game/Shiomori/Materials/M_EastMetal"));
     auto* Wire=Group(TEXT("/Engine/BasicShapes/Cylinder"),TEXT("/Game/Shiomori/Materials/M_EastMetal"),false);
-    Wire->SetCullDistances(10000,23000);
+    // The compound now guards the east headland itself, so the chain-link must
+    // read all the way from the beach: fully drawn to 120 m, fading to 900 m.
+    Wire->SetCullDistances(12000,90000);
     auto* Tetra=Group(TEXT("/Engine/BasicShapes/Cylinder"),TEXT("/Game/Shiomori/Materials/M_EastConcrete"));
+    auto* TetraTip=Group(TEXT("/Engine/BasicShapes/Cone"),TEXT("/Game/Shiomori/Materials/M_EastConcrete"));
     auto Box=[](UInstancedStaticMeshComponent* C,FVector P,FVector Size)
     {C->AddInstance(FTransform(FQuat::Identity,P,Size/100),true);};
     auto Rod=[](UInstancedStaticMeshComponent* C,FVector A,FVector B,double Radius)
     {C->AddInstance(FTransform(FQuat::FindBetweenNormals(FVector::UpVector,(B-A).GetSafeNormal()),(A+B)*.5,FVector(Radius/50,Radius/50,(B-A).Size()/100)),true);};
     // Half-buried, windowless utility bunker. The only opening is a closed
-    // steel door with visible frame, hinge straps and lock hasp. The whole
-    // compound is pulled seaward of the old wooded ridge and enlarged ~1.5x.
-    Box(Concrete,{79950,40900,870},{2250,1650,320});
-    Box(Concrete,{79950,40900,1060},{2490,1890,90});
-    Box(Metal,{78817,40795,877},{18,277,235});
-    for(double Y:{40646.,40943.})Box(Concrete,{78800,Y,887},{82,45,270});
-    Box(Concrete,{78800,40795,1022},{82,277,35});
-    for(double Z:{810.,950.})Box(Metal,{78796,40730,Z},{33,97,13});
-    Box(Metal,{78792,40895,880},{37,52,30});
-    Box(Concrete,{78375,40795,750},{750,600,40});
+    // steel door with visible frame, hinge straps and lock hasp. The compound
+    // sits on a flat cut terrace ON the east headland (pad height 1000 in
+    // Born2FlapEastShore.cpp), close in across the water from the beach, so
+    // the whole station reads from the viewable shore instead of hiding 90 m
+    // behind the east-shore strand.
+    Box(Concrete,{63350,28600,1130},{2250,1650,320});
+    Box(Concrete,{63350,28600,1320},{2490,1890,90});
+    Box(Metal,{62217,28495,1137},{18,277,235});
+    for(double Y:{28346.,28643.})Box(Concrete,{62200,Y,1147},{82,45,270});
+    Box(Concrete,{62200,28495,1282},{82,277,35});
+    for(double Z:{1070.,1210.})Box(Metal,{62196,28430,Z},{33,97,13});
+    Box(Metal,{62192,28595,1140},{37,52,30});
+    Box(Concrete,{61775,28495,1010},{750,600,40});
     // Three large but low dishes. Real concave paraboloids, aimed away from
-    // the beach; they now stand clear of the ridge and read against the sky.
+    // the beach; on the headland crest they rise clear of the ridge and read
+    // against the sky above the far woodland.
     for(int Dish=0;Dish<3;++Dish)
     {
-        const FVector Centre(80400+Dish*1875,43450+(Dish%2)*525,1530);
-        Box(Concrete,{Centre.X,Centre.Y,790},{630,630,100});
-        Rod(Poles,{Centre.X,Centre.Y,830},Centre,127);
+        const FVector Centre(63800+Dish*1875,31150+(Dish%2)*525,1790);
+        Box(Concrete,{Centre.X,Centre.Y,1050},{630,630,100});
+        Rod(Poles,{Centre.X,Centre.Y,1090},Centre,127);
         const FQuat Aim=FRotator(0,35+Dish*24,32).Quaternion();
         TArray<FVector> V,N;TArray<int32> T;TArray<FVector2D> UV;
         constexpr int Rings=16,Sides=64;const double Radius=855;
@@ -65,8 +72,9 @@ void ABorn2FlapBayTerrain::BuildEasternStation()
         Rod(Poles,Feed,Feed+Aim.RotateVector(FVector(0,0,70)),24);
     }
     // Diamond chain-link on the perimeter, including a closed gate at the
-    // western approach. Thin wire uses instances and distance culling.
-    const FVector Corners[]={{77025,37750,0},{86175,37750,0},{86175,45850,0},{77025,45850,0}};
+    // western approach. The fence climbs the headland slopes, so its lines are
+    // already part of the eastern headland seen from the beach.
+    const FVector Corners[]={{58400,23300,0},{71600,23300,0},{71600,35700,0},{58400,35700,0}};
     for(int Side=0;Side<4;++Side)
     {
         const FVector A=Corners[Side],B=Corners[(Side+1)%4];
@@ -91,13 +99,14 @@ void ABorn2FlapBayTerrain::BuildEasternStation()
             }
         }
     }
-    const double GateZ=Born2FlapBay::Height(77025,40150);
-    Rod(Poles,{77020,39925,GateZ},{77020,39925,GateZ+235},5);
-    Rod(Poles,{77020,40375,GateZ},{77020,40375,GateZ+235},5);
-    Box(Metal,{77005,40350,GateZ+115},{22,30,22});
+    const double GateZ=Born2FlapBay::Height(58400,29500);
+    Rod(Poles,{58375,29275,GateZ},{58375,29275,GateZ+235},5);
+    Rod(Poles,{58375,29725,GateZ},{58375,29725,GateZ+235},5);
+    Box(Metal,{58360,29500,GateZ+115},{22,30,22});
     // Heavy four-legged concrete armour, partially submerged at the outer tip.
-    // Legs are flat-ended cylinders meeting at a shared crossing — a proper
-    // tetrapod, not the spiny sea-mine look of the old tapered cones.
+    // Each leg is a fat hub cylinder that tapers through a cone to a blunt
+    // point: massive at the crossing, clearly pointy at the tip. (The old
+    // full-cone legs read as a spiny sea-mine; the flat cylinders as blobs.)
     FRandomStream Random(18717);
     for(int I=0;I<30;++I)
     {
@@ -105,10 +114,19 @@ void ABorn2FlapBayTerrain::BuildEasternStation()
         const FVector C(X,Y,Born2FlapBay::Height(X,Y)+200);
         const FQuat Q=FRotator(Random.FRandRange(-16,16),Random.FRandRange(0,360),Random.FRandRange(-20,20)).Quaternion();
         for(FVector D:{FVector(0,0,1),FVector(.943,0,-.333),FVector(-.471,.816,-.333),FVector(-.471,-.816,-.333)})
-            Rod(Tetra,C,C+Q.RotateVector(D)*400,170);
+        {
+            const FVector Dir=Q.RotateVector(D);
+            Rod(Tetra,C,C+Dir*240,150);
+            // BasicShapes cone: base radius 50 at Z=-50, apex at +50. The base
+            // (radius 150) sits inside the hub cylinder; the apex is pulled
+            // 120 cm past the tip so the visible end keeps a ~50 cm radius
+            // instead of a needle point.
+            const FQuat Aim=FQuat::FindBetweenNormals(FVector::UpVector,Dir);
+            TetraTip->AddInstance(FTransform(Aim,C+Dir*380,FVector(3.,3.,3.6)),true);
+        }
     }
     auto* Sign=NewObject<UTextRenderComponent>(this);Sign->SetupAttachment(RootComponent);Sign->RegisterComponent();
-    Sign->SetWorldLocationAndRotation(FVector(77020,40150,Born2FlapBay::Height(77025,40150)+180),FRotator(0,180,0));
+    Sign->SetWorldLocationAndRotation(FVector(58375,29500,Born2FlapBay::Height(58400,29500)+180),FRotator(0,180,0));
     Sign->SetText(FText::FromString(TEXT("RESTRICTED\nNO ENTRY\nNO FLIGHT BEYOND EAST POINT")));
     Sign->SetWorldSize(16);Sign->SetTextRenderColor(FColor(210,193,141));
     UE_LOG(LogTemp,Display,TEXT("EasternStation READY dishes=3 tetrapods=30 boundaryX=96000"));

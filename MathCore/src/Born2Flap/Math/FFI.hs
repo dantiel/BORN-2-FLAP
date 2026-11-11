@@ -55,6 +55,7 @@ foreign export ccall "hs_b2f_math_set_strip_wind" b2f_math_set_strip_wind :: Ptr
 
 foreign export ccall "hs_b2f_math_transport_airfields" b2f_math_transport_airfields :: Ptr () -> Ptr () -> IO Int32
 foreign export ccall "hs_b2f_math_get_tail_incidence" b2f_math_get_tail_incidence :: Ptr () -> Ptr () -> IO Int32
+foreign export ccall "hs_b2f_math_get_hang_state" b2f_math_get_hang_state :: Ptr () -> Ptr () -> IO Int32
 foreign export ccall "hs_b2f_math_get_tail_fields" b2f_math_get_tail_fields :: Ptr () -> Word32 -> Ptr () -> IO Int32
 foreign export ccall "hs_b2f_math_get_external_force" b2f_math_get_external_force :: Ptr () -> Ptr () -> IO Int32
 foreign export ccall "hs_b2f_math_set_mass_frame" b2f_math_set_mass_frame :: Ptr () -> Double -> Double -> Double -> IO Int32
@@ -77,6 +78,21 @@ b2f_math_set_mass_frame pointer cgX iy iz
 
 -- Host-equivalent force also contains added-mass, recoil and gravity terms;
 -- those are not surface forces and must not be moved to an aerodynamic arm.
+foreign export ccall "hs_b2f_math_get_roll_balance" b2f_math_get_roll_balance :: Ptr () -> Ptr () -> IO Int32
+b2f_math_get_roll_balance :: Ptr () -> Ptr () -> IO Int32
+b2f_math_get_roll_balance pointer output
+  | pointer == nullPtr || output == nullPtr = pure 0
+  | otherwise = run `catch` failure
+  where
+    run = do
+      ref <- deRefStablePtr (castPtrToStablePtr pointer :: StablePtr (IORef FwContext))
+      context <- readIORef ref
+      let values = fvRollBalance (fwcState context)
+      sequence_ [pokeElemOff (castPtr output :: Ptr CDouble) i (CDouble v) | (i,v) <- zip [0..7] values]
+      pure 1
+    failure :: SomeException -> IO Int32
+    failure _ = pure 0
+
 b2f_math_get_external_force :: Ptr () -> Ptr () -> IO Int32
 b2f_math_get_external_force pointer output
   | pointer == nullPtr || output == nullPtr = pure 0
@@ -112,7 +128,9 @@ b2f_math_get_tail_fields pointer capacity output
   failure _ = pure 0
 
 -- Read the angle used for the common tail force; the host must not duplicate
--- the controller's throttle/pitch mix in its animation.
+-- the controller's throttle/pitch mix in its animation. The tail is FIXED to
+-- the fuselage and rotates with it: its actual incidence is the mounting trim
+-- PLUS the elevator stick's tail-servo command, for every model.
 b2f_math_get_tail_incidence :: Ptr () -> Ptr () -> IO Int32
 b2f_math_get_tail_incidence pointer output
   | pointer==nullPtr || output==nullPtr = pure 0
@@ -121,14 +139,33 @@ b2f_math_get_tail_incidence pointer output
   run = do
     ref <- deRefStablePtr (castPtrToStablePtr pointer :: StablePtr (IORef FwContext))
     context <- readIORef ref
-    let angle=if wmName (fwcModel context) `elem` ["kestrel", "kestrel-light"]
-              then profTailElevatorAngleDeg (fwProfile (fwcParams context))
-              else fvTailIncidenceDeg(fwcState context)
+    let angle = fvTailIncidenceDeg (fwcState context)
     if isNaN angle || isInfinite angle then pure 0 else do
       poke (castPtr output :: Ptr CDouble) (CDouble angle)
       pure 1
   failure :: SomeException -> IO Int32
   failure _ = pure 0
+
+-- Fuselage shoulder-hinge pendulum state. The fuselage is ALWAYS hung from
+-- the wing plane: [0] = hang angle (fuselage roll RELATIVE to the wing
+-- plane) [rad], [1] = its rate [rad/s]. The host renders the fuselage/tail
+-- mesh rotated by this angle about the body X axis.
+b2f_math_get_hang_state :: Ptr () -> Ptr () -> IO Int32
+b2f_math_get_hang_state pointer output
+  | pointer == nullPtr || output == nullPtr = pure 0
+  | otherwise = run `catch` failure
+  where
+    run = do
+      ref <- deRefStablePtr (castPtrToStablePtr pointer :: StablePtr (IORef FwContext))
+      context <- readIORef ref
+      let delta = fvHangDelta (fwcState context)
+          rate = fvHangDeltaRate (fwcState context)
+          values = [delta,rate]
+      if any (\v -> isNaN v || isInfinite v) values then pure 0 else do
+        sequence_ [pokeElemOff (castPtr output :: Ptr CDouble) i (CDouble v) | (i,v) <- zip [0..] values]
+        pure 1
+    failure :: SomeException -> IO Int32
+    failure _ = pure 0
 
 -- Correct the predicted body basis to the authoritative host attitude. This
 -- re-expresses field directions and fixed air anchors in the new body basis;
@@ -280,7 +317,7 @@ b2f_math_get_wing_forces contextPointer capacity leftPointer rightPointer
     failure :: SomeException -> IO Int32
     failure _ = pure 0
 b2f_math_abi_version :: IO Word32
-b2f_math_abi_version = pure 20
+b2f_math_abi_version = pure 21
 
 b2f_math_runtime_init :: IO Int32
 b2f_math_runtime_init = pure 1
@@ -381,8 +418,8 @@ data TuningConfig = TuningConfig
   , tgTailElevatorAngleDeg :: !Double  -- ^ physical tail mounting incidence [deg]
   , tgGlideAngleDeg     :: !Double  -- ^ glide incidence [deg]
   , tgStrokeFerocity    :: !Double  -- ^ downstroke ferocity [0..100]
-  , tgAileronScale      :: !Double  -- ^ aileron mix [0..100]
-  , tgElevatorScale     :: !Double  -- ^ elevator mix [0..100]
+  , tgAileronScale      :: !Double  -- ^ aileron (dihedral) servo authority [0..100]
+  , tgElevatorScale     :: !Double  -- ^ elevator (tail) servo authority [0..100]
   , tgFlapCentreDeg     :: !Double  -- ^ flap stroke centre trim (dihedral), like tail elevator [deg]
   , tgBodyMassKg        :: !Double  -- ^ airframe mass [kg], scales the wing planform
   , tgVerticalMountAngleDeg :: !Double  -- ^ real wing mount incidence (nose-up +) [deg]
@@ -390,6 +427,13 @@ data TuningConfig = TuningConfig
   , tgYawScale           :: !Double  -- ^ rudder amplitude differential (YAW SCALE) [0..100] (ABI v18)
   , tgStrokeSkew         :: !Double  -- ^ downstroke centre-skew [-100..+100] (ABI v19)
   , tgReturnSkew         :: !Double  -- ^ upstroke centre-skew [-100..+100] (ABI v19)
+  , tgShapeMix           :: !Double  -- ^ square↔pyramidal stroke transmute [0..100] (ABI v20)
+  , tgThrottleThrustShapeMix :: !Double  -- ^ throttle→dwell+centre-skew reshaping [0..100] (ABI v20)
+  , tgThrottleThrustExpo :: !Double  -- ^ throttle thrust exponential [-100..+100] (ABI v20)
+  , tgAileronSkewMix     :: !Double  -- ^ aileron→L/R stroke timing skew [0..100] (ABI v20)
+  , tgThrottleSkewRateMix :: !Double  -- ^ throttle slew→stroke skew rate feedback [0..100] (ABI v20)
+  , tgAileronSkewRateMix :: !Double  -- ^ aileron slew→L/R skew rate feedback [0..100] (ABI v20)
+  , tgElevatorFerocityMix :: !Double  -- ^ elevator→stroke/return ferocity asymmetry [0..100] (ABI v20)
   }
 
 b2f_math_create_firmware_vehicle :: Ptr () -> IO (Ptr ())
@@ -415,7 +459,7 @@ b2f_math_create_firmware_vehicle configPointer = do
         { fwServoSpeedMs = 60000 / servoNoLoadSpeedDegPerSec servo
         , fwFlapBaseFreqDh = 32
         , fwProfile = (fwProfile defaultFirmwareParams)
-            { profThrottleFrequencyMix = 100, profAileronSkewMix = 100
+            { profThrottleFrequencyMix = 100, profAileronSkewMix = 10
             , profRudderAmplitudeDiff = 100, profRudderFerocityRange = 20
             , profAileronScale = 10, profElevatorScale = 55 }
         }
@@ -558,10 +602,10 @@ b2f_math_reconfigure_firmware_vehicle contextPointer tuningPointer
 
 peekTuning :: Ptr () -> IO TuningConfig
 peekTuning pointer = do
-  values <- mapM (peekElemOff (castPtr pointer :: Ptr CDouble)) [0 .. 20]
+  values <- mapM (peekElemOff (castPtr pointer :: Ptr CDouble)) [0 .. 27]
   case map (\(CDouble value) -> value) values of
-    [speed, stall, backdrive, voltage, resistance, capacity, cRating, burstRating, freq, tailElev, glide, ferocity, aileron, elevator, flapCentre, mass, verticalMount, returnFerocity, yawScale, strokeSkew, returnSkew] ->
-      pure (TuningConfig speed stall backdrive voltage resistance capacity cRating burstRating freq tailElev glide ferocity aileron elevator flapCentre mass verticalMount returnFerocity yawScale strokeSkew returnSkew)
+    [speed, stall, backdrive, voltage, resistance, capacity, cRating, burstRating, freq, tailElev, glide, ferocity, aileron, elevator, flapCentre, mass, verticalMount, returnFerocity, yawScale, strokeSkew, returnSkew, shapeMix, thrustShapeMix, thrustExpo, aileronSkewMix, throttleSkewRateMix, aileronSkewRateMix, elevatorFerocityMix] ->
+      pure (TuningConfig speed stall backdrive voltage resistance capacity cRating burstRating freq tailElev glide ferocity aileron elevator flapCentre mass verticalMount returnFerocity yawScale strokeSkew returnSkew shapeMix thrustShapeMix thrustExpo aileronSkewMix throttleSkewRateMix aileronSkewRateMix elevatorFerocityMix)
     _ -> error "unreachable tuning layout"
 
 applyTuning :: TuningConfig -> FwContext -> FwContext
@@ -589,6 +633,13 @@ applyTuning t ctx =
         , profRudderAmplitudeDiff = clampRange 0 100 (tgYawScale t)
         , profStrokeSkew = clampRange (-100) 100 (tgStrokeSkew t)
         , profReturnSkew = clampRange (-100) 100 (tgReturnSkew t)
+        , profFerocityShapeMix = clampRange 0 100 (tgShapeMix t)
+        , profThrottleThrustShapeMix = clampRange 0 100 (tgThrottleThrustShapeMix t)
+        , profThrottleThrustExpo = clampRange (-100) 100 (tgThrottleThrustExpo t)
+        , profAileronSkewMix = clampRange 0 100 (tgAileronSkewMix t)
+        , profThrottleSkewRateMix = clampRange 0 100 (tgThrottleSkewRateMix t)
+        , profAileronSkewRateMix = clampRange 0 100 (tgAileronSkewRateMix t)
+        , profElevatorFerocityMix = clampRange 0 100 (tgElevatorFerocityMix t)
         }
       -- Preserve the requested frequency. The mixer limits cadence using the
       -- actual arc and waveform derivative, once all control mixes are known.

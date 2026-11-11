@@ -130,7 +130,8 @@ def material(name, tint, metal=0.0, rough=0.9, noise_scale=0.0, noise_amount=0.1
     elif translucent:
         mat.set_editor_property('blend_mode', u.BlendMode.BLEND_TRANSLUCENT)
         out(scalar(mat, opacity), 'OPACITY')
-    M.set_material_usage(mat, u.MaterialUsage.MATUSAGE_INSTANCED_STATIC_MESHES)
+    mat.set_editor_property("used_with_nanite", True)
+    mat.set_editor_property("used_with_instanced_static_meshes", True)
     mat.set_editor_property('two_sided', True)
     M.recompile_material(mat)
     assert E.save_loaded_asset(mat)

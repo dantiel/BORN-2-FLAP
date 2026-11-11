@@ -1,10 +1,8 @@
-"""Rebuild M_Water (single-SLW-node fix) + the Eastern Station materials.
+"""Rebuild M_Water (translucent Beer-Lambert ocean) + the Eastern Station materials.
 
-M_Water was failing to compile ("only one Single Layer Water Material node")
-because the saved asset carried a stale shading_model alongside the
-SingleLayerWaterMaterialOutput node, so it fell back to the grey Default
-Material -- the checkered squares seen under the bay. Rebuild it here with the
-shading_model reset, and refresh the station surfaces (brightened concrete +
+M_Water is the plain translucent ocean (BLEND_TRANSLUCENT, Beer-Lambert depth
+absorption, Fresnel sky reflection, Gerstner vertex displacement). Rebuild it
+here together with the station surfaces (brightened concrete +
 InstancedStaticMeshes usage flag) in the same pass.
 """
 import ast
@@ -25,7 +23,9 @@ exec(compile(ast.Module(body=[n for n in tree.body
                               if isinstance(n, (ast.Import, ast.ImportFrom, ast.FunctionDef))],
                        type_ignores=[]), str(source), 'exec'), scope)
 
-# Water: the actual "checkered squares under the bay" fix.
+# Water: the canonical translucent ocean — mirrors the invocation in
+# create_shiomori_map.py's main flow (waves omitted; the procedural swell
+# normal carries the surface on its own).
 scope['water_material']('Water', (0.008, 0.09, 0.16), rough=0.05, specular=0.8,
                         shore_color=(0.05, 0.36, 0.32))
 u.log('WATER_MATERIAL_READY')

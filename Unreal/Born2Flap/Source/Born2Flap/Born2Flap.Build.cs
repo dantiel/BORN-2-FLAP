@@ -8,6 +8,12 @@ public class Born2Flap : ModuleRules
         PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
         PublicIncludePaths.Add(ModuleDirectory);
+        // MeshPartitionCompiledSection.h includes "MaterialCache/MaterialCacheVirtualTexture.h",
+        // but the MaterialCache plugin is absent from this UE 5.8 engine install (the header
+        // exists nowhere and the prebuilt MeshPartition DLL does not import it). The type is
+        // only used for TObjectPtr properties, so a project-local forward-declaration stub
+        // (Probe/Include/) satisfies any consumer. Needed by Probe/Born2FlapTerrainProbe.cpp.
+        PrivateIncludePaths.Add(Path.Combine(ModuleDirectory, "Probe", "Include"));
 
         PublicDependencyModuleNames.AddRange(new[]
         {
@@ -17,7 +23,8 @@ public class Born2Flap : ModuleRules
         PrivateDependencyModuleNames.AddRange(new[]
         {
             "Slate", "SlateCore", "UMG", "ProceduralMeshComponent", "ApplicationCore",
-            "AudioMixer", "Json", "MoviePlayer", "Niagara", "HTTP", "PakFile"
+            "AudioMixer", "Json", "MoviePlayer", "Niagara", "HTTP", "PakFile",
+            "MeshPartition", "Chaos"
         });
 
         if (Target.Platform == UnrealTargetPlatform.Win64)

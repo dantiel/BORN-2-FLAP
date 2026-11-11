@@ -46,6 +46,13 @@ struct FMenuSettings
         Tuning.yaw_scale = 100;
         Tuning.stroke_skew_percent = 0;
         Tuning.return_skew_percent = 0;
+        Tuning.shape_mix_percent = 0;
+        Tuning.throttle_thrust_shape_mix_percent = 0;
+        Tuning.throttle_thrust_expo_percent = 0;
+        Tuning.aileron_skew_mix_percent = 0;
+        Tuning.throttle_skew_rate_mix_percent = 0;
+        Tuning.aileron_skew_rate_mix_percent = 0;
+        Tuning.elevator_ferocity_mix_percent = 0;
     }
     // -1 = never explicitly chosen → the level's default bird applies.
     int32 BirdModel = -1;

@@ -382,8 +382,8 @@ def make_water_mpc():
                                   u.MaterialParameterCollection, u.MaterialParameterCollectionFactoryNew())
     scalars = [
         ('OceanLevel', -50.0), ('PrimaryWaveDirection', 270.0), ('WindDirection', 270.0),
-        ('WindSpeed', 6.0), ('SwellAmplitude', 44.0), ('SwellLength', 4000.0),
-        ('SwellSpeed', 530.0), ('SeaState', 3.0), ('FoamAmount', 1.0),
+        ('WindSpeed', 6.0), ('SwellAmplitude', 34.0), ('SwellLength', 4000.0),
+        ('SwellSpeed', 530.0), ('SeaState', 2.2), ('FoamAmount', 1.0),
         ('StormAmount', 0.0), ('ShoreBreakIntensity', 1.0), ('WaveTime', 0.0),
         ('QualityLevel', 2.0), ('WaterLOD', 0.0),
     ]
@@ -399,61 +399,119 @@ def make_water_mpc():
     return mpc
 
 
-def water_material(name, color, rough=0.08, specular=0.6, shore_color=(0.03, 0.22, 0.25), waves=None):
-    """Physical water volume: reflection, absorption and refraction before translucency.
+def _assert_translucent_water(m, where):
+    """Regression guard: Shiomori's ocean MUST stay a plain translucent surface.
 
-    The existing Gerstner displacement remains connected; the separate runtime
-    breaking-surf mesh adds curling crests and foam above this liquid surface.
+    A MaterialExpressionSingleLayerWaterMaterialOutput node is bound to the SLW
+    shading model and SURVIVES delete_all_material_expressions. We must NOT have
+    it — SLW compiles only as opaque/masked, which is exactly why the bay lost
+    its transparency (the SLW era read as a solid slab). Guard both the absence
+    of the SLW node and the translucent blend mode, otherwise a stale bake
+    silently brings the opaque look back."""
+    slw = [type(e).__name__ for e in lib.get_material_expressions(m)
+           if type(e).__name__ == 'MaterialExpressionSingleLayerWaterMaterialOutput']
+    assert not slw, 'SingleLayerWaterMaterialOutput survived at %s (sea went SLW-opaque)' % where
+    assert m.get_editor_property('blend_mode') == u.BlendMode.BLEND_TRANSLUCENT, \
+        'Material is not BLEND_TRANSLUCENT at %s' % where
+
+
+def water_material(name, color, rough=0.08, specular=0.6, shore_color=(0.03, 0.22, 0.25), waves=None):
+    """Translucent ocean with depth-graded colour/opacity, Fresnel sky reflection,
+    vertex-displaced Gerstner swells, and animated foam at the shoreline.
+
+    Depth is SceneDepth - PixelDepth (the water-column thickness above the opaque
+    seabed), so the shallow turquoise grades smoothly into deep ocean following the
+    seabed slope — no hard distance banding. Shallow water is transparent (the sand
+    shows through) and deep water is opaque. Single Layer Water compiles only as
+    opaque/masked and cannot take WorldPositionOffset, so a standard translucent
+    material is the only way to keep the bay see-through and wave-shaped — robust
+    and clearly visible.
     """
     mpc = make_water_mpc()
     path = '/Game/Shiomori/Materials/M_' + name
     m = u.load_asset(path) if ela.does_asset_exist(path) else assets.create_asset(
         'M_' + name, '/Game/Shiomori/Materials', u.Material, u.MaterialFactoryNew())
     lib.delete_all_material_expressions(m)
-    # Shading model is implied by the SingleLayerWaterMaterialOutput node below
-    # (Material.cpp GetShadingModels() adds MSM_SingleLayerWater when that node is
-    # present). Setting shading_model explicitly auto-creates a SECOND
-    # SingleLayerWater node, which fails compilation with
-    # "The material can contain only one Single Layer Water Material node".
-    # The saved asset may still carry a stale shading_model from an older bake,
-    # so reset it to DefaultLit first: the SLW node alone then supplies the
-    # water shading model, leaving exactly one SLW node.
-    m.set_editor_property('shading_model', u.MaterialShadingModel.MSM_DEFAULT_LIT)
-    m.set_editor_property('blend_mode',u.BlendMode.BLEND_OPAQUE)
-    m.set_editor_property('two_sided',True)
-    m.set_editor_property('disable_depth_test',False)
-    m.set_editor_property('refraction_method',u.RefractionMode.RM_PIXEL_NORMAL_OFFSET)
-    m.set_editor_property('refraction_depth_bias',80.)
-    output(node(m,'Constant',r=1.08),'REFRACTION')
-    output(node(m,'Constant3Vector',constant=u.LinearColor(.009,.022,.026)),'BASE_COLOR')
-    output(node(m,'Constant',r=.025),'ROUGHNESS')
-    output(node(m,'Constant',r=.5),'SPECULAR')
-    output(node(m,'Constant',r=0.),'OPACITY')
-    volume=node(m,'SingleLayerWaterMaterialOutput')
-    wire(node(m,'Constant3Vector',constant=u.LinearColor(.00008,.00024,.00029)),volume,'ScatteringCoefficients')
-    wire(node(m,'Constant3Vector',constant=u.LinearColor(.0016,.00045,.00022)),volume,'AbsorptionCoefficients')
-    wire(node(m,'Constant',r=.15),volume,'PhaseG')
-    wire(node(m,'Constant3Vector',constant=u.LinearColor(1,1,1)),volume,'ColorScaleBehindWater')
-    p=node(m,'WorldPosition');t=node(m,'Time')
-    n=custom(m,'''float2 q=P.xy*.003;
-float2 n=float2(sin(q.x*.7+q.y*1.1+T*.9),cos(q.y*1.3-q.x*.4-T*.7))*.095;
-n+=float2(sin(q.x*2.6+q.y*3.1-T*1.6),cos(q.y*2.9-q.x*2.3+T*1.4))*.035;
-float2 r=P.xy*.025;
-n+=float2(sin(r.x*1.7+r.y*1.1+T*3.4),cos(r.y*2.1-r.x*.8-T*3.0))*.014;
-return normalize(float3(n,1.0));''',{'P':p,'T':t})
-    # NORMAL is emitted below, after the Gerstner-derived surface slope is
-    # available, so the displaced wave shape shades like water instead of the
-    # hand-authored noise normal (which was spatially unrelated to the Gerstner
-    # displacement and left unnatural highlights/shadows on the 3D waves).
-    # Deterministic Gerstner spectrum (16 components: 2 swell + 14 wind/detail).
-    # De-harmonised lengths and a broad directional spread (+-~65 deg) so the open
-    # sea reads as uneven cross-chop instead of repeating parallel diagonals.
-    # Driven entirely by the global ocean MPC, so the rendered surface stays in
-    # lock-step with AShiomoriWaterDirector / Born2FlapWater.cpp SampleWaveHeight.
-    # The spectrum is shared verbatim via gerstner_hlsl.py.
-    from gerstner_hlsl import HEIGHT_INLINE, HEIGHT_GRAD, SHORE_EDGE
-    def _mpc(name):
-        return node(m, 'CollectionParameter', collection=mpc, parameter_name=name)
+    # A Single Layer Water output node survives delete_all_material_expressions
+    # (it is bound to the shading model); remove it so this is a plain translucent
+    # surface — SLW is opaque-only and cannot take WorldPositionOffset, which is
+    # what killed the transparency and hid the sea.
+    for e in list(lib.get_material_expressions(m)):
+        if type(e).__name__ == 'MaterialExpressionSingleLayerWaterMaterialOutput':
+            lib.delete_material_expression(m, e)
+    try:
+        m.set_editor_property('shading_model', u.MaterialShadingModel.MSM_DEFAULT_LIT)
+    except Exception:
+        pass
+    m.set_editor_property('blend_mode', u.BlendMode.BLEND_TRANSLUCENT)
+    m.set_editor_property('disable_depth_test', False)
+    m.set_editor_property('translucency_pass', u.MaterialTranslucencyPass.MTP_BEFORE_DOF)
+    m.set_editor_property('two_sided', True)
+    m.set_editor_property('refraction_method', u.RefractionMode.RM_NONE)
+    # Screen-space refraction can displace foreground wings through the ocean.
+    output(node(m, 'Constant', r=1.33), 'REFRACTION')
+    p = node(m, 'WorldPosition')
+    t = node(m, 'Time')
+    sd = node(m, 'SceneDepth')
+    pd = node(m, 'PixelDepth')
+    fn = node(m, 'Fresnel')
+    # Animated foam: coarse world-space value noise drifting shoreward over time.
+    wp = node(m, 'WorldPosition')
+    sc = node(m, 'Multiply'); sc.set_editor_property('const_b', 0.0016); wire(wp, sc, 'A')
+    tm = node(m, 'Multiply'); tm.set_editor_property('const_b', 8.0); wire(t, tm, 'A')
+    z0 = node(m, 'Constant', r=0.0)
+    t2 = node(m, 'AppendVector'); wire(tm, t2, 'A'); wire(z0, t2, 'B')
+    t3 = node(m, 'AppendVector'); wire(t2, t3, 'A'); wire(z0, t3, 'B')
+    add = node(m, 'Add'); wire(sc, add, 'A'); wire(t3, add, 'B')
+    nz = node(m, 'Noise', levels=3, output_min=0.0, output_max=1.0); wire(add, nz, '')
+    # Base colour: Beer-Lambert depth absorption + Fresnel sky + surf/crest foam.
+    # Tuned for the shallow lagoon (floor -300 cm): near shore the turquoise is
+    # bright and sand shows through; at 3 m it settles into a rich teal rather
+    # than a navy abyss. Fresnel reflection is stronger so the sky dominates at
+    # grazing angles like real water.
+    bc = custom(m, '''float d=max(SceneDepth-PixelDepth,0.0);
+ float3 shallow=float3(%.6g,%.6g,%.6g);
+ float3 deep=float3(%.6g,%.6g,%.6g);
+ float3 water=deep+(shallow-deep)*exp(-d/250.0);
+ float3 sky=float3(0.30,0.52,0.74);
+ float3 col=lerp(water, sky, saturate(Fresnel*0.85));
+ float h=0.0; // The runtime surf mesh supplies synchronized breaking crests.
+ float surf=smoothstep(26.0,6.0,d)*Foam;
+ float crest=smoothstep(26.0,80.0,h)*Foam*Foam;
+ return lerp(col, float3(0.96,0.97,0.96), saturate(surf+crest));''' % (
+        shore_color[0], shore_color[1], shore_color[2], color[0], color[1], color[2]),
+        {'SceneDepth': sd, 'PixelDepth': pd, 'Fresnel': fn, 'P': p, 'T': t, 'Foam': nz})
+    output(bc, 'BASE_COLOR')
+    output(node(m, 'Constant', r=rough), 'ROUGHNESS')
+    output(node(m, 'Constant', r=specular), 'SPECULAR')
+    op = custom(m, '''float d=max(SceneDepth-PixelDepth,0.0);
+return 1.0-exp(-d/90.0);''', {'SceneDepth': sd, 'PixelDepth': pd}, 1)
+    output(op, 'OPACITY')
+    # Travelling normal: long swell, chop, and fine glitter ripple.
+    n = custom(m, '''float2 q=P.xy*0.004;
+ float2 n=float2(sin(q.x*0.7+q.y*1.1+T*0.9),cos(q.y*1.3-q.x*0.4-T*0.7))*0.55;
+ n+=float2(sin(q.x*2.6+q.y*3.1-T*1.6),cos(q.y*2.9-q.x*2.3+T*1.4))*0.26;
+ float2 r=P.xy*0.03;
+ n+=float2(sin(r.x*1.7+r.y*1.1+T*3.4),cos(r.y*2.1-r.x*0.8-T*3.0))*0.10;
+ float2 s=P.xy*0.12;
+ n+=float2(sin(s.x*2.3+s.y*1.7-T*6.0),cos(s.y*2.9-s.x*1.3+T*5.0))*0.05;
+ return normalize(float3(n,1.0));''', {'P': p, 'T': t})
+    if waves is not None:
+        uv = node(m, 'TextureCoordinate')
+        rep = node(m, 'Multiply'); rep.set_editor_property('const_b', 300.0); wire(uv, rep, 'A')
+        pw = node(m, 'Panner', speed_x=0.0, speed_y=-0.06); wire(rep, pw, 'Coordinate')
+        sw = node(m, 'TextureSample', texture=waves)
+        sw.set_editor_property('sampler_type', u.MaterialSamplerType.SAMPLERTYPE_NORMAL)
+        wire(pw, sw, 'UVs')
+        bw = node(m, 'LinearInterpolate', const_alpha=0.45); wire(n, bw, 'A'); wire(sw, bw, 'B', 'RGB')
+        n = bw
+    # Gerstner displacement + surface slope from the shared spectrum, so the
+    # rendered waves stay in lock-step with AShiomoriWaterDirector /
+    # Born2FlapWater.cpp SampleWaveHeight. The slope-derived normal shades the
+    # 3D wave shape; the travelling swell normal above adds the shimmer at 30%.
+    from gerstner_hlsl import SHORE_EDGE, HEIGHT_INLINE, HEIGHT_GRAD
+    def _mpc(name_):
+        return node(m, 'CollectionParameter', collection=mpc, parameter_name=name_)
     wave_inputs = {'P': p, 'Amp': _mpc('SwellAmplitude'), 'WL': _mpc('SwellLength'),
                    'CS': _mpc('SwellSpeed'), 'Sea': _mpc('SeaState'),
                    'Dir': _mpc('PrimaryWaveDirection'), 'WT': _mpc('WaveTime')}
@@ -464,18 +522,14 @@ return normalize(float3(n,1.0));''',{'P':p,'T':t})
     return float3(0.0,0.0,H);''',
         wave_inputs, 3)
     output(gerst, 'WORLD_POSITION_OFFSET')
-    # Surface normal from the Gerstner displacement gradient (finite difference)
-    # so crests catch the sun and troughs recede — the 3D wave shape reads as
-    # water. The fine noise normal is added back at 40% for lively shimmer.
     gerst_normal = custom(m, SHORE_EDGE + '''
     float e=60.0;
     float shore=smoothstep(100.0,3000.0,P.y-edge);
 ''' + HEIGHT_GRAD + '''
-    // Softened slope: the full gradient made wave faces shade almost black when
-    // they turned away from the sun. 0.72 keeps the 3D form readable without the
-    // deep trough shadows.
+    // Softened slope: 0.55 keeps the long swell readable without the choppy
+    // trough shadows of the old 0.72.
     h0*=shore; hx*=shore; hy*=shore;
-    return normalize(float3(-(hx-h0)/e*0.72,-(hy-h0)/e*0.72,1.0));''',
+    return normalize(float3(-(hx-h0)/e*0.55,-(hy-h0)/e*0.55,1.0));''',
         wave_inputs, 3)
     wave_normal = custom(m, 'return normalize(A + float3(B.xy*0.30,0.0));',
                          {'A': gerst_normal, 'B': n}, 3)
@@ -483,6 +537,7 @@ return normalize(float3(n,1.0));''',{'P':p,'T':t})
     material_usage_flags(m)
     lib.recompile_material(m)
     assert ela.save_asset(path), 'Failed to save ' + path
+    _assert_translucent_water(m, 'after bake/save')
     return m
 
 

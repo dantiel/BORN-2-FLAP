@@ -13,7 +13,7 @@
 extern "C" {
 #endif
 
-#define B2F_MATH_ABI_VERSION 20u
+#define B2F_MATH_ABI_VERSION 21u
 
 typedef struct B2F_MathContext B2F_MathContext;
 
@@ -150,6 +150,14 @@ typedef struct B2F_TuningConfig {
     double yaw_scale;            /* rudder amplitude differential (YAW SCALE), 0..100 (ABI v18) */
     double stroke_skew_percent;  /* downstroke centre-skew, -100..+100 (ABI v19) */
     double return_skew_percent;  /* upstroke centre-skew, -100..+100 (ABI v19) */
+    /* ── PteronautOS waveform mixer (ABI v20) ─────────────────────────────── */
+    double shape_mix_percent;    /* square↔pyramidal stroke transmute, 0..100 */
+    double throttle_thrust_shape_mix_percent; /* throttle→dwell+centre-skew reshaping, 0..100 */
+    double throttle_thrust_expo_percent;      /* throttle thrust exponential, -100..+100 */
+    double aileron_skew_mix_percent;          /* aileron→L/R stroke timing skew, 0..100 */
+    double throttle_skew_rate_mix_percent;    /* throttle slew→stroke skew rate feedback, 0..100 */
+    double aileron_skew_rate_mix_percent;     /* aileron slew→L/R skew rate feedback, 0..100 */
+    double elevator_ferocity_mix_percent;     /* elevator→stroke/return ferocity asymmetry, 0..100 */
 } B2F_TuningConfig;
 
 B2F_API int32_t b2f_math_reconfigure_firmware_vehicle(
@@ -225,10 +233,20 @@ typedef struct B2F_WingLoads {
     double drag_n[3];
     double moment_nm[3];
 } B2F_WingLoads;
+/* Read-only last substep roll equation ledger, eight doubles in N m:
+ * external, gravity, bias, body inertia, hinge inertia, other inertia,
+ * left motor torque, right motor torque. No effect on dynamics. */
+B2F_API int32_t b2f_math_get_roll_balance(B2F_MathContext* context, double* eight_values);
 B2F_API int32_t b2f_math_get_wing_loads(B2F_MathContext* context,
     uint32_t capacity, B2F_WingLoads* left, B2F_WingLoads* right);
 /* Actual common tail incidence, degrees nose-up. Read-only ABI-16 extension. */
 B2F_API int32_t b2f_math_get_tail_incidence(B2F_MathContext* context, double* degrees);
+/* Fuselage shoulder-hinge pendulum: [0] hang angle (fuselage roll RELATIVE to
+ * the wing plane) [rad], [1] its rate [rad/s]. The fuselage is always hung
+ * from the wing plane, so the host renders the fuselage/tail mesh rotated by
+ * about the body X axis. Additive ABI-20-compatible extension; returns 1,
+ * or 0 without writes on invalid input. */
+B2F_API int32_t b2f_math_get_hang_state(B2F_MathContext* context, double* angle_rate);
 
 #define B2F_TAIL_PATCHES 18
 /* Last solved sum of surface forces, body frame, N; three doubles.

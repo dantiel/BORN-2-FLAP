@@ -97,6 +97,7 @@ module Born2Flap
           Node.new(:textblock, { text: I18n.t('menu.subtitle', lang: lang), wrap: true, size: 's' })
         ] + buttons
         nodes << Node.new(:button, { label: I18n.t('menu.resume_flight', lang: lang), action: 'menu.resume', tone: 'good' }) if inlevel
+        nodes << Node.new(:button, { label: I18n.t('menu.main_menu', lang: lang), action: 'menu.exitWorld', tone: 'ghost' }) if inlevel
         nodes << Node.new(:button, { label: I18n.t('menu.quit', lang: lang), action: 'menu.quit' })
         Node.new(:panel, { padding: 20 }, [Node.new(:vbox, { spacing: 14 }, nodes)])
       end

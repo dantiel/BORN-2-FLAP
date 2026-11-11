@@ -10,6 +10,7 @@
 #include "NiagaraComponent.h"
 #include "NiagaraSystem.h"
 #include "Water/Born2FlapWaterDirector.h"
+#include "World/Born2FlapMeshPartitionRuntime.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/OverlapResult.h"
 #include "DrawDebugHelpers.h"
@@ -204,6 +205,13 @@ ABorn2FlapFlightPawn::ABorn2FlapFlightPawn()
     Tuning.yaw_scale = 100;
     Tuning.stroke_skew_percent = 0;
     Tuning.return_skew_percent = 0;
+    Tuning.shape_mix_percent = 0;
+    Tuning.throttle_thrust_shape_mix_percent = 0;
+    Tuning.throttle_thrust_expo_percent = 0;
+    Tuning.aileron_skew_mix_percent = 0;
+    Tuning.throttle_skew_rate_mix_percent = 0;
+    Tuning.aileron_skew_rate_mix_percent = 0;
+    Tuning.elevator_ferocity_mix_percent = 0;
 }
 ABorn2FlapFlightPawn::~ABorn2FlapFlightPawn() = default;
 namespace
@@ -232,6 +240,13 @@ float TuningClamp(ETuningField Field, float Value)
     case ETuningField::YawScale:          return FMath::Clamp(Value, 0.f, 100.f);
     case ETuningField::StrokeSkew:        return FMath::Clamp(Value, -100.f, 100.f);
     case ETuningField::ReturnSkew:        return FMath::Clamp(Value, -100.f, 100.f);
+    case ETuningField::ShapeMix:          return FMath::Clamp(Value, 0.f, 100.f);
+    case ETuningField::ThrottleThrustShapeMix: return FMath::Clamp(Value, 0.f, 100.f);
+    case ETuningField::ThrottleThrustExpo: return FMath::Clamp(Value, -100.f, 100.f);
+    case ETuningField::AileronSkewMix:    return FMath::Clamp(Value, 0.f, 100.f);
+    case ETuningField::ThrottleSkewRateMix: return FMath::Clamp(Value, 0.f, 100.f);
+    case ETuningField::AileronSkewRateMix: return FMath::Clamp(Value, 0.f, 100.f);
+    case ETuningField::ElevatorFerocityMix: return FMath::Clamp(Value, 0.f, 100.f);
     default: return 0.f;
     }
 }
@@ -260,6 +275,13 @@ float ABorn2FlapFlightPawn::GetTuning(ETuningField Field) const
     case ETuningField::YawScale:          return float(Tuning.yaw_scale);
     case ETuningField::StrokeSkew:        return float(Tuning.stroke_skew_percent);
     case ETuningField::ReturnSkew:        return float(Tuning.return_skew_percent);
+    case ETuningField::ShapeMix:          return float(Tuning.shape_mix_percent);
+    case ETuningField::ThrottleThrustShapeMix: return float(Tuning.throttle_thrust_shape_mix_percent);
+    case ETuningField::ThrottleThrustExpo: return float(Tuning.throttle_thrust_expo_percent);
+    case ETuningField::AileronSkewMix:    return float(Tuning.aileron_skew_mix_percent);
+    case ETuningField::ThrottleSkewRateMix: return float(Tuning.throttle_skew_rate_mix_percent);
+    case ETuningField::AileronSkewRateMix: return float(Tuning.aileron_skew_rate_mix_percent);
+    case ETuningField::ElevatorFerocityMix: return float(Tuning.elevator_ferocity_mix_percent);
     default: return 0.f;
     }
 }
@@ -289,6 +311,13 @@ void ABorn2FlapFlightPawn::SetTuning(ETuningField Field, float Value)
     case ETuningField::YawScale:          Tuning.yaw_scale = Value; break;
     case ETuningField::StrokeSkew:        Tuning.stroke_skew_percent = Value; break;
     case ETuningField::ReturnSkew:        Tuning.return_skew_percent = Value; break;
+    case ETuningField::ShapeMix:          Tuning.shape_mix_percent = Value; break;
+    case ETuningField::ThrottleThrustShapeMix: Tuning.throttle_thrust_shape_mix_percent = Value; break;
+    case ETuningField::ThrottleThrustExpo: Tuning.throttle_thrust_expo_percent = Value; break;
+    case ETuningField::AileronSkewMix:    Tuning.aileron_skew_mix_percent = Value; break;
+    case ETuningField::ThrottleSkewRateMix: Tuning.throttle_skew_rate_mix_percent = Value; break;
+    case ETuningField::AileronSkewRateMix: Tuning.aileron_skew_rate_mix_percent = Value; break;
+    case ETuningField::ElevatorFerocityMix: Tuning.elevator_ferocity_mix_percent = Value; break;
     default: return;
     }
     ApplyTuning();
@@ -388,6 +417,8 @@ int32 ABorn2FlapFlightPawn::DefaultBirdModel() const
     if (GameMode && GameMode->IsDesertLevel())return 5;
     if (GameMode && GameMode->IsVoidLevel())
         return 3;                       // Neon Abyss -> the neon turtle
+    if (GameMode && GameMode->IsWoshiLevel())
+        return 0;                       // Woshi -> RavenCrow (the raven and the resting stone)
     if (GameMode && GameMode->IsCoastLevel())
         return 2;                       // Shiomori Bay -> common kestrel
     if (GameMode && !GameMode->IsNatureLevel())
@@ -405,6 +436,7 @@ void ABorn2FlapFlightPawn::BeginPlay()
     if (FSlateApplication::IsInitialized())
         FSlateApplication::Get().RegisterInputPreProcessor(PanelKeyProcessor);
     ApplyBodyMass();
+    MaybeStartTerrainWait();
     // Neon Abyss is a weightless aether: no gravity, dense-medium drag. Neutral
     // buoyancy keeps the turtle suspended; drag makes flap-pulses coast instead
     // of gliding. Set here so ResetFlight teleports never re-enable gravity.
@@ -466,6 +498,7 @@ void ABorn2FlapFlightPawn::BeginPlay()
     bHandlingTest = FParse::Param(FCommandLine::Get(), TEXT("B2FHandlingTest"));
     bFlightTest = bSoakTest || bRavenFlightTest || bHandlingTest || FParse::Param(FCommandLine::Get(), TEXT("B2FFlightTest"));
     bDesktopInputTest = FParse::Param(FCommandLine::Get(), TEXT("B2FDesktopInputTest"));
+    bThrowAnimTest = FParse::Param(FCommandLine::Get(), TEXT("B2FThrowAnimTest"));
     if (!bFlightTest && !bDesktopInputTest)
         RcController = MakeUnique<FBorn2FlapRcController>();
     FParse::Value(FCommandLine::Get(), TEXT("B2FVectorView="), VectorView);
@@ -689,7 +722,47 @@ void ABorn2FlapFlightPawn::ResetFlight(bool bSafety)
     GroundLookYaw = 0.f; GroundLookPitch = 0.f;
     GroundZoom = 1.f; ChaseArmLength = 480.f;
     RememberLanding(Body->GetComponentLocation());
+    MaybeStartTerrainWait();
     UE_LOG(LogTemp, Display, TEXT("FlightReset safety=%d backend=%d"), bSafety, bHealthy);
+}
+
+void ABorn2FlapFlightPawn::MaybeStartTerrainWait()
+{
+    if (bTerrainWait)
+        return;
+    UWorld* World = GetWorld();
+    if (!World)
+        return;
+    if (bFlightTest || bSoakTest)
+        return;
+    if (const auto* GM = Cast<ABorn2FlapGameMode>(World->GetAuthGameMode()))
+        if (GM->IsVoidLevel())
+            return;   // the aether has no ground to cook
+    UBorn2FlapMeshPartitionRuntime* Runtime = World->GetSubsystem<UBorn2FlapMeshPartitionRuntime>();
+    if (!Runtime || !Runtime->HasMeshPartitionTerrain())
+        return;
+    if (Runtime->IsTerrainCollisionReadyAt(Body->GetComponentLocation(), this))
+        return;
+    bTerrainWait = true;
+    TerrainWaitElapsed = 0.f;
+    UE_LOG(LogTemp, Display, TEXT("FlightTerrainWait: holding until terrain collision is ready"));
+}
+
+void ABorn2FlapFlightPawn::TickTerrainWait(float DeltaTime)
+{
+    TerrainWaitElapsed += DeltaTime;
+    Body->SetEnableGravity(false);
+    Body->SetPhysicsLinearVelocity(FVector::ZeroVector);
+    Body->SetPhysicsAngularVelocityInRadians(FVector::ZeroVector);
+    const UBorn2FlapMeshPartitionRuntime* Runtime = GetWorld()->GetSubsystem<UBorn2FlapMeshPartitionRuntime>();
+    const bool bReady = (Runtime && Runtime->IsTerrainCollisionReadyAt(Body->GetComponentLocation(), this)) ||
+                        TerrainWaitElapsed > 15.f;
+    if (bReady)
+    {
+        bTerrainWait = false;
+        Body->SetEnableGravity(true);
+        UE_LOG(LogTemp, Display, TEXT("FlightTerrainWait: released after %.1fs"), TerrainWaitElapsed);
+    }
 }
 float ABorn2FlapFlightPawn::GetAltitude() const
 {
@@ -918,6 +991,7 @@ void ABorn2FlapFlightPawn::RequestHandLaunch()
     // fall straight through to a normal direct launch — never dead-space.
     if (Avatar && bCameraGrounded && !Avatar->IsThrowing() && HoldBird())
     {
+        AutoFramePilot();   // cut to the pilot so the throw is visible
         Avatar->BeginThrow();
         return;
     }
@@ -962,12 +1036,13 @@ void ABorn2FlapFlightPawn::GetThrowAim(float& OutYaw, float& OutPitch) const
 
 FVector ABorn2FlapFlightPawn::GetThrowOrigin() const
 {
-    // Launch from 7 cm above the pilot's head (overhead throw), not waist height.
+    // Launch from clearly ABOVE the pilot's head (overhead throw), not waist or
+    // skull height: 25 cm above the head bone clears the top of the skull.
     if (Avatar)
     {
         const FVector Head = Avatar->GetHeadWorldLocation();
         if (!Head.IsNearlyZero())
-            return Head + FVector(0.f, 0.f, 7.f);
+            return Head + FVector(0.f, 0.f, 25.f);
     }
     return GroundAnchor;
 }
@@ -997,18 +1072,70 @@ void ABorn2FlapFlightPawn::PickupOrnithopter()
     }
 }
 
+bool ABorn2FlapFlightPawn::IsInHandcatchWindow() const
+{
+    if (!bFlying || !Avatar || bBirdHeld || bBirdCarried || Avatar->IsThrowing() ||
+        Avatar->IsCatching() || bThrowCharging)
+        return false;
+    const FVector Head = Avatar->GetHeadWorldLocation();
+    if (Head.IsNearlyZero())
+        return false;
+    const FVector ToBird = Body->GetComponentLocation() - Head;
+    const float Horizontal = FVector(ToBird.X, ToBird.Y, 0.f).Size();
+    return Horizontal <= HandCatchRadius &&
+           FMath::Abs(ToBird.Z) <= HandCatchMaxDeltaZ &&
+           GetSpeed() <= HandCatchMaxSpeed;
+}
+
+bool ABorn2FlapFlightPawn::TryHandcatch()
+{
+    // The "right moment": inside the reach window and slow enough to take.
+    if (!IsInHandcatchWindow())
+        return false;
+    const float SpeedAtCatch = GetSpeed();
+    // Cancel any half-baked wind-up and snatch the bird into the pilot's hands.
+    bThrowCharging = false;
+    ThrowCharge = 0.f;
+    PendingThrowCharge = 0.f;
+    if (!HoldBird())
+        return false;
+    AutoFramePilot();   // cut to the pilot so the catch arc is visible
+    bBirdCarried = false;
+    Avatar->SetCarrying(false);
+    Avatar->BeginCatch();
+    bFlying = false;
+    bThrown = false;   // a catch is no landing — the observer stays put
+    AnnounceReward(Born2Flap::I18n::T("reward.handcatch"), 2.5f);
+    UE_LOG(LogTemp, Display, TEXT("FlightHandcatch speed=%.1fm/s pos=%s"), SpeedAtCatch,
+           *Body->GetComponentLocation().ToString());
+    return true;
+}
+
+void ABorn2FlapFlightPawn::AnnounceReward(const FString& Text, float Duration)
+{
+    RewardText = Text;
+    RewardUntil = WorldTime + FMath::Max(0.f, Duration);
+}
+
+FString ABorn2FlapFlightPawn::GetRewardText() const
+{
+    return WorldTime < RewardUntil ? RewardText : FString();
+}
+
 void ABorn2FlapFlightPawn::StartThrowCharge()
 {
     bThrowCharging = true;
     ThrowCharge = 0.f;
     if (!Avatar)
         return;
-    // Only pick up a grounded bird for the wind-up; a flying bird just charges
-    // (the actual launch is gated in LaunchFlight).
+    // Only pick up a grounded bird for the wind-up. A flying bird never enters
+    // the charge (its SPACE press is the handcatch in Tick), so the pickup
+    // here is always the grounded wind-up.
     if (!bBirdHeld && bCameraGrounded)
         HoldBird();
     if (bBirdHeld)
     {
+        AutoFramePilot();   // cut to the pilot so the wind-up is visible
         bBirdCarried = false;
         Avatar->SetCarrying(false);
     }
@@ -1073,7 +1200,10 @@ void ABorn2FlapFlightPawn::LaunchFlight()
     // (bCameraGrounded drops false once the bird leaves the ground) and the bird
     // stays stuck in the pilot's hands — "space does nothing".
     const bool bWasHeld = bBirdHeld;
-    if (!bHealthy || (!bWasHeld && !bCameraGrounded && GetAltitude() > .4f) || GetSpeed() > 1.f)
+    // A held bird rides the pilot's hand: its reported velocity/altitude are
+    // hand motion, not flight state, so ALL free-flight gates must be skipped
+    // (a fast wind-up hand peaks above 1 m/s and would block the release).
+    if (!bHealthy || (!bWasHeld && ((!bCameraGrounded && GetAltitude() > .4f) || GetSpeed() > 1.f)))
         return;
     // One explicit hand launch supplies initial momentum; it cannot repeat in
     // the air. Every subsequent acceleration comes from aero forces/gravity.
@@ -1087,8 +1217,9 @@ void ABorn2FlapFlightPawn::LaunchFlight()
     FVector LaunchPos = Body->GetComponentLocation() + FVector(0, 0, 140);
     if (bFromPilot)
     {
-        // Throw along the pilot's gaze (yaw + pitch), launched from 7 cm above
-        // the head — not waist height. Looking up throws higher, down flattens.
+        // Throw along the pilot's gaze (yaw + pitch), launched from clearly
+        // above the head — not waist height. Looking up throws higher, down
+        // flattens.
         // Read the aim BEFORE releasing the hand-held bird: GetThrowAim must
         // still see bBirdHeld so it uses the stable ThrowBaseYaw/CarryBaseYaw
         // path — releasing first would fall back to the degenerate anchor→bird
@@ -1099,7 +1230,10 @@ void ABorn2FlapFlightPawn::LaunchFlight()
     // If the bird was held in the pilot's hands, detach it and resume physics
     // so it launches from the hands instead of its old resting spot.
     if (bWasHeld)
+    {
         ReleaseBird();
+        RestoreAutoFrame();   // back to the player's chosen view for the flight
+    }
     FRotator Heading(0, LaunchYaw, 0);
     ChaseOrbitYaw = 0.f; ChaseOrbitPitch = -12.f;
     GroundLookYaw = 0.f; GroundLookPitch = 0.f;
@@ -1236,6 +1370,10 @@ void ABorn2FlapFlightPawn::UpdateAvatarState(float Dt)
             ? float(GroundGaze.Yaw + GroundLookYaw)
             : ThrowBaseYaw + ActorOrbitYaw;
         Avatar->SetPlacement(Feet, AimYaw);
+        // Height articulation: pass the gaze pitch through so the throw arc
+        // leans back (high lob) or forward (flat throw) with the aim.
+        const float AimPitch = bGroundView ? float(GroundLookPitch) : float(ActorOrbitPitch);
+        Avatar->SetThrowAimPitch(AimPitch);
         Avatar->SetFirstPerson(bGroundView);
         return;
     }
@@ -1294,10 +1432,14 @@ FString ABorn2FlapFlightPawn::GetFlightStatus() const
 
 bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
 {
+    SubstepLoads.Reset();
     const double ProfileStart = FPlatformTime::Seconds();
     if (!bHealthy)
         return false;
-    FQuat Rotation = Body->GetComponentQuat();
+    // Use the physics pose with the physics velocities. The rendered component
+    // suppresses tiny transform updates and can lag a very small physical roll.
+    const FTransform PhysicsTransform = Body->GetBodyInstance()->GetUnrealWorldTransform(false, true);
+    FQuat Rotation = PhysicsTransform.GetRotation();
     if (bHaveMathRotation)
     {
         FQuat Correction = (Rotation.Inverse() * LastMathRotation).GetNormalized();
@@ -1314,35 +1456,24 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
     }
     FVector Velocity = Body->GetPhysicsLinearVelocity() / 100.0;
     FVector Omega = Body->GetPhysicsAngularVelocityInRadians();
+    const FVector AuditActualOmega = Omega;
+    static FVector AuditPreviousPrediction = FVector::ZeroVector;
+    static double AuditPreviousRoll = 0;
     const FVector Inertia = Body->GetInertiaTensor() / 10000.0;
     // The atmospheric field: wind enters as air-relative velocity (aerodynamics)
     // and as phase noise (the resonance layer the servo must lock against).
-    const FVector BodyPos = Body->GetComponentLocation();
+    const FVector BodyPos = PhysicsTransform.GetLocation();
     // No-slip ground shelter: a resting bird is below the free-stream wind.
     // Smoothly recover the atmospheric field over the first two metres.
     const double Shelter=FMath::SmoothStep(0.0,2.0,double(GetAltitude()));
     const auto* WindMode=Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode());
     CurrentWind = bFlightTest ? FVector::ZeroVector : (WindMode?WindMode->WindAt(BodyPos,WorldTime):Born2FlapWind::Sample(BodyPos,WorldTime));
     const FVector Wind = CurrentWind * Shelter;
-    // Sample the atmospheric field at each deformed force application point.
-    // The body input already subtracts origin wind; only the spatial increment
-    // goes through the strip extension. Re-express it for every solver step.
-    FVector StripWindWorld[2][B2F_WING_STATIONS]{};
-    B2F_WingField WindFields[2][B2F_WING_STATIONS]{};
-    if (!bFlightTest && MathBridge->ReadWingFields(WindFields[0], WindFields[1]))
-    {
-        for (int Side = 0; Side < 2; ++Side)
-            for (uint32 I = 0; I < B2F_WING_STATIONS; ++I)
-            {
-                const double* P = WindFields[Side][I].position_m;
-                const FVector Position = BodyPos + Rotation.RotateVector(FVector(P[0], P[1], P[2])) * 100.0;
-                const FVector LocalWind = WindMode ? WindMode->WindAt(Position, WorldTime) : Born2FlapWind::Sample(Position, WorldTime);
-                // Shear gain: amplify the spanwise wind gradient (local minus
-                // origin) so cross-bird wind differences bite harder into the
-                // strips as differential lift/drag -> roll/yaw reaction.
-                StripWindWorld[Side][I] = (LocalWind - CurrentWind) * Shelter * 1.5;
-            }
-    }
+    // Galilean invariance: ONE apparent wind for the whole bird. The origin
+    // sample (subtracted from the body velocity below) is the only wind the
+    // model sees — no per-strip wind deltas, no shear gain. The field then
+    // shifts only the bird's ground-relative momentum (inertia), never its
+    // turning; every part (strips, fan, body) flies in the same air.
     MathBridge->InjectWindPhaseNoise(bFlightTest ? 0.0 : FMath::Clamp(CurrentWind.Size()*.15+FMath::Abs(CurrentWind.Z)*.25,0.,4.)*Shelter);
     B2F_PilotInput Pilot{};
     Pilot.throttle = Throttle;
@@ -1376,7 +1507,13 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
     if (bFlightTest && FParse::Value(FCommandLine::Get(), TEXT("B2FPhysicsHz="), TestHz) &&
         FMath::IsFinite(TestHz) && TestHz >= 240 && TestHz <= 3840)
         TargetMathDt = 1.0 / TestHz;
-    const int32 StepCount = FMath::Max(1, FMath::CeilToInt(PhysicsDt / TargetMathDt - 1.e-6));
+    // Align sample boundaries with Chaos's actual partition, including frames
+    // that are not an integer multiple of 1/240 s.
+    const int32 ChaosSteps = PhysicsSettings->bSubstepping && PhysicsSettings->MaxSubstepDeltaTime > 0
+        ? FMath::Clamp(FMath::CeilToInt(PhysicsDt / PhysicsSettings->MaxSubstepDeltaTime),
+                       1, PhysicsSettings->MaxSubsteps) : 1;
+    const int32 StepCount = ChaosSteps * FMath::Max(1,
+        FMath::CeilToInt(PhysicsDt / ChaosSteps / TargetMathDt - 1.e-6));
     const double StepDt = PhysicsDt / StepCount;
     if (StepDt <= 0) return false;
     State.delta_time_s = StepDt;
@@ -1388,21 +1525,6 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
     const FVector CgBody(-CgM, 0, 0);
     while (Steps < StepCount)
     {
-        double StripWindBody[2][B2F_WING_STATIONS * 3]{};
-        for (int Side = 0; Side < 2; ++Side)
-            for (uint32 I = 0; I < B2F_WING_STATIONS; ++I)
-            {
-                const FVector Local = Rotation.UnrotateVector(StripWindWorld[Side][I]);
-                for (int Axis = 0; Axis < 3; ++Axis)
-                    StripWindBody[Side][I * 3 + Axis] = Local[Axis];
-            }
-        if (!MathBridge->SetStripWind(StripWindBody[0], StripWindBody[1]))
-        {
-            ++MathFailures;
-            bHealthy = bFlying = false;
-            AeroForce = AeroMoment = FVector::ZeroVector;
-            return false;
-        }
         const FVector W = Rotation.UnrotateVector(Omega);
         // Chaos reports COM velocity; the strip positions use the body origin.
         // v_origin = v_COM - omega cross r_COM, so subsequent omega cross
@@ -1425,6 +1547,8 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
         const bool BackendValid = Valid;
         const FVector F(O.force_n[0], O.force_n[1], O.force_n[2]);
         const FVector M(O.moment_n_m[0], O.moment_n_m[1], O.moment_n_m[2]);
+        if (FParse::Param(FCommandLine::Get(), TEXT("B2FRollResponseTest")))
+            RollTestMomentSumX += M.X;
         // Convert the backend's host-equivalent moment to the configured CG.
         // The spatial solve already contains joint recoil and added inertia;
         // the ABI retains the origin-to-CG shift using the raw surface force.
@@ -1475,6 +1599,12 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
         const FVector WorldMoment = Rotation.RotateVector(Mcg);
         ForceSum += WorldForce;
         MomentSum += WorldMoment;
+        SubstepLoads.Add({WorldForce, WorldMoment, StepDt});
+        if (FParse::Param(FCommandLine::Get(), TEXT("B2FRollResponseTest")))
+        {
+            RollTestTorqueSumX += WorldMoment.X;
+            ++RollTestMathSteps;
+        }
         LeftFlap = O.left_flap_deg;
         RightFlap = O.right_flap_deg;
         BatterySoc = O.battery_soc;
@@ -1510,8 +1640,8 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
         else bStripStatsValid = false;
         // Predict BOTH linear and rotational feedback between wing evaluations.
         // Holding angular velocity for a whole 30 Hz frame made aerodynamic
-        // roll damping overshoot. Chaos receives the mean loads once and stays
-        // authoritative for the actual rigid body and contacts.
+        // roll damping overshoot. Chaos receives these loads in time order and
+        // stays authoritative for the actual rigid body and contacts.
         Velocity += (WorldForce / Body->GetMass() + Gravity) * StepDt;
         Omega += Rotation.RotateVector(Mcg / Inertia) * StepDt;
         const double Rate = Omega.Size();
@@ -1525,6 +1655,14 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
         AeroMoment = MomentSum / Steps;
     }
     LastMathRotation = Rotation;
+    if (bFlightTest && FParse::Param(FCommandLine::Get(), TEXT("B2FWingAirTrace")))
+    {
+        UE_LOG(LogTemp, Display, TEXT("WingAirIntegration t=%.6f actualWorldX=%.9f previousPredictedWorldX=%.9f predictedWorldX=%.9f appliedWorldX=%.9f dt=%.9f actualRoll=%.9f previousPredictedRoll=%.9f predictedRoll=%.9f"),
+            TestTime, AuditActualOmega.X, AuditPreviousPrediction.X, Omega.X, AeroMoment.X, PhysicsDt,
+            PhysicsTransform.Rotator().Roll, AuditPreviousRoll, Rotation.Rotator().Roll);
+        AuditPreviousPrediction = Omega;
+        AuditPreviousRoll = Rotation.Rotator().Roll;
+    }
     bHaveMathRotation = true;
     MathProfileSeconds += FPlatformTime::Seconds() - ProfileStart;
     MathProfileSteps += Steps;
@@ -1649,6 +1787,8 @@ void ABorn2FlapFlightPawn::UpdateAeroAudio(float Dt)
 void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
+    if (bTerrainWait)
+        TickTerrainWait(DeltaSeconds);
     // F8/Esc are owned here, in one place. The panel is NOT a paused menu any
     // more (no SetPause), so this tick runs while it is open and simply freezes
     // the simulation below. The keys are captured by a Slate input pre-processor
@@ -1832,9 +1972,16 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         if (Launch || bThrowPressed)
             ResetMouse = true;
         // Optional pickup shortcut: pick the grounded bird up into the pilot's
-        // hand (carry while walking) or set it back down.
+        // hand (carry while walking) or set it back down. In flight the pickup
+        // key is a second handcatch trigger (same rule as SPACE): grabbing the
+        // air near the pilot catches the bird instead of teleporting it.
         if (PC->WasInputKeyJustPressed(Get(TEXT("Pickup"))))
-            PickupOrnithopter();
+        {
+            if (bFlying)
+                TryHandcatch();
+            else
+                PickupOrnithopter();
+        }
         if (PC->WasInputKeyJustPressed(Get(TEXT("ToggleVectors"))))
         {
             VectorView = (VectorView + 1) % 3;
@@ -2058,8 +2205,16 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     // Desktop charged throw: press winds up (may pick the bird up), release
     // throws. Must run BEFORE the held-bird early return below, otherwise the
     // release would never be seen while the bird is in the pilot's hand.
+    // Desktop SPACE while flying is the handcatch — never the wind-up, which
+    // used to pick a flying bird out of the air and fold its wings ("space
+    // resets the wing position"). On the ground SPACE keeps its charged throw.
     if (bThrowPressed && !bMenuOpen)
-        StartThrowCharge();
+    {
+        if (bFlying)
+            TryHandcatch();
+        else
+            StartThrowCharge();
+    }
     if (bThrowReleased && !bMenuOpen)
         FinishThrowCharge();
     // While SPACE is held the mouse re-aims the throw and the wheel sets the
@@ -2095,6 +2250,10 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         DrawThrowPreview(ThrowCharge, GetThrowOrigin(), PreviewYaw, PreviewPitch);
     }
     UpdateAvatarState(DeltaSeconds);
+    // Must run BEFORE the held-bird early return below: the held phase is exactly
+    // what the throw-anim test samples (hand travel while the clip plays).
+    if (bThrowAnimTest)
+        CheckThrowAnimTest(DeltaSeconds);
     // Held bird = passive prop: skip the entire flight simulation (servo, aero
     // forces, wing flap, ground creep) so the bird cannot spin or flap while the
     // pilot's throw animation plays. The avatar's own Tick fires OnThrowRelease
@@ -2307,28 +2466,56 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
             // bent surfaces as well as body/tail; unloaded shoulder angles alone
             // cannot establish pressure-supported roll.
             Effort = Steer = Pitch = 0; Launch = Reset = false;
-            Roll = .25 * FMath::Clamp((TestTime - 3.0) / 8.0, 0.0, 1.0);
+            double AuditRamp = 8.0, AuditSpeed = 8.0, AuditThrottle = 0.0, AuditRoll = .25;
+            FParse::Value(FCommandLine::Get(), TEXT("B2FAuditRamp="), AuditRamp);
+            FParse::Value(FCommandLine::Get(), TEXT("B2FAuditSpeed="), AuditSpeed);
+            FParse::Value(FCommandLine::Get(), TEXT("B2FAuditThrottle="), AuditThrottle);
+            FParse::Value(FCommandLine::Get(), TEXT("B2FAuditRoll="), AuditRoll);
+            AuditRamp = FMath::Max(0.05, AuditRamp);
+            const bool AuditFree = FParse::Param(FCommandLine::Get(), TEXT("B2FAuditFree"));
+            Effort = FMath::Clamp(AuditThrottle, 0.0, 1.0);
+            Roll = FMath::Clamp(AuditRoll, -1.0, 1.0) * FMath::Clamp((TestTime - 3.0) / AuditRamp, 0.0, 1.0);
+            FString CapturePrefix;
+            if (FParse::Value(FCommandLine::Get(), TEXT("B2FAuditCapturePrefix="), CapturePrefix))
+            {
+                if (Previous < 3 && TestTime >= 3)
+                    FScreenshotRequest::RequestScreenshot(CapturePrefix + TEXT("-start.png"), false, false);
+                if (Previous < 3 + AuditRamp && TestTime >= 3 + AuditRamp)
+                    FScreenshotRequest::RequestScreenshot(CapturePrefix + TEXT("-end.png"), false, false);
+            }
             if (Previous < 1 && TestTime >= 1)
             {
                 ResetFlight();
                 Body->SetWorldLocationAndRotation(FVector(0,0,3000), FRotator::ZeroRotator, false, nullptr, ETeleportType::TeleportPhysics);
-                Body->SetPhysicsLinearVelocity(FVector(800,0,0));
+                Body->SetPhysicsLinearVelocity(FVector(AuditSpeed * 100,0,0));
                 bFlying = true; bCameraGrounded = false;
                 RollTestPeakRate = 0;
+                RollTestTorqueSumX = 0;
+                RollTestMomentSumX = 0;
+                RollTestMathSteps = 0;
             }
-            if (TestTime >= 1)
+            if (TestTime >= 1 && !AuditFree)
             {
+                // Loaded tow: hold pitch/yaw near zero WITHOUT a per-frame pose
+                // teleport — a teleport re-asserts the body rotation every frame
+                // and fights the accumulated roll impulse (it attenuated the
+                // measured slow-roll grip ~10x against free flight). Re-orient
+                // only when the attitude genuinely drifts.
                 FRotator Attitude = Body->GetComponentRotation();
-                Attitude.Pitch = Attitude.Yaw = 0;
-                Body->SetWorldRotation(Attitude, false, nullptr, ETeleportType::TeleportPhysics);
+                if (FMath::Abs(Attitude.Pitch) > 2 || FMath::Abs(Attitude.Yaw) > 2)
+                {
+                    Attitude.Pitch = Attitude.Yaw = 0;
+                    Body->SetWorldRotation(Attitude, false, nullptr, ETeleportType::TeleportPhysics);
+                }
                 FVector Velocity = Body->GetPhysicsLinearVelocity();
-                Velocity.X = 800;
+                Velocity.X = AuditSpeed * 100;
                 Body->SetPhysicsLinearVelocity(Velocity);
                 FVector Rates = Body->GetPhysicsAngularVelocityInRadians();
                 Rates.Y = Rates.Z = 0;
                 Body->SetPhysicsAngularVelocityInRadians(Rates);
-                if (TestTime >= 3) RollTestPeakRate = FMath::Max(RollTestPeakRate, FMath::Abs(Rates.X));
             }
+            if (TestTime >= 3) RollTestPeakRate = FMath::Max(RollTestPeakRate,
+                FMath::Abs(Body->GetComponentQuat().UnrotateVector(Body->GetPhysicsAngularVelocityInRadians()).X));
             B2F_WingField FieldsL[B2F_WING_STATIONS], FieldsR[B2F_WING_STATIONS];
             const bool HaveFields = MathBridge && MathBridge->ReadWingFields(FieldsL, FieldsR);
             auto SurfaceBank = [&](const B2F_WingField* Fields)
@@ -2345,6 +2532,38 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
             };
             if (Previous < 3 && TestTime >= 3 && HaveFields)
                 RollTestBaseline = FVector(Body->GetComponentRotation().Roll, SurfaceBank(FieldsL), SurfaceBank(FieldsR));
+            if (HaveFields && FParse::Param(FCommandLine::Get(), TEXT("B2FWingAirTrace")))
+            {
+                double Balance[8]{};
+                if (MathBridge->ReadRollBalance(Balance))
+                    UE_LOG(LogTemp, Display, TEXT("WingAirBalance t=%.6f external=%.9f gravity=%.9f bias=%.9f body=%.9f hinges=%.9f other=%.9f driveL=%.9f driveR=%.9f"),
+                        TestTime, Balance[0], Balance[1], Balance[2], Balance[3], Balance[4], Balance[5], Balance[6], Balance[7]);
+                FVector Lift[2]{}, Pressure[2]{}, Tips[2]{};
+                double Hinge[2]{};
+                B2F_WingLoads Loads[2][B2F_WING_STATIONS];
+                const bool HaveLoads = MathBridge->ReadWingLoads(Loads[0], Loads[1]);
+                for (int Side = 0; Side < 2; ++Side)
+                {
+                    const auto* Fields = Side == 0 ? FieldsL : FieldsR;
+                    for (uint32 I = 0; I < B2F_WING_STATIONS; ++I)
+                    {
+                        Lift[Side] += FVector(Fields[I].lift_n[0], Fields[I].lift_n[1], Fields[I].lift_n[2]);
+                        Pressure[Side] += FVector(Fields[I].pressure_n[0], Fields[I].pressure_n[1], Fields[I].pressure_n[2]);
+                        // Kestrel's parallel shoulder axis, including section couples.
+                        if (HaveLoads) Hinge[Side] += (Side == 0 ? -1 : 1) *
+                            (Loads[Side][I].moment_nm[0] + .04 * Loads[Side][I].force_n[1]);
+                    }
+                    const auto& P = Fields[B2F_WING_STATIONS-1].position_m;
+                    Tips[Side] = Body->GetComponentTransform().TransformPosition(FVector(P[0], P[1], P[2]) * 100) / 100;
+                }
+                UE_LOG(LogTemp, Display, TEXT("WingAirTrace t=%.3f free=%d speed=%.6f bodyRoll=%.6f p=%.9f flap=(%.6f,%.6f) bank=(%.6f,%.6f) lift=(%s;%s) pressure=(%s;%s) hinge=(%.9f,%.9f) hostMomentWorld=(%.9f,%.9f,%.9f) inertia=%.9f tips=(%s;%s) failures=%d"),
+                    TestTime, AuditFree, GetSpeed(), Body->GetComponentRotation().Roll,
+                    Body->GetComponentQuat().UnrotateVector(Body->GetPhysicsAngularVelocityInRadians()).X,
+                    LeftFlap, RightFlap, SurfaceBank(FieldsL), SurfaceBank(FieldsR),
+                    *Lift[0].ToString(), *Lift[1].ToString(), *Pressure[0].ToString(), *Pressure[1].ToString(),
+                    Hinge[0], Hinge[1], AeroMoment.X, AeroMoment.Y, AeroMoment.Z, Body->GetInertiaTensor().X / 10000.,
+                    *Tips[0].ToString(), *Tips[1].ToString(), MathFailures);
+            }
             if (TestTime >= 13.0 && !bTestFinished)
             {
                 bTestFinished = true;
@@ -2359,13 +2578,31 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
                 const double RelativeRoll = .5 *
                     (FMath::UnwindDegrees(-BodyRoll - LeftWorld) +
                      FMath::UnwindDegrees(-BodyRoll - RightWorld));
+                // -B2FLegacyLevelSupport relaxes the grip/level gates for
+                // comparing against an old math DLL; the default test enforces
+                // them.
                 const bool LegacyLevelSupport = FParse::Param(FCommandLine::Get(), TEXT("B2FLegacyLevelSupport"));
-                const bool LevelGate = !LegacyLevelSupport ||
-                    (FMath::Max(FMath::Abs(LeftWorld), FMath::Abs(RightWorld)) < 3 && RollTestPeakRate < 1);
-                const bool Pass = bHealthy && HaveFields && MathFailures == 0 && RelativeRoll < -3 && LevelGate &&
+                // The wings must not sweep apart in the world while the body
+                // counter-rotates. The baseline at t=3 catches the elastic
+                // bend/twist mid-settling (the 8 m/s tow loads the wings over
+                // seconds), so both wings share a common-mode world-bank drift;
+                // the GLUE check is therefore the DIFFERENTIAL world motion.
+                const bool LevelGate = LegacyLevelSupport ||
+                    (FMath::Abs(LeftWorld - RightWorld) < 3 && RollTestPeakRate < 1);
+                // Grip contract: the held differential must counter-rotate the
+                // BODY by a substantial share of the commanded differential even
+                // though the 8 s ramp is SLOW. The commanded differential is the
+                // same mixer path the pawn uses: Expo(Roll) * AileronScale% *
+                // steerMaxDeg(60) per wing — pure control authority, no aero gain.
+                const double Stick = born2flap::DesktopInput::Expo(Roll, ControlExpo);
+                const double CommandedDifferential = 2 * Stick * Tuning.aileron_scale * .01 * 60;
+                const bool GripGate = LegacyLevelSupport ||
+                    (FMath::Abs(BodyRoll) >= 0.3 * CommandedDifferential);
+                const bool Pass = bHealthy && HaveFields && MathFailures == 0 && RelativeRoll < -3 &&
+                    LevelGate && GripGate &&
                     FMath::Abs(FMath::FindDeltaAngleDegrees(Body->GetComponentRotation().Roll, TailRoll)) < 1;
-                UE_LOG(LogTemp, Display, TEXT("RollResponseTest %s body=%.3f leftSurfaceWorld=%.3f rightSurfaceWorld=%.3f relative=%.3f tail=%.3f peakRate=%.3f mass=%.4f legacyLevelGate=%d"),
-                    Pass ? TEXT("PASS") : TEXT("FAIL"), BodyRoll, LeftWorld, RightWorld, RelativeRoll, TailRoll, RollTestPeakRate, Body->GetMass(), LegacyLevelSupport);
+                UE_LOG(LogTemp, Display, TEXT("RollResponseTest %s body=%.3f leftSurfaceWorld=%.3f rightSurfaceWorld=%.3f relative=%.3f tail=%.3f peakRate=%.3f mass=%.4f commandedDiff=%.2f legacyLevelGate=%d torqueSumX=%.5f momentSumX=%.5f mathSteps=%d"),
+                    Pass ? TEXT("PASS") : TEXT("FAIL"), BodyRoll, LeftWorld, RightWorld, RelativeRoll, TailRoll, RollTestPeakRate, Body->GetMass(), CommandedDifferential, LegacyLevelSupport, RollTestTorqueSumX, RollTestMomentSumX, RollTestMathSteps);
                 FPlatformMisc::RequestExitWithStatus(false, Pass ? 0 : 1);
             }
             if (Previous < 11.5 && TestTime >= 11.5 && FParse::Param(FCommandLine::Get(), TEXT("B2FCapture")))
@@ -2375,7 +2612,12 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     if (Reset)
         ResetFlight();
     if (Launch)
-        RequestHandLaunch();
+    {
+        if (bFlying)
+            TryHandcatch();   // RC/mobile instant-launch key: handcatch in flight
+        else
+            RequestHandLaunch();
+    }
     const FVector P = Body->GetComponentLocation(), V = Body->GetPhysicsLinearVelocity() / 100.0;
     const FVector Omega = Body->GetPhysicsAngularVelocityInRadians();
     const auto *Mode = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode());
@@ -2399,7 +2641,7 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     const double CeilZ = bVoid ? 15000.0 : 300000.0;
     const double BoundR = bVoid ? 40000.0 : 480000.0;
     if (!Finite(P) || !Finite(V) || !Finite(Omega) || bSpeedReset ||
-        P.Z < FloorZ || P.Z > CeilZ || P.Size2D() > BoundR)
+        (P.Z < FloorZ && !bTerrainWait) || P.Z > CeilZ || P.Size2D() > BoundR)
     {
         UE_LOG(LogTemp, Warning, TEXT("FlightSafetyReset pos=%s vel=%s omega=%s"), *P.ToString(), *V.ToString(),
                *Omega.ToString());
@@ -2422,7 +2664,7 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     else if (GetAltitude() > .5f && GetSpeed() > 1.f)
         bFlying = true;
     UpdateLandingCamera(Dt);
-    const double FieldRadius = Mode && Mode->IsDesertLevel() ? 185000. : Mode && Mode->IsVoidLevel() ? 20000. : (Mode && Mode->IsNatureLevel() ? 190000. : 30000.);
+    const double FieldRadius = Mode && Mode->IsDesertLevel() ? 185000. : Mode && Mode->IsVoidLevel() ? 20000. : (Mode && Mode->IsNatureLevel() ? 190000. : (Mode && Mode->IsWoshiLevel() ? 70000. : 30000.));
     if (bFlying && !bReturning && P.Size2D() > FieldRadius)
     {
         bReturning = true;
@@ -2457,10 +2699,87 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     if(FParse::Param(FCommandLine::Get(),TEXT("B2FAudioTest"))) Throttle=WorldTime<3 ? 0.f : .72f;
     if (StepMath(Dt))
     {
+        // Diagnostic only: an isolated, known SI torque tests Chaos itself,
+        // independently of aerodynamic and articulated-body equations.
+        if (bFlightTest && FParse::Param(FCommandLine::Get(), TEXT("B2FInertiaAudit")))
+        {
+            static double PulseSeconds = 0;
+            Body->SetEnableGravity(false);
+            AeroForce = AeroMoment = FVector::ZeroVector;
+            if (TestTime >= 1 && TestTime < 2)
+            {
+                AeroMoment.X = 0.0001;
+                PulseSeconds += Dt;
+            }
+            else if (TestTime >= 2 && !bTestFinished)
+            {
+                bTestFinished = true;
+                const double I = Body->GetInertiaTensor().X / 10000.;
+                const double Expected = 0.0001 * PulseSeconds / I;
+                const double Observed = Body->GetPhysicsAngularVelocityInRadians().X;
+                const bool Pass = FMath::Abs(Observed - Expected) < .03 * Expected;
+                UE_LOG(LogTemp, Display, TEXT("InertiaAudit %s inertia=%.12f pulseSeconds=%.9f expectedRate=%.9f observedRate=%.9f ratio=%.9f"),
+                    Pass ? TEXT("PASS") : TEXT("FAIL"), I, PulseSeconds, Expected, Observed, Observed / Expected);
+                FPlatformMisc::RequestExitWithStatus(false, Pass ? 0 : 1);
+            }
+        }
         // There is deliberately no target speed/altitude, lift offset, or
         // compensation of these forces. Gravity is applied by Chaos.
-        Body->AddForce(AeroForce * 100.0);
-        Body->AddTorqueInRadians(AeroMoment * 10000.0);
+        const bool bLegacyLoadAverage = bFlightTest &&
+            (FParse::Param(FCommandLine::Get(), TEXT("B2FAuditAverageLoads")) ||
+             FParse::Param(FCommandLine::Get(), TEXT("B2FInertiaAudit")));
+        if (bFlightTest && FParse::Param(FCommandLine::Get(), TEXT("B2FChronologyAudit")))
+        {
+            // Independent of Haskell: equal accelerate/brake torque pulses have
+            // zero net impulse but a finite, analytically known displacement.
+            static double ExpectedAngle = 0;
+            const double FrameDt = SubstepLoads.Num() ? SubstepLoads[0].Duration * SubstepLoads.Num() : Dt;
+            const double I = Body->GetInertiaTensor().X / 10000.;
+            Body->SetEnableGravity(false);
+            Body->SetPhysicsLinearVelocity(FVector::ZeroVector);
+            AeroForce = AeroMoment = FVector::ZeroVector;
+            SubstepLoads.Reset();
+            if (TestTime >= 1 && TestTime < 2)
+            {
+                constexpr double Torque = .001;
+                SubstepLoads.Add({FVector::ZeroVector, FVector(Torque,0,0), FrameDt/2});
+                SubstepLoads.Add({FVector::ZeroVector, FVector(-Torque,0,0), FrameDt/2});
+                ExpectedAngle += Torque / I * FrameDt * FrameDt / 4;
+            }
+            else if (TestTime >= 2 && !bTestFinished)
+            {
+                bTestFinished = true;
+                const double PhysicsRoll = Body->GetBodyInstance()->GetUnrealWorldTransform(false, true).Rotator().Roll;
+                const double Observed = -FMath::DegreesToRadians(PhysicsRoll);
+                const double Rate = Body->GetPhysicsAngularVelocityInRadians().X;
+                const bool Pass = FMath::Abs(Observed - ExpectedAngle) < 1.e-6 && FMath::Abs(Rate) < 1.e-6;
+                UE_LOG(LogTemp, Display, TEXT("ChronologyAudit %s average=%d expectedAngleRad=%.12f actualAngleRad=%.12f renderedAngleRad=%.12f finalMomentum=%.12f finalEnergy=%.12f"),
+                    Pass ? TEXT("PASS") : TEXT("FAIL"), bLegacyLoadAverage, ExpectedAngle, Observed,
+                    -FMath::DegreesToRadians(Body->GetComponentRotation().Roll), I*Rate, .5*I*Rate*Rate);
+                FPlatformMisc::RequestExitWithStatus(false, Pass ? 0 : 1);
+            }
+            else SubstepLoads.Add({FVector::ZeroVector, FVector::ZeroVector, FrameDt});
+        }
+        if (bLegacyLoadAverage)
+        {
+            Body->AddForce(AeroForce * 100.0);
+            Body->AddTorqueInRadians(AeroMoment * 10000.0);
+        }
+        else
+        {
+            if (!PhysicsLoads) PhysicsLoads = MakeUnique<FBorn2FlapPhysicsLoads>(GetWorld()->GetPhysicsScene());
+            // Match AddForce's wake semantics before Chaos builds its active
+            // particle view. Waking inside PreIntegrate can miss the first pulse.
+            if (SubstepLoads.ContainsByPredicate([](const FBorn2FlapPhysicsLoad& Load) {
+                    return !Load.Force.IsNearlyZero(1.e-12) || !Load.Moment.IsNearlyZero(1.e-12); }))
+                Body->WakeRigidBody();
+            if (!PhysicsLoads->Submit(Body->GetBodyInstance()->GetPhysicsActor(), SubstepLoads))
+            {
+                ++MathFailures;
+                bHealthy = bFlying = false;
+                UE_LOG(LogTemp, Error, TEXT("FlightMathRejected: could not submit chronological Chaos loads"));
+            }
+        }
         // Aether buoyancy: a gentle spring toward the ring plane holds the turtle
         // in the volume (neutrally buoyant, not anchored). No preferred "up" is
         // imposed — the pilot still swims and rolls freely in 3D.
@@ -2521,8 +2840,8 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     if(PterosaurRightShoulder) PterosaurRightShoulder->SetRelativeRotation(RightShoulder->GetRelativeRotation());
     if(TurtleLeftShoulder) TurtleLeftShoulder->SetRelativeRotation(LeftShoulder->GetRelativeRotation());
     if(TurtleRightShoulder) TurtleRightShoulder->SetRelativeRotation(RightShoulder->GetRelativeRotation());
-    // Read the physics mount angle. The Kestrel fan remains fixed at the
-    // configured incidence; steering/throttle do not animate a hidden servo.
+    // Read the physics tail incidence. The tail is FIXED to the fuselage and
+    // rotates with it: mounting trim + the elevator stick's tail-servo command.
     double TailPitch = 0;
     if (MathBridge) MathBridge->ReadTailIncidence(TailPitch);
     if (RavenTailPivot) RavenTailPivot->SetRelativeRotation(FRotator(TailPitch, 0, 0));
@@ -2696,10 +3015,14 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         UE_LOG(LogTemp, Display,
                TEXT("FlightTelemetry mode=aerodynamic flying=%d healthy=%d altitude=%.3fm speed=%.3fm/s climb=%.3fm/s "
                     "pitch=%.2f roll=%.2f yaw=%.1f throttle=%.3f soc=%.3f aeroN=%s torqueNm=%s rc=(%.3f,%.3f,%.3f) "
-                    "flap=(%.1f,%.1f) throttleSource=%s speedMod=%.3f coupled=%d"),
+                    "flap=(%.1f,%.1f) visM=(%.1f,%.1f) visR=(%.1f,%.1f) throttleSource=%s speedMod=%.3f coupled=%d"),
                bFlying, bHealthy, GetAltitude(), GetSpeed(), GetClimbRate(), Body->GetComponentRotation().Pitch,
                Body->GetComponentRotation().Roll, Body->GetComponentRotation().Yaw, Throttle, BatterySoc,
                *AeroForce.ToString(), *AeroMoment.ToString(), RollInput, PitchInput, YawInput, LeftFlap, RightFlap,
+               MembraneLeftShoulder ? float(MembraneLeftShoulder->GetRelativeRotation().Roll) : -999.f,
+               MembraneRightShoulder ? float(MembraneRightShoulder->GetRelativeRotation().Roll) : -999.f,
+               RavenLeftShoulder ? float(RavenLeftShoulder->GetRelativeRotation().Roll) : -999.f,
+               RavenRightShoulder ? float(RavenRightShoulder->GetRelativeRotation().Roll) : -999.f,
                RcController && RcController->IsEnabled() ? TEXT("RC") : TEXT("keys"), Desktop.speedModifier,
                bCoupledThrottle ? 1 : 0);
     }

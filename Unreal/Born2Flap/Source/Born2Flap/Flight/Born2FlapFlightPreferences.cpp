@@ -290,6 +290,7 @@ void ABorn2FlapFlightPawn::DeleteReplaySpirits()
 }
 void ABorn2FlapFlightPawn::EndPlay(const EEndPlayReason::Type Reason)
 {
+    PhysicsLoads.Reset();
     UDebugDrawService::Unregister(VectorOverlayHandle);
     CloseFlightSettings();
     ClosePoiOverlay();

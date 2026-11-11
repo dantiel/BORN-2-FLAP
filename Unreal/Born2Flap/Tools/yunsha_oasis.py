@@ -6,28 +6,14 @@ from yunsha_sand import HLSL, RELIEF, DRY_COLOUR
 
 
 def ground_material(mat,expr,custom,out):
-    out(custom(mat,HLSL+RELIEF+'''struct Field {
-float h(float2 p){return frac(sin(dot(p,float2(127.1,311.7)))*43758.5453);}
-float n(float2 p){float2 i=floor(p),f=frac(p);f=f*f*(3-2*f);return lerp(lerp(h(i),h(i+float2(1,0)),f.x),lerp(h(i+float2(0,1)),h(i+1),f.x),f.y);}
-float f(float2 p){return .57*n(p)+.28*n(p*2.13)+.15*n(p*4.37);}
-}; Field F;
-float2 q=(P.xy-float2(2500,-51000))/float2(27000,21500);
-float n=(F.f(P.xy/2900)-.5)*.24;
-float fertile=1-smoothstep(.77,1.12,length(q)+n);
-float soil=smoothstep(.38,.67,F.f(P.xy/2400));
-'''+DRY_COLOUR+'''
-float3 ground=dry;
-if (fertile>0.001){
-    float3 grass=Texture2DSample(G,GSampler,P.xy/270).rgb*float3(.55,.88,.48);
-    float3 earth=Texture2DSample(E,ESampler,P.xy/320).rgb*float3(.30,.22,.13);
-    ground=lerp(dry,lerp(grass,earth,soil*.72),fertile);
-}
-return ground;''',{
-        'P':expr(mat,'WorldPosition'),'C':expr(mat,'CameraVectorWS'),
-        'S':expr(mat,'TextureObject',texture=u.load_asset('/Game/Shiomori/Textures/T_SandBeach_Diffuse')),
-        'G':expr(mat,'TextureObject',texture=u.load_asset('/Game/Nature/T_CampusGrass_Diffuse')),
-        'E':expr(mat,'TextureObject',texture=u.load_asset('/Game/Nature/T_CampusMossStone_Diffuse'))}),'BASE_COLOR')
-    u.MaterialEditingLibrary.recompile_material(mat);u.EditorAssetLibrary.save_loaded_asset(mat)
+    # Keep actual oasis plants, but never blend photographs of grass/moss into sand.
+    out(custom(mat,RELIEF+DRY_COLOUR+r'''
+float outer=length(P.xy/float2(15600,9600)-float2(0,-52000.0/9600.0));
+float bank=1.0-smoothstep(0.0,0.10,abs(outer-1.0));
+return dry*(1.0-0.12*bank);
+''',{'P':expr(mat,'WorldPosition')}),'BASE_COLOR')
+    u.MaterialEditingLibrary.recompile_material(mat)
+    u.EditorAssetLibrary.save_loaded_asset(mat)
 
 
 def plant(imported,ground):

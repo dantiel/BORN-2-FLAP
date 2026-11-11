@@ -34,6 +34,7 @@ public:
     bool ReadTailIncidence(double& Degrees) const;
     bool ReadTailFields(B2F_TailField* Fields) const;
     bool ReadExternalForce(double* Force) const;
+    bool ReadRollBalance(double* Values) const;
     bool SetMassFrame(double CgX, double PitchInertia, double YawInertia) const;
     bool TransportAirfields(const FVector& RotationVector) const;
     bool SetStripWind(const double* Left, const double* Right) const;

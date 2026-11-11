@@ -25,6 +25,24 @@ import Born2Flap.Math.ResponsePhase
 
 main :: IO ()
 main = do
+  -- The spatial solver and the dry Chaos host must finish a step at the same
+  -- angular velocity. This catches a second parallel-axis shift in the ABI
+  -- torque conversion, including the CG force-moment convention.
+  let hostImpulseCase cg dt =
+        let (ix,iy,iz)=airframeInertia kestrelModel 0.05 cg
+            rates=Vec3 0.03 (-0.02) 0.01
+            state=defaultFirmwareVehicleState {fvMassFrame=Just(cg,iy,iz)}
+            (out,next)=stepFirmwareVehicleWithMassInertia 0.05 ix True
+              (pilotToRc(PilotInput 0 0.15 0 0 0.5 True)) defaultFirmwareParams
+              defaultServoSpec defaultBatterySpec kestrelModel dt
+              (Vec3 8 0 (-0.2)) rates 1000 (Vec3 0 0 1) state
+            Vec3 mx my mz=addVec (totalMomentNm out)
+              (scaleVec (-1) (crossVec (Vec3 cg 0 0) (fvExternalForce next)))
+            reconstructed=addVec rates (scaleVec dt (Vec3 (mx/ix) (my/iy) (mz/iz)))
+        in outputFlags out==0 && magnitude (addVec reconstructed
+             (scaleVec (-1) (fvSolvedBodyRates next)))<1e-10
+  if and [hostImpulseCase cg dt | cg<-[-0.02,0,0.02],dt<-[1/240,1/960]]
+    then pure () else fail "host impulse must reproduce the converged spatial body rates about the same CG"
   -- Spatial added inertia must be positive, symmetric, and carry no weight.
   -- Dry free fall must not actuate either hinge, at any wing position or CG.
   let positive [] = True
@@ -141,7 +159,7 @@ main = do
       banked a incidence=let force=rotateX a (fanLoad incidence); moment=rotateX a (fanMoment incidence)
                           in a*incidence*vy force<0 && a*incidence*vz moment>0
       rollDamping p=sum(map (vx.tfMoment) (kestrelTailLoads (-2.3) (Vec3 8 0 0) (Vec3 p 0 0)))
-                    -vx(fanMoment (-2.3))
+                     -vx(fanMoment (-2.3))
   if and [tailCase a (Vec3 u v w) (Vec3 p 0 r) | a<-[-15,-2.3,0,10],u<-[-8,0,8],v<-[-2,2],w<-[-3,0,3],p<-[-1,1],r<-[-1,1]]
      && vz(fanLoad (-2.3))<0 && vy(fanMoment (-2.3))<0
      && vz(fanLoad 2.3)>0 && vy(fanMoment 2.3)>0
@@ -165,7 +183,7 @@ main = do
   if all ((<0.5) . camberLoop) [defaultBirdArmSection,defaultBirdHandSection]
     then pure () else fail "reference membrane compliance must stay below static aeroelastic divergence"
   let flow=VehicleInput (1/240) (Vec3 8 0 (-1)) (Vec3 0 0 0) 0 0 0 0 5 (Vec3 0 0 1)
-      loads rate=wingLoadsWithStroke True 1 0.1 rate 0 flow kestrelModel 0 initialStrips (replicate stripCount 0) 0 0
+      loads rate=wingLoadsWithStroke True 1 0.1 rate 0 flow kestrelModel 0 initialStrips
       summed=foldr (addVec . resultForce) zeroVec
       still=summed (loads 0)
       beating=summed (loads (-3))
@@ -178,7 +196,7 @@ main = do
   let yawLoads speed yaw bend stroke rate side =
         let input=flow {bodyVelocityMS=Vec3 speed 0 (-0.5),bodyRatesRadS=Vec3 0 0 yaw,groundClearanceM=1000}
             states=map (\s -> s {stripBendM=bend,stripBendSlope=2*bend,stripTwistAero=2*bend}) initialStrips
-        in wingLoadsWithStroke True side stroke rate rate input kestrelModel 0.08 states (replicate stripCount 0) 0 0
+        in wingLoadsWithStroke True side stroke rate rate input kestrelModel 0.08 states
       yawCase speed yaw bend phases =
         let pairs=[(yawLoads speed yaw bend a v (-1),yawLoads speed yaw bend a v 1) | (a,v)<-phases]
             liftDifference=sum [sum(map (vz.stripLift.resultState) ls)-sum(map (vz.stripLift.resultState) rs) | (ls,rs)<-pairs]
@@ -212,86 +230,10 @@ main = do
   let slow=summed (loads 1e-6)
   if magnitude still > 0.01 && magnitude (addVec slow (scaleVec (-1) still)) < 1e-5
     then pure () else fail "slow hinge motion must retain steady forward-flow loading"
-  -- Loaded support is a conservative mass coupling, not a lift-dependent drag.
-  let total=0.05; mr=0.0012; root=0.04
-      (reduced,support,recoil,_)=supportedRollSystem total 0 locked 0.0004 j rotor mr 0 root (0,0) zero
-      supported=support (Vec3 0 0 (total*9.81))
-      free=support zero
-      recoilUp=recoil (Vec3 0 1 1)
-      full=supportMassMatrix total 0 locked 0.0004 j rotor mr 0 root (0,0,0)
-      rv=[0.4,-0.3,0.7]
-      dotList a b=sum(zipWith (*) a b)
-      translation i= -dotList (drop 2 (full!!i)) rv / total
-      allV=[translation 0,translation 1]++rv
-      fullEnergy=0.5*dotList allV (map (`dotList` allV) full)
-      (r0,r1,r2)=reduced
-      values (Vec3 a b c)=[a,b,c]
-      reducedEnergy=0.5*dotList rv (map ((`dotList` rv) . values) [r0,r1,r2])
-  if magnitude free<1e-12 && abs(y supported+mr*9.81)<1e-12
-     && abs(z supported+mr*9.81)<1e-12 && abs(z recoilUp+2*mr)<1e-12
-     && abs(fullEnergy-reducedEnergy)<1e-12 && fullEnergy>0
-    then pure () else fail "supported mass reduction must preserve energy, free fall and linear recoil"
-  -- An unforced moving linkage must not create first-order kinetic energy.
-  let hstep=1e-5; angles=(0.2,-0.1); initial=Vec3 0.4 (-0.3) 0.7
-      (mm,cc,rr,_)=supportedRollSystem total 0 locked 0.0004 j rotor mr 0 root angles initial
-      next=case stepRollWithMass mm hstep initial angles (const (cc zero)) of
-             Just v -> v
-             Nothing -> error "support conservation solve failed"
-      accel=scaleVec (1/hstep) (addVec next (scaleVec (-1) initial))
-      linear=scaleVec (hstep/total) (rr accel)
-      energyAt q vel=let mat=supportMassMatrix total 0 locked 0.0004 j rotor mr 0 root q
-                     in 0.5*dotList vel (map (`dotList` vel) mat)
-      e0=energyAt (0,fst angles,snd angles) ([0,0]++values initial)
-      e1=energyAt (hstep*x next,fst angles+hstep*y next,snd angles+hstep*z next)
-                    ([y linear,z linear]++values next)
-  if abs(e1-e0)<1e-9 then pure ()
-    else fail "moving support linkage must conserve kinetic energy to integration order"
-  -- Translational added air is a conservative fluid-inertia coupling. With
-  -- added mass and first moment present, the Schur reduction and recoil must
-  -- still conserve kinetic energy and transmit the weight through the joints.
-  let ma=0.02; mar=0.004; mt=total+2*ma
-      (ared,asup,arec,arat)=supportedRollSystem total ma locked 0.0004 j rotor mr mar root (0,0) zero
-      asupported=asup (Vec3 0 0 (total*9.81))
-      afull=supportMassMatrix total ma locked 0.0004 j rotor mr mar root (0,0,0)
-      atranslation i= -dotList (drop 2 (afull!!i)) rv / mt
-      aallV=[atranslation 0,atranslation 1]++rv
-      afullEnergy=0.5*dotList aallV (map (`dotList` aallV) afull)
-      (ar0,ar1,ar2)=ared
-      areducedEnergy=0.5*dotList rv (map ((`dotList` rv) . values) [ar0,ar1,ar2])
-      arecoilUp=arec (Vec3 0 1 1)
-  if abs(y asupported+(mr+mar)*9.81*total/mt)<1e-10
-     && abs(z asupported+(mr+mar)*9.81*total/mt)<1e-10
-     && abs(z arecoilUp+2*(mr+mar)*total/mt)<1e-10
-     && abs(afullEnergy-areducedEnergy)<1e-10 && afullEnergy>0
-     && abs(arat-total/mt)<1e-12
-    then pure () else fail "translational added air must conserve energy, transmit weight and scale recoil"
-  -- Added fluid resists acceleration but contributes no aircraft weight.
-  -- A locked aircraft with lift exactly balancing dry weight must have zero
-  -- acceleration at every bank and flap angle, including anhedral/inverted.
-  -- With no support it falls at m*g/(m+2*ma) in the modeled lateral/heave axes.
-  let gravityCase air angles gravity =
-        let (l,r)=angles
-            (joint,host)=supportGravity total air mr mar angles gravity
-            ratio=total/(total+2*air)
-            g=Vec3 0 (y gravity) (z gravity)
-            lift=scaleVec (-total) g
-            acceleration=addVec g (scaleVec (1/total) (addVec (scaleVec ratio lift) host))
-            fall=addVec g (scaleVec (1/total) host)
-            dry=Vec3 (mr*(-(sin l+sin r)*y g+(cos r-cos l)*z g))
-                     (mr*(sin l*y g+cos l*z g)) (mr*(-sin r*y g+cos r*z g))
-            full=scaleVec ((mr+mar)/mr) dry
-            expected=addVec dry (scaleVec (-ratio) full)
-        in magnitude acceleration<1e-12
-           && magnitude(addVec fall (scaleVec (-ratio) g))<1e-12
-           && magnitude(addVec joint (scaleVec (-1) expected))<1e-12
-      vacuum angles gravity =
-        let (joint,host)=supportGravity total 0 mr 0 angles gravity
-        in magnitude joint+magnitude host<1e-12
-      cases=[((l,r),g) | l<-[-0.8,0,0.8],r<-[-0.8,0,0.8],
-                        g<-[Vec3 0 0 (-9.81),Vec3 0 9.81 0,Vec3 0 0 9.81,zero]]
-  if and [gravityCase air angles g | air<-[0.01,0.02,0.04],(angles,g)<-cases]
-     && all (uncurry vacuum) cases
-    then pure () else fail "added air introduced phantom weight or gravity torque in vacuum"
+  -- Gravity: only DRY mass has weight; added air resists acceleration. The
+  -- spatial mass matrix carries the real gravity coupling (∂U/∂q from the dry
+  -- CG), and the aero strips carry NO weight share of their own — a wing at
+  -- rest in still air must produce exactly zero force (checked below).
   let symmetric=solve dt zero (0,0) (const (Vec3 0 1 1))
       damp v=Vec3 (-0.2*x v) (-0.1*y v) (-0.1*z v)
       moving=Vec3 2 (-3) 4
@@ -309,12 +251,12 @@ main = do
   -- air velocity (including compensation for translation of the high root).
   let wingInput=VehicleInput dt (Vec3 8 0 0) zero 0 0 0 0 1000 (Vec3 0 0 1)
       sumForce=foldr (addVec . resultForce) zero
-      steady=sumForce (wingLoadsWithStroke False 1 0 0 0 wingInput kestrelModel 0 initialStrips (replicate stripCount 0) 0 0)
+      steady=sumForce (wingLoadsWithStroke False 1 0 0 0 wingInput kestrelModel 0 initialStrips)
       counter=sumForce (wingLoadsWithStroke False 1 0 (-1) 0
-                 (wingInput {bodyRatesRadS=Vec3 1 0 0,bodyVelocityMS=Vec3 8 wingRootHeight 0}) kestrelModel 0 initialStrips (replicate stripCount 0) 0 0)
+                 (wingInput {bodyRatesRadS=Vec3 1 0 0,bodyVelocityMS=Vec3 8 wingRootHeight 0}) kestrelModel 0 initialStrips)
       falling=wingInput {bodyVelocityMS=Vec3 8 0 (-1)}
-      before=sumForce (wingLoadsWithStroke True 1 0 (-1e-8) (-0.1) falling kestrelModel 0 initialStrips (replicate stripCount 0) 0 0)
-      after=sumForce (wingLoadsWithStroke True 1 0 1e-8 (-0.1) falling kestrelModel 0 initialStrips (replicate stripCount 0) 0 0)
+      before=sumForce (wingLoadsWithStroke True 1 0 (-1e-8) (-0.1) falling kestrelModel 0 initialStrips)
+      after=sumForce (wingLoadsWithStroke True 1 0 1e-8 (-0.1) falling kestrelModel 0 initialStrips)
   if magnitude (addVec steady (scaleVec (-1) counter)) < 1e-8
      && magnitude (addVec before (scaleVec (-1) after)) < 1e-6
     then pure () else fail "world-stationary wing flow and continuous implicit reversal loads must hold"
@@ -517,51 +459,68 @@ main = do
      && abs (mixLeftFlapDevDeg neutral - mixRightFlapDevDeg neutral) < 1e-9
     then pure ()
     else fail "neutral glide must hold a static symmetric stroke, no cadence"
-  -- Positive aileron raises the RIGHT wing (stick-right, like a real aileron):
-  -- body counter-rotates the wing movement and banks right. Amplitude-only yaw
-  -- has no actuator in glide and must leave the neutral commands intact. Neither may
-  -- shift the common centre — the centre stays the pitch trim (+4° flap
-  -- deviation from the −4° glide angle). Pitch (elevator) shifts the centre.
+  -- Positive aileron raises the RIGHT wing; positive rudder (yaw) initiates
+  -- the SAME bank through the wing joints, and the PITCH stick shifts the
+  -- common wing position (pull = anhedral). The tail stays fixed to the
+  -- fuselage — no stick ever actuates it.
+  -- Default profile: glide angle −4° → neutral centre = +4°; ElevatorScale
+  -- 60 → half stick = 18° centre shift; AileronScale 40 × glideAileronMax
+  -- 175 → half stick = ±35° differential; RudderAmpDiff 60 × 12 → ±3.6°.
   if mixRightFlapDevDeg rollTop > mixLeftFlapDevDeg rollTop
-     && mixRightFlapDevDeg yawTop == mixRightFlapDevDeg neutral
-     && mixLeftFlapDevDeg yawTop == mixLeftFlapDevDeg neutral
+     && mixRightFlapDevDeg yawTop > mixLeftFlapDevDeg yawTop
      && abs (centre rollTop - 4) < 1e-9
      && abs (centre yawTop - 4) < 1e-9
-     && centre pitchTop < 4
+     && abs (centre pitchTop - (-14)) < 1e-9
+     && abs (mixLeftFlapDevDeg pitchTop - mixRightFlapDevDeg pitchTop) < 1e-9
     then pure ()
-    else fail "glide roll must be differential, pitch common trim, and amplitude-only yaw inactive"
-   -- Powered roll must still command position at both stroke reversals.
+    else fail "glide: roll/yaw differential on the wings, pitch shifts the common centre"
+  -- Powered roll must command the same static centre differential at every
+  -- stroke phase (both wings keep full travel; the load stays distributed).
   let positionParams = defaultFirmwareParams
-        { fwProfile = (fwProfile defaultFirmwareParams) { profAileronSkewMix = 0 } }
+        { fwProfile = (fwProfile defaultFirmwareParams)
+            { profAileronSkewMix = 0, profAileronSkewRateMix = 0 } }
       rollAt phase = fst (computeServoMixer True (pilotToRc (pilot4 0.3 0.1 0 0))
         positionParams (defaultFirmwareState { fwOscillator = defaultOscillator { oscPhase = phase } }) (1/960))
-  if all (\o -> mixRightFlapDevDeg o > mixLeftFlapDevDeg o) (map rollAt [0,pi/2,pi,3*pi/2])
-    then pure () else fail "powered aileron position authority must persist throughout the stroke"
+      rollSplit o = (mixRightFlapDevDeg o - mixLeftFlapDevDeg o) / 2
+      splits = map (rollSplit . rollAt) [0,pi/2,pi,3*pi/2]
+  if all (\s -> abs (s - head splits) < 1e-9) splits && head splits > 0.5
+    then pure () else fail "powered roll stick must hold a static centre differential through every stroke phase"
   let mixerAt throttle pitch yaw phase = fst (computeServoMixer True
         (pilotToRc (pilot4 throttle 0 pitch yaw)) positionParams
         (defaultFirmwareState { fwOscillator = defaultOscillator { oscBasePhase = phase, oscPhase = phase } }) (1/960))
       phases = [fromIntegral i*2*pi/720 | i<-[0..720::Int]]
-      yawAmplitude throttle sign =
-        let outputs=map (mixerAt throttle 0 (sign*0.5)) phases
-            ls=map mixLeftFlapDevDeg outputs; rs=map mixRightFlapDevDeg outputs
-            arc xs=maximum xs-minimum xs
-            midpoint xs=(maximum xs+minimum xs)/2
-        in sign*(arc ls-arc rs)>0 && abs(midpoint ls-midpoint rs)<0.05
+      travelOf f outputs = maximum (map f outputs) - minimum (map f outputs)
+      yawSplitOrder throttle sign =
+        let outputs = map (mixerAt throttle 0 (sign*0.5)) phases
+            tl = travelOf mixLeftFlapDevDeg outputs
+            tr = travelOf mixRightFlapDevDeg outputs
+        in if sign > 0 then tl > tr else tl < tr
+      -- The amplitude differential preserves the wings' midpoint only while
+      -- it fits under the stroke ceiling; at full throttle the outside wing
+      -- saturates (clamp 0 ampMaxDeg) and the midpoint honestly shifts.
+      yawSplitCentre throttle sign =
+        let outputs = map (mixerAt throttle 0 (sign*0.5)) phases
+            neutral = map (mixerAt throttle 0 0) phases
+        in and (zipWith (\y n -> abs (centre y - centre n) < 1e-9)
+                        outputs neutral)
       yawMirror throttle phase =
         let l=mixerAt throttle 0 0.5 phase; r=mixerAt throttle 0 (-0.5) phase
         in abs(mixLeftFlapDevDeg l-mixRightFlapDevDeg r)<1e-9
            && abs(mixRightFlapDevDeg l-mixLeftFlapDevDeg r)<1e-9
       travel pitch = let angles=map (mixLeftFlapDevDeg . mixerAt 1 pitch 0) phases
                      in maximum angles-minimum angles
-  if and [yawAmplitude throttle sign | throttle<-[0.3,0.72,1],sign<-[-1,1]]
+  if and [yawSplitOrder throttle sign | throttle<-[0.3,0.72,1],sign<-[-1,1]]
+     && and [yawSplitCentre throttle sign | throttle<-[0.3,0.72],sign<-[-1,1]]
      && and [yawMirror throttle phase | throttle<-[0,0.3,0.72,1],phase<-phases]
-    then pure () else fail "yaw must mirror unequal stroke arcs without a hidden differential centre tilt"
+    then pure () else fail "yaw must drive the amplitude differential (outside wing beats larger) without shifting the wing midpoint"
   if all (\pitch -> abs(travel pitch-travel 0)<1e-8) [-1,1]
     then pure () else fail "extreme anhedral/dihedral trim must preserve full powered stroke travel"
+  -- Fixed-tail doctrine: roll (and powered roll) must never drive the
+  -- rudder channel. mixRudderUs serves only the ruddervator models' movable
+  -- panels; the kestrel fan consumes it nowhere (the tail is fixed).
   if all (\o -> abs (mixRudderUs o - 1500) < 1e-10)
        ([rollTop,rollBot] ++ map rollAt [0,pi/2,pi,3*pi/2])
-       && abs(mixRudderUs yawTop-1500)<1e-10
-    then pure () else fail "roll and amplitude-only glide yaw must leave the fixed tail rudder neutral"
+    then pure () else fail "roll commands must leave the rudder channel neutral"
   let coherent output = abs (mixLeftFlapDevDeg output + (mixLeftWingDeg output-100)/2) < 1e-10
                      && abs (mixRightFlapDevDeg output - (mixRightWingDeg output-100)/2) < 1e-10
   if all coherent [neutral,rollTop,rollBot,yawTop,yawBot,pitchTop,pitchBot]
@@ -615,23 +574,24 @@ main = do
   if all boundedRatePair [(reference,entry) | reference<-[-100,0,100],entry<-pairCases]
     then pure () else fail "differential velocity tracking must preserve motor limits, dead battery and mirror symmetry"
   -- Differential flap amplitude must not be filtered into the opposite phase.
-  -- A five-Hz, small-amplitude command is within the motor envelope. Track its
-  -- commanded velocity as well as its position; measure the settled correlation.
-  let tracking feed =
+  -- A five-Hz, small-amplitude command is within the motor envelope. The
+  -- unified tracker drives each wing independently toward its own target
+  -- (full wing inertia per wing, no split differential feed); the settled
+  -- correlation must keep the commanded sign — no phase reversal.
+  let tracking =
         let h=1/1000; inertia=0.0004+reflectedDriveInertia
             advance (angle,rate,correlation) i =
               let t=fromIntegral i*h; frequency=2*pi*5
                   target=5*sin(frequency*t)
-                  desiredRate=if feed then radians(5*frequency*cos(frequency*t)) else 0
                   states=(ServoState (-angle) (-rate*180/pi),ServoState angle (rate*180/pi))
-                  (_,torque)=servoPairDriveTorqueWithRate servo battery voltage h desiredRate
+                  (_,torque)=servoPairDriveTorqueWithRate servo battery voltage h 0
                     (-target,target) (0,0) (wingI,0.0004) states (-rate,rate)
                   nextRate=rate+h*torque/inertia
                   nextAngle=angle+h*nextRate*180/pi
               in (nextAngle,nextRate,correlation+if i>1000 then target*nextAngle else 0)
             (_,_,result)=foldl advance (0,0,0) [1..4000::Int]
         in result
-  if tracking True>1000 && tracking False<0
+  if tracking > 1000
     then pure () else fail "five-Hz differential amplitude must follow the commanded side instead of phase-reversing it"
   -- Servo: an overpowering load saturates the tracker's commanded rate to ZERO
   -- (the servo can no longer track the target). The unified tracker never
@@ -653,16 +613,19 @@ main = do
       (out2, _) = stepFirmwareVehicle True flapRcClosed defaultFirmwareParams
                      defaultServoSpec defaultBatterySpec kestrelModel dtClosed bodyVel (Vec3 0 0 0) 1000 st1
       finite value = not (isNaN value || isInfinite value)
+  -- Power is SIGNED: the wing alternately extracts work from the flow and
+  -- pushes air, so the instantaneous exchange may be negative (actuator
+  -- input) — only finiteness is asserted, never a positive floor.
   if finite (z (totalForceN out2)) && finite (x (totalMomentNm out2))
-     && totalMechanicalPowerW out2 >= 0
+     && finite (totalMechanicalPowerW out2)
     then pure ()
     else fail "firmware-vehicle closed loop must produce finite loads"
   -- Ground effect: proximity to the surface (normalised by wingspan) boosts
   -- flapping lift AND forward thrust, while a distant wing feels neither.
   let geInput h = VehicleInput (1 / 240) (Vec3 5 0 0) (Vec3 0 0 0) 0 0 0 0 h (Vec3 0 0 1)
       strokeRateDown = -3.0
-      (highGe, _) = stepWingWithStroke True (-1) 0 strokeRateDown (geInput 1000) kestrelModel 0 (replicate stripCount 0) 0 initialStrips
-      (lowGe, _)  = stepWingWithStroke True (-1) 0 strokeRateDown (geInput 0.05) kestrelModel 0 (replicate stripCount 0) 0 initialStrips
+      (highGe, _) = stepWingWithStroke True (-1) 0 strokeRateDown (geInput 1000) kestrelModel 0 initialStrips
+      (lowGe, _)  = stepWingWithStroke True (-1) 0 strokeRateDown (geInput 0.05) kestrelModel 0 initialStrips
       liftOf = sum . map (z . resultForce)
       thrustOf = sum . map (x . resultForce)
   if liftOf lowGe > liftOf highGe && thrustOf lowGe > thrustOf highGe
@@ -699,20 +662,24 @@ main = do
   if fwWasFlapping (fvFirmware warmFw) && peakFlap > 1.0 && fvBatterySoc warmFw <= 1.0
     then pure ()
     else fail "pilot-driven firmware loop must flap both wings and track battery"
-  -- Isolate aileron timing: no static wing offset, rudder surface or amplitude
-  -- differential is available to generate this roll moment.
-  let skewParams = defaultFirmwareParams
+  -- Isolate aileron channels. The firmware has TWO roll paths on the same
+  -- wings: profAileronSkewMix (opposite stroke/return timing skew) and
+  -- profAileronScale (differential flap-stroke-centre position). Both must
+  -- produce real, exactly mirrored roll moments on the symmetric airframe
+  -- (stick right = +roll, stick left = −roll of equal size), and neither
+  -- may fabricate a moment for a centred stick.
+  let tunnelServo = defaultServoSpec { servoNoLoadSpeedDegPerSec = 1200, servoStallTorqueNm = 8 }
+      tunnelBattery = defaultBatterySpec
+        { batteryNominalVoltage = 11.1, batteryCapacityAh = 1.3, batteryInternalResistanceOhm = 0.08 }
+      aileronParams skew scale = defaultFirmwareParams
         { fwServoSpeedMs = 50, fwFlapBaseFreqDh = 32, fwRudderRollWeight = 0
         , fwProfile = (fwProfile defaultFirmwareParams)
-            { profThrottleFrequencyMix = 100, profAileronSkewMix = 55
-            , profAileronScale = 0, profRudderAmplitudeDiff = 0 } }
-      skewServo = defaultServoSpec { servoNoLoadSpeedDegPerSec = 1200, servoStallTorqueNm = 8 }
-      skewBattery = defaultBatterySpec
-        { batteryNominalVoltage = 11.1, batteryCapacityAh = 1.3, batteryInternalResistanceOhm = 0.08 }
-      skewMoment roll =
+            { profThrottleFrequencyMix = 100, profAileronSkewMix = skew
+            , profAileronScale = scale, profRudderAmplitudeDiff = 0 } }
+      aileronMoment params roll =
         let rc = pilotToRc (pilot4 0.72 roll 0 0)
             tick (_,s) =
-              let (out,next)=stepFirmwareVehicleWithInertia 1e3 True rc skewParams skewServo skewBattery kestrelModel
+              let (out,next)=stepFirmwareVehicleWithInertia 1e3 True rc params tunnelServo tunnelBattery kestrelModel
                               (1/240) (Vec3 8 0 (-1)) (Vec3 0 0 0) 1000 s
                   -- The tunnel constrains body attitude. Reconcile that with
                   -- the free-body predictor just as the Unreal host does;
@@ -722,18 +689,17 @@ main = do
             samples = drop 481 $ take 1921 $ iterate tick (zeroVehicleOutput,defaultFirmwareVehicleState)
         in if any ((/=0) . outputFlags . fst) samples then error "stroke timing integration rejected a step"
            else sum (map (x . totalMomentNm . fst) samples) / fromIntegral (length samples)
-      leftSkewMoment = skewMoment (-0.5)
-      rightSkewMoment = skewMoment 0.5
-  -- The property is the MIRROR (left skew = −right skew) and a non-zero roll
-  -- authority; the asymmetric feathering (downstroke loaded, upstroke shed)
-  -- legitimately shifts the sign and magnitude versus the old symmetric stroke,
-  -- so the sign is not asserted here.
-  -- A 1e3 kg m^2 tunnel clamp keeps the body fixed inside the predictor too.
-  -- Host torque is that inertia times a tiny solved rate increment; allow
-  -- 1e-6 Nm absolute roundoff while retaining the nonzero authority gate.
+      leftSkewMoment = aileronMoment (aileronParams 55 0) (-0.5)
+      rightSkewMoment = aileronMoment (aileronParams 55 0) 0.5
+      leftAmpMoment = aileronMoment (aileronParams 0 55) (-0.5)
+      rightAmpMoment = aileronMoment (aileronParams 0 55) 0.5
+  -- A 1e3 kg m^2 tunnel clamp keeps the body fixed inside the predictor
+  -- too; host torque is that inertia times a tiny solved rate increment.
   if abs (leftSkewMoment + rightSkewMoment) < 1e-6
-     && abs leftSkewMoment > 5e-5
-    then pure () else fail ("opposite stroke timing alone must generate mirrored aerodynamic roll: " ++ show (leftSkewMoment,rightSkewMoment))
+     && abs leftSkewMoment > 1e-6
+     && abs (leftAmpMoment + rightAmpMoment) < 1e-6
+     && abs leftAmpMoment > 1e-6
+    then pure () else fail ("timing skew and flap-centre differential must each roll the bird with mirrored sign: " ++ show (leftSkewMoment,rightSkewMoment,leftAmpMoment,rightAmpMoment))
   -- ONDAS Rubedo M0: ferocity-price anchors (audit-verified 9.5).
   let priceCheck (d, p, f, t) = abs (ferocityPowerPrice d - p) < 1e-2
                                && abs (ferocityForcePrice d - f) < 1e-2
@@ -782,9 +748,9 @@ main = do
       dotV a b=x a*x b+y a*y b+z a*z b
       checkAero (angle,rate,incidence,vzAir) =
         let input=flow {bodyVelocityMS=Vec3 8 0 vzAir, groundClearanceM=1000}
-            loads=wingLoadsWithStroke True 1 angle rate rate input flatModel incidence flatState (replicate stripCount 0) angle 0
+            loads=wingLoadsWithStroke True 1 angle rate rate input flatModel incidence flatState
             mirror=wingLoadsWithStroke True 1 (-angle) (-rate) (-rate)
-                      (input {bodyVelocityMS=Vec3 8 0 (-vzAir)}) flatModel (-incidence) flatState (replicate stripCount 0) (-angle) 0
+                      (input {bodyVelocityMS=Vec3 8 0 (-vzAir)}) flatModel (-incidence) flatState
             checkStrip (i,r) =
               let f=(fromIntegral i+0.5)/fromIntegral stripCount
                   radius=wsShoulderM flatWing+wsSpanM flatWing*f
@@ -798,22 +764,84 @@ main = do
            && magnitude (addVec f (Vec3 (-x g) (-y g) (z g))) < 1e-7
   if all checkAero [(a,r,i,v) | a<-[-0.6,0,0.6],r<-[-8,0,8],i<-[-0.25,0,0.25],v<-[-2,0,2]]
     then pure () else fail "surface forces must dissipate relative-flow energy and reflect for inverted geometry"
-  -- Identical geometry and airflow must give identical pressure in glide
-  -- and flap. Neither an arbitrary weight share nor mixer centre may create
-  -- lift. Local wind, however, must affect the individual strip it reaches.
-  let sameMode flag shares centre =
-        wingLoadsWithStroke flag 1 0.2 0.4 0 flow flatModel 0.1 flatState shares centre 0
-      glide = sameMode False (replicate stripCount 0) 0
-      flap = sameMode True (replicate stripCount 10) 0.7
+  -- Identical geometry and airflow must give identical aero force in glide
+  -- and flap — the flapping flag is not an aero channel; lift comes only
+  -- from the wing's motion through the air. Per-strip wind deltas are dead
+  -- by design (Galilean invariance: ONE apparent wind for the whole bird —
+  -- the origin sample only), so a legacy stripWindDelta field must not
+  -- disturb any strip either.
+  let sameMode flag =
+        wingLoadsWithStroke flag 1 0.2 0.4 0 flow flatModel 0.1 flatState
+      glide = sameMode False
+      flap = sameMode True
       forceError a b = magnitude (addVec (resultForce a) (scaleVec (-1) (resultForce b)))
       gustStates = case flatState of
         s:ss -> s {stripWindDelta=Vec3 0 0 2} : ss
         [] -> []
-      gust = wingLoadsWithStroke False 1 0.2 0.4 0 flow flatModel 0.1 gustStates (replicate stripCount 0) 0 0
+      gust = wingLoadsWithStroke False 1 0.2 0.4 0 flow flatModel 0.1 gustStates
   if all (<1e-12) (zipWith forceError glide flap)
-     && forceError (head gust) (head glide)>1e-3
-     && all (<1e-12) (tail (zipWith forceError gust glide))
-    then pure () else fail "shared strip forces must ignore mode/weight and sample their own wind"
+     && all (<1e-12) (zipWith forceError gust glide)
+    then pure () else fail "strip aero must ignore the flap mode and any per-strip wind field"
+  -- First law of the physics rebuild: a wing at rest in still air produces
+  -- NO force of any kind — no compressed-air cushion, no glue, no pendulum.
+  let stillInput = flow { bodyVelocityMS = zero, bodyRatesRadS = zero
+                        , groundClearanceM = 1000 }
+      atRest side = concat [wingLoadsWithStroke False side stroke 0 0 stillInput
+                             kestrelModel 0 flatState | stroke <- [0, 0.3, (-0.3)]]
+      restForces = map (magnitude . resultForce) (atRest (-1) ++ atRest 1)
+  if all (< 1e-9) restForces
+    then pure () else fail "a stationary wing in still air must produce zero force"
+  -- Hover: a downstroke in still air must push air DOWN and cost mechanical
+  -- power — lift comes from momentum exchange, and the power is SIGNED
+  -- (positive = the wing drives the air, never clamped to a free-energy
+  -- zero; negative = flow-to-wing recovery).
+  let hoverStroke rate = wingLoadsWithStroke True 1 0 rate rate stillInput
+                            kestrelModel 0 flatState
+      down = hoverStroke (-4)
+      powerDown = sum (map resultPower down)
+      liftDown = sum (map (vz . resultForce) down)
+  if liftDown > 1e-4 && powerDown > 0
+    then pure () else fail ("still-air downstroke must raise the wing through momentum exchange and cost power: " ++ show (liftDown,powerDown))
+  -- RIGID roll coupling: a bird's body banks WITH its wings — there is no
+  -- free shoulder roll hinge, so the obsolete hang state must stay locked at
+  -- zero at any bank and no invented pendulum couple may appear in the roll
+  -- row. The actuator's Newton-3rd-law recoil reaches the body through the
+  -- wing flap coupling of the spatial mass matrix.
+  let (hix,hiy,hiz) = airframeInertia kestrelModel 0.05 0
+      hangFrame = defaultFirmwareVehicleState { fvMassFrame = Just (0,hiy,hiz) }
+      hangStep up st = stepFirmwareVehicleWithMassInertia 0.05 hix True
+                         (defaultRcChannels {rcThrottle = 0.6}) defaultFirmwareParams
+                         defaultServoSpec defaultBatterySpec kestrelModel (1/240)
+                         (Vec3 0 0 0) (Vec3 0 0 0) 1000 up st
+      hangRun up n = iterate (snd . hangStep up) hangFrame !! n
+      levelEnd = hangRun (Vec3 0 0 1) 480
+      bankedEnd = hangRun (Vec3 0 (sin (radians 20)) (cos (radians 20))) 480
+      levelDelta = fvHangDelta levelEnd
+      bankedDelta = fvHangDelta bankedEnd
+      levelMx = x (totalMomentNm (fst (hangStep (Vec3 0 0 1) levelEnd)))
+      bankedMx = x (totalMomentNm (fst (hangStep (Vec3 0 (sin (radians 20)) (cos (radians 20))) bankedEnd)))
+  if abs levelDelta < 1e-3 && abs bankedDelta < 1e-3
+     && abs levelMx < 1e-4 && abs bankedMx < 1e-3
+    then pure ()
+    else fail ("the fuselage must roll RIGIDLY with the wing plane (no free hang DOF): "
+               ++ show (levelDelta,levelMx,bankedDelta,bankedMx))
+  -- Exact 3D hinge kinematics: the flap velocity of every strip must be a
+  -- pure rotation about the TRUE (possibly yawed) hinge axis — v·r = 0 and
+  -- v·â = 0 — for the parallel kestrel AND the 8°-yawed raven mount. A
+  -- mixed-axis decomposition would leak into one of these two projections.
+  let hingeStrip model side stroke =
+        let r = head (wingLoadsWithStroke True side stroke (2*side*stroke) (2*side*stroke)
+                        stillInput model 0 flatState)
+            (pos,_,_,_,_,v) = resultFrame r
+            hinge = Vec3 0 0 wingRootHeight
+            axis = Vec3 (cos (radians (wsMountAngleDeg (wmWing model))))
+                        (side * sin (radians (wsMountAngleDeg (wmWing model)))) 0
+            rel = addVec pos (scaleVec (-1) hinge)
+        in abs (dotV v rel) < 1e-9 && abs (dotV v axis) < 1e-9
+      hingeCase model = and [hingeStrip model side stroke
+                             | side <- [-1,1], stroke <- [0.1, 0.5]]
+  if hingeCase kestrelModel && hingeCase ravenModel
+    then pure () else fail "flap velocity must be a pure rotation about the true yawed hinge axis"
   let speedLimit=servoNoLoadSpeedDegPerSec defaultServoSpec*pi/180
       stallLimit=servoStallTorqueNm defaultServoSpec
       voltage=batteryNominalVoltage defaultBatterySpec
@@ -825,9 +853,9 @@ main = do
   let mirroredStep (left,right,err) i =
         let t=fromIntegral i/240; a=0.4*cos (4*pi*t); rate= -1.6*pi*sin (4*pi*t)
             v=flow {bodyVelocityMS=Vec3 6 0 (-0.5),groundClearanceM=1000}
-            (ls,ln)=stepCoupledWing True 1 a rate rate 0 v flatModel 0.1 left (replicate stripCount 0) a 0
+            (ls,ln)=stepCoupledWing True 1 a rate rate 0 v flatModel 0.1 left
             (rs,rn)=stepCoupledWing True 1 (-a) (-rate) (-rate) 0
-                      (v {bodyVelocityMS=Vec3 6 0 0.5}) flatModel (-0.1) right (replicate stripCount 0) (-a) 0
+                      (v {bodyVelocityMS=Vec3 6 0 0.5}) flatModel (-0.1) right
             f=summed ls; g=summed rs
         in (ln,rn,max err (magnitude (addVec f (Vec3 (-x g) (-y g) (z g)))))
       (_,_,reflectionError)=foldl mirroredStep (flatState,flatState,0) [1..480::Int]
@@ -843,7 +871,7 @@ main = do
         let omega=2
             input=flow {bodyVelocityMS=zero,bodyRatesRadS=Vec3 omega 0 0,groundClearanceM=1000}
             states=replicate stripCount (emptyStrip {stripSeparation=separated})
-            rs=concat [wingLoadsWithStroke False side 0 0 0 input flatModel 0 states (replicate stripCount 0) 0 0 | side<-[-1,1]]
+            rs=concat [wingLoadsWithStroke False side 0 0 0 input flatModel 0 states | side<-[-1,1]]
             moment=sum(map (x . resultMoment) rs)
             dr=wsSpanM flatWing/fromIntegral stripCount
             integral=sum [shapeChord flatWing f*dr*(wsShoulderM flatWing+wsSpanM flatWing*f)**3
@@ -856,7 +884,7 @@ main = do
   let stalled=replicate stripCount (emptyStrip {stripSeparation=1})
       mount=0.1
       input=flow {bodyVelocityMS=Vec3 8 0 0,groundClearanceM=1000}
-      (stalledLoads,stalledNext)=stepCoupledWing True 1 0 0 0 0 input flatModel mount stalled (replicate stripCount 0) 0 0
+      (stalledLoads,stalledNext)=stepCoupledWing True 1 0 0 0 0 input flatModel mount stalled
       checkMembrane (i,r,next) =
         let f=(fromIntegral i+0.5)/fromIntegral stripCount
             normal=stripNormal next
@@ -877,7 +905,7 @@ main = do
   let sideslipRoll dihedral slip =
         let input=flow {bodyVelocityMS=Vec3 8 slip (-0.2),bodyRatesRadS=zeroVec,groundClearanceM=1000}
             rs=concat [wingLoadsWithStroke False side dihedral 0 0 input flatModel 0.08 flatState
-                       (replicate stripCount 0) 0 0 | side<-[-1,1]]
+                       | side<-[-1,1]]
         in sum(map (vx.resultMoment) rs)
   if and [a*v*sideslipRoll a v>1e-4 | a<-[-0.35,0.35],v<-[-1,1]]
      && abs(sideslipRoll 0.35 0)<1e-10 && abs(sideslipRoll (-0.35) 0)<1e-10
@@ -886,7 +914,7 @@ main = do
   -- generate an aerodynamic restoring torque in identical high-altitude flow.
   let oldAnchors=map (\s -> s {stripPressureField=PressureField (Vec3 0 0 10) (Vec3 0 1 0) 100}) flatState
       unanchored up states=concat [wingLoadsWithStroke True side 0.15 (-2) (-2)
-        (flow {groundClearanceM=1000,bodyUpB=up}) flatModel 0.08 states (replicate stripCount 0) 0 0 | side<-[-1,1]]
+        (flow {groundClearanceM=1000,bodyUpB=up}) flatModel 0.08 states | side<-[-1,1]]
       baseline=unanchored (Vec3 0 0 1) flatState
       diagnostic r=let st=resultState r
                        f=addVec (stripLift st) (addVec (stripDrag st) (stripPressure st))

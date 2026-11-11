@@ -63,7 +63,8 @@ for name in ('TempleHalls','Pagoda','Gate','rock_face_01','GoldenHall','Paifang'
             edit.connect_material_property(sample,'A',u.MaterialProperty.MP_OPACITY_MASK)
             rough=edit.create_material_expression(mat,u.MaterialExpressionConstant);rough.r=.8
             edit.connect_material_property(rough,'',u.MaterialProperty.MP_ROUGHNESS)
-            edit.set_material_usage(mat,u.MaterialUsage.MATUSAGE_INSTANCED_STATIC_MESHES)
+            mat.set_editor_property("used_with_nanite",True)
+            mat.set_editor_property("used_with_instanced_static_meshes",True)
             edit.recompile_material(mat);lib.save_loaded_asset(mat);sm.set_material(slot,mat)
     if name in ('PterosaurSlab','PteranodonBones','DinosaurEggs','FossilFish','Ammonite'):
         # The source's unlit glTF shader imports black in this rendering path.

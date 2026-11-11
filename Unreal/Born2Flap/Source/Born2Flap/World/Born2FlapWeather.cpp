@@ -89,6 +89,16 @@ void ABorn2FlapWeather::Apply()
     const FLinearColor BaseLight=D.Night ? FLinearColor(.52f,.67f,1.f) :
         ((D.Id==TEXT("dawn") || D.Id==TEXT("sunset")) ? FLinearColor(1.f,.64f,.36f) : FLinearColor(1.f,.94f,.84f));
     const FLinearColor LightColor(BaseLight.R*Ssn.LightTint.R,BaseLight.G*Ssn.LightTint.G,BaseLight.B*Ssn.LightTint.B);
+    // Hard direct shadows must never swallow sheltered ground — on any level.
+    // The sun is photometric (70-100 klux) while the skylight is a small
+    // multiplier; a 30000:1 direct:ambient ratio turns every shadow into pure
+    // black once auto-exposure listens to the bright sky. Lift the ambient
+    // (skylight) floor hard, widen the sun penumbra, and more still as the
+    // sun sinks, so shadowed areas stay readable even under canopy.
+    const float SunElevation=D.Elevation+Ssn.SunElevation;
+    const float LowSun=FMath::Clamp(1.f-SunElevation/32.f,0.f,1.f);
+    const float AmbientFill=3.2f+1.5f*LowSun;
+    const float SoftAngle=FMath::Lerp(2.2f,4.2f,LowSun);
     bool bFogFound=false;
     for(TActorIterator<AActor> It(GetWorld());It;++It)
     {
@@ -100,13 +110,14 @@ void ABorn2FlapWeather::Apply()
             Sun->SetWorldRotation(SunRotation);
             Sun->SetIntensity(D.Lux*W.Sunlight*Ssn.SunLux);
             Sun->SetLightColor(LightColor);
+            Sun->SetLightSourceSoftAngle(SoftAngle);
         }
         TInlineComponentArray<USkyLightComponent*> Skies(*It);
         for(auto* Sky:Skies)
         {
             Sky->SetMobility(EComponentMobility::Movable);
             Sky->SetRealTimeCapture(true);
-            Sky->SetIntensity((D.Night ? .7f : 1.2f)*Ssn.SkyIntensity);
+            Sky->SetIntensity((D.Night ? 1.f : AmbientFill)*Ssn.SkyIntensity);
         }
         TInlineComponentArray<UExponentialHeightFogComponent*> Fogs(*It);
         for(auto* Fog:Fogs)
@@ -144,10 +155,32 @@ void ABorn2FlapWeather::Apply()
     auto& S=PostProcess->Settings;
     const auto* Range=IConsoleManager::Get().FindConsoleVariable(TEXT("r.DefaultFeature.AutoExposure.ExtendDefaultLuminanceRange"));
     const float EV=Born2FlapWeather::Exposure(Conditions)-(Level==TEXT("Yunsha") && !D.Night ? .3f : 0.f);
-    const float Brightness=Range && Range->GetInt() ? EV : FMath::Pow(2.f,EV);
+    // A hard min=max pin turns any light deficit into straight underexposure:
+    // the staged monsoon morning rendered ~3 stops dark, and a rainy sunset
+    // (sun near the horizon, rain clouds) can sit 4-5 stops below its table
+    // EV. Give auto-exposure a wide bounded window instead — the floor sits
+    // far below the nominal EV so dim dusk/rain scenes adapt up, the ceiling
+    // caps blowout. Night uses the same scheme; its mood comes from the
+    // light colours and sky, not from an exposure pin.
     S.bOverride_AutoExposureMinBrightness=S.bOverride_AutoExposureMaxBrightness=S.bOverride_AutoExposureBias=true;
-    S.AutoExposureMinBrightness=S.AutoExposureMaxBrightness=Brightness;
     S.AutoExposureBias=0;
+    // Bias the exposure histogram toward the ground: ignore the top 10% of
+    // brightness (sky, sun disc, clouds) and fold more dark pixels in, so a
+    // bright sky above a dark forest floor no longer drags the adaptation
+    // down into black shadows. The wide EV window still bounds the result.
+    S.bOverride_AutoExposureLowPercent=S.bOverride_AutoExposureHighPercent=true;
+    S.AutoExposureLowPercent=70.f;
+    S.AutoExposureHighPercent=90.f;
+    const float EVMin=EV-(D.Night?5.f:6.f);
+    const float EVMax=EV+(D.Night?1.f:2.f);
+    S.AutoExposureMinBrightness=Range && Range->GetInt() ? EVMin : FMath::Pow(2.f,EVMin);
+    S.AutoExposureMaxBrightness=Range && Range->GetInt() ? EVMax : FMath::Pow(2.f,EVMax);
+    // Global ambient floor: multiply the Lumen GI contribution on every level
+    // so direct sun shadowing never blacks out the ground under canopies.
+    // Night keeps a smaller lift to preserve its mood within the exposure
+    // window.
+    S.bOverride_IndirectLightingIntensity=true;
+    S.IndirectLightingIntensity=D.Night?1.4f:1.8f;
     S.WeightedBlendables.Array.Reset();
     if(W.Parhelion && !D.Night)
     {

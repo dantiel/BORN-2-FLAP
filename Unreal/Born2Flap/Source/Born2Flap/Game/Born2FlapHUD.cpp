@@ -62,22 +62,21 @@ void ABorn2FlapHUD::DrawHUD()
             DrawText(It->Status(),FLinearColor(.93,.85,.60),X,Y,GEngine->GetSmallFont(),1.f);
             DrawText(It->PlotStatus(),FLinearColor(.77,.84,.72),X,Y+28,GEngine->GetSmallFont(),.86f);
         }
-    // F9 stream overlay: a faint line from screen centre showing the mouse
-    // control-input direction (not the cursor position). Drawn before the Brain
-    // early-return so it also shows while the Ruby Brain authors the panels —
-    // and deliberately NOT gated on IsUIHidden, so F7 strips every other HUD
-    // element but leaves this control-reference visible.
+    // F9 cycles the control-input overlay: first press = stick gimbals, second
+    // press = the mouse-movement halo, third = off again — the two readouts
+    // never share the screen. Drawn before the Brain early-return so it also
+    // shows while the Ruby Brain authors the panels — and deliberately NOT
+    // gated on IsUIHidden, so F7 strips every other HUD element but leaves
+    // this control-reference visible. The overlay defaults to OFF: the touch
+    // twin-sticks already paint their own on-screen joysticks, so an extra
+    // mirror would double the clutter until the pilot asks for it.
     if (auto* PC = GetOwningPlayerController())
         if (PC->WasInputKeyJustPressed(born2flap::keybinds::Get(TEXT("ToggleMouseInd"))))
-            bShowMouseIndicator = !bShowMouseIndicator;
-    if (bShowMouseIndicator)
-    {
-        const FBorn2FlapRcController* Rc = Bird->GetRcController();
-        if (Rc && Rc->IsEnabled() && Rc->IsConnected())
-            DrawRcSticks(*Bird, *Rc);
-        else
-            DrawMouseIndicator(*Bird);
-    }
+            InputOverlay = static_cast<EInputOverlayMode>((static_cast<uint8>(InputOverlay) + 1) % 3);
+    if (InputOverlay == EInputOverlayMode::Sticks)
+        DrawInputSticks(*Bird);
+    else if (InputOverlay == EInputOverlayMode::Mouse)
+        DrawMouseIndicator(*Bird);
     // FPS counter (F12): independent of the Brain path and F7 hide-UI, so the
     // frame-rate readout stays available while debugging the flight core.
     // Persisted so the menu/graphics option and the live key stay in sync.
@@ -191,6 +190,8 @@ void ABorn2FlapHUD::DrawHUD()
         FString RaceLine;
         if (Mode->IsNatureLevel())
             RaceLine = TEXT("WALDTAL  /  F4: Uebungsgelaende");
+        else if (Mode->IsWoshiLevel())
+            RaceLine = TEXT("WÒSHÍ — THE RESTING STONE");
         else if (Mode->IsRaceComplete())
             RaceLine = FString::Printf(TEXT("%s  %.2fs  /  %s %.2fs"),
                                        *Born2Flap::I18n::T("race.complete"), Mode->GetRaceTime(),
@@ -218,8 +219,8 @@ void ABorn2FlapHUD::DrawHUD()
     DrawRect(FLinearColor(.015f, .035f, .045f, .82f), 20, Y, Canvas->SizeX - 40, 65);
     DrawText(TEXT("SPACE launch   W throttle   CTRL+W low   SHIFT+W full   WHEEL fine   MOUSE + ARROWS/A/D steering   R reset"),
              Cream, 38, Y + 12, GEngine->GetSmallFont(), 1.05f);
-    DrawText(TEXT("CLICK centres mouse   F6 bird/pilot   V 1st/3rd   F8 bird + controls   F2 channels   F3 RC   F4 level   F7 HUD"),
-              Muted, 38, Y + 38, GEngine->GetSmallFont(), 1.f);
+    DrawText(TEXT("CLICK centres mouse   F6 bird/pilot   V 1st/3rd   F8 bird + controls   F2 channels   F3 RC   F4 level   F7 HUD   F9 input"),
+             Muted, 38, Y + 38, GEngine->GetSmallFont(), 1.f);
     if (Rc && Rc->IsPanelOpen())
         DrawRcPanel(*Rc);
     DrawText(Bird->GetCameraLabel(), FLinearColor(.68f,.74f,.70f), 47, 110, GEngine->GetSmallFont(), .8f);
@@ -278,16 +279,20 @@ void ABorn2FlapHUD::DrawMouseIndicator(const ABorn2FlapFlightPawn& Bird)
     DrawText(TEXT("MOUSE"), FLinearColor(Line.R, Line.G, Line.B, Line.A * (0.3f + 0.7f * Mag)),
               CX + 8.f, CY + 8.f, GEngine->GetSmallFont(), .7f);
 }
-void ABorn2FlapHUD::DrawRcSticks(const ABorn2FlapFlightPawn& Bird, const FBorn2FlapRcController& Rc)
+void ABorn2FlapHUD::DrawInputSticks(const ABorn2FlapFlightPawn& Bird)
 {
     // Two translucent transmitter gimbals pinned to the bottom of the screen —
-    // the in-flight mirror of the RC panel's STICKS tab. Left = throttle/yaw,
-    // right = pitch/roll (Mode 2). Only shown when RC control is actually armed.
-    const auto& Ch = Rc.GetChannels();
-    const float Gas   = FMath::Clamp((float)Ch[0], 0.f, 1.f);
-    const float Roll  = FMath::Clamp((float)Ch[1], -1.f, 1.f);
-    const float Pitch = FMath::Clamp((float)Ch[2], -1.f, 1.f);
-    const float Yaw   = FMath::Clamp((float)Ch[3], -1.f, 1.f);
+    // a mirror of the pilot channels the flight core actually receives (RC
+    // transmitter, keyboard, or the mobile twin-sticks). Left = throttle/yaw,
+    // right = pitch/roll (Mode 2). F9's first stop; the second stop shows the
+    // mouse-movement halo instead, so the two overlays never overlap.
+    const FBorn2FlapRcController* Rc = Bird.GetRcController();
+    const bool bHardware = Rc && Rc->IsEnabled() && Rc->IsConnected();
+    const float Gas   = FMath::Clamp(Bird.GetEffort(), 0.f, 1.f);
+    const FVector Sticks = Bird.GetRcSticks();
+    const float Roll  = FMath::Clamp((float)Sticks.X, -1.f, 1.f);
+    const float Pitch = FMath::Clamp((float)Sticks.Y, -1.f, 1.f);
+    const float Yaw   = FMath::Clamp((float)Sticks.Z, -1.f, 1.f);
 
     const float Size   = 150.f;
     const float Gap    = 40.f;
@@ -331,7 +336,7 @@ void ABorn2FlapHUD::DrawRcSticks(const ABorn2FlapFlightPawn& Bird, const FBorn2F
 
     Gimbal(LeftCX,  Yaw, Gas * 2.f - 1.f, Gold, TEXT("THROTTLE"), TEXT("YAW"));
     Gimbal(RightCX, Roll, Pitch,          Cyan, TEXT("PITCH"),    TEXT("ROLL"));
-    DrawText(TEXT("RC"), Cyan, Canvas->SizeX * 0.5f - 10.f, Bottom + 4.f, GEngine->GetSmallFont(), 0.7f);
+    DrawText(bHardware ? TEXT("RC") : TEXT("KEYS"), Cyan, Canvas->SizeX * 0.5f - 10.f, Bottom + 4.f, GEngine->GetSmallFont(), 0.7f);
 }
 void ABorn2FlapHUD::DrawChannels(const ABorn2FlapFlightPawn& Bird)
 {

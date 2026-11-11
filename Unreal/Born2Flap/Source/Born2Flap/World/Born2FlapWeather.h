@@ -88,7 +88,7 @@ namespace Born2FlapWeather
     FBorn2FlapConditions Validate(const FString& Level, const FBorn2FlapConditions& Conditions);
     const FBorn2FlapWeather& Profile(const FString& Id);
     const FBorn2FlapDayTime& DayTime(const FString& Id);
-    const FBorn2FlapSeason& Season(const FString& Id);
+    BORN2FLAP_API const FBorn2FlapSeason& Season(const FString& Id);
     FBorn2FlapConditions Load(const FString& Level);
     void Save(const FString& Level, const FBorn2FlapConditions& Conditions);
     FString TravelOptions(const FString& Level, const FBorn2FlapConditions& Conditions);
@@ -96,7 +96,7 @@ namespace Born2FlapWeather
     float Exposure(const FBorn2FlapConditions& Conditions);
     // The level's base wind heading in degrees (used as the "auto" direction
     // default and by the menu to label the wind-direction override).
-    float DefaultWindDirection(const FString& Level);
+    BORN2FLAP_API float DefaultWindDirection(const FString& Level);
 }
 
 class UInstancedStaticMeshComponent;

@@ -84,7 +84,7 @@ for i in range(len(slots)):
     slot.set_editor_property('material_interface', mat)
     slots[i] = slot
 mesh.set_editor_property('materials', slots)
-lib.set_material_usage(mat, u.MaterialUsage.MATUSAGE_SKELETAL_MESH)
+mat.set_editor_property("used_with_skeletal_mesh", True)
 ela.save_loaded_asset(mat)
 ela.save_loaded_asset(mesh)
 u.EditorLoadingAndSavingUtils.save_dirty_packages(False, True)

@@ -63,6 +63,105 @@
 #include "Dom/JsonObject.h"
 #include "Input/Born2FlapRcController.h"
 #include "Kismet/KismetSystemLibrary.h"
+#include "Engine/Engine.h"
+#include "HAL/IConsoleManager.h"
+
+namespace
+{
+// Live weather desk (dev console): mutate the loaded map's weather/time/
+// season/wind without re-travel. Transient — nothing is persisted here, so
+// session tuning never leaks into the player's saved per-world conditions.
+ABorn2FlapGameMode* FindLiveGameMode()
+{
+    if (GEngine)
+        for (const FWorldContext& Ctx : GEngine->GetWorldContexts())
+            if (Ctx.World())
+                if (ABorn2FlapGameMode* GM = Cast<ABorn2FlapGameMode>(Ctx.World()->GetAuthGameMode()))
+                    return GM;
+    return nullptr;
+}
+
+static FAutoConsoleCommand B2FWeatherCmd(
+    TEXT("B2F.Weather"),
+    TEXT("B2F.Weather <id> — dress the loaded map's weather live (sunny|cloudy|rain|mist|snow|parhelion; transient)"),
+    FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+    {
+        if (Args.Num() < 1) return;
+        if (ABorn2FlapGameMode* GM = FindLiveGameMode())
+        {
+            FBorn2FlapConditions C = GM->GetConditions();
+            C.Weather = Args[0];
+            GM->ApplyConditionsLive(C);
+        }
+    }));
+
+static FAutoConsoleCommand B2FDayTimeCmd(
+    TEXT("B2F.DayTime"),
+    TEXT("B2F.DayTime <id> — set the loaded map's time of day live (dawn|morning|noon|sunset|night; transient)"),
+    FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+    {
+        if (Args.Num() < 1) return;
+        if (ABorn2FlapGameMode* GM = FindLiveGameMode())
+        {
+            FBorn2FlapConditions C = GM->GetConditions();
+            C.Time = Args[0];
+            GM->ApplyConditionsLive(C);
+        }
+    }));
+
+static FAutoConsoleCommand B2FSeasonCmd(
+    TEXT("B2F.Season"),
+    TEXT("B2F.Season <id> — set the loaded map's season live (spring|summer|autumn|winter|dry|monsoon|cool; transient)"),
+    FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+    {
+        if (Args.Num() < 1) return;
+        if (ABorn2FlapGameMode* GM = FindLiveGameMode())
+        {
+            FBorn2FlapConditions C = GM->GetConditions();
+            C.Season = Args[0];
+            GM->ApplyConditionsLive(C);
+        }
+    }));
+
+static FAutoConsoleCommand B2FWindCmd(
+    TEXT("B2F.Wind"),
+    TEXT("B2F.Wind dir <deg> | speed|gust|random|thermal <mult> | reset — tune the loaded map's wind live (transient)"),
+    FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+    {
+        if (Args.Num() < 1) return;
+        if (ABorn2FlapGameMode* GM = FindLiveGameMode())
+        {
+            FBorn2FlapConditions C = GM->GetConditions();
+            if (Args[0].Equals(TEXT("reset"), ESearchCase::IgnoreCase))
+                C.WindDir = C.WindSpeed = C.WindGust = C.WindRandom = C.WindThermal = -1.f;
+            else if (Args.Num() >= 2)
+            {
+                const float V = FCString::Atof(*Args[1]);
+                if      (Args[0].Equals(TEXT("dir"),     ESearchCase::IgnoreCase)) C.WindDir = V;
+                else if (Args[0].Equals(TEXT("speed"),   ESearchCase::IgnoreCase)) C.WindSpeed = V;
+                else if (Args[0].Equals(TEXT("gust"),    ESearchCase::IgnoreCase)) C.WindGust = V;
+                else if (Args[0].Equals(TEXT("random"),  ESearchCase::IgnoreCase)) C.WindRandom = V;
+                else if (Args[0].Equals(TEXT("thermal"), ESearchCase::IgnoreCase)) C.WindThermal = V;
+                else return;
+            }
+            else return;
+            GM->ApplyConditionsLive(C);
+        }
+    }));
+
+static FAutoConsoleCommand B2FWeatherInfoCmd(
+    TEXT("B2F.WeatherInfo"),
+    TEXT("Log the loaded map's live weather/season/time/wind conditions"),
+    FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>&)
+    {
+        if (ABorn2FlapGameMode* GM = FindLiveGameMode())
+        {
+            const FBorn2FlapConditions& C = GM->GetConditions();
+            UE_LOG(LogTemp, Display, TEXT("B2F weather [%s]: weather=%s time=%s season=%s wind(dir=%.1f speed=%.2f gust=%.2f random=%.2f thermal=%.2f)"),
+                *GM->GetLevelId(), *C.Weather, *C.Time, *C.Season, C.WindDir, C.WindSpeed, C.WindGust, C.WindRandom, C.WindThermal);
+        }
+    }));
+}  // namespace
 
 namespace
 {
@@ -112,13 +211,34 @@ const FMenuWorld MenuWorlds[] = {
       TEXT("A flat grass course marked with floating sky-gates, ringed by the hum of a weather station and the chalk lines of a hundred practice rounds. This is the field where every pilot learns to fold the wing, hold the line and thread the gates against the clock. Start on the launch pad, hit the gates in order, and mind the wind arrow — the course rewards a clean line more than a fast one.") },
     { TEXT("Yunsha"), TEXT("Yúnshā"),
       TEXT("The Cloud-Sand Gorge. A crescent jade spring beneath a mile of singing grottoes. Ride the rising air to cloud-forest pillars and the flight-only sun-temples. Read the shimmer, earn the ridge, and come back to the Wind-Harp at dusk.") },
+    { TEXT("Woshi"), TEXT("WÒSHÍ — THE RESTING STONE"),
+      TEXT("A high canyon floor where a single sleeping boulder is cradled between sunlit cliff walls. A stone arch spans the gorge, a grotto is hollowed into the rock, and the wind pours through the corridor in steady, patient streams. The proving ground for the mesh-born world — fly the arch, skim the canyon, and greet the resting stone.") },
     { TEXT("NeonAbyss"), TEXT("NEON ABYSS"),
       TEXT("A primordial, eternal sanctuary that has always floated here — a void of soft nebulae and ringed planets hung under a circle of ancient bronzes, their verdigris seams opening to gold as you draw near. There is no ground and no horizon: a baby turtle swims the aether, chasing neon jellyfish that flutter like insects. Flap to pulse forward, glide to coast, and net the festival lights before the timer ends.") },
-    { TEXT("Murex"), TEXT("MUREX SPIRE AERODROME"),
-      TEXT("An airport grown from a vast murex shell lying on its side. Its pearl-lined opening shelters a glass-fronted arrival hall and a green entrance park; along the tapering shell, six long spines become smaller gate terminals with waiting aircraft. One powerful upward spine beside the main hall carries the control tower. Follow the shell's golden growth, explore the sheltered aperture, and land above the working apron.") },
-};
-constexpr int32 MenuWorldCount = 6;
-}  // namespace
+        { TEXT("Murex"), TEXT("MUREX SPIRE AERODROME"),
+          TEXT("An airport grown from a vast murex shell lying on its side. Its pearl-lined opening shelters a glass-fronted arrival hall and a green entrance park; along the tapering shell, six long spines become smaller gate terminals with waiting aircraft. One powerful upward spine beside the main hall carries the control tower. Follow the shell's golden growth, explore the sheltered aperture, and land above the working apron.") },
+    };
+    constexpr int32 MenuWorldCount = 7;
+    
+    // Scenario catalog for the SCENARIOS tab of the open-worlds overview. A world
+    // without an entry simply has no tab. `Activity` is the URL option that arms
+    // the scenario on level load (the game mode gates on it, e.g. HarvestWatch).
+    struct FMenuScenario { const TCHAR* World; const TCHAR* Title; const TCHAR* Story; const TCHAR* Activity; };
+    const FMenuScenario MenuScenarios[] = {
+        { TEXT("Shiomori"), TEXT("HARVEST WATCH"),
+          TEXT("Guard the sweet-potato field against the crows: patrol the rows, chase the raiders off and keep the harvest safe."),
+          TEXT("HarvestWatch") },
+    };
+    constexpr int32 MenuScenarioCount = 1;
+    
+    bool WorldHasScenarios(const TCHAR* World)
+    {
+        for (int32 I = 0; I < MenuScenarioCount; ++I)
+            if (FCString::Stricmp(MenuScenarios[I].World, World) == 0)
+                return true;
+        return false;
+    }
+    }  // namespace
 
 namespace
 {
@@ -190,7 +310,8 @@ void ABorn2FlapGameMode::InitGame(const FString &MapName, const FString &Options
     bVoidLevel = Level.Equals(TEXT("NeonAbyss"), ESearchCase::IgnoreCase) || (Level.IsEmpty() && MapName.Contains(TEXT("NEONABYSS")));
     bDesertLevel = Level.Equals(TEXT("Yunsha"), ESearchCase::IgnoreCase) || (Level.IsEmpty() && MapName.Contains(TEXT("YUNSHA")));
     bAirportLevel = Level.Equals(TEXT("Murex"), ESearchCase::IgnoreCase) || (Level.IsEmpty() && MapName.Contains(TEXT("MUREX")));
-    if (bVoidLevel || bDesertLevel || bAirportLevel) { bCoastLevel = false; bNatureLevel = false; }
+    bWoshiLevel = Level.Equals(TEXT("Woshi"), ESearchCase::IgnoreCase) || (Level.IsEmpty() && MapName.Contains(TEXT("WOSHI")));
+    if (bVoidLevel || bDesertLevel || bAirportLevel || bWoshiLevel) { bCoastLevel = false; bNatureLevel = false; }
     // Menu mode: a plain interactive boot into the minimal Entry map (no
     // explicit level) is the home screen, NOT a playable level. Nothing is
     // built and no bird spawns behind the menu — a real level only loads when
@@ -264,8 +385,46 @@ void ABorn2FlapGameMode::RestartPlayerAtPlayerStart(AController* NewPlayer, AAct
     }
     Super::RestartPlayerAtPlayerStart(NewPlayer, StartSpot);
 }
+namespace
+{
+// Woshi (the Resting Stone) heightfield — mirrors create_pocterrain_map.py's
+// world_surface() and the two stone ellipsoids (staticmesh backend). Units are
+// cm: the canyon floor sits at -110 m, the gorge dome peaks at +120 m, and the
+// stones rise from the sand plane at z=0.
+double WoshiCanyon(double X, double Y)
+{
+    if (FMath::Abs(Y) > 28000.0) return 0.0;
+    const double T = FMath::Clamp((FMath::Abs(X) - 1800.0) / 2700.0, 0.0, 1.0);
+    return -11000.0 * (1.0 - T * T * (3.0 - 2.0 * T));
+}
+double WoshiDome(double X, double Y)
+{
+    const double R = FMath::Sqrt(X * X + Y * Y);
+    if (R > 15000.0) return 0.0;
+    const double T = 1.0 - R / 15000.0;
+    return 12000.0 * FMath::Pow(T, 1.35);
+}
+double WoshiStones(double X, double Y)
+{
+    double Z = 0.0;
+    const double Dx = (X - 14000.0) / 5000.0, Dy = (Y - 22000.0) / 1400.0;
+    const double S = 1.0 - Dx * Dx - Dy * Dy;
+    if (S > 0.0) Z = FMath::Max(Z, 900.0 + 1500.0 * FMath::Sqrt(S));
+    const double Hx = (X - 18500.0) / 1600.0, Hy = (Y - 21800.0) / 1200.0;
+    const double H = 1.0 - Hx * Hx - Hy * Hy;
+    if (H > 0.0) Z = FMath::Max(Z, 1500.0 + 1100.0 * FMath::Sqrt(H));
+    return Z;
+}
+double WoshiGroundHeight(double X, double Y)
+{
+    const double Canyon = WoshiCanyon(X, Y);
+    if (Canyon < 0.0) return Canyon;  // the gorge cuts through the dome
+    return FMath::Max3(0.0, WoshiDome(X, Y), WoshiStones(X, Y));
+}
+}
 double ABorn2FlapGameMode::GroundHeight(double X, double Y) const
 {
+    if (bWoshiLevel) return WoshiGroundHeight(X, Y);
     if (bAirportLevel)
     {
         // The aerodrome is a flat field: line-trace the saved geometry and
@@ -330,6 +489,16 @@ double ABorn2FlapGameMode::WaterHeight() const { return bDesertLevel ? 0 : bCoas
 FVector ABorn2FlapGameMode::WindAt(const FVector& P,double Time) const
 {
     return Born2FlapWeather::Wind(GetLevelId(),Conditions,P,Time);
+}
+void ABorn2FlapGameMode::ApplyConditionsLive(const FBorn2FlapConditions& NewConditions)
+{
+    // Live weather desk. Everything weather-sensitive reads GetConditions()
+    // per frame (wind field, soundscape, insects, foliage, desert optics), so
+    // this one assignment re-tunes them all; the weather actor re-dresses the
+    // sky/light/fog/precipitation stage art on its next tick (Configure resets
+    // bApplied and Apply() is a full idempotent re-derivation).
+    Conditions=Born2FlapWeather::Validate(GetLevelId(),NewConditions);
+    if(WeatherActor) WeatherActor->Configure(GetLevelId(),Conditions);
 }
 void ABorn2FlapGameMode::BeginPlay()
 {
@@ -474,6 +643,15 @@ void ABorn2FlapGameMode::BeginPlay()
         // director owns the global ocean parameters + MPC binding for the
         // coast (spawned at runtime like the other managers).
         World->SpawnActor<AShiomoriWaterDirector>(FVector::ZeroVector, FRotator::ZeroRotator, Params);
+        return;
+    }
+    if (bWoshiLevel)
+    {
+        // The saved Woshi map carries all geometry and atmosphere (the gorge
+        // dome, the resting stones, the arch, the grotto); nothing is built at
+        // runtime — the weather system only re-tunes sun, fog and clouds.
+        Born2Flap::Loading::Report(0.40f, TEXT("READY AT WOSHI"));
+        UE_LOG(LogTemp, Display, TEXT("READY AT WOSHI"));
         return;
     }
     if (bNatureLevel)
@@ -763,6 +941,17 @@ void ABorn2FlapGameMode::PopulatePOIs()
         AddPoi(TEXT("poi.hangar"),       -71000.0, -4000.0);  // workshop apron
         return;
     }
+    if (bWoshiLevel)
+    {
+        // Woshi (the Resting Stone): launch above the gorge dome, then the
+        // named landmarks — gorge floor, reclining stone, arch, grotto.
+        AddPoi(TEXT("poi.woshi_summit"), FVector(0.0, 0.0, 14500.0));
+        AddPoi(TEXT("poi.woshi_gate"), 0.0, 0.0);
+        AddPoi(TEXT("poi.woshi_stone"), 14000.0, 22000.0);
+        AddPoi(TEXT("poi.woshi_arch"), 24000.0, 4000.0);
+        AddPoi(TEXT("poi.woshi_grotto"), 30000.0, -16000.0);
+        return;
+    }
     if (bNatureLevel)
     {
         // Ravenstonefield: the launch meadow plus the named landmarks the
@@ -1024,7 +1213,7 @@ void ABorn2FlapGameMode::Tick(float DeltaSeconds)
             {
                 // New granite shoulder and terrace probes deliberately avoid
                 // placed stones: terrain collision must agree with flight height.
-                for(const FVector2D Point:{FVector2D(65000,20000),FVector2D(72000,32000),FVector2D(81600,41800)})
+                for(const FVector2D Point:{FVector2D(65000,20000),FVector2D(72000,32000),FVector2D(65000,29500)})
                 {
                     FHitResult Hit;const double H=Born2FlapBay::Height(Point.X,Point.Y);
                     const bool Found=GetWorld()->LineTraceSingleByChannel(Hit,FVector(Point.X,Point.Y,H+50),FVector(Point.X,Point.Y,H-100),ECC_Visibility);
@@ -1033,7 +1222,7 @@ void ABorn2FlapGameMode::Tick(float DeltaSeconds)
                     UE_LOG(LogTemp,Display,TEXT("EastGraniteCollision x=%.0f y=%.0f error=%.1f"),Point.X,Point.Y,Error);
                 }
                 FHitResult Door;
-                const bool Locked=GetWorld()->LineTraceSingleByChannel(Door,FVector(78600,40795,900),FVector(79000,40795,900),ECC_Visibility);
+                const bool Locked=GetWorld()->LineTraceSingleByChannel(Door,FVector(62017,28495,1137),FVector(62417,28495,1137),ECC_Visibility);
                 EastShorePass &= Locked;
                 UE_LOG(LogTemp,Display,TEXT("EastBunkerDoor blocked=%d"),Locked);
                 UE_LOG(LogTemp,Display,TEXT("EastShoreCollisionTest %s: shore, granite, terrace and locked bunker"),EastShorePass?TEXT("PASS"):TEXT("FAIL"));
@@ -1129,6 +1318,16 @@ void ABorn2FlapGameMode::ShowMainMenu(bool bInLevel)
         return;
     bMenuOpen = true;
     bMenuInLevel = bInLevel;
+    // In-level the world browser becomes the current world's parameter desk:
+    // lock the menu's world selection onto the loaded map so telemetry, the
+    // weather/wind actions and the APPLY button all address the live world.
+    if (bInLevel && !bMenuMode)
+    {
+        const FString LevelId = GetLevelId();
+        for (int32 I = 0; I < MenuWorldCount; ++I)
+            if (LevelId == MenuWorlds[I].Id) { MenuWorldIndex = I; break; }
+        MenuWorldStage = 1;
+    }
     if (RadioStation)
         RadioStation->SetPaused(true);
 
@@ -1470,7 +1669,14 @@ void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, c
         if (ActiveRc) ActiveRc->LearnReset();
         return;
     }
-    if (Action == TEXT("menu.page")) { MenuPage=FMath::Clamp(FMath::RoundToInt(Value),0,2); return; }
+        if (Action == TEXT("menu.page"))
+        {
+            // The SCENARIOS tab (index 3) exists only when the current world has
+            // scenarios; otherwise the overview has three tabs.
+            const int32 MaxPage = WorldHasScenarios(MenuWorlds[MenuWorldIndex].Id) ? 3 : 2;
+            MenuPage = FMath::Clamp(FMath::RoundToInt(Value), 0, MaxPage);
+            return;
+        }
     if (Action == TEXT("settings.page")) { SettingsPage=FMath::Clamp(FMath::RoundToInt(Value),0,4); return; }
     if (Action == TEXT("rc.page")) { RcPage=FMath::Clamp(FMath::RoundToInt(Value),0,2); return; }
     if (Action == TEXT("preferences.page")) { PrefsPage=FMath::Clamp(FMath::RoundToInt(Value),0,2); return; }
@@ -1628,9 +1834,64 @@ void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, c
             Bird->SetTuning(Field, Value);
         return;
     }
-    if (Action == TEXT("menu.prevWorld")) { MenuWorldIndex = (MenuWorldIndex + MenuWorldCount - 1) % MenuWorldCount; return; }
-    if (Action == TEXT("menu.nextWorld")) { MenuWorldIndex = (MenuWorldIndex + 1) % MenuWorldCount; return; }
-    if (Action == TEXT("menu.quit")) { UKismetSystemLibrary::QuitGame(this, nullptr, EQuitPreference::Quit, false); return; }
+        // In-level the menu is the loaded world's parameter desk: APPLY commits
+        // the staged conditions to the running map; browsing stays front-end.
+        if (Action == TEXT("menu.applyChanges"))
+        {
+            if (!bMenuMode)
+            {
+                const FString Level = GetLevelId();
+                if (FBorn2FlapConditions* C = MenuLevelConditions.Find(Level))
+                {
+                    Born2FlapWeather::Save(Level, *C);
+                    ApplyConditionsLive(*C);
+                }
+            }
+            return;
+        }
+        if (Action == TEXT("menu.prevWorld")) { if (!bMenuInLevel) MenuWorldIndex = (MenuWorldIndex + MenuWorldCount - 1) % MenuWorldCount; return; }
+        if (Action == TEXT("menu.nextWorld")) { if (!bMenuInLevel) MenuWorldIndex = (MenuWorldIndex + 1) % MenuWorldCount; return; }
+        // All-maps picker: clicking a world card opens its overview stage. The
+        // per-world action key carries the level id (plain buttons emit a fixed
+        // value, so the id rides in the action itself).
+        if (!bMenuInLevel && Action.StartsWith(TEXT("menu.pick.")))
+        {
+            const FString Id = Action.Mid(FCString::Strlen(TEXT("menu.pick.")));
+            for (int32 I = 0; I < MenuWorldCount; ++I)
+            {
+                if (Id.Equals(MenuWorlds[I].Id, ESearchCase::IgnoreCase))
+                {
+                    MenuWorldIndex = I;
+                    MenuWorldStage = 1;
+                    MenuPage = 0;  // land on the LOCATION tab of the overview
+                    return;
+                }
+            }
+        }
+        if (Action == TEXT("menu.allWorlds")) { if (!bMenuInLevel) MenuWorldStage = 0; return; }
+        // Scenario pick on the SCENARIOS tab: 0 = free flight, 1+ = list index.
+        if (Action == TEXT("menu.scenario"))
+        {
+            MenuSelectedScenario.Add(MenuWorlds[MenuWorldIndex].Id, FMath::Max(0, FMath::RoundToInt(Value)));
+            return;
+        }
+        if (Action == TEXT("menu.quit")) { UKismetSystemLibrary::QuitGame(this, nullptr, EQuitPreference::Quit, false); return; }
+        // Unload the live world and return to the home screen: travel to the
+        // minimal Entry map with no ?Level= / ?SkipMenu= tokens, so the
+        // destination boots into menu mode (bMenuMode) — the world browser with
+        // its splash background. Same deterministic close of the Brain renderer
+        // and telemetry stamp as the FLY path, so the fresh Brain on the Entry
+        // map holds at :boot until the loader drops, then paints main_menu.
+        if (Action == TEXT("menu.exitWorld"))
+        {
+            Born2FlapShowLoadingScreen();
+            if (BrainBridge)
+                BrainBridge->CloseRenderer();
+            if (BrainBridge)
+                BrainBridge->ForceTelemetry();
+            UGameplayStatics::OpenLevel(this, TEXT("/Engine/Maps/Entry"), true, TEXT(""));
+            return;
+        }
 
     UE_LOG(LogTemp, Verbose, TEXT("UMGHAML action: %s value=%g"), *Action, Value);
     // Level travel (menu.<world>).
@@ -1641,6 +1902,7 @@ void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, c
         { TEXT("menu.shiomori"),        TEXT("/Game/Shiomori/Maps/SHIOMORI"),               TEXT("Shiomori") },
         { TEXT("menu.training"),        TEXT("/Engine/Maps/Entry"),                         TEXT("Training") },
         { TEXT("menu.yunsha"), TEXT("/Game/Yunsha/Maps/YUNSHA"), TEXT("Yunsha") },
+        { TEXT("menu.woshi"), TEXT("/Game/WoshiSM/Maps/WOSHI_SM"), TEXT("Woshi") },
         { TEXT("menu.murex"),          TEXT("/Game/Murex/Maps/MUREX"),                     TEXT("Murex") },
         { TEXT("menu.neonabyss"),       TEXT("/Game/NeonAbyss/Maps/NEONABYSS"),             TEXT("NeonAbyss") },
     };
@@ -1648,8 +1910,23 @@ void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, c
     {
         if (Action == E.ActionKey)
         {
-            FString Options = Born2FlapWeather::TravelOptions(E.Level, MenuLevelConditions.FindChecked(E.Level));
-            if(Action==TEXT("menu.harvestwatch"))Options+=TEXT("?Activity=HarvestWatch");
+                        FString Options = Born2FlapWeather::TravelOptions(E.Level, MenuLevelConditions.FindChecked(E.Level));
+                        if(Action==TEXT("menu.harvestwatch"))Options+=TEXT("?Activity=HarvestWatch");
+                        // The SCENARIOS tab's pick rides along as the level's activity:
+                        // selecting a scenario makes the FLY button launch that scenario
+                        // (the button label follows via telemetry), free flight stays free.
+                        if (const int32* S = MenuSelectedScenario.Find(E.Level))
+                        {
+                            int32 Picked = *S - 1, At = 0;
+                            for (int32 I = 0; I < MenuScenarioCount; ++I)
+                            {
+                                if (FCString::Stricmp(MenuScenarios[I].World, E.Level) != 0)
+                                    continue;
+                                if (At == Picked)
+                                    Options += FString::Printf(TEXT("?Activity=%s"), MenuScenarios[I].Activity);
+                                ++At;
+                            }
+                        }
             if (const int32* Sel = MenuSelectedPoi.Find(E.Level))
             {
                 const TArray<FBorn2FlapPoi> Cat = Born2FlapPoi::Catalog(E.Level);
@@ -1741,6 +2018,9 @@ FString ABorn2FlapGameMode::BuildBrainTelemetry() const
         Root->SetNumberField(TEXT("speed"), Bird->GetSpeed());
         Root->SetNumberField(TEXT("battery"), Bird->GetBattery() * 100.0);
         Root->SetNumberField(TEXT("throttle"), Bird->GetEffort());
+        // Flap cadence (commanded, servo-capped) — rounds to 0.1 Hz so the
+        // INSTRUMENTS readout only refreshes on a perceptible beat-rate shift.
+        Root->SetNumberField(TEXT("flap_hz"), FMath::RoundToFloat((float)Bird->GetFlapHz() * 10.f) / 10.f);
         Root->SetStringField(TEXT("status"), Bird->GetFlightStatus());
         // Wind readout for the Ruby cockpit. The relative source bearing is
         // pre-computed in screen space (0° = ahead, clockwise positive) so the
@@ -1931,10 +2211,12 @@ FString ABorn2FlapGameMode::BuildBrainTelemetry() const
     Root->SetBoolField(TEXT("frontend"), bMenuMode);
     Root->SetBoolField(TEXT("menu"), bMenuOpen);
     Root->SetBoolField(TEXT("menu_inlevel"), bMenuInLevel);
+    Root->SetBoolField(TEXT("apply_mode"), bMenuInLevel);
     Root->SetBoolField(TEXT("preferences"), bBrainPrefsOpen);
     Root->SetNumberField(TEXT("preferences_page"), PrefsPage);
-    Root->SetNumberField(TEXT("world_index"), MenuWorldIndex);
-    Root->SetNumberField(TEXT("menu_page"), MenuPage);
+        Root->SetNumberField(TEXT("world_index"), MenuWorldIndex);
+        Root->SetNumberField(TEXT("menu_page"), MenuPage);
+        Root->SetNumberField(TEXT("world_stage"), MenuWorldStage);
     Root->SetNumberField(TEXT("nav_page"), MenuNavPage);
     Root->SetNumberField(TEXT("settings_page"), SettingsPage);
     Root->SetNumberField(TEXT("rc_page"), RcPage);
@@ -1983,9 +2265,25 @@ FString ABorn2FlapGameMode::BuildBrainTelemetry() const
             if(Poi.Number>0) Label+=TEXT(" ")+FString::FromInt(Poi.Number);
             Launches.Add(MakeShared<FJsonValueString>(Label));
         }
-        WObj->SetArrayField(TEXT("launch_points"),Launches);
-        WObj->SetNumberField(TEXT("launch_index"),MenuSelectedPoi.FindRef(W.Id));
-        WorldArr.Add(MakeShareable(new FJsonValueObject(WObj)));
+                WObj->SetArrayField(TEXT("launch_points"),Launches);
+                WObj->SetNumberField(TEXT("launch_index"),MenuSelectedPoi.FindRef(W.Id));
+        
+                // Scenario tab data: the world's scenario list (empty = no tab) and the
+                // current pick (0 = free flight, 1+ = list index). The FLY button title
+                // follows the pick on the Brain side.
+                TArray<TSharedPtr<FJsonValue>> ScenArr;
+                for (int32 S = 0; S < MenuScenarioCount; ++S)
+                {
+                    if (FCString::Stricmp(MenuScenarios[S].World, W.Id) != 0)
+                        continue;
+                    TSharedPtr<FJsonObject> SObj = MakeShareable(new FJsonObject());
+                    SObj->SetStringField(TEXT("title"), MenuScenarios[S].Title);
+                    SObj->SetStringField(TEXT("story"), MenuScenarios[S].Story);
+                    ScenArr.Add(MakeShareable(new FJsonValueObject(SObj)));
+                }
+                WObj->SetArrayField(TEXT("scenarios"), ScenArr);
+                WObj->SetNumberField(TEXT("scenario_index"), MenuSelectedScenario.FindRef(W.Id));
+                WorldArr.Add(MakeShareable(new FJsonValueObject(WObj)));
     }
     Root->SetArrayField(TEXT("worlds"), WorldArr);
 

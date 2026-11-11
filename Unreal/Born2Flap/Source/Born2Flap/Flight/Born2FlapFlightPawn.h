@@ -2,6 +2,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Pawn.h"
 #include "Math/Born2FlapMathBridge.h"
+#include "Flight/Born2FlapPhysicsLoads.h"
 #include "Input/Born2FlapRcController.h"
 #include "born2flap_rc_input.h"
 #include "born2flap_desktop_input.h"
@@ -30,7 +31,9 @@ enum class ETuningField : uint8
     ServoSpeed, StallTorque, Backdrive, BatteryVoltage, BatteryResistance, BatteryCapacity,
     BatteryCRating, BatteryBurstCRating,
     FlapBaseFreq, TailElevatorAngle, GlideAngle, StrokeFerocity, AileronScale, ElevatorScale,
-    FlapCentre, VerticalMountAngle, ReturnFerocity, YawScale, StrokeSkew, ReturnSkew, Count
+    FlapCentre, VerticalMountAngle, ReturnFerocity, YawScale, StrokeSkew, ReturnSkew,
+    ShapeMix, ThrottleThrustShapeMix, ThrottleThrustExpo, AileronSkewMix,
+    ThrottleSkewRateMix, AileronSkewRateMix, ElevatorFerocityMix, Count
 };
 // RC channels drive the native actuators. All forces and moments are aerodynamic.
 UCLASS()
@@ -49,6 +52,11 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     void SyncCameraState();
     // Cycle the single mobile "perspective" button: BIRD-3RD → BIRD-1ST → PILOT-3RD → PILOT-1ST.
     void CycleCamera();
+    // Cinematic framing: cut to the pilot (3rd person) when the throw wind-up or
+    // a handcatch begins, then restore the previous focus when the bird launches.
+    // Manual camera toggles cancel the pending restore.
+    void AutoFramePilot();
+    void RestoreAutoFrame();
     bool IsFpvAirView() const { return bFpvAirView; }
     FString GetCameraLabel() const;
     void SelectBirdModel(int32 Index);
@@ -90,6 +98,17 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     // Touch hook: the HUD "THROW" overlay button hand-launches a grounded bird.
     // Safe to call while airborne — LaunchFlight() no-ops unless perched/grounded.
     void RequestHandLaunch();
+    // In-flight SPACE is the handcatch: pressing it while the bird is flying
+    // back to the pilot, inside the reach window, snatches the bird out of the
+    // air (catch animation + "Handcatch!" reward). This replaced the old
+    // mid-air pickup, which teleported a flying bird into the hand and folded
+    // its wings — the "space resets the wing position" behaviour.
+    bool TryHandcatch();
+    bool IsInHandcatchWindow() const;
+    // Reward toast ("Handcatch!"): text shown on the HUD hint banner for
+    // Duration seconds.
+    void AnnounceReward(const FString& Text, float Duration);
+    FString GetRewardText() const;
     // Optional shortcut: pick the grounded ornithopter up into the pilot's hand
     // (carry while walking/standing), or set it back down. The carried bird turns
     // with the pilot's gaze, which also sets the throw trajectory.
@@ -250,6 +269,10 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     // Canonical camera axes: focus (bird vs pilot) and distance (1st vs 3rd).
     // bGroundView / bFpvAirView / bThirdPersonActor are derived in SyncCameraState().
     bool bFocusActor = false, bFirstPerson = false, bThirdPersonActor = false;
+    // AutoFramePilot() remembers the pre-throw focus so RestoreAutoFrame() can
+    // return the camera to the player's chosen view once the bird launches.
+    bool bAutoFramed = false;
+    bool bAutoFramePrevFocus = false, bAutoFramePrevFirst = false;
     // The visible on-foot pilot. Spawned once; follows the ground anchor, walks
     // with the observer, hides in first-person ground view, and throws the bird.
     UPROPERTY() TObjectPtr<ABorn2FlapAvatar> Avatar;
@@ -273,6 +296,15 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     float ThrowCharge = 0.f;
     float PendingThrowCharge = 0.f;
     bool bThrowCharging = false;
+    // Handcatch window (cm / cm / m/s): the bird must be this close to the
+    // pilot's head, within this vertical band, and flying no faster than this
+    // for SPACE to catch it out of the air.
+    float HandCatchRadius = 320.f;
+    float HandCatchMaxDeltaZ = 150.f;
+    float HandCatchMaxSpeed = 12.f;
+    // Reward toast: text + expiry (WorldTime) driven by the HUD hint banner.
+    FString RewardText;
+    double RewardUntil = 0.0;
     FVector PrevAvatarFeet = FVector::ZeroVector;
     double CameraTime = 0, GroundSettleTime = 0;
     // True once the pilot has walked away from the auto-anchor beside the bird:
@@ -397,6 +429,14 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     double YawTestStartBank = 0, YawTestEarlyBank = 0;
     int32 VectorView = 0; // F5: off, strip lift/thrust/resultant, airflow/pressure/torque
     bool bFlying = false, bHealthy = false, bVectors = false, bReturning = false;
+    // Mesh Partition terrain cooks its collision bodies asynchronously at
+    // runtime; until a blocking surface exists below the spawn the bird is
+    // held (gravity off, velocities zeroed) so it cannot fall through the
+    // world during the first seconds of a level.
+    bool bTerrainWait = false;
+    float TerrainWaitElapsed = 0.f;
+    void MaybeStartTerrainWait();
+    void TickTerrainWait(float DeltaTime);
     bool bHideUI = false;
     // Touch hand-launch gate: re-arms when the throttle stick returns near
     // centre so a grounded bird can be thrown by pushing the left stick up.
@@ -418,6 +458,8 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     TArray<FBorn2FlapPoi> POIs;
     int32 SelectedPoi = 0;
     FVector AeroForce = FVector::ZeroVector, AeroMoment = FVector::ZeroVector;
+    TUniquePtr<FBorn2FlapPhysicsLoads> PhysicsLoads;
+    TArray<FBorn2FlapPhysicsLoad> SubstepLoads;
     FVector CurrentWind = FVector::ZeroVector;
     int32 SafetyResets = 0, MathFailures = 0, BoundaryReturns = 0;
     // Dry roll inertia (kg·m²) cached from the backend so a carried bird —
@@ -436,6 +478,9 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     int32 MathProfileSteps = 0, MathProfileFrames = 0;
     FVector RollTestBaseline = FVector::ZeroVector;
     double RollTestPeakRate = 0;
+    double RollTestTorqueSumX = 0;
+    double RollTestMomentSumX = 0;
+    int32 RollTestMathSteps = 0;
     double TestPoweredAltitude = 0, TestGlideAltitude = 0, TestBoostAltitude = 0;
     double TestBeforePullSpeed = 0, TestPullSpeed = 0, TestBeforePullHeight = 0, TestPullHeight = 0;
     double TestFlapMin = 80, TestFlapMax = -80;
@@ -459,4 +504,16 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     double DesktopTestTime = 0;
     int32 DesktopTestStage = -1;
     void CheckDesktopInputTest(float DeltaSeconds);
+
+    // -B2FThrowAnimTest: simulates a grounded SPACE press/release and verifies
+    // the pilot's throw animation actually plays (held bird rides the animated
+    // hands through the wind-up before the release at 30% of the clip).
+    bool bThrowAnimTest = false;
+    double ThrowAnimTestTime = 0;
+    void CheckThrowAnimTest(float DeltaSeconds);
+    bool bSawHeld = false, bSawThrowing = false;
+    FVector ThrowAnimStartPos = FVector::ZeroVector;
+    double ThrowAnimStartTime = 0;
+    float MaxHandTravel = 0.f, ReleaseDelay = -1.f, ThrowEndTime = -1.f;
+    TSet<FName> SeenAnimNames;
 };

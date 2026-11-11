@@ -27,10 +27,10 @@ import Born2Flap.Math.LiftField (PressureField(..), transportVector)
 import Born2Flap.Math.Types (Vec3(..))
 import Born2Flap.Math.Firmware
 import Born2Flap.Math.Servo
-import Born2Flap.Math.RollDynamics (solveImplicitSystemCached, supportedRollSystem, supportGravity)
+import Born2Flap.Math.RollDynamics (solveImplicitSystemCached)
 import Born2Flap.Math.SpatialDynamics (spatialSystem, tailFluidInertia, multiply)
 import Born2Flap.Math.Model (WingModel(..))
-import Born2Flap.Math.Airframe (tailRootX, tailOutline, tailSamples)
+import Born2Flap.Math.Airframe (airframeMasses, tailRootX, tailOutline, tailSamples)
 import Born2Flap.Math.Planform
   ( shapeFlapInertia, referenceWingMassKg, shapeChord, WingShape(..) )
 import Born2Flap.Math.Simulation
@@ -39,7 +39,7 @@ import Born2Flap.Math.PhaseEnvelope
 import Born2Flap.Math.ResponsePhase
 import Born2Flap.Math.Vehicle
   ( VehicleInput(..), VehicleOutput(..)
-  , StripState(..), StripResult(..), initialStrips, stripCount
+  , StripState(..), StripResult(..), initialStrips
   , WingSystem(..), prepareWingSystem, wingRootHeight, airDensity, surfaceSkinCd, surfacePressure
   , finiteWingLiftSlope, inducedDragCoefficient
   , addVec, crossVec, scaleVec, magnitude, zeroVec, radians )
@@ -64,10 +64,13 @@ data FirmwareVehicleState = FirmwareVehicleState
   , fvTailIncidenceDeg :: !Double             -- ^ actual common tail incidence for the rendered fan
   , fvTailFields :: ![TailField]              -- ^ exact solved fixed-fan force diagnostics
   , fvExternalForce :: !Vec3                 -- ^ surface forces before host added-mass/recoil conversion
-  , fvMassFrame :: !(Maybe (Double,Double,Double)) -- ^ CG x, dry pitch/yaw inertia; enables spatial coupling; absent = legacy prescribed-motion fixture
+  , fvSolvedBodyRates :: !Vec3               -- ^ converged spatial rates, before host impulse conversion
+  , fvDriveTorques :: !(Double,Double)       -- ^ signed motor torques, including static holding torque
+  , fvRollBalance :: ![Double]              -- ^ external, gravity, bias, body, hinges, other inertia, drives
+  , fvMassFrame :: !(Maybe (Double,Double,Double)) -- ^ CG x, dry pitch/yaw inertia; absent = fixture fallback (cg 0, host inertia for pitch/yaw)
   , fvPreviousDifferenceTarget :: !(Maybe Double) -- ^ previous commanded half-difference, radians
-  , fvSupportPosL :: !Double  -- ^ low-passed left support-position deviation [rad] (field inertia)
-  , fvSupportPosR :: !Double  -- ^ low-passed right support-position deviation [rad] (field inertia)
+  , fvHangDelta     :: !Double        -- ^ fuselage roll RELATIVE to the wing plane [rad] (shoulder-hinge pendulum)
+  , fvHangDeltaRate :: !Double        -- ^ [rad/s]
   } deriving stock (Eq, Show)
 
 defaultFirmwareVehicleState :: FirmwareVehicleState
@@ -91,10 +94,13 @@ defaultFirmwareVehicleState = FirmwareVehicleState
   , fvTailIncidenceDeg = -2.3
   , fvTailFields = []
   , fvExternalForce = zeroVec
+  , fvSolvedBodyRates = zeroVec
+  , fvDriveTorques = (0,0)
+  , fvRollBalance = replicate 8 0
   , fvMassFrame = Nothing
   , fvPreviousDifferenceTarget = Nothing
-  , fvSupportPosL = 0
-  , fvSupportPosR = 0
+  , fvHangDelta = 0
+  , fvHangDeltaRate = 0
   }
 
 -- Reconcile the solver's predicted pose with an authoritative host pose.
@@ -205,6 +211,9 @@ finite value = not (isNaN value || isInfinite value)
 components :: Vec3 -> [Double]
 components (Vec3 a b c) = [a,b,c]
 
+clamp :: Ord a => a -> a -> a -> a
+clamp low high = max low . min high
+
 -- Flat-plate added-air inertia. This is an inertial term, never weight
 -- support or a multiplier selected by a flight mode.
 addedAirGain :: Double
@@ -224,22 +233,30 @@ advanceFirmwareVehicle
 advanceFirmwareVehicle totalMass hostInertia coupled rc params servo battery model dt bodyVel bodyRates groundClearance bodyUp state
   | otherwise =
       let -- 1. Firmware mixer: RC → wing servo commands (flap deviation deg).
-          (cgX,pitchInertia,yawInertia) = maybe (0,0,0) id (fvMassFrame state)
+          -- Real mass frame from the host (CG x, dry pitch/yaw inertia).
+          -- Without one (test fixtures), fall back to CG at the origin and
+          -- the host roll inertia for pitch/yaw — still the full spatial
+          -- solve, never a decoupled legacy fixture.
+          (cgX,pitchInertia,yawInertia) = maybe (0,hostInertia,hostInertia) id (fvMassFrame state)
           cg = Vec3 cgX 0 0
-          spatial = case fvMassFrame state of Just _ -> True; Nothing -> False
-          originVelocity rates = addVec bodyVel (crossVec (addVec bodyRates (scaleVec (-1) rates)) cg)
-          (mix, nextFw) = computeServoMixer coupled rc params (fvFirmware state) dt
-          -- Real vertical mount angle: a direct wing incidence (nose-up +) about
-          -- the span axis, applied to every strip's geometric twist. Distinct from
-          -- the flap-stroke-centre (dihedral) trim that shifts the stroke centre.
-          mountIncidence = radians (fwVerticalMountIncidenceDeg params)
+          -- Body orientation is the root coordinate; both shoulders articulate
+          -- relative to it. There is no additional wing-plane/fuselage pendulum
+          -- coordinate. Body, tail and wings share the spatial mass matrix;
+          -- actuator recoil reaches the body through the shoulder coupling.
+          -- The obsolete hang state remains zero for ABI compatibility.
           -- Wing rotational inertia about the flap hinge, derived from the
           -- model's actual planform: structural mass + entrained-air added mass
           -- (∝ ρ·chord²). Shared by the servo (rate acceleration) and the
           -- inertial body recoil (Newton's 3rd law).
           wingMass = referenceWingMassKg
           wingInertia = shapeFlapInertia wingMass (airDensity * addedAirGain) (wmWing model)
-     
+          originVelocity rates = addVec bodyVel (crossVec (addVec bodyRates (scaleVec (-1) rates)) cg)
+          (mix, nextFw) = computeServoMixer coupled rc params (fvFirmware state) dt
+          -- Real vertical mount angle: a direct wing incidence (nose-up +) about
+          -- the span axis, applied to every strip's geometric twist. Distinct from
+          -- the flap-stroke-centre (dihedral) trim that shifts the stroke centre.
+          mountIncidence = radians (fwVerticalMountIncidenceDeg params)
+
           dryWingInertia = shapeFlapInertia wingMass 0 (wmWing model)
           -- Relative hinge coordinates require full locked inertia on the body
           -- diagonal: E = Ib*p^2/2 + Iw*((l-p)^2+(r+p)^2)/2 (plus rotor energy).
@@ -268,9 +285,9 @@ advanceFirmwareVehicle totalMass hostInertia coupled rc params servo battery mod
           -- The servo torque must be a CONSISTENT function of the trial flap
           -- rate (implicit coupling): the reference tracker sees the trial
           -- angle at the end of the step, so the Newton solve can converge to
-          -- the equilibrium where the glued wing and the counter-rotating
-          -- body track the command together. The old explicit torque (from
-          -- the previous servo state) lagged one step and slammed the light
+          -- the equilibrium where the wing and the counter-rotating body
+          -- track the command together. The old explicit torque (from the
+          -- previous servo state) lagged one step and slammed the light
           -- fuselage with stall torque — the runaway roll spin.
           motorTorques l r aeroLoad =
             let atEnd angle old rate=old
@@ -280,28 +297,13 @@ advanceFirmwareVehicle totalMass hostInertia coupled rc params servo battery mod
                  (mixLeftFlapDevDeg mix,mixRightFlapDevDeg mix)
                  (y aeroLoad,z aeroLoad)
                  (wingInertia,differenceInertia) (atEnd angleL oldL l,atEnd angleR oldR r) (l,r)
-          -- Support-field attachment: the compressed-air cushion's position
-          -- deviation follows the MEAN wing position, low-passed so the
-          -- flap-frequency servo-lag ripple cannot pump the hanging-body
-          -- pendulum (supportPosTau matches the known-good field inertia).
-          centreStroke = 0.5 * (angleL + angleR)
-          supportDiff = 0.5 * (angleL - angleR)
-          supportPosTau = 0.25
-          supportPosLNext = fvSupportPosL state + (supportDiff - fvSupportPosL state) * dt / supportPosTau
-          supportPosRNext = fvSupportPosR state + (-supportDiff - fvSupportPosR state) * dt / supportPosTau
-          -- Static weight support per strip [N]: body weight PLUS the
-          -- entrained-air added mass, distributed across BOTH wings by chord
-          -- area. The strip applies the share VERTICALLY and modulates it by
-          -- the flap position (supportLiftMod), so a held differential stroke
-          -- produces a rate-independent roll couple; circulation lift takes
-          -- the load over at cruise instead of double-carrying it.
-          supportShares =
-            let chords = map (shapeChord wp . (\i -> (fromIntegral i + 0.5) / fromIntegral stripCount)) [0 .. stripCount - 1]
-                totalChord = 2 * sum chords
-                weightN = (totalMass + 2 * addedMass) * 9.81
-            in map (\c -> weightN * c / totalChord) chords
-          leftSystem = prepareWingSystem (mixIsFlapping mix) (-1) angleL (y oldRates) input model mountIncidence (fvLeftStrips state) supportShares centreStroke supportPosLNext
-          rightSystem = prepareWingSystem (mixIsFlapping mix) 1 angleR (z oldRates) input model mountIncidence (fvRightStrips state) supportShares centreStroke supportPosRNext
+          -- No static weight support: the wings lift the aircraft ONLY through
+          -- the air they move (circulation, rotational, LEV, pressure, added
+          -- mass). Gravity is carried by the vehicle mass budget in the
+          -- spatial solve; the aileron differential rolls the bird through
+          -- the wings' own tilted aerodynamic forces.
+          leftSystem = prepareWingSystem (mixIsFlapping mix) (-1) angleL (y oldRates) input model mountIncidence (fvLeftStrips state)
+          rightSystem = prepareWingSystem (mixIsFlapping mix) 1 angleR (z oldRates) input model mountIncidence (fvRightStrips state)
           (vbL,vtL) = wingInitialRates leftSystem
           (vbR,vtR) = wingInitialRates rightSystem
           initial = [x oldRates,y oldRates,z oldRates,vbL,vtL,vbR,vtR,y bodyRates,z bodyRates,0,0,0]
@@ -311,23 +313,6 @@ advanceFirmwareVehicle totalMass hostInertia coupled rc params servo battery mod
                 deltaVelocity = addVec (Vec3 dvx dvy dvz) (crossVec (addVec bodyRates (scaleVec (-1) motion)) cg)
             in (wingTrialMotion leftSystem motion deltaVelocity l common (bL,tL), wingTrialMotion rightSystem motion deltaVelocity r common (bR,tR))
           trial _ = error "coupled coordinate count"
-          -- Dry-wing first mass moment from the same planform as hinge inertia.
-          wp = wmWing model
-          massSamples = [(wsShoulderM wp+wsSpanM wp*f,shapeChord wp f)
-                        | i<-[0..127::Int],let f=(fromIntegral i+0.5)/128]
-          firstMoment = wingMass * sum [r*c | (r,c)<-massSamples] / sum (map snd massSamples)
-          -- Translational added air (rho*pi*c^2/4 per unit span) and its first
-          -- moment about the body centreline (c^2 weighting pushes the centroid
-          -- outboard where the chord is deeper). This is the fluid inertia the
-          -- wing must accelerate when it translates normally through the air;
-          -- rotational added air is already inside wingInertia/lockedInertia.
-          dfrac = 1/128
-          addedMass = airDensity * addedAirGain * (pi/4) * (wsSpanM wp) * sum [c*c*dfrac | (_,c)<-massSamples]
-          addedFirstMoment = airDensity * addedAirGain * (pi/4) * (wsSpanM wp) * sum [r*c*c*dfrac | (r,c)<-massSamples]
-          (supportMass,supportLoad,supportRecoil,massRatio) = supportedRollSystem totalMass addedMass lockedInertia
-            dryWingInertia wingInertia reflectedDriveInertia firstMoment addedFirstMoment wingRootHeight (angleL,angleR) oldRates
-          (gravityLoad,gravityCorrection) = supportGravity totalMass addedMass firstMoment addedFirstMoment
-            (angleL,angleR) (scaleVec (-9.81) bodyUp)
           cgVelocity = addVec bodyVel (crossVec bodyRates cg)
           oldSpatial = components cgVelocity ++ components bodyRates ++ [y oldRates,z oldRates]
           (baseSpatialMass,baseSpatialBias,spatialGravity) = spatialSystem model totalMass cgX
@@ -337,47 +322,48 @@ advanceFirmwareVehicle totalMass hostInertia coupled rc params servo battery mod
             else (replicate 8 (replicate 8 0),replicate 8 0)
           spatialMass=zipWith (zipWith (+)) baseSpatialMass tailMass
           spatialBias=zipWith (+) baseSpatialBias tailBias
+          -- Rigid fuselage: the roll row carries the whole bird; the body and
+          -- tail see the body's own angular rates (no separate hang DOF).
+          wingPlaneMass = spatialMass
           aeroAt candidateBodyRates deltaVelocity (ls,rs) =
-            let (bodyF,bodyM) = bodyLoadsAt candidateBodyRates deltaVelocity
-                tailPanels = panelsAt candidateBodyRates deltaVelocity
+            let fuselageRates = candidateBodyRates
+                (bodyF,bodyM) = bodyLoadsAt fuselageRates deltaVelocity
+                tailPanels = panelsAt fuselageRates deltaVelocity
                 tailF = foldr (addVec . fst) zeroVec tailPanels
                 tailM = foldr (addVec . snd) zeroVec tailPanels
-                forceAt = foldr (addVec . resultForce)
-                  (addVec bodyF tailF) (ls++rs)
-                momentAt = foldr (addVec . resultMoment) (addVec bodyM tailM) (ls++rs)
+                wingF = foldr (addVec . resultForce) zeroVec (ls++rs)
+                wingsM = foldr (addVec . resultMoment) zeroVec (ls++rs)
+                fuseM = addVec bodyM tailM
+                forceAt = addVec wingF (addVec bodyF tailF)
                 torqueAt = Vec3 (sum (zipWith (\l r -> x (resultMoment l) + x (resultMoment r)) ls rs)
                                 + x tailM + x bodyM)
                             (hingeTorque (-1) ls) (hingeTorque 1 rs)
-                jointLoad = if spatial then addVec torqueAt (Vec3 0 (spatialGravity!!6) (spatialGravity!!7))
-                            else addVec gravityLoad (addVec torqueAt (supportLoad forceAt))
-            in (jointLoad,forceAt,momentAt)
-          (aero0,_,_) = aeroAt bodyRates zeroVec (trial initial)
+                jointLoad = addVec torqueAt (Vec3 0 (spatialGravity!!6) (spatialGravity!!7))
+            in (jointLoad,forceAt,wingsM,fuseM)
+          (aero0,_,_,_) = aeroAt bodyRates zeroVec (trial initial)
           residual coordinates@[p,l,r,bL,tL,bR,tR,q,s,dvx,dvy,dvz] =
-            let rates=Vec3 p l r
-                (ls,rs)=trial coordinates
-                (aero,forceAt,momentAt)=aeroAt (Vec3 p q s) (Vec3 dvx dvy dvz) (ls,rs)
-                momentCg=addVec momentAt (scaleVec (-1) (crossVec cg forceAt))
+            let (ls,rs)=trial coordinates
+                (aero,forceAt,wingsM,fuseM)=aeroAt (Vec3 p q s) (Vec3 dvx dvy dvz) (ls,rs)
+                -- Rigid roll: the full aero roll moment (wings + body + tail)
+                -- acts on the one roll DOF; gravity acts at the CG through
+                -- the spatial mass matrix. No pendulum couple is invented.
+                cgShift = scaleVec (-1) (crossVec cg forceAt)
+                momentCg=Vec3 (x wingsM + x fuseM)
+                              (y wingsM + y fuseM + y cgShift)
+                              (z wingsM + z fuseM + z cgShift)
                 drag load rate=servoBackdriveTorque servo battery voltage load rate
                 (driveL,driveR)=motorTorques l r aero
-                load=addVec aero (Vec3 0 (driveL+drag (y aero0) l) (driveR+drag (z aero0) r))
-                delta=addVec rates (scaleVec (-1) oldRates)
-                (row0,row1,row2)=supportMass
-                dot a b=x a*x b+y a*y b+z a*z b
-                impulse=addVec (Vec3 (dot row0 delta) (dot row1 delta) (dot row2 delta)) (scaleVec (-dt) load)
                 constrained angle rate err=rate-max ((-radians 80-angle)/dt) (min ((radians 80-angle)/dt) (rate-err))
                 (ebL,etL)=wingElasticResidual leftSystem (bL,tL) ls
                 (ebR,etR)=wingElasticResidual rightSystem (bR,tR) rs
-                pitchResidual=q-y bodyRates-if pitchInertia>0 then dt*y momentCg/pitchInertia else 0
-                yawResidual=s-z bodyRates-if yawInertia>0 then dt*z momentCg/yawInertia else 0
                 spatialDelta = [dvx,dvy,dvz,p-x bodyRates,q-y bodyRates,s-z bodyRates,l-y oldRates,r-z oldRates]
-                applied = components forceAt ++ components momentCg ++
-                  [hingeTorque (-1) ls+driveL+drag (y aero0) l,hingeTorque 1 rs+driveR+drag (z aero0) r]
+                applied = components forceAt
+                  ++ (x momentCg : [y momentCg, z momentCg])
+                  ++ [hingeTorque (-1) ls+driveL+drag (y aero0) l,hingeTorque 1 rs+driveR+drag (z aero0) r]
                 net = zipWith (-) (zipWith (+) applied spatialGravity) spatialBias
-                spatialImpulse = zipWith (-) (multiply spatialMass spatialDelta) (map (*dt) net)
-                e = zipWith (/) spatialImpulse [spatialMass!!i!!i | i<-[0..7]]
-            in if spatial
-               then [e!!3,constrained angleL l (e!!6),constrained angleR r (e!!7),ebL,etL,ebR,etR,e!!4,e!!5,e!!0,e!!1,e!!2]
-               else [x impulse/x row0,constrained angleL l (y impulse/y row1),constrained angleR r (z impulse/z row2),ebL,etL,ebR,etR,pitchResidual,yawResidual,dvx,dvy,dvz]
+                spatialImpulse = zipWith (-) (multiply wingPlaneMass spatialDelta) (map (*dt) net)
+                e = zipWith (/) spatialImpulse [wingPlaneMass!!i!!i | i<-[0..7]]
+            in [e!!3,constrained angleL l (e!!6),constrained angleR r (e!!7),ebL,etL,ebR,etR,e!!4,e!!5,e!!0,e!!1,e!!2]
           residual _ = error "coupled coordinate count"
           solved = solveImplicitSystemCached (fvTangent state) residual initial
           coordinatesNext = case solved of Just (values,_) -> values; Nothing -> replicate 12 (0/0)
@@ -413,7 +399,10 @@ advanceFirmwareVehicle totalMass hostInertia coupled rc params servo battery mod
                               (fvResponsePhase state)
 
           -- 3. Actual flap deviation → wing physics.
-          input = VehicleInput dt bodyVel bodyRates 0 (crsfToNorm (rcAileron rc)) elevatorNorm 0 groundClearance bodyUp
+          -- No stick commands enter the wing strip solver: roll and pitch
+          -- emerge implicitly from the dihedral differential and the tail
+          -- incidence the servos actually reach.
+          input = VehicleInput dt bodyVel bodyRates 0 0 0 0 groundClearance bodyUp
           (leftRaw,rightRaw) = trial coordinatesNext
           (leftResults,leftNext) = wingCommit leftSystem leftRaw
           (rightResults,rightNext) = wingCommit rightSystem rightRaw
@@ -427,10 +416,8 @@ advanceFirmwareVehicle totalMass hostInertia coupled rc params servo battery mod
           --    Every control moment is a force acting at a physical lever arm.
           --    Tail flow includes body angular velocity, providing aerodynamic
           --    pitch/yaw damping instead of an artificial attitude torque.
-          elevatorNorm = crsfToNorm (rcElevator rc)
           rudderNorm = (mixRudderUs mix - 1500) / 500
           wingForce = foldr (addVec . resultForce) zeroVec wingResults
-          wingMoment = foldr (addVec . resultMoment) zeroVec wingResults
           -- Body parasitic drag area (CdA). The reference kestrel body is a
           -- 0.42 m × 0.03 m × 0.03 m streamlined fuselage: frontal area ~9e-4 m²
           -- at Cd ≈ 0.44 gives CdA ≈ 4e-4 m². The old 0.011 m² (~27× too high)
@@ -470,16 +457,15 @@ advanceFirmwareVehicle totalMass hostInertia coupled rc params servo battery mod
           -- sway is resisted by the tail's lateral lift and crossflow. Its
           -- offset force also contributes roll and can oppose wing roll.
           cant = radians 32
-          -- A direct flap-power/ruddervator mix balances the wing drive's changing
-          -- pitching moment. Glide returns to its shallow incidence; no attitude,
-          -- altitude or speed target is involved.
-          -- Re-trim for the shared finite-wing lift slope. Keeping the old
-          -- incidence after correcting the tail's weak lift slope doubled
-          -- the nose-up trim moment and drove repeated climb/stall cycles.
+          -- FIXED-TAIL DOCTRINE: the tail is a passive stabiliser rigid with
+          -- the fuselage — its incidence is the mounting trim ONLY. The
+          -- PITCH stick never actuates the tail: it shifts the WINGS' common
+          -- flap-stroke centre (dihedral/anhedral, see Firmware.hs), and the
+          -- pitch moment emerges implicitly from the wing forces at their
+          -- real lever arms.
           tailMount = profTailElevatorAngleDeg (fwProfile params)
-          tailTrim = tailMount - 1.1 * mixThrottlePct mix * mixThrottlePct mix
           fixedFan = wmName model `elem` ["kestrel", "kestrel-light"]
-          tailIncidence = if fixedFan then tailMount else tailTrim - 18 * elevatorNorm
+          tailIncidence = tailMount
           tailPanel panelBodyRates deltaVelocity side =
             let -- Legacy tail geometry retains its fixed arm and panel
                 -- area (0.85 m arm, 0.0242 m² panel); it is part of the bird,
@@ -507,35 +493,26 @@ advanceFirmwareVehicle totalMass hostInertia coupled rc params servo battery mod
           -- the small fuselage inertia is exposed during a wing transition.
           panels = panelsAt bodyRatesNext velocityDeltaNext
           tailForce = foldr (addVec . fst) zeroVec panels
-          tailMoment = foldr (addVec . snd) zeroVec panels
-          (bodyForce,bodyMoment) = bodyLoadsAt bodyRatesNext velocityDeltaNext
+          (bodyForce,_) = bodyLoadsAt bodyRatesNext velocityDeltaNext
           externalForce = addVec wingForce (addVec bodyForce tailForce)
-          acceleration = scaleVec (1/dt) (addVec ratesNext (scaleVec (-1) oldRates))
-          recoilForce = supportRecoil acceleration
-          -- The host integrates translation with its own dry mass, which does
-          -- not include translational added air. Scale the lateral/heave force
-          -- by massRatio and add the added-air inertial recoil so the host's
-          -- dry-mass integration reproduces the correct fluid-inertia response.
-          -- Gravity needs the same reduction: added air has inertia, not extra
-          -- aircraft weight. Without this correction, even steady flight
-          -- required lift equal to (dry mass + added air)*g.
-          -- Forward (streamwise) force is unaffected: the wing is edge-on in X.
-          force = if spatial
-                  then addVec (scaleVec (totalMass/dt) velocityDeltaNext) (scaleVec (totalMass*9.81) bodyUp)
-                  else Vec3 (x externalForce)
-                       (massRatio * y externalForce + y recoilForce + y gravityCorrection)
-                       (massRatio * z externalForce + z recoilForce + z gravityCorrection)
-          aeroMoment = addVec wingMoment (addVec bodyMoment tailMoment)
+          -- The spatial solve carries the full mass matrix (dry + added air)
+          -- and true gravity. The force handed to the host is the solved
+          -- inertial acceleration of the TOTAL mass plus its weight: the host
+          -- integrates its dry mass and receives the complete exchange — no
+          -- separate support/recoil correction exists any more.
+          force = addVec (scaleVec (totalMass/dt) velocityDeltaNext) (scaleVec (totalMass*9.81) bodyUp)
           -- Equivalent dry-host loads reproduce the solved spatial impulse.
           -- Fluid inertia, joint recoil and gyroscopic terms are already in
           -- that solve. Preserve the ABI's origin-to-CG shift convention by
           -- adding cg cross surfaceForce here; the host removes it once.
-          moment = if spatial
-                   then addVec (Vec3 (hostInertia*(x bodyRatesNext-x bodyRates)/dt)
-                                     (pitchInertia*(y bodyRatesNext-y bodyRates)/dt)
-                                     (yawInertia*(z bodyRatesNext-z bodyRates)/dt)) (crossVec cg externalForce)
-                   else Vec3 (hostInertia * (x ratesNext - x bodyRates) / dt)
-                        (y aeroMoment) (z aeroMoment)
+          -- The ROLL component drives the rigid wing plane + fuselage; the
+          -- roll impulse is the solved spatial momentum — never added twice.
+          -- hostInertia is already about the host CG, exactly as in the
+          -- spatial system. A shoulder-height parallel-axis addition here
+          -- amplifies the returned acceleration and breaks impulse matching.
+          moment = addVec (Vec3 (hostInertia*(x bodyRatesNext-x bodyRates)/dt)
+                                 (pitchInertia*(y bodyRatesNext-y bodyRates)/dt)
+                                 (yawInertia*(z bodyRatesNext-z bodyRates)/dt)) (crossVec cg externalForce)
 
           separations = map (stripSeparation . resultState) wingResults
           maximumSeparation = maximum (0 : separations)
@@ -544,7 +521,10 @@ advanceFirmwareVehicle totalMass hostInertia coupled rc params servo battery mod
           -- Charge the actual motor torque, including acceleration and reversal,
           -- rather than only the aerodynamic hinge load. The 5 A stall-current
           -- assumption remains provisional until measured servo data is supplied.
-          (aeroNext,_,_) = aeroAt bodyRatesNext velocityDeltaNext (leftResults,rightResults)
+          (aeroNext,_,auditWingMoment,auditBodyMoment) = aeroAt bodyRatesNext velocityDeltaNext (leftResults,rightResults)
+          auditDelta = components velocityDeltaNext ++ components (addVec bodyRatesNext (scaleVec (-1) bodyRates))
+                       ++ [y ratesNext-y oldRates,z ratesNext-z oldRates]
+          auditParts = zipWith (*) (spatialMass!!3) (map (/dt) auditDelta)
           (torqueL,torqueR) = motorTorques (y ratesNext) (z ratesNext) aeroNext
           motorPower = max 0 (torqueL*y ratesNext) + max 0 (torqueR*z ratesNext)
           torqueCurrent = (abs torqueL + abs torqueR) / max 0.01 (servoStallTorqueNm servo / 5)
@@ -562,8 +542,8 @@ advanceFirmwareVehicle totalMass hostInertia coupled rc params servo battery mod
             , fvRightStrips = rightNext
             , fvLeftStripForceMag = map (magnitude . resultForce) leftResults
             , fvRightStripForceMag = map (magnitude . resultForce) rightResults
-            , fvLeftHingeTorqueNm = leftHinge + y (supportLoad externalForce)
-            , fvRightHingeTorqueNm = rightHinge + z (supportLoad externalForce)
+            , fvLeftHingeTorqueNm = leftHinge
+            , fvRightHingeTorqueNm = rightHinge
             , fvMotorCurrentA = motorCurrent
             , fvBatterySoc = nextSoc
             , fvBatteryBoost = boostNext
@@ -573,9 +553,14 @@ advanceFirmwareVehicle totalMass hostInertia coupled rc params servo battery mod
             , fvTailIncidenceDeg = tailIncidence
             , fvTailFields = if fixedFan then fanAt bodyRatesNext velocityDeltaNext else []
             , fvExternalForce = externalForce
+            , fvSolvedBodyRates = bodyRatesNext
+            , fvDriveTorques = (torqueL,torqueR)
+            , fvRollBalance = [x auditWingMoment+x auditBodyMoment,spatialGravity!!3,spatialBias!!3,
+                               auditParts!!3,auditParts!!6+auditParts!!7,
+                               sum [auditParts!!i | i<-[0,1,2,4,5]],torqueL,torqueR]
             , fvPreviousDifferenceTarget = Just differenceTarget
-            , fvSupportPosL = supportPosLNext
-            , fvSupportPosR = supportPosRNext
+            , fvHangDelta = 0
+            , fvHangDeltaRate = 0
             }
 
           output = VehicleOutput force moment power maximumSeparation (-1) 0
@@ -675,30 +660,66 @@ kestrelTailLoads incidenceDeg velocity rates = map at tailSamples
           lift = scaleVec (q*cl/max 1e-9 speed) (Vec3 (-w) 0 u)
           pressure = scaleVec (surfacePressure patchArea ((-si)*u+ci*w)) normal
           (fx,fz) = tailSurfaceForAspect aspect patchArea incidence u w
-          -- Spanwise skin drag is dissipative too; a flat fan has no hidden
-          -- vertical-fin area when the flow is along its span. No ruddervator
-          -- or additional yaw/roll torque is injected here: the horizontal fan
-          -- only carries its real chordwise/normal forces plus this skin drag.
-          -- Roll→yaw (proverse) belongs to the wing's differential lift/drag and
-          -- the aft-fuselage side panel, both of which are real surfaces.
-          fy = -0.5*airDensity*patchArea*surfaceSkinCd*abs(y flow)*y flow
+          -- SIDE FORCE: the fan is a thin, mostly open surface — its lateral
+          -- silhouette is small, so side force from lateral flow (sideslip or
+          -- yaw sweep) is WEAK. It must stay weak: a strong side force here
+          -- weathercocks the nose and pins the tail in the air, which reads
+          -- as the fake auto-rotation (nose swings around a stationary tail).
+          -- Only the (x,y) flow plane is used, so the fan's pitch incidence
+          -- cannot leak vertical flow into the sideslip angle. Forces act at
+          -- the patch position: no injected torques.
+          vlat = y flow
+          platSpeed = sqrt (u*u+vlat*vlat)
+          -- Fin beta = the local sideslip. The fan is FIXED to the fuselage;
+          -- it deflects only because the fuselage banks/rotates, and its
+          -- tilted force then yaws the nose.
+          betaFin = atan2 (-vlat) (abs u)
+          qLat = 0.5*airDensity*patchArea*platSpeed*platSpeed
+          fyLat = qLat * (fanLatCl * sin (2*betaFin)
+                          - fanLatCd * sin betaFin * sin betaFin * signum vlat)
+          -- Lateral DRAG of the spread feathers: the fan catches air whenever
+          -- it sweeps sideways (sideslip or yaw rate × arm), so this term is
+          -- the tail's REAL yaw-rate damper. The skin-friction term alone is
+          -- nearly zero for the thin feathers; the faned spread is closer to
+          -- a slotted plate at ~1.0 drag coefficient normal to its plane.
+          fy = -0.5*airDensity*patchArea*(surfaceSkinCd + fanLatDragCd)*abs(y flow)*y flow + fyLat
           force = Vec3 fx fy fz
           drag = addVec force (scaleVec (-1) (addVec lift pressure))
       in TailField position normal flow lift pressure drag (crossVec position force)
 
--- | Round lifting-body polar. A streamlined body has a much weaker circulation
+-- | Lateral side-force coefficients of the fixed fan tail. The fan's side
+-- silhouette is small (thin feathers, mostly open area), so BOTH the
+-- circulation slope and the pressure term are deliberately weak: the tail's
+-- yaw authority in a turn comes from the BANKED tail's tilted vertical load,
+-- not from fin weathervaning. A strong fin term here weathercocks the bird
+-- flat — the nose swings around an almost stationary tail, which is exactly
+-- the fake auto-rotation. With these weak terms a sideslip barely turns the
+-- nose, and a wind gust can only push the bird (inertia), never steer it.
+fanLatCl :: Double
+fanLatCl = 0.10
+fanLatCd :: Double
+fanLatCd = 0.5
+
+-- | Drag coefficient of the fanned tail against lateral motion (the fan
+-- sweeping sideways through the air). This is the tail's REAL yaw-rate
+-- damper: it resists the sweep, not the sideslip heading. Small enough that
+-- a crosswind gust cannot sail the tail around.
+fanLatDragCd :: Double
+fanLatDragCd = 1.0
+
+-- | Round lifting-body polar.
 -- lift than a flat plate (its sides/top are curved, so the Kutta condition is
 -- soft) but it still weathervanes through the crossflow pressure term. Lift
 -- slope ≈0.45 is about half the flat plate, matching slender-body theory.
 bodyLiftPolar :: PanelPolar
 bodyLiftPolar = PanelPolar 0.45 0.034 0.10 2.5
 
--- A modest lateral calibration for the Kestrel's aft fuselage. This surface
--- sees the same local flow in glide and flap; its force at fuselageAftArm
--- supplies both sideslip resistance and the restoring yaw moment. Keep the
--- zero-sideslip profile drag and the pitch panel unchanged.
+-- The aft-fuselage side panel (fixed geometry behind the CG). Its side force
+-- is kept small for the same reason as the fan's: the body must not act like
+-- a fin. Its force at fuselageAftArm gives a mild yaw-rate damping through
+-- the crossflow pressure term without steering the nose into every sideslip.
 kestrelSidePolar :: PanelPolar
-kestrelSidePolar = bodyLiftPolar { ppClSlope = 0.70, ppCdPressureK = 3.60 }
+kestrelSidePolar = bodyLiftPolar { ppClSlope = 0.15, ppCdPressureK = 1.20 }
 
 
 -- | Centre of pressure of the fuselage aft-body + tail boom, BEHIND the CG.

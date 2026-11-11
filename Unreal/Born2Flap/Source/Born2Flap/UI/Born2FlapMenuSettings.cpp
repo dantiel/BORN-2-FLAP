@@ -46,6 +46,13 @@ float MenuSettingsTuningClamp(ETuningField Field, float Value)
     case ETuningField::YawScale:          return FMath::Clamp(Value, 0.f, 100.f);
     case ETuningField::StrokeSkew:        return FMath::Clamp(Value, -100.f, 100.f);
     case ETuningField::ReturnSkew:        return FMath::Clamp(Value, -100.f, 100.f);
+    case ETuningField::ShapeMix:          return FMath::Clamp(Value, 0.f, 100.f);
+    case ETuningField::ThrottleThrustShapeMix: return FMath::Clamp(Value, 0.f, 100.f);
+    case ETuningField::ThrottleThrustExpo: return FMath::Clamp(Value, -100.f, 100.f);
+    case ETuningField::AileronSkewMix:    return FMath::Clamp(Value, 0.f, 100.f);
+    case ETuningField::ThrottleSkewRateMix: return FMath::Clamp(Value, 0.f, 100.f);
+    case ETuningField::AileronSkewRateMix: return FMath::Clamp(Value, 0.f, 100.f);
+    case ETuningField::ElevatorFerocityMix: return FMath::Clamp(Value, 0.f, 100.f);
     default: return 0.f;
     }
 }
@@ -74,6 +81,13 @@ float MenuSettingsGetTuning(const FMenuSettings& S, ETuningField Field)
     case ETuningField::YawScale:          return float(S.Tuning.yaw_scale);
     case ETuningField::StrokeSkew:        return float(S.Tuning.stroke_skew_percent);
     case ETuningField::ReturnSkew:        return float(S.Tuning.return_skew_percent);
+    case ETuningField::ShapeMix:          return float(S.Tuning.shape_mix_percent);
+    case ETuningField::ThrottleThrustShapeMix: return float(S.Tuning.throttle_thrust_shape_mix_percent);
+    case ETuningField::ThrottleThrustExpo: return float(S.Tuning.throttle_thrust_expo_percent);
+    case ETuningField::AileronSkewMix:    return float(S.Tuning.aileron_skew_mix_percent);
+    case ETuningField::ThrottleSkewRateMix: return float(S.Tuning.throttle_skew_rate_mix_percent);
+    case ETuningField::AileronSkewRateMix: return float(S.Tuning.aileron_skew_rate_mix_percent);
+    case ETuningField::ElevatorFerocityMix: return float(S.Tuning.elevator_ferocity_mix_percent);
     default: return 0.f;
     }
 }
@@ -104,6 +118,13 @@ void MenuSettingsSetTuning(FMenuSettings& S, ETuningField Field, float Value)
     case ETuningField::YawScale:          S.Tuning.yaw_scale = Value; break;
     case ETuningField::StrokeSkew:        S.Tuning.stroke_skew_percent = Value; break;
     case ETuningField::ReturnSkew:        S.Tuning.return_skew_percent = Value; break;
+    case ETuningField::ShapeMix:          S.Tuning.shape_mix_percent = Value; break;
+    case ETuningField::ThrottleThrustShapeMix: S.Tuning.throttle_thrust_shape_mix_percent = Value; break;
+    case ETuningField::ThrottleThrustExpo: S.Tuning.throttle_thrust_expo_percent = Value; break;
+    case ETuningField::AileronSkewMix:    S.Tuning.aileron_skew_mix_percent = Value; break;
+    case ETuningField::ThrottleSkewRateMix: S.Tuning.throttle_skew_rate_mix_percent = Value; break;
+    case ETuningField::AileronSkewRateMix: S.Tuning.aileron_skew_rate_mix_percent = Value; break;
+    case ETuningField::ElevatorFerocityMix: S.Tuning.elevator_ferocity_mix_percent = Value; break;
     default: return;
     }
 }

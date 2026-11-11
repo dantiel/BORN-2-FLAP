@@ -44,7 +44,7 @@ import Born2Flap.Math.Wing (crossflowBaseline, relaxSeparation)
 import Born2Flap.Math.Model (WingModel(..), kestrelModel)
 import Born2Flap.Math.Planform
   ( WingShape(..), SpanStation(..), shapeStationsAt, shapeChord
-  , shapeSweepRad, shapeTwistRad, shapeDihedralRad, shapeAspectRatio, shapeSection, referenceWingMassKg )
+  , shapeSweepRad, shapeDihedralRad, shapeAspectRatio, shapeSection, referenceWingMassKg )
 import Born2Flap.Math.Section
   ( SectionProfile(..), zeroLiftAngle, sectionPitchMomentCoeff
   , membraneCamberTarget, relaxCamber )
@@ -70,58 +70,27 @@ surfaceSkinCd = 0.012
 surfacePressureCp :: Double
 surfacePressureCp = 2.0
 
--- Low-speed normal-pressure floor [m/s]. A purely quadratic v·|v| pressure
--- vanishes as the relative speed tends to zero, so a slowly-drifting surface
--- (slow aileron, held glide dihedral, a body just starting to roll) slips
--- through the air with no reaction. v·√(v²+v0²) is linear below v0 and
--- quadratic above it: it dissipates slow normal motion without changing
--- flapping or forward glide. Raised 0.5 → 1.0 so the roll-rate coupling of a
--- held differential stroke has a real grip below 1 m/s of normal motion.
-lowSpeedNormalFloor :: Double
-lowSpeedNormalFloor = 1.5
+-- Kinematic viscosity of air at 15 °C [m²/s] and the Stokes creeping-flow
+-- plate constant (≈4π for a thin strip normal to the flow). Together they
+-- form the PHYSICAL low-Reynolds-number normal-force law: a viscous linear
+-- term 2·Cstokes·ν/c·v that dominates the quadratic pressure only below
+-- ~0.005 m/s at our chord scale — six orders below the old arbitrary 1.5 m/s
+-- floor. Slow differential motion is resisted by real added mass (elastic
+-- solve) and spanwise sweep coupling, never by a faked minimum speed.
+airKinematicViscosity, surfaceStokesPlateCd :: Double
+airKinematicViscosity = 1.48e-5
+surfaceStokesPlateCd = 4 * pi
 
--- Shared wing/tail normal pressure; circulation supplies forward-flow lift.
+-- Shared wing/tail normal pressure: quadratic v·|v| plus the low-Re viscous
+-- linear term. No artificial minimum-speed floor: a surface at rest in still
+-- air produces no force, and vanishingly slow motion meets only true viscous
+-- drag. @sqrt area@ is the reference chord scale (exact per strip, panel-scale
+-- for the fixed fan).
 surfacePressure :: Double -> Double -> Double
 surfacePressure area normalSpeed =
-  -0.5 * airDensity * area * surfacePressureCp
-    * normalSpeed * sqrt (normalSpeed*normalSpeed + lowSpeedNormalFloor*lowSpeedNormalFloor)
-
--- Speed-agnostic DIFFERENTIAL pressure glue: the compressed-air field resists
--- the wings' SCISSORING motion (roll rate + flap-rate deviation from the common
--- beat + aeroelastic deformation) with a CONSTANT Coulomb-like force from a
--- minimum dynamic pressure (0.5 * rho * Cp * v0^2). The magnitude is independent
--- of speed and of load, so a slow aileron sweep or a slow body roll still
--- anchors the wings to the air; the pressure law above is only the speed-
--- PROPORTIONAL (quadratic + low-speed linear) part that vanishes as the
--- differential velocity tends to zero.
-glueFloorMS, glueKneeMS, glueShearCp :: Double
-glueFloorMS = 4.5
-glueKneeMS = 0.05
-glueShearCp = 0.5
-
--- Static weight support ("compressed-air" lift field): a flap-gated vertical
--- cushion that carries the strip's weight share at low horizontal speed and
--- hands over to circulation lift at cruise. The position-based weight
--- distribution (supportLiftMod) and the hang-glider pendulum
--- (supportPendulumMoment) are the rate-independent slow-roll grip restored
--- from the known-good state.
-supportHandoverMS :: Double
-supportHandoverMS = 4.0
-
-fieldCompressionPerRate :: Double
-fieldCompressionPerRate = 0.06
-
-liftModVelRef :: Double
-liftModVelRef = 0.3
-
-fieldTranslationSlope :: Double
-fieldTranslationSlope = 6.0
-
-supportPositionSlope :: Double
-supportPositionSlope = 0.75
-
-supportHangExtra :: Double
-supportHangExtra = 0.038
+  -0.5 * airDensity * area * normalSpeed
+    * (surfacePressureCp * abs normalSpeed
+       + 2 * surfaceStokesPlateCd * airKinematicViscosity / max 1e-9 (sqrt area))
 
 finiteWingLiftSlope :: Double -> Double
 finiteWingLiftSlope aspect = 2*pi*aspect/(aspect+2)*circulationLiftEfficiency
@@ -148,18 +117,25 @@ structuralDampingRatio = 0.15
 rotationalLiftCoefficient :: Double
 rotationalLiftCoefficient = 1.0
 
-groundEffectLiftGain, groundEffectDragRelief :: Double
-groundEffectLiftGain = 0.30
-groundEffectDragRelief = 0.55
-
 -- | Strength 0..1 of ground effect at a strip height @h@ above the surface,
 -- normalised by the total wingspan @b@. 1 on the deck, ~0.08 by one span, so
--- the effect lives on the scale the wing actually spans.
+-- the effect lives on the scale the wing actually spans. EMPIRICAL span-scaled
+-- decay, not a universal law: the image-wing model below uses it to raise the
+-- effective aspect ratio, so lift-slope gain and induced-drag relief stay
+-- consistent through the SAME downwash cancellation.
 groundEffectFactor :: Double -> Double -> Double
 groundEffectFactor h b
   | b <= 0.01 = 0
   | h <= 0    = 1
   | otherwise = exp (-2.5 * h / b)
+
+-- Image-wing aspect-ratio gain: the reflected wing extends the effective
+-- aspect ratio. Lift slope rises toward the 2D value AND the induced-drag
+-- factor drops through that same effective AR — no free lift multiplier.
+-- Strength 0.5 is a documented empirical calibration (classic image estimates
+-- bracket 0.3..0.8 for h/b ≲ 0.5); thick separated wakes weaken the image.
+groundEffectAspectGain :: Double
+groundEffectAspectGain = 0.5
 
 data VehicleInput = VehicleInput
   { stepSeconds :: !Double
@@ -204,11 +180,9 @@ data StripState = StripState
   , stripMoment :: !Vec3     -- ^ aerodynamic r cross F plus section couple
   , stripAirVelocity :: !Vec3 -- ^ complete velocity through the sampled local wind
   , stripWindDelta :: !Vec3   -- ^ local wind minus body-origin wind, body frame
-  , stripGripLoad :: !Double  -- ^ speed-agnostic field grip strength [N]: the compressed-air anchor's Coulomb floor, independent of instantaneous speed
-  , stripGlueVel :: !Vec3     -- ^ field-inertia low-passed differential glue velocity [m/s]: fast flap-asymmetry chatter is filtered while slow aileron/roll sees the full grip
   } deriving stock (Eq, Show)
 emptyStrip :: StripState
-emptyStrip = StripState 0 0 0 0 0 0 0 0 0 0 0 0 emptyPressureField zeroVec (Vec3 0 0 1) zeroVec zeroVec zeroVec zeroVec zeroVec zeroVec 0 zeroVec
+emptyStrip = StripState 0 0 0 0 0 0 0 0 0 0 0 0 emptyPressureField zeroVec (Vec3 0 0 1) zeroVec zeroVec zeroVec zeroVec zeroVec zeroVec
 
 data VehicleState = VehicleState
   { vehicleOscillator :: !OscillatorState
@@ -328,24 +302,25 @@ stepWing side pulse pulseRate throttle rollMix input states =
    let amplitude = radians (12 + 38 * throttle) * clamp 0.55 1.35 (1 - side * 0.22 * rollMix)
        stroke = amplitude * pulse
        strokeRate = amplitude * pulseRate
-   in stepWingWithStroke True side stroke strokeRate input kestrelModel 0 (replicate stripCount 0) 0 states
+   in stepWingWithStroke True side stroke strokeRate input kestrelModel 0 states
 
 -- | Step one wing given the *actual* flap angle [rad] and flap rate [rad/s],
 -- independent of how they were produced (firmware mixer + servo, or the
 -- legacy throttle drive). This is the primitive the firmware-emulation loop
--- uses to close the aero→servo-load feedback. @supports@ carries the per-strip
--- static weight-support share [N] (zero on the legacy path).
-stepWingWithStroke :: Bool -> Double -> Double -> Double -> VehicleInput -> WingModel -> Double -> [Double] -> Double -> [StripState]
+-- uses to close the aero→servo-load feedback. Lift comes only from the wing's
+-- motion through the air and the bound/LEV circulation it sustains; weight is
+-- carried by the vehicle mass budget, never handed to the strips.
+stepWingWithStroke :: Bool -> Double -> Double -> Double -> VehicleInput -> WingModel -> Double -> [StripState]
                    -> ([StripResult], [StripState])
-stepWingWithStroke flapping side stroke strokeRate input model incidenceRad supports centre states =
-   stepCoupledWing flapping side stroke strokeRate strokeRate 0 input model incidenceRad states supports centre 0
+stepWingWithStroke flapping side stroke strokeRate input model incidenceRad states =
+   stepCoupledWing flapping side stroke strokeRate strokeRate strokeRate input model incidenceRad states
 
 -- Force-only evaluation for the implicit roll Jacobian. Structural integration
 -- and separation transport only modify next state; commit those once after
 -- solving, rather than doing a full beam solve at every trial velocity.
-wingLoadsWithStroke :: Bool -> Double -> Double -> Double -> Double -> VehicleInput -> WingModel -> Double -> [StripState] -> [Double] -> Double -> Double -> [StripResult]
-wingLoadsWithStroke flapping side stroke rate phaseRate input model incidenceRad states supports centre supportPosDev =
-  zipWith3 (\i s sup -> stepStrip True phaseRate flapping side stroke input incidenceRad (wmWing model) i s sup centre supportPosDev (vx (bodyRatesRadS input)) rate 0) [0..] states supports
+wingLoadsWithStroke :: Bool -> Double -> Double -> Double -> Double -> VehicleInput -> WingModel -> Double -> [StripState] -> [StripResult]
+wingLoadsWithStroke flapping side stroke rate phaseRate input model incidenceRad states =
+  zipWith (\i s -> stepStrip True phaseRate flapping side stroke input incidenceRad (wmWing model) i s (vx (bodyRatesRadS input)) rate rate) [0..] states
 
 -- Geometry and material history are shared by all trial velocities. The host
 -- solves these four elastic coordinates together with body roll and hinges.
@@ -357,24 +332,24 @@ data WingSystem = WingSystem
   , wingCommit :: [StripResult] -> ([StripResult],[StripState])
   }
 
-prepareWingSystem :: Bool -> Double -> Double -> Double -> VehicleInput -> WingModel -> Double -> [StripState] -> [Double] -> Double -> Double -> WingSystem
-prepareWingSystem flapping side stroke phaseRate input model incidenceRad states supports centre supportPosDev =
+prepareWingSystem :: Bool -> Double -> Double -> Double -> VehicleInput -> WingModel -> Double -> [StripState] -> WingSystem
+prepareWingSystem flapping side stroke phaseRate input model incidenceRad states =
   let wp = wmWing model
       stations = shapeStationsAt wp stripCount
       aspect = shapeAspectRatio wp
       (initial,deform,residual,finish) = prepareStructure side stroke (wmSpars model) wp input states
-      rawMotion rates deltaVelocity rate commonRate elastic = zipWith3
-        (\station s sup -> stepStripPreparedMotion station aspect True phaseRate flapping side stroke input incidenceRad wp 0 s sup centre supportPosDev rates deltaVelocity rate commonRate)
-        stations (deform elastic) supports
+      rawMotion rates deltaVelocity rate commonRate elastic = zipWith
+        (\station s -> stepStripPreparedMotion station aspect True phaseRate flapping side stroke input incidenceRad wp 0 s rates deltaVelocity rate commonRate)
+        stations (deform elastic)
       raw rollRate rate commonRate = rawMotion (Vec3 rollRate (vy(bodyRatesRadS input)) (vz(bodyRatesRadS input))) zeroVec rate commonRate
       commit rs = let results=transportSeparation side input wp (map finish rs)
                   in (results,map resultState results)
   in WingSystem initial raw rawMotion residual commit
 
-prepareWingLoads :: Bool -> Double -> Double -> Double -> VehicleInput -> WingModel -> Double -> [StripState] -> [Double] -> Double -> Double
+prepareWingLoads :: Bool -> Double -> Double -> Double -> VehicleInput -> WingModel -> Double -> [StripState]
                  -> Double -> Double -> Double -> [StripResult]
-prepareWingLoads flapping side stroke phaseRate input model incidenceRad states supports centre supportPosDev =
-  let system=prepareWingSystem flapping side stroke phaseRate input model incidenceRad states supports centre supportPosDev
+prepareWingLoads flapping side stroke phaseRate input model incidenceRad states =
+  let system=prepareWingSystem flapping side stroke phaseRate input model incidenceRad states
       (vb,vt)=wingInitialRates system
   in \rollRate rate common ->
     let loads b t=wingTrialLoads system rollRate rate common (b,t)
@@ -385,11 +360,11 @@ prepareWingLoads flapping side stroke phaseRate input model incidenceRad states 
 
 -- Commit aero memory/structure after the implicit solve using the same loads
 -- as its residual. Hysteretic state transitions are not Newton unknowns.
-stepCoupledWing :: Bool -> Double -> Double -> Double -> Double -> Double -> VehicleInput -> WingModel -> Double -> [StripState] -> [Double] -> Double -> Double
+stepCoupledWing :: Bool -> Double -> Double -> Double -> Double -> Double -> VehicleInput -> WingModel -> Double -> [StripState]
                 -> ([StripResult], [StripState])
-stepCoupledWing flapping side stroke rate phaseRate commonRate input model incidenceRad states supports centre supportPosDev =
+stepCoupledWing flapping side stroke rate phaseRate commonRate input model incidenceRad states =
   let wp=wmWing model
-      raw=prepareWingLoads flapping side stroke phaseRate input model incidenceRad states supports centre supportPosDev (vx (bodyRatesRadS input)) rate commonRate
+      raw=prepareWingLoads flapping side stroke phaseRate input model incidenceRad states (vx (bodyRatesRadS input)) rate commonRate
       results=transportSeparation side input wp raw
   in (results,map resultState results)
 
@@ -398,22 +373,22 @@ stepCoupledWing flapping side stroke rate phaseRate commonRate input model incid
 wingRootHeight :: Double
 wingRootHeight = 0.04
 
-stepStrip :: Bool -> Double -> Bool -> Double -> Double -> VehicleInput -> Double -> WingShape -> Int -> StripState -> Double -> Double -> Double -> Double -> Double -> Double -> StripResult
-stepStrip implicitLoads phaseRate flapping side stroke input incidenceRad wp index =
+stepStrip :: Bool -> Double -> Bool -> Double -> Double -> VehicleInput -> Double -> WingShape -> Int -> StripState -> Double -> Double -> Double -> StripResult
+stepStrip implicitLoads phaseRate flapping side stroke input incidenceRad wp index old rollRate rate common =
   stepStripPrepared (shapeStationsAt wp stripCount !! index) (shapeAspectRatio wp)
-    implicitLoads phaseRate flapping side stroke input incidenceRad wp index
+    implicitLoads phaseRate flapping side stroke input incidenceRad wp index old rollRate rate common
 
 -- Planform interpolation is invariant during the nonlinear solve. Share it
 -- across all trial elastic velocities instead of sorting/resampling the
 -- outline again for each Jacobian column.
-stepStripPrepared :: SpanStation -> Double -> Bool -> Double -> Bool -> Double -> Double -> VehicleInput -> Double -> WingShape -> Int -> StripState -> Double -> Double -> Double -> Double -> Double -> Double -> StripResult
-stepStripPrepared station aspectRatio implicitLoads phaseRate flapping side stroke input incidenceRad wp index old support centre supportPosDev rollRate rate common =
-  stepStripPreparedMotion station aspectRatio implicitLoads phaseRate flapping side stroke input incidenceRad wp index old support centre supportPosDev
+stepStripPrepared :: SpanStation -> Double -> Bool -> Double -> Bool -> Double -> Double -> VehicleInput -> Double -> WingShape -> Int -> StripState -> Double -> Double -> Double -> StripResult
+stepStripPrepared station aspectRatio implicitLoads phaseRate flapping side stroke input incidenceRad wp index old rollRate rate common =
+  stepStripPreparedMotion station aspectRatio implicitLoads phaseRate flapping side stroke input incidenceRad wp index old
     (Vec3 rollRate (vy(bodyRatesRadS input)) (vz(bodyRatesRadS input))) zeroVec rate common
 
-stepStripPreparedMotion :: SpanStation -> Double -> Bool -> Double -> Bool -> Double -> Double -> VehicleInput -> Double -> WingShape -> Int -> StripState -> Double -> Double -> Double -> Vec3 -> Vec3 -> Double -> Double -> StripResult
+stepStripPreparedMotion :: SpanStation -> Double -> Bool -> Double -> Bool -> Double -> Double -> VehicleInput -> Double -> WingShape -> Int -> StripState -> Vec3 -> Vec3 -> Double -> Double -> StripResult
 {-# NOINLINE stepStripPreparedMotion #-}
-stepStripPreparedMotion station aspectRatio implicitLoads _phaseRate flapping side stroke input incidenceRad wp _index old supportN centre supportPosDev =
+stepStripPreparedMotion station aspectRatio implicitLoads _phaseRate _flapping side stroke input incidenceRad wp _index old =
   let !dt = stepSeconds input
       !fraction = spanFraction station
       !spanM = wsSpanM wp
@@ -424,34 +399,53 @@ stepStripPreparedMotion station aspectRatio implicitLoads _phaseRate flapping si
       !radius = wsShoulderM wp + spanM * fraction
       !chord = spanChord station
       !twist = spanTwist station
-      -- Horizontal servo mount: the flap hinge is yawed by mountRad in the
-      -- horizontal plane. A stroke about that yawed hinge decomposes into a
-      -- vertical (dihedral) component ∝ cos mountRad and a horizontal (sweep)
-      -- component ∝ sin mountRad. The stroke-proportional sweep term is what
-      -- makes the section's angle of attack vary with its up/down position —
-      -- a position-dependent "drag rudder". The arm angle rotates the LE spar
-      -- at the arm to cancel the mount's neutral-sweep shift (armRad = mountRad
-      -- ⇒ neutral sweep unchanged). mountRad/armRad are zero for the kestrel,
-      -- so it keeps pure parallel flapping.
+      -- Exact 3D hinge kinematics. The flap hinge axis is the body X axis
+      -- yawed by mountRad in the horizontal plane, and the WHOLE wing follows
+      -- one rigid rotation about it, with u = side·stroke so a positive stroke
+      -- raises BOTH wings. Position, velocity and the section frame come from
+      -- the same transform — no mixed-axis decomposition, so a yawed hinge
+      -- (forward-swept ornithopters) gets its true sweep/incidence coupling.
+      -- The servo arm yaws the neutral sweep by (mountRad − armRad); planform
+      -- dihedral and the aeroelastic bend slope rotate the section about the
+      -- neutral chord axis. mountRad/armRad are zero for the kestrel, so it
+      -- keeps pure parallel flapping.
       !mountRad = radians (wsMountAngleDeg wp)
       !armRad = radians (wsArmAngleDeg wp)
-      !dihedral = stroke * cos mountRad + spanDihed station
+      !hingeAxis = Vec3 (cos mountRad) (side * sin mountRad) 0
+      !u = side * stroke
+      !sweep0 = mountRad - armRad
+      !dihedralBase = spanDihed station + atan bendSlope
+      -- Legacy-compatible dihedral of the POSITION/bend-offset vectors
+      -- (stroke ∝ cos mountRad about the body X axis): for a parallel hinge
+      -- this is exactly the old geometry; for a yawed hinge the position
+      -- itself follows the exact rotation while this scalar only orients the
+      -- elastic bend offset and elastic velocity direction.
+      !dihedralApprox = stroke * cos mountRad + spanDihed station
       !profile = spanSection station
       !camberPrev = stripCamber old
       !aeroTwist = stripTwistAero old
       !bend = stripBendM old
       !bendSlope = stripBendSlope old
-      -- Flex reorients the surface: the out-of-plane flap slope adds to the
-      -- geometric dihedral, so a loaded tip (bent up) flies at a higher local
-      -- dihedral than the stroke alone would set. The force axes (normal/chord/
-      -- span) use this local dihedral; the geometric 'dihedral' still sets the
-      -- physical strip position and lever arms.
-      !dihedralLocal = dihedral + atan bendSlope
-      -- Ground effect: proximity to the surface below, normalised by the total
-      -- wingspan (2 × half-span). Each strip sees its OWN flap height, so the
-      -- downstroke pushes the tip into the cushion and the upstroke lifts it
-      -- back out — the effect is strongest at the bottom of the beat.
-      !velocity = addVec (bodyVelocityMS input) (scaleVec (-1) (stripWindDelta old))
+      -- Rest (pre-stroke) section frame: static arm yaw, then planform
+      -- dihedral + bend slope about the neutral chord axis.
+      !chordS = Vec3 (cos sweep0) (side * sin sweep0) 0
+      !spanS = rotateX (side * dihedralBase) (Vec3 (-sin sweep0) (side * cos sweep0) 0)
+      !normalS = rotateX (side * dihedralBase) (Vec3 0 0 1)
+      !chordBase = rotateAxis u hingeAxis chordS
+      !spanBase = rotateAxis u hingeAxis spanS
+      !normalBase = rotateAxis u hingeAxis normalS
+      -- Mount incidence, geometric twist and elastic twist rotate the local
+      -- surface frame exactly once, about the stroke-rotated span axis.
+      !ci = cos (incidenceRad + twist + aeroTwist)
+      !si = sin (incidenceRad + twist + aeroTwist)
+      !chordAxis = addVec (scaleVec ci chordBase) (scaleVec si normalBase)
+      !normal    = addVec (scaleVec ci normalBase) (scaleVec (-si) chordBase)
+      !spanAxis  = spanBase
+      -- Galilean invariance: ONE apparent wind for the whole bird (the body
+      -- velocity already carries the origin wind subtraction). Per-strip wind
+      -- deltas are dead: different parts of the bird must never fly through
+      -- different air. The stripWindDelta field stays in the ABI but is inert.
+      !velocity = bodyVelocityMS input
       -- Use section velocity through air throughout (not a mixture of air
       -- velocity and body velocity). Drag must do negative work. The normal
       -- rotates with the flap; positive stroke raises BOTH wings.
@@ -461,48 +455,38 @@ stepStripPreparedMotion station aspectRatio implicitLoads _phaseRate flapping si
       -- static moment a real bird has; with the lift pinned at x=0 (the CG),
       -- the wing contributes no pitch moment and the tail downforce alone
       -- trims the bird nose-up regardless of CG slider position.
-      !leadingEdge = addVec (Vec3 (-spanLeadX station)
-                         (side * radius * cos dihedral) (wingRootHeight + radius * sin dihedral))
-                         (scaleVec bend (Vec3 0 (-side*sin dihedral) (cos dihedral)))
+      -- Leading edge follows the SAME rigid rotation: streamwise planform
+      -- offset (spanLeadX encodes the outline sweep) plus the spanwise radius,
+      -- rotated about the yawed hinge axis, then the elastic bend offset along
+      -- the stroke-rotated normal.
+      !spanRest = rotateX (side * spanDihed station) (Vec3 (-sin sweep0) (side * cos sweep0) 0)
+      !leadingEdge = addVec (Vec3 0 0 wingRootHeight)
+                     (addVec (rotateAxis u hingeAxis
+                               (addVec (scaleVec (-spanLeadX station) (Vec3 1 0 0))
+                                       (scaleVec radius spanRest)))
+                             (scaleVec bend (rotateX (side * dihedralApprox) (Vec3 0 0 1))))
       !position = addVec leadingEdge (scaleVec (-0.25 * chord) chordAxis)
       -- Height is along WORLD up, expressed in this body basis. A banked or
       -- inverted wing must not receive the upright strip-height correction.
       !stripHeightM = dotVector position (bodyUpB input)
       !ge = groundEffectFactor (groundClearanceM input + stripHeightM) (2 * wsSpanM wp)
-      !normal0 = Vec3 0 (-side * sin dihedralLocal) (cos dihedralLocal)
-      -- Planform chords are streamwise distances, not lengths normal to the
-      -- swept leading edge. LE sweep already moves each strip's leading edge.
-      -- Rotating that chord by LE sweep again displaced inboard force centres
-      -- across the shoulder and disagreed with the rendered membrane. Only
-      -- actual hinge/arm sweep rotates this section basis.
-      !sweep = (mountRad - armRad) + sin mountRad * stroke
-      !chordAxis0 = Vec3 (cos sweep) (side * sin sweep * cos dihedralLocal) (sin sweep * sin dihedralLocal)
-      !spanAxis = Vec3 (-sin sweep) (side * cos sweep * cos dihedralLocal) (cos sweep * sin dihedralLocal)
-      -- Mount incidence, geometric twist and elastic twist rotate the local
-      -- surface frame exactly once. The hinge stays on body X; point velocity
-      -- below is omega cross the actual deformed application-point offset.
-      !ci = cos (incidenceRad + twist + aeroTwist)
-      !si = sin (incidenceRad + twist + aeroTwist)
-      !chordAxis = addVec (scaleVec ci chordAxis0) (scaleVec si normal0)
-      !normal    = addVec (scaleVec ci normal0) (scaleVec (-si) chordAxis0)
       -- Flap velocity is the wing surface's motion through the air about the
-      -- shoulder hinge. It exists in BOTH flapping and glide: in glide a
-      -- differential-dihedral (roll) command rotates the wing, so the surface
-      -- genuinely sweeps through the air and RESISTS. That resistance, acting
-      -- at the spanwise lever arm (position), is what rolls the fuselage — the
-      -- fuselage/tail sit on the centreline and carry no roll lever arm.
-  in \rates deltaVelocity strokeRate commonRate ->
-  let flapVelocity = crossVec (Vec3 (side * strokeRate) 0 0)
-                       (addVec position (Vec3 0 0 (-wingRootHeight)))
+      -- shoulder hinge — the rigid stroke rotation rate about the TRUE yawed
+      -- hinge axis: d/dt[R(u,â)·r] = u̇·(â × r). It exists in BOTH flapping
+      -- and glide: in glide a differential-dihedral (roll) command rotates the
+      -- wing, so the surface genuinely sweeps through the air and RESISTS.
+      -- That resistance, acting at the spanwise lever arm (position), is what
+      -- rolls the fuselage — the fuselage/tail sit on the centreline and carry
+      -- no roll lever arm. Power then reads F·v = u̇·â·(r×F): the genuine
+      -- generalized torque about the hinge, with no free lift or grip.
+  in \rates deltaVelocity strokeRate _commonRate ->
+  let flapVelocity = scaleVec (side * strokeRate)
+                       (crossVec hingeAxis (addVec position (Vec3 0 0 (-wingRootHeight))))
       bendAngleRate = stripBendSlopeRate old / (1+bendSlope*bendSlope)
       bendRotationVelocity = scaleVec bendAngleRate
         (crossVec (Vec3 side 0 0) (scaleVec (-0.25*chord) chordAxis))
-      -- Glue elastic velocity is the KNOWN-GOOD form (bend rate + twist rate
-      -- only). The coupled solver's extra AC-point rotation (bendRotationVelocity)
-      -- stays in sectionVelocity for aero, but is excluded from the glue so the
-      -- slow-roll grip matches the pre-67bc731 behavior exactly.
       elasticVelocity = addVec
-        (scaleVec (stripBendRateMS old) (Vec3 0 (-side*sin dihedral) (cos dihedral)))
+        (scaleVec (stripBendRateMS old) (rotateX (side * dihedralApprox) (Vec3 0 0 1)))
         (scaleVec (-0.25*chord*stripTwistRateRadS old) normal)
       sectionVelocity = addVec deltaVelocity (addVec bendRotationVelocity (addVec elasticVelocity (addVec velocity (addVec (crossVec rates position) flapVelocity))))
       dot (Vec3 a b c) (Vec3 d e f) = a*d + b*e + c*f
@@ -542,8 +526,11 @@ stepStripPreparedMotion station aspectRatio implicitLoads _phaseRate flapping si
       -- is the induced downwash — the same downwash charged again below as
       -- induced drag. Using 2π here double-counts it: lift reads too high AND
       -- the drag-due-to-lift ramps up on that inflated Cl. The 3D slope keeps
-      -- the lift/drag relationship consistent.
-      liftSlope = finiteWingLiftSlope aspectRatio
+      -- the lift/drag relationship consistent. Ground proximity raises the
+      -- EFFECTIVE aspect ratio (image wing): lift slope up and induced-drag
+      -- factor down through the SAME AR — no free lift multiplier.
+      effectiveAspect = aspectRatio * (1 + groundEffectAspectGain * ge)
+      liftSlope = finiteWingLiftSlope effectiveAspect
       attachedCl = clamp (-1.9) 1.9 (liftSlope * alphaEff)
       -- Rotational circulation follows section pitch, not the difference of
       -- flow angle (which includes roll acceleration and gust acceleration).
@@ -563,18 +550,16 @@ stepStripPreparedMotion station aspectRatio implicitLoads _phaseRate flapping si
       -- Membrane loading follows the same local aerodynamic force applied
       -- to the mechanics.
       camberNext = relaxCamber dt (spMembraneTau profile) camberPrev
-                     (membraneCamberTarget profile
-                       (clamp (-12) 12 (dot aeroForce normal / max 1e-9 (q * area))))
-      -- Induced drag is the cost of the CIRCULATION (bound-vortex) lift only.
-      -- Rotational lift (Kramer effect) and LEV lift are transient/separated
-      -- mechanisms that do NOT shed the trailing downwash; charging them
-      -- Cl²/(πeAR) inflated the drag at high alpha and coupled it to the lagged
-      -- LEV/separation state — the sway feedback loop. Square the attached
-      -- (circulation) lift instead. Ground effect is the classic victim: the
-      -- image vortex cancels downwash, so the wake tilts less and the bird
-      -- glides faster.
-      inducedRelief = max 0 (1 - groundEffectDragRelief * ge)
-      inducedCd = inducedDragCoefficient aspectRatio circulatoryCl * inducedRelief
+                    (membraneCamberTarget profile
+                      (clamp (-12) 12 (dot aeroForce normal / max 1e-9 (q * area))))
+      -- Induced drag is charged on the WHOLE effective circulation: attached,
+      -- rotational (Kramer) and LEV lift all bend the same bound vortex sheet
+      -- and shed the same trailing downwash, so none of them is free energy —
+      -- the vortex lift pays Cl²/(πeAR) here, and its separated-flow profile
+      -- drag enters sideCd through the separation state. Ground effect then
+      -- reduces this drag through the SAME effective aspect ratio that raised
+      -- the slope (image vortex cancels downwash).
+      inducedCd = inducedDragCoefficient effectiveAspect cl
       -- Skin friction and circulation drag are distinct from broadside
       -- pressure. Pressure reacts immediately to normal motion; stall memory
       -- must not make a newly rotating wing transparent to air.
@@ -583,7 +568,7 @@ stepStripPreparedMotion station aspectRatio implicitLoads _phaseRate flapping si
       sideCd = 0.04 + 0.12 * forceSeparation
       area = chord * dr
       q = 0.5 * airDensity * planarSpeed * planarSpeed
-      lift = q * area * cl * (1 + groundEffectLiftGain * ge)
+      lift = q * area * cl
       drag = q * area * cd
       flowX = chordVelocity / safeSpeed
       flowZ = normalVelocity / safeSpeed
@@ -592,67 +577,17 @@ stepStripPreparedMotion station aspectRatio implicitLoads _phaseRate flapping si
       chordForce = scaleVec (-drag * flowX - lift * flowZ) chordAxis
       normalForce = scaleVec (-drag * flowZ + lift * flowX) normal
       spanDrag = scaleVec (-0.5 * airDensity * area * sideCd * abs spanVelocity * spanVelocity) spanAxis
-      -- Speed-agnostic DIFFERENTIAL pressure glue: a CONSTANT Coulomb-like force
-      -- from a minimum dynamic pressure (0.5 * rho * Cp * v0^2), saturating via
-      -- tanh(v/knee). Only the DIFFERENTIAL motion is glued — the roll rate, the
-      -- flap-rate deviation from the common beat, and the aeroelastic deformation
-      -- — so the grip anchors a slow roll/aileron sweep while leaving common
-      -- translation, pitch/yaw and the symmetric beat free (the bird can still
-      -- fly and fall).
-      commonFlapVel = crossVec (Vec3 (side * commonRate) 0 0)
-                       (addVec position (Vec3 0 0 (-wingRootHeight)))
-      rollDiffVel = crossVec (Vec3 (vx rates) 0 0)
-                       (addVec position (Vec3 0 0 (-wingRootHeight)))
-      diffFlapVel = addVec flapVelocity (scaleVec (-1) commonFlapVel)
-      rawGlueVel = addVec elasticVelocity (addVec rollDiffVel diffFlapVel)
-      -- The compressed-air field has INERTIA: its reaction builds with a lag, so
-      -- fast flap-asymmetry chatter is filtered before it can fight the servo,
-      -- while the slow aileron sweep and body roll meet the full grip.
-      glueFieldTau = 0.8
-      glueFilter = 1 - exp (-dt / glueFieldTau)
-      glueVel = addVec (stripGlueVel old)
-                        (scaleVec glueFilter (addVec rawGlueVel (scaleVec (-1) (stripGlueVel old))))
-      glueNormalVel = dot glueVel normal
-      glueChordVel = dot glueVel chordAxis
-      glueSpanVel = dot glueVel spanAxis
-      tangentialSpeed = sqrt (glueChordVel * glueChordVel + glueSpanVel * glueSpanVel)
-      gripLoad = 0.5 * airDensity * area * surfacePressureCp * glueFloorMS * glueFloorMS
-      gripNormalMag = gripLoad * tanh (glueNormalVel / glueKneeMS)
-      gripShearMag = 0.5 * airDensity * area * glueShearCp * glueFloorMS * glueFloorMS
-                     * tanh (tangentialSpeed / glueKneeMS)
-      gripForce = addVec (scaleVec (-gripNormalMag) normal)
-                   (scaleVec (-gripShearMag / max 1e-9 tangentialSpeed)
-                             (addVec (scaleVec glueChordVel chordAxis) (scaleVec glueSpanVel spanAxis)))
       -- Every strip sees complete local flow in glide and flap. No cross-wing
       -- positional spring: air does not retain a fixed bank/support plane.
       -- Non-circulatory added-air inertia is in the coupled mass solve.
       oldPatch = stripPressureField old
       quadraticPressure = scaleVec (surfacePressure area normalVelocity) normal
-      -- Position-based lift modulation (the counter-rotation coupling): a wing
-      -- held UP loses part of its aero lift, a held-DOWN wing gains it — odd in
-      -- the deviation from the common stroke centre. This anchors a slow glide
-      -- roll positionally (the aileron differential is resisted by the geometry
-      -- itself), distinct from the rate-based Coulomb glue below.
-      liftMod = clamp 0.3 3.0 (1 - (if flapping then 2.4 else 24.0) * (stroke - centre))
-      liftPart = scaleVec liftMod
-                   (addVec (scaleVec (lift * flowX) normal)
-                           (scaleVec (-lift * flowZ) chordAxis))
-      -- Static weight support ("compressed-air" lift field): flap-gated vertical
-      -- cushion carrying the strip's weight share, with position-based weight
-      -- distribution (wing held UP carries less, held-DOWN carries more) — the
-      -- rate-independent slow-roll grip — plus a speed gate handing the load
-      -- over to circulation lift at cruise.
-      supportGate = supportHandoverMS * supportHandoverMS
-                    / (supportHandoverMS * supportHandoverMS
-                         + vx velocity * vx velocity + vy velocity * vy velocity)
-      liftModField = clamp 0.3 3.0 (1 - fieldTranslationSlope * dot (bodyUpB input) velocity / liftModVelRef)
-      fieldRate = max (-8) (min 8 strokeRate)
-      supportLiftMod = clamp 0.3 3.0 (1 - supportPositionSlope * supportPosDev)
-      flapGate = if flapping then 1.0 else 0.0
-      supportForce = scaleVec (flapGate * supportLiftMod * liftModField * supportGate * supportN
-                                 * (1 + fieldCompressionPerRate * sqrt (fieldRate * fieldRate + 0.25))) normal0
-      supportPendulumMoment = crossVec (Vec3 0 0 supportHangExtra) supportForce
-      force = addVec supportForce (addVec gripForce (addVec quadraticPressure (addVec chordForce (addVec normalForce spanDrag))))
+      -- Pure aerodynamic lift, no position-based modulation: a held
+      -- differential must roll the bird through the wings' real tilted lift
+      -- vectors, never through an invented counter-rotation gain.
+      liftPart = addVec (scaleVec (lift * flowX) normal)
+                        (scaleVec (-lift * flowZ) chordAxis)
+      force = addVec quadraticPressure (addVec chordForce (addVec normalForce spanDrag))
       aeroForce = force
       nextLoad = fieldLoad oldPatch + (1-exp(-dt/0.15))
                    * (magnitude liftPart + magnitude quadraticPressure - fieldLoad oldPatch)
@@ -672,21 +607,35 @@ stepStripPreparedMotion station aspectRatio implicitLoads _phaseRate flapping si
       -- Section Cm is positive nose-up. With body +x forward,+y right,+z up,
       -- the axial +Y moment rotates the nose DOWN, so convert the sign here.
       -- Keep the scalar section moment in its original convention for twist.
-      moment = addVec supportPendulumMoment
-                (addVec (crossVec position force)
-                        (scaleVec (-side * sectionPitchMoment) spanAxis))
-      power = max 0 (negate (dot force flapVelocity))
+      -- Every aerodynamic moment is the real force at the real lever arm
+      -- τ = r × F about the body origin (the host shifts to the CG), plus the
+      -- section couple. No pendulum term, no invented restoring torque: roll
+      -- stability must come from dihedral effect, the side-force lever and
+      -- the CG position — the geometry itself.
+      moment = addVec (crossVec position force)
+                      (scaleVec (-side * sectionPitchMoment) spanAxis)
+      -- SIGNED instantaneous mechanical power: −F·v_flap — the rate at which
+      -- the WING does work on the air. Positive = the wing drives the air
+      -- (actuator input / elastic energy release); negative = the flow
+      -- drives the wing (energy recovery — gusts, the upstroke sail).
+      -- Clamping at zero hid the recovery half of the exchange; the elastic
+      -- solver and the host must see the full signed power to audit the
+      -- energy balance of the whole system.
+      power = negate (dot force flapVelocity)
+      dragDiag = addVec (scaleVec (-drag*flowX) chordAxis)
+                   (addVec (scaleVec (-drag*flowZ) normal) spanDrag)
+      -- The diagnostic decomposition must reconstruct the TOTAL force exactly
+      -- (lift + drag + pressure): pressure carries the residuals.
+      pressureDiag = addVec force (scaleVec (-1) (addVec liftPart dragDiag))
       next = old { stripSeparation = relaxed, stripPreviousAlpha = alpha
                  , stripPreviousNormalVelocity = normalVelocity, stripLevStrength = lev
                  , stripCamber = camberNext, stripPressureField = nextPatch
                  , stripPosition = position, stripNormal = normal
-                 , stripLift = liftPart, stripPressure = quadraticPressure
-                 , stripDrag = addVec (scaleVec (-drag*flowX) chordAxis)
-                     (addVec (scaleVec (-drag*flowZ) normal) spanDrag)
+                 , stripLift = liftPart, stripPressure = pressureDiag
+                 , stripDrag = dragDiag
                  , stripMoment = moment
-                 , stripAirVelocity = sectionVelocity
-                 , stripGripLoad = gripLoad, stripGlueVel = glueVel }
-  in StripResult next force moment power sectionTwistMoment sectionBendMoment (position,chordAxis,spanAxis,normal,sectionVelocity,flapVelocity)
+                 , stripAirVelocity = sectionVelocity }
+ in StripResult next force moment power sectionTwistMoment sectionBendMoment (position,chordAxis,spanAxis,normal,sectionVelocity,flapVelocity)
 
 transportSeparation :: Double -> VehicleInput -> WingShape -> [StripResult] -> [StripResult]
 transportSeparation _side input wp results = zipWith update [0 ..] results
@@ -792,6 +741,24 @@ magnitude (Vec3 ax ay az) = sqrt (ax * ax + ay * ay + az * az)
 vecValues :: Vec3 -> [Double]
 vecValues (Vec3 ax ay az) = [ax, ay, az]
 
+-- | Dot product of two body-frame vectors.
+dotV :: Vec3 -> Vec3 -> Double
+dotV (Vec3 ax ay az) (Vec3 bx by bz) = ax * bx + ay * by + az * bz
+
+-- | Rodrigues rotation of @v@ about the unit axis @axis@ by angle @a@.
+-- This is the single transform every wing vector (leading edge, chord, span,
+-- normal) and every derived velocity follow — one rigid 3D motion.
+rotateAxis :: Double -> Vec3 -> Vec3 -> Vec3
+rotateAxis a axis v =
+  let axial = scaleVec (dotV v axis) axis
+      radial = addVec v (scaleVec (-1) axial)
+      tangential = crossVec axis v
+  in addVec (scaleVec (cos a) radial) (addVec axial (scaleVec (sin a) tangential))
+
+-- | Rotation about the body X axis (parallel flapping / planform dihedral).
+rotateX :: Double -> Vec3 -> Vec3
+rotateX a = rotateAxis a (Vec3 1 0 0)
+
 vx, vy, vz :: Vec3 -> Double
 vx (Vec3 value _ _) = value
 vy (Vec3 _ value _) = value
@@ -805,9 +772,6 @@ clamp low high = max low . min high
 
 clampInt :: Int -> Int -> Int -> Int
 clampInt = clamp
-
-lerp :: Double -> Double -> Double -> Double
-lerp from to amount = from + (to - from) * amount
 
 smoothStep :: Double -> Double -> Double -> Double
 smoothStep edge0 edge1 value =

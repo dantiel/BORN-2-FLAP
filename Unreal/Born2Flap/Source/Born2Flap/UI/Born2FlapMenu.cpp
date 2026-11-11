@@ -192,12 +192,14 @@ const FWorldDef Worlds[] = {
       TEXT("A flat grass course marked with floating sky-gates. The field where every pilot learns to fold the wing, hold the line and thread the gates against the clock.") },
     { TEXT("Yunsha"), TEXT("Yúnshā"),
       TEXT("The Cloud-Sand Gorge. A crescent jade spring beneath a mile of singing grottoes. Ride the rising air to cloud-forest pillars and the flight-only sun-temples. Read the shimmer, earn the ridge, and come back to the Wind-Harp at dusk.") },
+    { TEXT("Woshi"), TEXT("WÒSHÍ — THE RESTING STONE"),
+      TEXT("A high canyon floor where a single sleeping boulder is cradled between sunlit cliff walls. A stone arch spans the gorge, a grotto is hollowed into the rock, and the wind pours through the corridor in steady, patient streams. The proving ground for the mesh-born world — fly the arch, skim the canyon, and greet the resting stone.") },
     { TEXT("NeonAbyss"), TEXT("NEON ABYSS"),
       TEXT("A primordial, eternal sanctuary floating outside time — soft nebulae, ringed planets and a circle of ancient bronzes whose gold seams brighten as you draw near. There is no ground and no horizon: a baby turtle swims the aether, netting neon jellyfish before the festival timer ends.") },
     { TEXT("Murex"), TEXT("MUREX SPIRE AERODROME"),
       TEXT("A working international airport of concrete, glass and jet wash, where the one living instrument is an ornithopter: the bird-scarer that keeps every landing clear. Heat shimmers off the runway in strong, steady thermals, flocks drift in from the wetlands and the verges, and above it all rises the control tower — a murex spine of pale concrete with a glazed cab. Ride the apron thermal, hold the approach lane empty, and set down where no aircraft can: on the tower's crown.") },
 };
-constexpr int32 WorldCount = 6;
+constexpr int32 WorldCount = 7;
 
 // Available locales for the language switch. Names are the languages' native
 // endonyms (always shown in their own language regardless of the active locale);
@@ -383,7 +385,7 @@ void ABorn2FlapMenu::BeginPlay()
     // Apply the persisted language before the first Build() so every localized
     // string (nav rail, pane titles, HUD/status via the shared locale) is right.
     Born2Flap::I18n::SetLocale(Settings.Language);
-    for(const FString& Level:{FString(TEXT("Ravenstonefield")),FString(TEXT("Shiomori")),FString(TEXT("Training")),FString(TEXT("NeonAbyss")),FString(TEXT("Yunsha")),FString(TEXT("Murex"))})
+    for(const FString& Level:{FString(TEXT("Ravenstonefield")),FString(TEXT("Shiomori")),FString(TEXT("Training")),FString(TEXT("NeonAbyss")),FString(TEXT("Yunsha")),FString(TEXT("Murex")),FString(TEXT("Woshi"))})
         LevelConditions.Add(Level,Born2FlapWeather::Load(Level));
     Build();
     if(FParse::Param(FCommandLine::Get(),TEXT("B2FWeatherMenuTest")))
@@ -455,6 +457,19 @@ void ABorn2FlapMenu::Build()
     else
     {
         // ---- OPEN WORLDS page: one open world at a time ----
+        // In-level the browser is the loaded world's parameter desk: lock the
+        // selection onto the current map (no PREV/NEXT), drop the travel ROUTE
+        // tab, and swap the FLY button for APPLY CHANGES.
+        if (bInLevel)
+        {
+            if (ABorn2FlapGameMode* GM = Cast<ABorn2FlapGameMode>(UGameplayStatics::GetGameMode(this)))
+            {
+                const FString LevelId = GM->GetLevelId();
+                for (int32 I = 0; I < WorldCount; ++I)
+                    if (LevelId == Worlds[I].Id) { SelectedWorld = I; break; }
+            }
+            SelectedPage = FMath::Min(SelectedPage, 1);
+        }
         const FWorldDef& WD = Worlds[SelectedWorld];
         const FString Level = WD.Id;
         const FBorn2FlapConditions C = LevelConditions.FindChecked(Level);
@@ -470,14 +485,16 @@ void ABorn2FlapMenu::Build()
         // The selected world's name lives here, in context, as a heading — not
         // as the game's title (that role belongs to the sidebar logo).
         PaneChildren.push_back(Nd("TextBlock", P({ {"text", S(WD.Title)}, {"size", S("xl")}, {"tone", S("accent")} })));
-        FValue Pages;Pages.kind=FValue::Kind::Array;for(const char* Page:{"LOCATION","WEATHER & TIME","ROUTE"}) Pages.arr.push_back(S(Page));
+        FValue Pages;Pages.kind=FValue::Kind::Array;
+        for(const char* Page:{"LOCATION","WEATHER & TIME"}) Pages.arr.push_back(S(Page));
+        if(!bInLevel) Pages.arr.push_back(S("ROUTE"));
         // The three workbench pages are a single connected segmented control —
         // one selection at a time, equal-width cells on a shared track.
         PaneChildren.push_back(Nd("Segment",P({{"options",Pages},{"value",N(SelectedPage)},{"action",S("menu.page")},{"tooltip",S("Choose a location, set flight conditions, then select your starting point.")}})));
         const int32 LocationStart=PaneChildren.size();
         // Murex reuses the Valley key until its own Airport artwork lands
         // (menu artwork pass, GDD step 7).
-        const FString Preview = Level == TEXT("Yunsha") ? TEXT("Desert") : Level == TEXT("Shiomori") ? TEXT("Coast") : Level == TEXT("Ravenstonefield") ? TEXT("Valley") : Level == TEXT("NeonAbyss") ? TEXT("Abyss") : Level == TEXT("Murex") ? TEXT("Valley") : TEXT("Islands");
+        const FString Preview = Level == TEXT("Yunsha") ? TEXT("Desert") : Level == TEXT("Shiomori") ? TEXT("Coast") : Level == TEXT("Ravenstonefield") ? TEXT("Valley") : Level == TEXT("NeonAbyss") ? TEXT("Abyss") : Level == TEXT("Murex") ? TEXT("Valley") : Level == TEXT("Woshi") ? TEXT("Mountains") : TEXT("Islands");
         PaneChildren.push_back(Nd("HorizontalBox", P({{"spacing",N(18)}}), {
             Nd("SizeBox",P({{"width",N(234)},{"height",N(128)}}),{
                 Nd("Image",P({{"texture",S(TEXT("/Game/UI/Elements/")+Preview+TEXT(".")+Preview)}}))}),
@@ -488,6 +505,10 @@ void ABorn2FlapMenu::Build()
         const int32 WeatherStart=PaneChildren.size();
         PaneChildren.push_back(Nd("Select", P({ {"label", S("Weather")}, {"options", WeatherLabels}, {"value", N(Weathers.IndexOfByKey(C.Weather))}, {"action", S(TEXT("weather.") + Level)} })));
         PaneChildren.push_back(Nd("Select", P({ {"label", S("Time of day")}, {"options", TimeLabels}, {"value", N(Times.IndexOfByKey(C.Time))}, {"action", S(TEXT("daytime.") + Level)} })));
+        const auto Seasons = Born2FlapWeather::SeasonOptions(Level);
+        FValue SeasonLabels; SeasonLabels.kind = FValue::Kind::Array;
+        for (const auto& Id : Seasons) SeasonLabels.arr.push_back(S(Born2FlapWeather::Season(Id).Label));
+        PaneChildren.push_back(Nd("Select", P({ {"label", S("Season")}, {"options", SeasonLabels}, {"value", N(Seasons.IndexOfByKey(C.Season))}, {"action", S(TEXT("season.") + Level)} })));
         PaneChildren.push_back(Nd("TextBlock", P({ {"text", S(FString::Printf(TEXT("Wind %.1f m/s | %s"), Speed, W.Gust < .5f ? TEXT("gentle gusts") : TEXT("variable breeze")))}, {"size", S("s")} })));
         // WIND overrides — direction / strength / gusts / randomness / thermals.
         // Each slider shows the *effective* value: the player's explicit override
@@ -551,16 +572,29 @@ void ABorn2FlapMenu::Build()
         }));
         for(int32 I=LocationStart;I<(int32)PaneChildren.size();++I)
             PaneChildren[I].props["visible"]=B(SelectedPage==(I<WeatherStart ? 0 : I<RouteStart ? 1 : 2));
-        PaneChildren.push_back(Nd("Button", P({ {"label", S(FString(TEXT("FLY  ")) + WD.Title)}, {"action", S(TEXT("menu.") + Level.ToLower())}, {"tone", S("good")} })));
-        if(Level==TEXT("Shiomori"))PaneChildren.push_back(Nd("Button",P({{"label",S("HARVEST WATCH - guard the sweet potatoes")},{"action",S("menu.harvestwatch")},{"tone",S("accent")}})));
-
-        PaneChildren.push_back(Nd("Spacer", P({})));
-        PaneChildren.push_back(Nd("TextBlock", P({ {"text", S(FString::Printf(TEXT("WORLD %d OF %d"), SelectedWorld + 1, WorldCount))}, {"size", S("xs")}, {"align", S("center")}, {"tone", S("dim")} })));
-        PaneChildren.push_back(Nd("HorizontalBox", P({}),
+        // In-level the travel buttons vanish: the loaded world is edited, not
+        // re-entered. APPLY CHANGES commits the staged conditions to the live
+        // map (and to the saved per-level defaults).
+        if (bInLevel)
         {
-            Nd("Button", P({ {"label", S("PREV")}, {"action", S("menu.prevWorld")} })),
-            Nd("Button", P({ {"label", S("NEXT")}, {"action", S("menu.nextWorld")} })),
-        }));
+            PaneChildren.push_back(Nd("Button", P({ {"label", S("APPLY CHANGES")}, {"action", S("menu.applyChanges")}, {"tone", S("good")} })));
+        }
+        else
+        {
+            PaneChildren.push_back(Nd("Button", P({ {"label", S(FString(TEXT("FLY  ")) + WD.Title)}, {"action", S(TEXT("menu.") + Level.ToLower())}, {"tone", S("good")} })));
+            if(Level==TEXT("Shiomori"))PaneChildren.push_back(Nd("Button",P({{"label",S("HARVEST WATCH - guard the sweet potatoes")},{"action",S("menu.harvestwatch")},{"tone",S("accent")}})));
+        }
+
+        if (!bInLevel)
+        {
+            PaneChildren.push_back(Nd("Spacer", P({})));
+            PaneChildren.push_back(Nd("TextBlock", P({ {"text", S(FString::Printf(TEXT("WORLD %d OF %d"), SelectedWorld + 1, WorldCount))}, {"size", S("xs")}, {"align", S("center")}, {"tone", S("dim")} })));
+            PaneChildren.push_back(Nd("HorizontalBox", P({}),
+            {
+                Nd("Button", P({ {"label", S("PREV")}, {"action", S("menu.prevWorld")} })),
+                Nd("Button", P({ {"label", S("NEXT")}, {"action", S("menu.nextWorld")} })),
+            }));
+        }
 
         ContentPane = Nd("SizeBox", P({}), {
             Nd("Panel", P({ {"title", S(PaneTitle)}, {"bg", S("solid")}, {"padding", N(30)}, {"spacing", N(14)} }), std::move(PaneChildren))
@@ -604,6 +638,9 @@ void ABorn2FlapMenu::Build()
     {
         Sidebar.push_back(Divider());
         Sidebar.push_back(Ghost(Born2Flap::I18n::T("menu.resume"), "menu.resume", false));
+        // The only way back out of the locked in-level desk: unload the world
+        // and return to the home screen (menu mode with its background).
+        Sidebar.push_back(Ghost(Born2Flap::I18n::T("menu.main_menu"), "menu.exitWorld", false));
     }
     Sidebar.push_back(Divider());
     Sidebar.push_back(Ghost(Born2Flap::I18n::T("menu.quit"), "menu.quit", false));
@@ -766,7 +803,7 @@ void ABorn2FlapMenu::BuildFlightDesk(std::vector<FNode>& Out)
     }
     {
         FValue Persons; Persons.kind = FValue::Kind::Array;
-        for (const TCHAR* Name : { TEXT("FOUNDER"), TEXT("COAST"), TEXT("NEON"), TEXT("BRONZE") }) Persons.arr.push_back(S(FString(Name)));
+        for (int32 P = 0; P < ABorn2FlapAvatar::GetPersonCount(); ++P) Persons.arr.push_back(S(ABorn2FlapAvatar::GetPersonName(P)));
         Push(Nd("Segment", P({
             {"options", std::move(Persons)},
             {"value", N(Settings.AvatarPerson)},
@@ -1121,7 +1158,7 @@ void ABorn2FlapMenu::BuildPreferences(std::vector<FNode>& Out)
             }
             {
                 FValue Persons; Persons.kind = FValue::Kind::Array;
-                for (const TCHAR* Name : { TEXT("FOUNDER"), TEXT("COAST"), TEXT("NEON"), TEXT("BRONZE") }) Persons.arr.push_back(S(FString(Name)));
+                for (int32 P = 0; P < ABorn2FlapAvatar::GetPersonCount(); ++P) Persons.arr.push_back(S(ABorn2FlapAvatar::GetPersonName(P)));
                 Rows.push_back(Nd("Dropdown", P({
                     {"label", S("PILOT STYLE")},
                     {"options", std::move(Persons)},
@@ -1625,6 +1662,26 @@ void ABorn2FlapMenu::OnAction(const FString& Action, float Value, const FString&
         }
         return;
     }
+    // Season select (per displayed world): the season drives the whole hidden
+    // stage art (sun path, light spectrum, fog, insects, foliage, wind
+    // defaults). Staged per world; APPLY commits in-level, FLY carries it.
+    if (Action.StartsWith(TEXT("season.")))
+    {
+        const FString Level = Action.Mid(7);
+        if (auto* C = LevelConditions.Find(Level))
+        {
+            const auto Options = Born2FlapWeather::SeasonOptions(Level);
+            const int32 Index = FMath::RoundToInt(Value);
+            if (Options.IsValidIndex(Index))
+            {
+                C->Season = Options[Index];
+                *C = Born2FlapWeather::Validate(Level, *C);
+                if (!FParse::Param(FCommandLine::Get(), TEXT("B2FWeatherMenuTest"))) Born2FlapWeather::Save(Level, *C);
+                Build();
+            }
+        }
+        return;
+    }
     // Wind overrides (per displayed world): direction / strength / gusts /
     // randomness / thermals. Sliders write an explicit value; reset returns
     // every field to -1 ("auto"). Persisted + carried into level travel.
@@ -1659,16 +1716,36 @@ void ABorn2FlapMenu::OnAction(const FString& Action, float Value, const FString&
         Build();
         return;
     }
+    // In-level: commit the staged per-world conditions to the loaded map (and
+    // the saved defaults). The menu's weather/time/wind edits stage only; this
+    // button is what re-dresses the running sky, wind and season.
+    if (Action == TEXT("menu.applyChanges"))
+    {
+        if (bInLevel)
+        {
+            ABorn2FlapGameMode* GM = Cast<ABorn2FlapGameMode>(UGameplayStatics::GetGameMode(this));
+            if (GM)
+            {
+                const FString Level = Worlds[SelectedWorld].Id;
+                if (FBorn2FlapConditions* C = LevelConditions.Find(Level))
+                {
+                    Born2FlapWeather::Save(Level, *C);
+                    GM->ApplyConditionsLive(*C);
+                }
+            }
+        }
+        return;
+    }
     // Page between open worlds in the chooser (one at a time, never all listed).
     if (Action == TEXT("menu.prevWorld"))
     {
-        SelectedWorld = (SelectedWorld + WorldCount - 1) % WorldCount;
+        if (!bInLevel) SelectedWorld = (SelectedWorld + WorldCount - 1) % WorldCount;
         Build();
         return;
     }
     if (Action == TEXT("menu.nextWorld"))
     {
-        SelectedWorld = (SelectedWorld + 1) % WorldCount;
+        if (!bInLevel) SelectedWorld = (SelectedWorld + 1) % WorldCount;
         Build();
         return;
     }
@@ -1678,6 +1755,16 @@ void ABorn2FlapMenu::OnAction(const FString& Action, float Value, const FString&
     {
         if (ABorn2FlapGameMode* GM = Cast<ABorn2FlapGameMode>(UGameplayStatics::GetGameMode(this)))
             GM->CloseMainMenu();
+        return;
+    }
+    // Unload the live world: travel to the minimal Entry map with no ?Level= /
+    // ?SkipMenu= tokens so the destination boots into menu mode — the home
+    // screen with the world browser and its background.
+    if (Action == TEXT("menu.exitWorld"))
+    {
+        PersistSettings();
+        Born2FlapShowLoadingScreen();
+        UGameplayStatics::OpenLevel(this, TEXT("/Engine/Maps/Entry"), true, TEXT(""));
         return;
     }
     if (Action == TEXT("menu.quit"))
@@ -1698,6 +1785,7 @@ void ABorn2FlapMenu::OnAction(const FString& Action, float Value, const FString&
         { TEXT("menu.shiomori"),        TEXT("/Game/Shiomori/Maps/SHIOMORI"),               TEXT("Shiomori") },
         { TEXT("menu.training"),        TEXT("/Engine/Maps/Entry"),                         TEXT("Training") },
         { TEXT("menu.yunsha"), TEXT("/Game/Yunsha/Maps/YUNSHA"), TEXT("Yunsha") },
+        { TEXT("menu.woshi"), TEXT("/Game/WoshiSM/Maps/WOSHI_SM"), TEXT("Woshi") },
         { TEXT("menu.murex"),          TEXT("/Game/Murex/Maps/MUREX"),                     TEXT("Murex") },
         { TEXT("menu.neonabyss"),       TEXT("/Game/NeonAbyss/Maps/NEONABYSS"),             TEXT("NeonAbyss") },
     };

@@ -49,46 +49,33 @@ bool ABorn2FlapYunsha::SpringContains(double X,double Y)
 }
 double ABorn2FlapYunsha::GroundHeight(double X,double Y)
 {
-    // Domain-warped transverse dunes blend into a second seasonal wind field.
-    // A long stoss slope and short slip face replace the old low sine bumps.
-    auto Dune=[](double Phase){
-        const double T=Phase-FMath::FloorToDouble(Phase);
-        return T<.78 ? Smooth(0.,.78,T) : 1-Smooth(.78,1.,T);
-    };
-    // Multi-octave domain warp: the third octave makes the field sensitive to
-    // position (a "butterfly effect" of local forms), so no two dune lines repeat.
-    const double Warp=1600*FMath::Sin(Y*.000041)+900*FMath::Sin(X*.000027+Y*.000019)
-        +380*FMath::Sin(X*.000083-Y*.000061+1.7);
-    const double Primary=Dune((X*.85+Y*.53+Warp)/11500);
-    const double Secondary=Dune((-X*.46+Y*.89+1100*FMath::Sin(X*.000055))/7800);
-    const double WindMix=Smooth(-.6,.6,FMath::Sin(X*.000013-Y*.000009));
-    const double Envelope=1000+820*(.5+.5*FMath::Sin(X*.000018+Y*.000023));
-    double Height=120+Envelope*FMath::Lerp(Primary,Secondary,WindMix)
-        +180*Dune((X*.96-Y*.28+Warp*.3)/3200);
-    // Grand characteristic dunes: a deterministic constellation of tall star /
-    // barchan peaks. Each carries its own height, footprint and a steep lee
-    // (slip) face, so the range reads as unique and monumental rather than a
-    // repeating ridge. The oasis, crescent and excavation are carved afterwards
-    // on top of these, so they never disturb the inhabited ground.
-    for(int i=0;i<14;i++)
+    // Sparse crescent ridges over broad wind-planed sand. Deterministic
+    // chaotic iteration varies each crest; this is a design field, not a
+    // physical erosion simulation.
+    // Smooth, aperiodic relief at 55m, 150m and 420m scales. The small
+    // scale remains resolved by the 5m terrain mesh rather than aliasing it.
+    const double WX=X+6500*FMath::PerlinNoise2D(FVector2D(X/53000.+17,Y/53000.-9));
+    const double WY=Y+6500*FMath::PerlinNoise2D(FVector2D(X/53000.-31,Y/53000.+23));
+    double Height=500+780*FMath::PerlinNoise2D(FVector2D(WX/42000.,WY/42000.))
+        +330*FMath::PerlinNoise2D(FVector2D(WX/15000.+43,WY/15000.-17))
+        +90*FMath::PerlinNoise2D(FVector2D(WX/5500.-11,WY/5500.+29));
+    const FVector2D Centres[]={FVector2D(-65000,-65000),FVector2D(65000,-17000),
+        FVector2D(-92000,110000),FVector2D(138000,185000),FVector2D(-145000,310000)};
+    double Chaos=.371294;
+    for(int i=0;i<5;i++)
     {
-        const double Seed=i*12.9898+4.1415;
-        const double Hx=FMath::Frac(FMath::Sin(Seed*1.73)*43758.5453);
-        const double Hy=FMath::Frac(FMath::Sin(Seed*2.37)*43758.5453);
-        const double Hs=FMath::Frac(FMath::Sin(Seed*3.11)*43758.5453);
-        const double Ha=FMath::Frac(FMath::Sin(Seed*4.77)*43758.5453);
-        const double Cx=-220000+Hx*440000;
-        const double Cy=-140000+Hy*520000;
-        const double H=2600+Hs*5200;      // 26..78 m — genuinely grand
-        const double R=20000+Ha*30000;    // 200..500 m footprint
-        const double Ang=(Ha-.5)*1.3;     // slip-face orientation variety
-        const double DX=X-Cx,DY=Y-Cy;
-        const double Along=DX*FMath::Cos(Ang)+DY*FMath::Sin(Ang);
-        const double Across=-DX*FMath::Sin(Ang)+DY*FMath::Cos(Ang);
-        const double R2=FMath::Square(Along/R)+FMath::Square(Across/(R*1.35));
-        const double Dome=FMath::Exp(-R2*2.8);
-        const double Lee=FMath::Clamp(Along/R*.9+.5,0.,1.);
-        Height+=H*Dome*(1.-.45*Lee*Dome);
+        for(int j=0;j<9;j++) Chaos=3.91*Chaos*(1-Chaos);
+        const double Angle=.35+Chaos*.9;
+        const double DX=X-Centres[i].X,DY=Y-Centres[i].Y;
+        const double Along=DX*FMath::Cos(Angle)+DY*FMath::Sin(Angle);
+        const double Across=-DX*FMath::Sin(Angle)+DY*FMath::Cos(Angle);
+        const double Length=26000+Chaos*18000;
+        const double V=Across/Length;
+        const double Crest=Along-(9000+Chaos*6500)*(V*V-.35)
+            -1800*FMath::Sin(V*2.1+Chaos*6.28);
+        const double Width=FMath::Lerp(17000.,7500.,Smooth(-3000,5000,Crest));
+        Height+=(4800+Chaos*6200)*FMath::Exp(-FMath::Square(Crest/Width)*1.5
+            -FMath::Pow(V,4)*1.8);
     }
     const double Oasis=1-Smooth(1.,2.3,FMath::Sqrt(FMath::Square((X-4000)/23000)+FMath::Square((Y+50000)/19500)));
     Height=FMath::Lerp(Height,140.,Oasis);

@@ -22,10 +22,11 @@ public:
     void SetSkin(int32 Index);
     static int32 GetSkinCount() { return 4; }
 
-    // The on-foot pilot currently has a single Founder character; Person maps
-    // onto the skin palette (kept so the menu selector and settings persist).
+    // Four distinct pilot characters (John/Founder + Scout/Soldier/X-Bot),
+    // each with its own Mixamo-rigged mesh, skeleton and baked clip set.
     void SetPerson(int32 Index);
     static int32 GetPersonCount() { return 4; }
+    static FString GetPersonName(int32 Index);
 
     void SetPlacement(const FVector& WorldFeet, float WorldYaw);
     // Movement relative to the avatar's facing direction: +X = forward (walk),
@@ -36,9 +37,21 @@ public:
 
     void BeginThrow();
     bool IsThrowing() const { return bThrowing; }
+    // Gaze pitch at the throw aim (degrees, up positive). Drives the wind-up
+    // lean so the throw is articulated in height as well as direction.
+    void SetThrowAimPitch(float PitchDeg);
+    // One-shot catch: the pilot's hands take the returning bird out of the air
+    // (SK_FounderCatch), then return to idle. Played on a successful handcatch.
+    void BeginCatch();
+    bool IsCatching() const { return bCatching; }
     float GetFacingYaw() const { return FacingYaw; }
     USceneComponent* GetCarrySocket() const { return CarrySocket; }
     FVector GetHeadWorldLocation() const;
+    // Currently selected locomotion/one-shot clip (diagnostics/HUD).
+    FName GetCurrentAnimName() const { return CurrentAnim ? CurrentAnim->GetFName() : NAME_None; }
+    // One-line diagnostic: current clip, playback position and hand/spine bone
+    // world locations. Used by the throw test to capture the real pose curve.
+    FString DebugThrowState() const;
 
     DECLARE_DELEGATE(FOnThrowRelease);
     FOnThrowRelease OnThrowRelease;
@@ -48,9 +61,11 @@ private:
     int32 FindBone(const TCHAR* Substring) const;
     void DetectForwardAxis();
     void CaptureRestPoses();
+    void LoadPerson(int32 Index);
     void ApplySkin();
     void PoseBody(bool bMoving, float Dt);
     void PoseThrow(float Dt);
+    float ComputeThrowLean() const;
     void SetBoneRotation(int32 BoneIndex, const FRotator& Rot);
     void UpdateCarrySocket();
 
@@ -81,6 +96,7 @@ private:
     UPROPERTY() UMaterialInstanceDynamic* SkinMID = nullptr;
 
     int32 SkinIndex = 0;
+    int32 PersonIndex = -1;
     FVector FeetWorld = FVector::ZeroVector;
     float FacingYaw = 0.f;
     float TargetFacingYaw = 0.f;
@@ -98,5 +114,8 @@ private:
     bool bThrowing = false;
     float ThrowTime = 0.f;
     bool bReleaseFired = false;
+    float ThrowAimPitch = 0.f;
+    bool bCatching = false;
+    float CatchTime = 0.f;
     double WorldTime = 0.0;
 };

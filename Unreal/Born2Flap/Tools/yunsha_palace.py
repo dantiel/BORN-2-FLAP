@@ -16,6 +16,7 @@ def build(imported, place, mesh, actor, material, ground, rock, expr, custom, ou
     rng=random.Random(241024)
     jade=material('CeladonGlaze',(.035,.34,.21),metal=.12)
     deep=material('CarvedNephrite',(.025,.16,.10),'/Game/Nature/T_CampusMossStone_Diffuse',metal=.08)
+    lacquer=material('CinnabarLacquer',(.48,.20,.13),metal=.10)
     # Mineral veins and a waxy polish distinguish jade from gold or green paint.
     out(custom(jade,'''float v=Texture2DSample(T,TSampler,P.xy/90).r;
 float mineral=Texture2DSample(T,TSampler,P.yz/230).g;
@@ -37,7 +38,7 @@ return lerp(float3(.025,.19,.11),float3(.055,.29,.18),v*.65+mineral*.35);''',
         for slot,item in enumerate(hall.static_materials):
             original=item.material_interface.get_name() if item.material_interface else ''
             if 'TempleGold' in original or original=='TempleRoof_MAT':building.static_mesh_component.set_material(slot,jade)
-            elif 'Columns' in original or 'RedGold' in original:building.static_mesh_component.set_material(slot,deep)
+            elif 'Columns' in original or 'RedGold' in original:building.static_mesh_component.set_material(slot,lacquer)
         passage(name,13000,y,base+25/229.254*h,h*.56,'YunshaHallPassage')
         # The museum model is open underneath for viewing its interior. Fit a
         # limestone floor inside the existing plinth, with its own real collision.
@@ -63,8 +64,22 @@ return lerp(float3(.025,.19,.11),float3(.055,.29,.18),v*.65+mineral*.35);''',
         passage('Paifang%d'%i,13000,y,145+h*.32,h*.25,'YunshaGatePassage')
 
     pavilion=imported('LakePavilion')
+    # The pavilion imports as one merged section with a single material slot, so
+    # a flat tint would paint roof, columns and terrace alike (the "weird green").
+    # A local-height ramp re-tiers it: jade glaze on the swept roof, cinnabar
+    # lacquer on the columns and body, pale stone on the terrace.
+    pav_mat=material('LakePavilionTiers',(.48,.20,.13))
+    out(custom(pav_mat,'''float h=P.z;
+float roof=smoothstep(1.05,1.30,h);
+float base=1.0-smoothstep(-0.45,-0.05,h);
+float3 jade=float3(.035,.34,.21);
+float3 wood=float3(.48,.20,.13);
+float3 stone=float3(.76,.73,.66);
+float3 c=lerp(wood,jade,roof);
+return lerp(stone,c,base);''',{'P':expr(pav_mat,'LocalPosition')}),'BASE_COLOR')
+    u.MaterialEditingLibrary.recompile_material(pav_mat);u.EditorAssetLibrary.save_loaded_asset(pav_mat)
     a=place('Lunya jade lake pavilion',pavilion,2500,-48500,145,1800,0,tags=['YunshaArchitecture','YunshaLakePavilion'])
-    for slot in range(a.static_mesh_component.get_num_materials()):a.static_mesh_component.set_material(slot,jade)
+    for slot in range(a.static_mesh_component.get_num_materials()):a.static_mesh_component.set_material(slot,pav_mat)
     passage('Jade lake pavilion',2500,-48500,850,1500,'YunshaPavilionPassage')
 
     def ribbon(name,points,width,mat):

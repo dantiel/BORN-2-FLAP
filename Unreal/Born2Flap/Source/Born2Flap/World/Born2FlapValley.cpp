@@ -204,6 +204,18 @@ void ABorn2FlapValley::PlantForest()
     auto* Autumn=Group(TEXT("/Game/Ravenstonefield/Meshes/SM_AutumnTree"),TEXT(""),false,200000);
     auto* Dead=Group(TEXT("/Game/Ravenstonefield/Meshes/SM_Deadwood"),TEXT(""),false,110000);
     for(int32 I=0;I<4;++I) Rocks.Add(Group(FString::Printf(TEXT("/Game/Nature/SM_Rock%d"),I),TEXT(""),false,110000));
+    // Undergrowth species: fern, broadleaf tuft and conifer sapling fill the
+    // forest floor between the big trees; all ride the shared wind-WPO sway.
+    auto* Fern=Group(TEXT("/Game/Nature/SM_Fern0"),TEXT(""),false,14000);
+    auto* Tuft=Group(TEXT("/Game/Nature/SM_Grass1"),TEXT("/Game/Nature/M_grass_medium_01_Foliage"),false,16000);
+    auto* Sapling=Group(TEXT("/Game/Nature/SM_Fir0"),TEXT(""),false,200000);
+    // Fallen leaves: two broadleaf species, laid flat as forest-floor and
+    // park-ground litter. Both foliage materials carry the wind WPO, so the
+    // litter shivers in gusts instead of lying frozen.
+    TArray<UHierarchicalInstancedStaticMeshComponent*> Litter;
+    Litter.Add(Group(TEXT("/Game/Nature/SM_Leaf0"),TEXT("/Game/Nature/M_calathea_orbifolia_01_Foliage"),false,9000));
+    Litter.Add(Group(TEXT("/Game/Nature/SM_Leaf1"),TEXT("/Game/Nature/M_anthurium_botany_01_Foliage"),false,9000));
+    auto* Periwinkle=Group(TEXT("/Game/Nature/periwinkle_plant/periwinkle_plant/StaticMeshes/periwinkle_plant_01_LOD0"),TEXT("/Game/Nature/M_CampusPeriwinkle"),false,12000);
     auto Place=[](UHierarchicalInstancedStaticMeshComponent* G,FVector P,FRotator R,double HeightCm)
     {
         if(!G->GetStaticMesh()) return;
@@ -259,6 +271,64 @@ void ABorn2FlapValley::PlantForest()
         if(FVector2D(X+14300,Y+14400).Size()<4800) continue;
         Place(Grass[I%3],FVector(X,Y,GroundHeight(X,Y)-2),FRotator(0,R.FRandRange(0,360),0),R.FRandRange(16,45));
     }
+    // Undergrowth scatter: same density field as the canopy, so the floor
+    // fills where trees stand and thins where the forest opens.
+    FRandomStream U(260927); int32 UnderCount=0;
+    for(int32 I=0;I<9000;++I)
+    {
+        const double X=U.FRandRange(-155000,165000);
+        const double Y=U.FRandRange(-110000,110000);
+        if(Protected(X,Y)||IsWater(X,Y)||GroundHeight(X,Y)<70) continue;
+        if(FMath::Abs(Y/100-RiverCentre(X/100))<RiverWidth(X/100)+5) continue;
+        if(Noise(X*.000047,Y*.000047)<-.10) continue;
+        const double Z=GroundHeight(X,Y);
+        const int32 K=U.RandHelper(10);
+        if(K<4)      Place(Fern,FVector(X,Y,Z-1),FRotator(0,U.FRandRange(0,360),0),U.FRandRange(35,95));
+        else if(K<7) Place(Tuft,FVector(X,Y,Z-1),FRotator(0,U.FRandRange(0,360),0),U.FRandRange(22,48));
+        else         Place(Sapling,FVector(X,Y,Z-6),FRotator(0,U.FRandRange(0,360),0),U.FRandRange(90,260));
+        ++UnderCount;
+    }
+    // Leaf litter: the forest floor and the park grounds around the managed
+    // meadow. Laid flat with random roll, sunk into the turf, patchy like a
+    // real autumn.
+    FRandomStream L(260928); int32 LitterCount=0;
+    for(int32 I=0;I<34000;++I)
+    {
+        const bool Park=I<8000;
+        const double X=Park?L.FRandRange(-17500,36000):L.FRandRange(-140000,155000);
+        const double Y=Park?L.FRandRange(-11500,15000):L.FRandRange(-100000,95000);
+        if(IsWater(X,Y)) continue;
+        if(Park)
+        {
+            if(FMath::Abs(X-18500)<2800||FVector2D(X+14300,Y+14400).Size()<4400) continue;
+            if(X>-1700&&X<14200&&FMath::Abs(Y)<750) continue;
+            if(FMath::Abs(X-FootpathX(Y))<160) continue;
+            if(Y>RiverCentre(X/100)*100-RiverWidth(X/100)*100-220) continue;
+            if(L.FRand()>.45f+.55f*Noise(X*.0012,Y*.0012)) continue;
+        }
+        else
+        {
+            if(Protected(X,Y)||GroundHeight(X,Y)<70) continue;
+            if(FMath::Abs(Y/100-RiverCentre(X/100))<RiverWidth(X/100)+5) continue;
+            if(Noise(X*.000047,Y*.000047)<-.12) continue;
+        }
+        Place(Litter[I%2],FVector(X,Y,GroundHeight(X,Y)-.5),FRotator(L.FRandRange(74,90),L.FRandRange(0,360),L.FRandRange(0,360)),L.FRandRange(7,18));
+        ++LitterCount;
+    }
+    // Park ground cover: periwinkle cushions along the meadow-edge trees.
+    FRandomStream P(260929); int32 PeriCount=0;
+    for(int32 I=0;I<5000;++I)
+    {
+        const double X=P.FRandRange(-17500,36000),Y=P.FRandRange(-11500,15000);
+        if(IsWater(X,Y)) continue;
+        if(FMath::Abs(X-18500)<2800||FVector2D(X+14300,Y+14400).Size()<4400) continue;
+        if(X>-1700&&X<14200&&FMath::Abs(Y)<750) continue;
+        if(FMath::Abs(X-FootpathX(Y))<160) continue;
+        if(Y>RiverCentre(X/100)*100-RiverWidth(X/100)*100-220) continue;
+        if(P.FRand()>(.5f+.5f*Noise(X*.0012,Y*.0012))*.5f) continue;
+        Place(Periwinkle,FVector(X,Y,GroundHeight(X,Y)-.5),FRotator(0,P.FRandRange(0,360),0),P.FRandRange(8,18));
+        ++PeriCount;
+    }
     TArray<UHierarchicalInstancedStaticMeshComponent*> Sward;
     for(int I=0;I<3;++I)
     {
@@ -292,7 +362,7 @@ void ABorn2FlapValley::PlantForest()
         ++MeadowCount;
     }
     UE_LOG(LogTemp,Display,TEXT("RavenManagedMeadow clumps=%d; 6-10cm mown launch strip, 24-60cm productive sward, no collision"),MeadowCount);
-    UE_LOG(LogTemp,Display,TEXT("RavenVegetation trees=%d; autumn broadleaf, fir, dry grass, deadwood"),Count);
+    UE_LOG(LogTemp,Display,TEXT("RavenVegetation trees=%d; undergrowth=%d litter=%d periwinkle=%d; autumn broadleaf, fir, dry grass, deadwood"),Count,UnderCount,LitterCount,PeriCount);
 }
 bool ABorn2FlapValley::HasRadioTrack() const
 {

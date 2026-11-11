@@ -45,13 +45,16 @@ kestrelModel = WingModel "kestrel" kestrelMembraneWing flightSpars 0.050
   where
     -- Effective skin/brace calibration (not measured carbon material values).
     -- Increase load-dependent bending without lengthening the carbon rods.
-    -- siTwistScale back to 8: the 5 (very soft) setting feathers the loaded
-    -- wing so far that the glide aileron DIFFERENTIAL collapses — the washout
-    -- sheds the left/right lift AND induced-drag asymmetry, so roll→yaw dies.
-    -- Softer torsion (LOWER siTwistScale) is NOT the lever for differential
-    -- yaw authority: it's the opposite. Keep 8 (quasi-static washout, torsion
-    -- nat. freq ~19 Hz ≫ flap) so the loaded wing still feathers a little
-    -- while retaining differential steer. Bending siBendScale stays 3.6.
+    -- siTwistScale 8: the long-known-good elastic torsion. (The roll-overdrive
+    -- fix is the glide dihedral + bounded spiral, NOT the spar: probe runs at
+    -- 24/10/4 showed the washout has no effect on the differential roll
+    -- moment at glide speeds, so the spar stays at its proven value.)
+    -- lift asymmetry under load — the soft settings (8 and below) let the
+    -- loaded wing feather (washout) until the left/right lift asymmetry
+    -- collapses and the roll command dies at speed. The stiffening keeps the
+    -- differential steer alive across the speed range (torsion nat. freq
+    -- still ≫ flap, so the aeroelastic stroke itself is unchanged).
+    -- Bending siBendScale stays 3.6.
     flightSpars = kestrelSpars { siBendScale = 3.6, siTwistScale = 8 }
 
 -- Matches the current native KestrelMeshScale and KestrelScale. Shoulder

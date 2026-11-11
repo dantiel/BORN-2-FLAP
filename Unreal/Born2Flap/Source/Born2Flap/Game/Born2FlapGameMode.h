@@ -42,12 +42,20 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     bool IsDesertLevel() const { return bDesertLevel; }
     bool IsVoidLevel() const { return bVoidLevel; }
     bool IsAirportLevel() const { return bAirportLevel; }
+    bool IsWoshiLevel() const { return bWoshiLevel; }
     bool IsMenuOpen() const { return bMenuOpen; }
     bool IsWater(double X,double Y) const;
     double WaterHeight() const;
     FVector WindAt(const FVector& P,double Time) const;
-    FString GetLevelId() const { return bAirportLevel ? TEXT("Murex") : bDesertLevel ? TEXT("Yunsha") : bVoidLevel ? TEXT("NeonAbyss") : (bCoastLevel ? TEXT("Shiomori") : (bNatureLevel ? TEXT("Ravenstonefield") : TEXT("Training"))); }
+    FString GetLevelId() const { return bWoshiLevel ? TEXT("Woshi") : bAirportLevel ? TEXT("Murex") : bDesertLevel ? TEXT("Yunsha") : bVoidLevel ? TEXT("NeonAbyss") : (bCoastLevel ? TEXT("Shiomori") : (bNatureLevel ? TEXT("Ravenstonefield") : TEXT("Training"))); }
     const FBorn2FlapConditions& GetConditions() const { return Conditions; }
+    // Live weather desk: push new conditions into the running world. Every
+    // weather-sensitive system reads GetConditions() per frame (wind field,
+    // soundscape, insects, foliage, desert optics), so one assignment re-tunes
+    // them all; the weather actor re-dresses the sky/light/fog/precipitation
+    // stage art on its next tick. Persisting callers (menu) Save() first; the
+    // console desk stays transient.
+    void ApplyConditionsLive(const FBorn2FlapConditions& NewConditions);
     double GroundHeight(double X, double Y) const;
     bool HasRadioTrack() const;
     // Radio station (owned here) — the menu reads/writes its user volume.
@@ -117,6 +125,7 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     bool bVoidLevel = false;
     bool bDesertLevel = false;
     bool bAirportLevel = false;
+    bool bWoshiLevel = false;
     FBorn2FlapConditions Conditions;
     UPROPERTY() TObjectPtr<ABorn2FlapWeather> WeatherActor;
     float CoastTestTime=0;
@@ -143,8 +152,13 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     int32 MenuNavPage = 0;
     int32 MenuSettingsPage = 0;
     int32 MenuPrefsPage = 0;
-    TMap<FString, FBorn2FlapConditions> MenuLevelConditions;
-    TMap<FString, int32> MenuSelectedPoi;
+        TMap<FString, FBorn2FlapConditions> MenuLevelConditions;
+        TMap<FString, int32> MenuSelectedPoi;
+        // Open-worlds flow: 0 = all-maps picker, 1 = selected world's overview
+        // (tabs + FLY). Scenario choice per world (0 = free flight, 1+ = the
+        // world's scenario list index) — picked on the SCENARIOS tab.
+        int32 MenuWorldStage = 0;
+        TMap<FString, int32> MenuSelectedScenario;
     bool bMenuInLevel = false;
 
     // Startup splash (image + loading bar), shown on real launches only.

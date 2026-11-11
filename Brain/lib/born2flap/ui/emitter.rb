@@ -23,6 +23,7 @@ module Born2Flap
         progressbar: { umg: "ProgressBar", html: ["progress", nil], rn: "ProgressBar" },
         numberbox: { umg: "NumberBox", html: ["input", nil], rn: "TextInput" },
         windarrow: { umg: "WindArrow", html: ["div", "windarrow"], rn: "View" },
+        stick: { umg: "Stick", html: ["div", "stick"], rn: "View" },
         scrollblur: { umg: "ScrollBlur", html: ["div", "scroll"], rn: "ScrollView" },
         border: { umg: "Border", html: ["div", "border"], rn: "View" },
         overlay:  { umg: "Overlay",        html: ["div", "overlay"],  rn: "View" },

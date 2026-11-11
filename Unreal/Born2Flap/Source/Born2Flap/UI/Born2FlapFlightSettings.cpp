@@ -8,6 +8,7 @@
 #include "UI/Born2FlapUIRenderer.h"
 #include "UI/Born2FlapUiOps.h"
 #include "Flight/Born2FlapFlightPawn.h"
+#include "Avatar/Born2FlapAvatar.h"
 #include "Flight/Born2FlapTuning.h"
 #include "GameFramework/PlayerController.h"
 #include "Components/InputComponent.h"
@@ -212,12 +213,11 @@ void ABorn2FlapFlightSettings::BuildTree()
         Rows.push_back(Nd("Toggle", std::move(TProps)));
     }
     {
-        static const TCHAR* PersonNames[] = { TEXT("FOUNDER"), TEXT("COAST"), TEXT("NEON"), TEXT("BRONZE") };
         const int32 CurPerson = Bird->GetAvatarPerson();
-        for (int32 P = 0; P < 4; ++P)
+        for (int32 P = 0; P < ABorn2FlapAvatar::GetPersonCount(); ++P)
         {
             FProps Props;
-            Props["label"] = Sv(PersonNames[P]);
+            Props["label"] = Sv(ABorn2FlapAvatar::GetPersonName(P));
             Props["action"] = Sv(FString::Printf(TEXT("avatar.person.%d"), P));
             Props["tone"] = S(P == CurPerson ? "good" : "normal");
             Props["tooltip"] = S("Choose your on-foot pilot character.");

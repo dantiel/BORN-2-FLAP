@@ -39,7 +39,10 @@ module Born2Flap
               apply(action, 0)
             end
           when 'preferences.page' then @state[:preferences_page] = value.to_i.clamp(0, 2)
-          when 'menu.page' then @state[:menu_page] = value.to_i.clamp(0, 2)
+          # Tab 3 is the SCENARIOS tab — it exists only when the current world
+          # has scenarios (C++ clamps per world), so the session must at least
+          # admit it or the tab snaps back to LAUNCH POINT.
+          when 'menu.page' then @state[:menu_page] = value.to_i.clamp(0, 3)
           when 'settings.page' then @state[:settings_page] = value.to_i.clamp(0, 4)
           when 'servo.preset'
             presets = [[1500,0.17,6.0],[667,0.56,8.4],[750,0.74,7.4],[1000,0.41,7.4],[750,0.35,7.4],[750,0.54,7.4],[545,3.43,7.4]]
@@ -55,6 +58,15 @@ module Born2Flap
             index = value.to_i.clamp(0, presets.size - 1)
             presets[index].each { |key, v| apply(key, v) }
             @state[:profile] = %w[CRUISE THERMAL AEROBATIC CALM][index]
+          when 'menu.allWorlds'
+            # World switches reset the overview to the LOCATION tab (C++ also
+            # resets MenuPage; the session state must follow or the stale tab
+            # would override the fresh telemetry).
+            @state[:menu_page] = 0
+            apply(action, value, event[:text].to_s)
+          when /\Amenu\.pick\./
+            @state[:menu_page] = 0
+            apply(action, value, event[:text].to_s)
           else
             world = Array(telemetry[:worlds]).find { |item| action == "menu.#{item[:id].to_s.downcase}" }
             if world

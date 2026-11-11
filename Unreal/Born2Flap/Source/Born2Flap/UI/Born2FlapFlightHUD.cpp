@@ -295,7 +295,14 @@ void ABorn2FlapFlightHUD::HandleComponentAction(const FString& Action, float Val
                 CachedBird = Cast<ABorn2FlapFlightPawn>(PC->GetPawn());
         }
         if (CachedBird)
-            CachedBird->RequestHandLaunch();
+        {
+            // In flight the THROW button becomes the handcatch trigger (same
+            // rule as SPACE); on the ground it keeps the hand-launch.
+            if (CachedBird->IsFlying())
+                CachedBird->TryHandcatch();
+            else
+                CachedBird->RequestHandLaunch();
+        }
     }
     else if (Action == TEXT("flight.throttle"))
     {
@@ -563,6 +570,27 @@ void ABorn2FlapFlightHUD::Refresh()
     {
         Ops.Add(UpdateProps(Pth({0, 5}), P({ {"text", S(TCHAR_TO_UTF8(*Camera))} })));
         LastCamera = Camera;
+    }
+
+    // Hint banner: a transient reward toast ("Handcatch!") outranks the live
+    // handcatch-window cue ("SPACE - HANDCATCH!"); both fall back to empty.
+    FString Hint;
+    FString HintTone = TEXT("normal");
+    if (!CachedBird->GetRewardText().IsEmpty())
+    {
+        Hint = CachedBird->GetRewardText();
+        HintTone = TEXT("good");
+    }
+    else if (CachedBird->IsInHandcatchWindow())
+    {
+        Hint = Born2Flap::I18n::T("hud.handcatch_hint");
+        HintTone = TEXT("info");
+    }
+    if (Hint != LastHint || HintTone != LastHintTone)
+    {
+        Ops.Add(UpdateProps(Pth({0, 6}), P({ {"text", S(TCHAR_TO_UTF8(*Hint))}, {"tone", S(TCHAR_TO_UTF8(*HintTone))} })));
+        LastHint = Hint;
+        LastHintTone = HintTone;
     }
 
     if (Ops.Num() > 0)

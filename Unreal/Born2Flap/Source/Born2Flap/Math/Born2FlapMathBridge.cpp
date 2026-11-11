@@ -193,7 +193,7 @@ bool FBorn2FlapMathBridge::Load()
     }
 
     Status = TEXT("Haskell firmware backend ready");
-    UE_LOG(LogTemp, Display, TEXT("%s: %s"), *Status, *LibraryPath);
+    UE_LOG(LogTemp, Display, TEXT("%s: ABI=%u library=%s"), *Status, FoundVersion, *LibraryPath);
     return true;
 #endif
 }
@@ -286,6 +286,17 @@ bool FBorn2FlapMathBridge::ReadTailIncidence(double& Degrees) const
 bool FBorn2FlapMathBridge::ReadTailFields(B2F_TailField* Fields) const
 {
     return Context && GetTailFields && GetTailFields(Context, B2F_TAIL_PATCHES, Fields) == B2F_TAIL_PATCHES;
+}
+
+bool FBorn2FlapMathBridge::ReadRollBalance(double* Values) const
+{
+#if !PLATFORM_IOS && !PLATFORM_ANDROID
+    using ReadFn = int32_t (*)(B2F_MathContext*, double*);
+    const auto Read = LibraryHandle ? reinterpret_cast<ReadFn>(FPlatformProcess::GetDllExport(LibraryHandle, TEXT("b2f_math_get_roll_balance"))) : nullptr;
+    return Context && Read && Read(Context, Values) != 0;
+#else
+    return false;
+#endif
 }
 
 bool FBorn2FlapMathBridge::ReadExternalForce(double* Force) const

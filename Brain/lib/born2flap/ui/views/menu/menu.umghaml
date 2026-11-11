@@ -1,9 +1,26 @@
 %Panel{ padding: 24 }
   %ScrollPage{}
-    %VBox{ spacing: 12 }
-      %Caption{ title: #{world_title.inspect} }
-      %Segment{ options: ["#{t('menu.location')}", "#{t('menu.weather_time')}", "#{t('menu.launch_point')}"], value: #{page}, action: "menu.page" }
-    %VBox{ spacing: 18 }
+    - if world_stage == 0
+      %Caption{ title: "#{t('menu.maps')}" }
+      %VBox{ spacing: 12 }
+        - worlds.each_with_index do |w, i|
+          %HBox{ spacing: 14 }
+            %SizeBox{ width: 168, height: 94 }
+              %Image{ texture: "/Game/UI/Elements/#{w[:art]}.#{w[:art]}" }
+            %SizeBox{ width: 730 }
+              %VBox{ spacing: 6 }
+                %Button{ label: "#{w[:title]}", action: "menu.pick.#{w[:id].downcase}" }
+                %TextBlock{ text: "#{w[:brief]}", size: "s", wrap: true }
+      %VBox{ spacing: 4 }
+        %TextBlock{ text: "#{t('menu.hint')}", size: "s", wrap: true }
+    - else
+      %VBox{ spacing: 12 }
+        %Caption{ title: "#{world_title}" }
+        %HBox{ spacing: 12 }
+          - unless apply_mode
+            %Button{ label: "#{t('menu.all_maps')}", action: "menu.allWorlds", tone: "dim" }
+          %Segment{ options: #{menu_pages}, value: #{page}, action: "menu.page" }
+      %VBox{ spacing: 18 }
         %VBox{ visible: #{page == 0}, spacing: 14 }
           %SizeBox{ width: 350, height: 190 }
             %Image{ texture: "/Game/UI/Elements/#{artwork}.#{artwork}" }
@@ -28,9 +45,17 @@
         %VBox{ visible: #{page == 2}, spacing: 12 }
           - launch_points.each_with_index do |point, index|
             %Button{ label: #{point.inspect}, action: "launch.#{index}", tone: "#{index == launch_index ? 'good' : 'dim'}" }
-    %HBox{ spacing: 12 }
-      %Button{ label: "#{t('menu.prev')}", action: "menu.prevWorld" }
-      %Button{ label: "#{t('menu.play')}  #{world_title}", action: "menu.#{world_id.downcase}", tone: "good" }
-      - if world_id == "Shiomori"
-        %Button{ label: "HARVEST WATCH - guard the sweet potatoes", action: "menu.harvestwatch", tone: "accent" }
-      %Button{ label: "#{t('menu.next')}", action: "menu.nextWorld" }
+        - unless scenarios.empty?
+          %VBox{ visible: #{page == 3}, spacing: 12 }
+            %VBox{ spacing: 6 }
+              %Button{ label: "#{t('menu.free_flight')}", action: "menu.scenario", value: 0, tone: "#{scenario_index == 0 ? 'good' : 'dim'}" }
+              %TextBlock{ text: "#{t('menu.free_flight_hint')}", size: "s", wrap: true }
+            - scenarios.each_with_index do |scen, scen_i|
+              %VBox{ spacing: 6 }
+                %Button{ label: "#{scen[:title]}", action: "menu.scenario", value: #{scen_i + 1}, tone: "#{scenario_index == scen_i + 1 ? 'good' : 'dim'}" }
+                %TextBlock{ text: "#{scen[:story]}", size: "s", wrap: true }
+      %HBox{ spacing: 12 }
+        - if apply_mode
+          %Button{ label: "#{fly_label}", action: "menu.applyChanges", tone: "good" }
+        - else
+          %Button{ label: #{fly_label.inspect}, action: "menu.#{world_id.downcase}", tone: "good" }

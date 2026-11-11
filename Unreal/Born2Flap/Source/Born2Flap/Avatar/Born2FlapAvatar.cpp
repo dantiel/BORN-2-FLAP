@@ -13,7 +13,9 @@ namespace
 constexpr float StrideCm = 65.f;
 // Throw animation: total duration and the release moment (fraction 0..1).
 constexpr float ThrowDuration = 0.65f;
-constexpr float ThrowReleaseFraction = 0.30f;
+constexpr float ThrowReleaseFraction = 0.45f;
+// Catch animation: fallback duration when SK_FounderCatch is missing.
+constexpr float CatchDuration = 1.0f;
 // Normalise any imported character to this standing height (cm).
 constexpr float TargetHeightCm = 180.f;
 // Native (authored) ground speed each baked clip implies, in cm/s. The baked
@@ -38,6 +40,21 @@ struct FB2FAvatarPalette
 {
     FLinearColor Cloth, Skin, Hair, Accent;
 };
+struct FB2FAvatarPersonDef
+{
+    const TCHAR* Name;   // display name (menu/settings)
+    const TCHAR* Base;   // asset folder root, e.g. /Game/Actor/SK_Xbot
+};
+const TArray<FB2FAvatarPersonDef>& AvatarPersons()
+{
+    static const TArray<FB2FAvatarPersonDef> Persons = {
+        { TEXT("John"),    TEXT("/Game/Actor/SK_Founder") },
+        { TEXT("Scout"),   TEXT("/Game/Actor/SK_Scout") },
+        { TEXT("Soldier"), TEXT("/Game/Actor/SK_Soldier") },
+        { TEXT("X-Bot"),   TEXT("/Game/Actor/SK_Xbot") },
+    };
+    return Persons;
+}
 const TArray<FB2FAvatarPalette>& AvatarSkins()
 {
     static const TArray<FB2FAvatarPalette> Skins = {
@@ -78,32 +95,49 @@ ABorn2FlapAvatar::ABorn2FlapAvatar()
 void ABorn2FlapAvatar::BeginPlay()
 {
     Super::BeginPlay();
+    LoadPerson(PersonIndex);
+    SetFirstPerson(false);
+}
 
-    if (USkeletalMesh* Mesh = LoadObject<USkeletalMesh>(nullptr, TEXT("/Game/Actor/SK_Founder/SkeletalMeshes/SK_Founder.SK_Founder")))
+void ABorn2FlapAvatar::LoadPerson(int32 Index)
+{
+    const TArray<FB2FAvatarPersonDef>& Persons = AvatarPersons();
+    Index = FMath::Clamp(Index, 0, Persons.Num() - 1);
+    if (Index == PersonIndex && Body->GetSkeletalMeshAsset())
+        return;
+    PersonIndex = Index;
+    const FB2FAvatarPersonDef& P = Persons[Index];
+    const FString Short = FPaths::GetBaseFilename(P.Base);
+    const FString Folder = FString(P.Base) + TEXT("/SkeletalMeshes/");
+
+    // Mesh + skeleton come from the same glTF import; the Mixamo locomotion
+    // clips are baked into that GLB (sharing its glTF frame — no FBX retarget
+    // axis mismatch), so every person plays the identical clip set.
+    USkeletalMesh* Mesh = LoadObject<USkeletalMesh>(nullptr, *(Folder + Short + TEXT(".") + Short));
+    if (!Mesh)
     {
-        Body->SetSkeletalMesh(Mesh);
+        UE_LOG(LogTemp, Warning, TEXT("Avatar: mesh missing for person %d (%s) - run the character import tool"), Index, *Short);
+        return;
     }
-    else
-    {
-        UE_LOG(LogTemp, Warning, TEXT("Avatar: /Game/Actor/SK_Founder/SkeletalMeshes/SK_Founder missing - run Tools/import_founder.py"));
-    }
+    Body->SetSkeletalMesh(Mesh);
+
+    auto LoadAnim = [&](const TCHAR* Clip) {
+        return LoadObject<UAnimSequence>(nullptr, *(Folder + Short + Clip + TEXT(".") + Short + Clip));
+    };
+    AnimIdle     = LoadAnim(TEXT("Idle"));
+    AnimWalk     = LoadAnim(TEXT("Walk"));
+    AnimRun      = LoadAnim(TEXT("Run"));
+    AnimThrow    = LoadAnim(TEXT("Throw"));
+    AnimCatch    = LoadAnim(TEXT("Catch"));
+    AnimStand    = LoadAnim(TEXT("Standing"));
+    AnimStrafe   = LoadAnim(TEXT("StrafeRight"));
+    AnimWalkBack = LoadAnim(TEXT("WalkBackward"));
 
     ResolveSkeleton();
     DetectForwardAxis();
 
-    // Load the Mixamo locomotion clips baked directly into the Founder GLB (so
-    // they share the skeleton's glTF frame — no FBX retarget axis mismatch).
-    AnimIdle  = LoadObject<UAnimSequence>(nullptr, TEXT("/Game/Actor/SK_Founder/SkeletalMeshes/SK_FounderIdle.SK_FounderIdle"));
-    AnimWalk  = LoadObject<UAnimSequence>(nullptr, TEXT("/Game/Actor/SK_Founder/SkeletalMeshes/SK_FounderWalk.SK_FounderWalk"));
-    AnimRun   = LoadObject<UAnimSequence>(nullptr, TEXT("/Game/Actor/SK_Founder/SkeletalMeshes/SK_FounderRun.SK_FounderRun"));
-    AnimThrow = LoadObject<UAnimSequence>(nullptr, TEXT("/Game/Actor/SK_Founder/SkeletalMeshes/SK_FounderThrow.SK_FounderThrow"));
-    AnimCatch = LoadObject<UAnimSequence>(nullptr, TEXT("/Game/Actor/SK_Founder/SkeletalMeshes/SK_FounderCatch.SK_FounderCatch"));
-    AnimStand = LoadObject<UAnimSequence>(nullptr, TEXT("/Game/Actor/SK_Founder/SkeletalMeshes/SK_FounderStanding.SK_FounderStanding"));
-    AnimStrafe = LoadObject<UAnimSequence>(nullptr, TEXT("/Game/Actor/SK_Founder/SkeletalMeshes/SK_FounderStrafeRight.SK_FounderStrafeRight"));
-    AnimWalkBack = LoadObject<UAnimSequence>(nullptr, TEXT("/Game/Actor/SK_Founder/SkeletalMeshes/SK_FounderWalkBackward.SK_FounderWalkBackward"));
-
-    // Start in the relaxed idle stance. NOTE: SK_FounderStanding is a kneel/crouch
-    // clip (legs folded), not a standing pose, so the neutral Idle is used here.
+    // Start in the relaxed idle stance. NOTE: the Standing clip is a kneel/crouch
+    // (legs folded), not a standing pose, so the neutral Idle is used here.
     UAnimSequence* Initial = AnimIdle;
     Body->SetAnimationMode(EAnimationMode::AnimationSingleNode);
     if (Initial)
@@ -112,6 +146,10 @@ void ABorn2FlapAvatar::BeginPlay()
         Body->SetAnimation(Initial);
         Body->Play(true);
     }
+    else
+    {
+        CurrentAnim = nullptr;
+    }
 
     // Normalise to a ~180 cm human and rest the feet on the ground. The skeleton
     // root is the hips, so lift the mesh until the foot bone reaches the root.
@@ -119,8 +157,7 @@ void ABorn2FlapAvatar::BeginPlay()
     {
         const FBoxSphereBounds B = Body->CalcBounds(Body->GetComponentTransform());
         const float HeightLocal = B.BoxExtent.Z * 2.f;
-        if (HeightLocal > 1.f)
-            MeshScale = TargetHeightCm / HeightLocal;
+        MeshScale = HeightLocal > 1.f ? TargetHeightCm / HeightLocal : 1.f;
         Body->SetRelativeScale3D(FVector(MeshScale));
         if (BoneLFoot != INDEX_NONE)
         {
@@ -129,13 +166,12 @@ void ABorn2FlapAvatar::BeginPlay()
         }
     }
 
-    // Cache the founder's own materials for skin index 0 (naturalistic human).
+    // Cache this character's own materials so skin changes can restore them.
     OriginalMaterials.Reset();
     for (int32 i = 0; i < Body->GetNumMaterials(); ++i)
         OriginalMaterials.Add(Body->GetMaterial(i));
 
     ApplySkin();
-    SetFirstPerson(false);
 }
 
 void ABorn2FlapAvatar::Tick(float DeltaSeconds)
@@ -147,7 +183,20 @@ void ABorn2FlapAvatar::Tick(float DeltaSeconds)
     Root->SetWorldLocation(FeetWorld);
     // The mesh's forward axis is not necessarily +X (the Founder faces +Y), so
     // rotate by the detected offset to actually face the target yaw.
-    Root->SetWorldRotation(FRotator(0.f, FacingYaw - ForwardYawOffset, 0.f));
+    FQuat RootRot = FRotator(0.f, FacingYaw - ForwardYawOffset, 0.f).Quaternion();
+    const float LeanDeg = ComputeThrowLean();
+    if (FMath::Abs(LeanDeg) > 0.01f)
+    {
+        // Height articulation: tilt the whole throw arc with the launch pitch
+        // (lean back for a high lob, forward for a flat throw). The lean is a
+        // world-space rotation around the lateral axis perpendicular to the
+        // facing, so it is independent of the mesh's forward convention.
+        const FVector Lateral = FRotator(0.f, FacingYaw, 0.f)
+            .RotateVector(FVector::XAxisVector)
+            .RotateAngleAxis(90.f, FVector::ZAxisVector);
+        RootRot = FQuat(Lateral, FMath::DegreesToRadians(-LeanDeg)) * RootRot;
+    }
+    Root->SetWorldRotation(RootRot);
 
     const float Fwd = LocalForwardSpeed;
     const float Str = LocalStrafeSpeed;
@@ -163,6 +212,10 @@ void ABorn2FlapAvatar::Tick(float DeltaSeconds)
     if (bThrowing)
     {
         Target = AnimThrow;
+    }
+    else if (bCatching)
+    {
+        Target = AnimCatch;
     }
     else if (!bMoving)
     {
@@ -193,14 +246,26 @@ void ABorn2FlapAvatar::Tick(float DeltaSeconds)
     {
         CurrentAnim = Target;
         Body->SetAnimation(Target);
-        Body->Play(!bThrowing);   // one-shot for throw, loop otherwise
+        if (!bThrowing && !bCatching)
+        {
+            Body->Play(true);
+        }
+        else
+        {
+            // One-shots must always start at frame 0: SetAnimation carries the
+            // previous loop's playback position over, and a short throw/catch
+            // clip then clamps to its end and freezes on the last keyframe
+            // (the "catch shows only the final pose" bug).
+            Body->SetPosition(0.f, false);
+            Body->Play(false);
+        }
     }
 
     // Match limb cadence to the actual ground speed so the feet don't slide.
     // (The baked clips play too slowly at native rate for the pawn's pace.)
-    if (Target && !bThrowing && bMoving)
+    if (Target && !bThrowing && !bCatching && bMoving)
         Body->SetPlayRate(FMath::Clamp(Speed / NativeSpeed, PlayRateMin, PlayRateMax));
-    else if (!bThrowing)
+    else if (!bThrowing && !bCatching)
         Body->SetPlayRate(1.f);
 
     // One-shot throw bookkeeping: release at 30% of the clip, auto-return to idle/walk.
@@ -217,6 +282,21 @@ void ABorn2FlapAvatar::Tick(float DeltaSeconds)
         {
             bThrowing = false;
             ThrowTime = 0.f;
+            CurrentAnim = nullptr;   // re-select idle/walk next tick
+        }
+    }
+
+    // One-shot catch bookkeeping: hold the catch pose for the full clip, then
+    // return to idle/walk. The caught bird rides the CarrySocket through the
+    // whole arc, so the hands visibly take it out of the air.
+    if (bCatching)
+    {
+        CatchTime += DeltaSeconds;
+        const float CatchDur = AnimCatch ? AnimCatch->GetPlayLength() : CatchDuration;
+        if (CatchTime >= CatchDur)
+        {
+            bCatching = false;
+            CatchTime = 0.f;
             CurrentAnim = nullptr;   // re-select idle/walk next tick
         }
     }
@@ -299,32 +379,14 @@ void ABorn2FlapAvatar::SetBoneRotation(int32 BoneIndex, const FRotator& Rot)
 
 void ABorn2FlapAvatar::ApplySkin()
 {
-    if (!Body)
+    // Every person keeps its own imported character materials. The old
+    // "coloured clones of one model" tint palette was replaced by distinct
+    // characters (John/Scout/Soldier/X-Bot); this remains as the hook that
+    // restores the cached originals after any material override.
+    if (!Body || OriginalMaterials.Num() == 0)
         return;
-    const auto& Palettes = AvatarSkins();
-    const FB2FAvatarPalette& P = Palettes[FMath::Clamp(SkinIndex, 0, Palettes.Num() - 1)];
-
-    // Skin 0 keeps the founder's own textured materials (naturalistic human).
-    if (SkinIndex == 0 && OriginalMaterials.Num() > 0)
-    {
-        for (int32 i = 0; i < Body->GetNumMaterials() && i < OriginalMaterials.Num(); ++i)
-            Body->SetMaterial(i, OriginalMaterials[i]);
-        return;
-    }
-
-    // Tinted actors: use the parameterized actor material when available, else
-    // fall back to the flat training material so a missing M_Actor still shows.
-    UMaterialInterface* Base = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Actor/M_Actor"));
-    if (!Base)
-        Base = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Training/M_Stone"));
-    if (!Base)
-        return;
-    if (!SkinMID || SkinMID->Parent != Base)
-        SkinMID = UMaterialInstanceDynamic::Create(Base, this);
-    SkinMID->SetVectorParameterValue(TEXT("Color"), P.Cloth);
-    SkinMID->SetScalarParameterValue(TEXT("Roughness"), 0.7f);
-    for (int32 i = 0; i < Body->GetNumMaterials(); ++i)
-        Body->SetMaterial(i, SkinMID);
+    for (int32 i = 0; i < Body->GetNumMaterials() && i < OriginalMaterials.Num(); ++i)
+        Body->SetMaterial(i, OriginalMaterials[i]);
 }
 
 void ABorn2FlapAvatar::SetSkin(int32 Index)
@@ -336,8 +398,19 @@ void ABorn2FlapAvatar::SetSkin(int32 Index)
 
 void ABorn2FlapAvatar::SetPerson(int32 Index)
 {
-    // Single Founder character; Person maps onto the skin palette for now.
-    SetSkin(FMath::Clamp(Index, 0, 3));
+    const int32 Clamped = FMath::Clamp(Index, 0, AvatarPersons().Num() - 1);
+    if (!HasActorBegunPlay())
+    {
+        PersonIndex = Clamped;   // BeginPlay's LoadPerson picks it up
+        return;
+    }
+    LoadPerson(Clamped);
+}
+
+FString ABorn2FlapAvatar::GetPersonName(int32 Index)
+{
+    const TArray<FB2FAvatarPersonDef>& Persons = AvatarPersons();
+    return Persons[FMath::Clamp(Index, 0, Persons.Num() - 1)].Name;
 }
 
 void ABorn2FlapAvatar::SetPlacement(const FVector& WorldFeet, float WorldYaw)
@@ -366,13 +439,29 @@ void ABorn2FlapAvatar::SetFirstPerson(bool bFirstPersonView)
         Body->SetVisibility(!bFirstPerson, true);
 }
 
+void ABorn2FlapAvatar::SetThrowAimPitch(float PitchDeg)
+{
+    ThrowAimPitch = PitchDeg;
+}
+
 void ABorn2FlapAvatar::BeginThrow()
 {
     if (bThrowing)
         return;
+    // A new throw interrupts an unfinished catch pose.
+    bCatching = false;
+    CatchTime = 0.f;
     bThrowing = true;
     ThrowTime = 0.f;
     bReleaseFired = false;
+}
+
+void ABorn2FlapAvatar::BeginCatch()
+{
+    if (bCatching || bThrowing)
+        return;
+    bCatching = true;
+    CatchTime = 0.f;
 }
 
 FVector ABorn2FlapAvatar::GetHeadWorldLocation() const
@@ -380,6 +469,22 @@ FVector ABorn2FlapAvatar::GetHeadWorldLocation() const
     if (Body && BoneHead != INDEX_NONE)
         return Body->GetBoneLocation(Body->GetBoneName(BoneHead), EBoneSpaces::WorldSpace);
     return GetActorLocation() + FVector(0.f, 0.f, 160.f);
+}
+
+FString ABorn2FlapAvatar::DebugThrowState() const
+{
+    auto BonePos = [&](int32 B) -> FVector {
+        return (Body && B != INDEX_NONE)
+            ? Body->GetBoneLocation(Body->GetBoneName(B), EBoneSpaces::WorldSpace)
+            : FVector::ZeroVector;
+    };
+    const FVector LH = BonePos(BoneLHand), RH = BonePos(BoneRHand), SP = BonePos(BoneSpine);
+    return FString::Printf(TEXT("anim=%s pos=%.2f rate=%.2f throwing=%d hands=(%.0f,%.0f,%.0f)/(%.0f,%.0f,%.0f) spine=(%.0f,%.0f,%.0f)"),
+        CurrentAnim ? *CurrentAnim->GetName() : TEXT("none"),
+        Body ? Body->GetPosition() : -1.f,
+        Body ? Body->GetPlayRate() : 0.f,
+        bThrowing ? 1 : 0,
+        LH.X, LH.Y, LH.Z, RH.X, RH.Y, RH.Z, SP.X, SP.Y, SP.Z);
 }
 
 void ABorn2FlapAvatar::PoseBody(bool bMoving, float Dt)
@@ -417,6 +522,24 @@ void ABorn2FlapAvatar::PoseBody(bool bMoving, float Dt)
         SetBoneRotation(BoneRForeArm, FRotator(20.f, 0.f, 0.f));
     }
     UpdateCarrySocket();
+}
+
+float ABorn2FlapAvatar::ComputeThrowLean() const
+{
+    if (!bThrowing)
+        return 0.f;
+    const float ThrowDur = AnimThrow ? AnimThrow->GetPlayLength() : ThrowDuration;
+    const float T = ThrowDur > 0.f ? FMath::Clamp(ThrowTime / ThrowDur, 0.f, 1.f) : 1.f;
+    const float AimPitch = FMath::Clamp(ThrowAimPitch, -20.f, 60.f);
+    if (T < ThrowReleaseFraction)
+    {
+        // Wind-up: smoothstep lean back proportional to the loft.
+        const float E = FMath::Clamp(T / ThrowReleaseFraction, 0.f, 1.f);
+        return AimPitch * 0.30f * E * E * (3.f - 2.f * E);
+    }
+    // Follow-through: ease back to upright as the bird leaves the hand.
+    const float E = FMath::Clamp((T - ThrowReleaseFraction) / (1.f - ThrowReleaseFraction), 0.f, 1.f);
+    return AimPitch * 0.30f * (1.f - E);
 }
 
 void ABorn2FlapAvatar::PoseThrow(float Dt)
@@ -472,4 +595,10 @@ void ABorn2FlapAvatar::UpdateCarrySocket()
                Body->GetBoneLocation(Body->GetBoneName(BoneRHand), EBoneSpaces::WorldSpace)) * 0.5f;
     }
     CarrySocket->SetRelativeLocation(Body->GetComponentTransform().InverseTransformPosition(Mid));
+    // The skeleton's forward axis is not necessarily +X (the Founder rig faces
+    // +Y), and the socket would inherit that offset from the mesh — a bird
+    // attached with zero relative rotation would sit sideways in the hand.
+    // Counter-rotate by the detected offset so the held/carried bird always
+    // faces the avatar's actual facing.
+    CarrySocket->SetRelativeRotation(FRotator(0.f, ForwardYawOffset, 0.f));
 }

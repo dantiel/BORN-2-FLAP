@@ -41,7 +41,7 @@ def main():
     hz = 960
     dt = 1.0 / hz
     lib = c.CDLL(str(DLL.resolve()))
-    assert lib.b2f_math_abi_version() == 16
+    assert lib.b2f_math_abi_version() == 20
     assert lib.b2f_math_runtime_init() == 1
     create = lib.b2f_math_create_firmware_vehicle
     create.argtypes, create.restype = [c.c_void_p], c.c_void_p

@@ -730,7 +730,11 @@ void UBorn2FlapUIRenderer::HandleClicked(UBorn2FlapComposite* C, int32 OptionInd
     }
     else
     {
-        EmitAction(C->Action, 1.0, TEXT(""));
+        // Buttons may carry a `value` prop as their semantic payload (0 for a
+        // "free flight" row, 1+ for a list index); plain buttons stay 1.
+        const double V = C->State.Contains(TEXT("value"))
+            ? FCString::Atof(*C->State.FindRef(TEXT("value"))) : 1.0;
+        EmitAction(C->Action, V, TEXT(""));
     }
 }
 
@@ -795,6 +799,27 @@ void UBorn2FlapUIRenderer::ApplyParsedOps(std::vector<FOp>&& Ops)
     }
     if (RendererImpl && !TreeOps.empty())
         RendererImpl->Apply(TreeOps);
+}
+
+void UBorn2FlapUIRenderer::SyncAutoWrap()
+{
+    if (!RendererImpl)
+        return;
+    // AutoWrapText alone lays out ONE line (UMG needs WrapTextAt > 0 to wrap).
+    // Re-sync the wrap width to the slot width the last layout pass allotted,
+    // so wrapped text reports its true multi-line height and the owning VBox /
+    // ScrollBox grows vertically to fit. Converges within a frame or two.
+    for (const auto& Pair : RendererImpl->widgets)
+    {
+        UTextBlock* T = Cast<UTextBlock>(Pair.second);
+        if (!T || !T->GetAutoWrapText())
+            continue;
+        const float Width = T->GetCachedGeometry().GetLocalSize().X;
+        if (Width <= 0.f)
+            continue;  // not yet laid out (or collapsed) — re-check next pass
+        if (!FMath::IsNearlyEqual(T->GetWrapTextAt(), Width))
+            T->SetWrapTextAt(Width);
+    }
 }
 
 // ---- FRenderer host contract ----------------------------------------------
@@ -1797,6 +1822,11 @@ void UBorn2FlapUIRenderer::ApplyCompositeProps(UBorn2FlapComposite* C, const FPr
         UTextBlock* Label = Cast<UTextBlock>(C->Part(TEXT("label")));
         if (Props.count("label") && Label) SetText(Label, Props.at("label"));
         if (Props.count("disabled") && Btn) Btn->SetIsEnabled(!Props.at("disabled").AsBool(false));
+        // Optional semantic payload: the click emits this number instead of 1
+        // (list rows keyed by index — e.g. the SCENARIOS tab's per-scenario
+        // buttons emit 0 = free flight, 1+ = the scenario's list index).
+        if (Props.count("value"))
+            C->State.Add(TEXT("value"), FString::SanitizeFloat(Num(Props.at("value"), 0.0)));
 
         const bool bGhost = (Tone == TEXT("ghost") || Tone == TEXT("ghost-active"));
         if (bGhost)

@@ -187,7 +187,7 @@ B2F_EXPORT HsWord32 b2f_math_abi_version(void) {
      * constant instead of a call into the (uninitialised) Haskell RTS.
       * KEEP IN SYNC with B2F_MATH_ABI_VERSION in Native/include/born2flap_math.h
       * and b2f_math_abi_version in MathCore/src/Born2Flap/Math/FFI.hs. */
-     return 20;
+     return 21;
 }
 
 B2F_EXPORT HsInt32 b2f_math_runtime_init(void) {
@@ -255,6 +255,10 @@ B2F_EXPORT HsInt32 b2f_math_reconfigure_firmware_vehicle(HsPtr context, HsPtr tu
     return hs_b2f_math_reconfigure_firmware_vehicle(context, tuning);
 }
 extern HsInt32 hs_b2f_math_set_wing_model(HsPtr context, HsWord32 model_id);
+extern HsInt32 hs_b2f_math_get_roll_balance(HsPtr context, HsPtr output);
+B2F_EXPORT HsInt32 b2f_math_get_roll_balance(HsPtr context, HsPtr output) {
+    return hs_b2f_math_get_roll_balance(context, output);
+}
 B2F_EXPORT HsInt32 b2f_math_set_wing_model(HsPtr context, HsWord32 model_id) {
     return hs_b2f_math_set_wing_model(context, model_id);
 }
@@ -303,6 +307,10 @@ B2F_EXPORT HsInt32 b2f_math_get_tail_fields(HsPtr context, HsWord32 capacity, Hs
 }
 B2F_EXPORT HsInt32 b2f_math_get_tail_incidence(HsPtr context, HsPtr output) {
     return hs_b2f_math_get_tail_incidence(context, output);
+}
+extern HsInt32 hs_b2f_math_get_hang_state(HsPtr context, HsPtr output);
+B2F_EXPORT HsInt32 b2f_math_get_hang_state(HsPtr context, HsPtr output) {
+    return hs_b2f_math_get_hang_state(context, output);
 }
 B2F_EXPORT HsInt32 b2f_math_transport_airfields(HsPtr context, HsPtr rotation) {
     return hs_b2f_math_transport_airfields(context, rotation);

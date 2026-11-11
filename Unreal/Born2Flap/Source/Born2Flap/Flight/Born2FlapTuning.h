@@ -38,6 +38,13 @@ FORCEINLINE const TCHAR* Key(ETuningField Field)
     case ETuningField::YawScale:          return TEXT("YawScale");
     case ETuningField::StrokeSkew:        return TEXT("StrokeSkew");
     case ETuningField::ReturnSkew:        return TEXT("ReturnSkew");
+    case ETuningField::ShapeMix:          return TEXT("ShapeMix");
+    case ETuningField::ThrottleThrustShapeMix: return TEXT("ThrottleThrustShapeMix");
+    case ETuningField::ThrottleThrustExpo: return TEXT("ThrottleThrustExpo");
+    case ETuningField::AileronSkewMix:    return TEXT("AileronSkewMix");
+    case ETuningField::ThrottleSkewRateMix: return TEXT("ThrottleSkewRateMix");
+    case ETuningField::AileronSkewRateMix: return TEXT("AileronSkewRateMix");
+    case ETuningField::ElevatorFerocityMix: return TEXT("ElevatorFerocityMix");
     default:                               return TEXT("");
     }
 }
@@ -101,14 +108,21 @@ static const FRow Rows[] =
     { ETuningField::TailElevatorAngle,     TEXT("TAIL ELEVATOR ANGLE"),      TEXT("°"),           -15.f,   15.f, 1, TEXT("Physical tail mounting angle. Negative incidence usually produces tail downforce and a nose-up moment in forward flight. The Kestrel tail remains fixed to the fuselage at this angle. Flap Centre adjusts the wings separately.") },
     { ETuningField::GlideAngle,         TEXT("GLIDE ANGLE"),           TEXT("°"),           -15.f,   15.f, 0, TEXT("Glide incidence trim. Negative = steeper nose-down glide; positive = shallower with more float.") },
     { ETuningField::StrokeFerocity,     TEXT("STROKE FEROCITY"),       TEXT("%"),             0.f,  100.f, 0, TEXT("How aggressively the stroke accelerates through centre. Low = soft/round; high = crisp snap; very high = violent.") },
-    { ETuningField::AileronScale,       TEXT("AILERON SCALE"),         TEXT("%"),             0.f,  100.f, 0, TEXT("Roll authority. Low = gentle banking; high = very responsive roll.") },
-    { ETuningField::ElevatorScale,      TEXT("ELEVATOR SCALE"),        TEXT("%"),             0.f,  100.f, 0, TEXT("Pitch authority from the ruddervators. Low = subtle pitch; high = very strong pitch response.") },
+    { ETuningField::AileronScale,       TEXT("AILERON SCALE"),         TEXT("%"),             0.f,  100.f, 0, TEXT("Aileron servo travel (control authority only — no aerodynamic gain). How much stick input moves the dihedral servo; the roll then comes implicitly from the tilted wing geometry.") },
+    { ETuningField::ElevatorScale,      TEXT("ELEVATOR SCALE"),        TEXT("%"),             0.f,  100.f, 0, TEXT("Pitch control travel (control authority only). How much stick input shifts the WINGS' common flap-stroke centre (dihedral/anhedral wing position); the pitch then comes implicitly from the wings' own force geometry. The tail stays fixed to the fuselage — no tail servo.") },
     { ETuningField::FlapCentre,         TEXT("FLAP CENTRE"),          TEXT("°"),           -15.f,   15.f, 0, TEXT("Powered stroke-centre trim. Negative raises both wings (dihedral); positive lowers them (anhedral). Changes sideslip stability through actual wing geometry. It is not wing incidence.") },
     { ETuningField::VerticalMountAngle, TEXT("VERTICAL MOUNT ANGLE"), TEXT("°"),           -15.f,   15.f, 0, TEXT("Real wing mount incidence (nose-up +). Tilts the wing about its span axis; feeds the strip's geometric twist. Negative = nose-down; positive = nose-up.") },
     { ETuningField::ReturnFerocity,    TEXT("RETURN FEROCITY"),      TEXT("%"),             0.f,  100.f, 0, TEXT("How aggressively the upstroke/return accelerates through centre, independently of the downstroke. Low = soft return; high = crisp snap.") },
     { ETuningField::YawScale,          TEXT("YAW SCALE"),            TEXT("%"),             0.f,  100.f, 0, TEXT("Maximum differential wing amplitude in a yaw turn. Low = symmetric stroke; high = one wing beats far deeper than the other for a strong visual + proverse-yaw swing.") },
     { ETuningField::StrokeSkew,        TEXT("STROKE SKEW"),          TEXT("%"),          -100.f,  100.f, 0, TEXT("Downstroke centre-skew. Positive front-loads thrust (peak earlier); negative delays it. Mirrors PteronautOS strokeSkewPercent.") },
     { ETuningField::ReturnSkew,        TEXT("RETURN SKEW"),          TEXT("%"),          -100.f,  100.f, 0, TEXT("Upstroke centre-skew. Positive front-loads the return; negative delays it. Mirrors PteronautOS returnSkewPercent.") },
+    { ETuningField::ShapeMix,          TEXT("SHAPE MIX"),            TEXT("%"),             0.f,  100.f, 0, TEXT("Square↔pyramidal stroke transmute. 0 = square dwell wave (crisp plateau, PteronautOS default); 100 = pointed pyramidal wave; in between the half-stroke blends continuously. Mirrors PteronautOS ferocityShapeMix.") },
+    { ETuningField::ThrottleThrustShapeMix, TEXT("THRUST SHAPE MIX"), TEXT("%"),          0.f,  100.f, 0, TEXT("How strongly throttle reshapes the stroke waveform: dwell boost + centre-skew added to both half-strokes. 0 = waveform untouched by throttle; 100 = full throttle fully reshapes it.") },
+    { ETuningField::ThrottleThrustExpo, TEXT("THRUST EXPO"),         TEXT("%"),          -100.f,  100.f, 0, TEXT("Exponential throttle-thrust mapping. Positive = soft low end, hard top (gentle takeoffs); negative = aggressive low end, soft top.") },
+    { ETuningField::AileronSkewMix,    TEXT("AILERON SKEW MIX"),     TEXT("%"),             0.f,  100.f, 0, TEXT("How strongly aileron input skews down/upstroke timing in opposite directions on the two wings — roll authority through stroke asymmetry, not just amplitude.") },
+    { ETuningField::ThrottleSkewRateMix, TEXT("THROTTLE SKEW RATE"), TEXT("%"),           0.f,  100.f, 0, TEXT("How strongly a throttle slew (fast stick movement) skews both strokes. Rate feedback: braking the throttle shifts the stroke peak; zero disables it.") },
+    { ETuningField::AileronSkewRateMix, TEXT("AILERON SKEW RATE"),  TEXT("%"),             0.f,  100.f, 0, TEXT("How strongly an aileron-rate slew skews the strokes — roll damping through rate feedback on the L/R timing shift.") },
+    { ETuningField::ElevatorFerocityMix, TEXT("ELEVATOR FEROCITY MIX"), TEXT("%"),         0.f,  100.f, 0, TEXT("How much elevator input mixes into stroke/return ferocity asymmetry: pitch via stroke aggression, not just travel. Up = crisper stroke; down = crisper return.") },
 };
 
 FORCEINLINE const FRow& Row(ETuningField Field)
@@ -150,6 +164,13 @@ FORCEINLINE B2F_TuningConfig DefaultTuningForModel(int32 Model)
     T.yaw_scale = 100;
     T.stroke_skew_percent = 0;
     T.return_skew_percent = 0;
+    T.shape_mix_percent = 0;
+    T.throttle_thrust_shape_mix_percent = 0;
+    T.throttle_thrust_expo_percent = 0;
+    T.aileron_skew_mix_percent = 0;
+    T.throttle_skew_rate_mix_percent = 0;
+    T.aileron_skew_rate_mix_percent = 0;
+    T.elevator_ferocity_mix_percent = 0;
 
     switch (Model)
     {
