@@ -573,24 +573,31 @@ void ABorn2FlapFlightHUD::Refresh()
     }
 
     // Hint banner: a transient reward toast ("Handcatch!") outranks the live
+    // Hint banner: a transient reward toast ("Handcatch!") outranks the live
     // handcatch-window cue ("SPACE - HANDCATCH!"); both fall back to empty.
+    // Reward toasts pop in and fade out — the pawn's alpha envelope is emitted
+    // every tick while active, so the banner breathes instead of snapping.
     FString Hint;
     FString HintTone = TEXT("normal");
+    float HintAlpha = 0.f;
     if (!CachedBird->GetRewardText().IsEmpty())
     {
         Hint = CachedBird->GetRewardText();
         HintTone = TEXT("good");
+        HintAlpha = CachedBird->GetRewardAlpha();
     }
     else if (CachedBird->IsInHandcatchWindow())
     {
         Hint = Born2Flap::I18n::T("hud.handcatch_hint");
         HintTone = TEXT("info");
+        HintAlpha = 1.f;
     }
-    if (Hint != LastHint || HintTone != LastHintTone)
+    if (Hint != LastHint || HintTone != LastHintTone || FMath::Abs(HintAlpha - LastHintAlpha) > 0.03f)
     {
-        Ops.Add(UpdateProps(Pth({0, 6}), P({ {"text", S(TCHAR_TO_UTF8(*Hint))}, {"tone", S(TCHAR_TO_UTF8(*HintTone))} })));
+        Ops.Add(UpdateProps(Pth({0, 6}), P({ {"text", S(TCHAR_TO_UTF8(*Hint))}, {"tone", S(TCHAR_TO_UTF8(*HintTone))}, {"alpha", N(HintAlpha)} })));
         LastHint = Hint;
         LastHintTone = HintTone;
+        LastHintAlpha = HintAlpha;
     }
 
     if (Ops.Num() > 0)

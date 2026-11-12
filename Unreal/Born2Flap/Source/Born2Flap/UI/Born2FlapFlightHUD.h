@@ -72,6 +72,7 @@ private:
     // and tone so Refresh only re-drives the node when either actually changes.
     FString LastHint;
     FString LastHintTone;
+    float LastHintAlpha = -1.f;
     // True while the action bar (THROW/POI/CAM/MENU) is folded away by the HIDE
     // toggle, leaving only the tiny eye glyph. Mirrors CachedBird->IsUIHidden().
     bool bButtonsHidden = false;

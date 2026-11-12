@@ -16,12 +16,17 @@ param(
     [switch]$Installed,
     [double]$Roll = .25,
     [int]$Fps = 60,
-    [int]$BirdModel = 2
+    [int]$BirdModel = 2,
+    [string]$ArtifactDirectory = '.setup/wing-air-20261111',
+    [string]$Preferences = '',
+    [switch]$YawFree,
+    [Nullable[double]]$InitialBank = $null,
+    [double]$InitialSink = 0
 )
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot
 $dll = (Resolve-Path -LiteralPath $Library).Path
-$log = Join-Path $repo ('.setup/wing-air-20261111/' + $LogName)
+$log = Join-Path (Join-Path $repo $ArtifactDirectory) $LogName
 $project = Join-Path $repo 'Unreal/Born2Flap/Born2Flap.uproject'
 $arguments = @(('"'+$project+'"'), '/Engine/Maps/Entry', '-game', '-nullrhi', '-nosound',
     '-unattended', '-nosplash', '-benchmark', ('-fps='+$Fps), '-B2FFlightTest',
@@ -31,6 +36,8 @@ if (!$Installed) { $arguments += ('-B2FPhysicsTestLibrary="'+$dll+'"') }
 $arguments += @('-B2FWingAirTrace', ('-B2FAuditRamp='+$Ramp),
     ('-B2FAuditSpeed='+$Speed), ('-B2FAuditThrottle='+$Throttle))
 if ($FreeFlight) { $arguments += '-B2FAuditFree' }
+if ($YawFree) { $arguments += '-B2FAuditYawFree' }
+if ($null -ne $InitialBank) { $arguments += @(('-B2FAuditInitialBank='+$InitialBank),('-B2FAuditInitialSink='+$InitialSink)) }
 if ($InertiaAudit) { $arguments += '-B2FInertiaAudit' }
 if ($AverageLoads) { $arguments += '-B2FAuditAverageLoads' }
 if ($ChronologyAudit) {
@@ -42,14 +49,15 @@ if ($ChronologyTrace) { $arguments += '-B2FChronologyTrace' }
 $arguments += ('-B2FAuditRoll='+$Roll)
 if ($Render) {
     $arguments = @($arguments | Where-Object { $_ -ne '-nullrhi' })
-    $prefix = Join-Path $repo ('.setup/wing-air-20261111/' + [IO.Path]::GetFileNameWithoutExtension($LogName))
+    $prefix = Join-Path (Join-Path $repo $ArtifactDirectory) ([IO.Path]::GetFileNameWithoutExtension($LogName))
     $arguments += @('-RenderOffscreen','-ResX=1280','-ResY=720',('-B2FAuditCapturePrefix="'+$prefix+'"'))
 }
-if ($SavedSettings) {
-    $preferences = Join-Path $repo '.setup/wing-air-20261111/preferences.ini'
+if ($SavedSettings -or $Preferences) {
+    if (!$Preferences) { $Preferences = Join-Path $repo '.setup/wing-air-20261111/preferences.ini' }
     if (!(Test-Path -LiteralPath $preferences)) {
         Copy-Item -LiteralPath (Join-Path $repo 'Unreal/Born2Flap/Saved/Config/FlightPreferences.ini') -Destination $preferences
     }
+    $preferences = (Resolve-Path -LiteralPath $preferences).Path
     $arguments += @('-B2FUseSavedFlightSettings', ('-B2FFlightPreferences="'+$preferences+'"'))
 }
 $process = Start-Process -FilePath 'V:/UE_5.8/Engine/Binaries/Win64/UnrealEditor-Cmd.exe' `

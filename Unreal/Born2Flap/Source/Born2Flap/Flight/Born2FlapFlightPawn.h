@@ -87,6 +87,10 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     // Replay shadow-doppelgängers: show past rounds flying alongside (default on).
     bool GetReplaySpiritsEnabled() const { return bReplaySpirits; }
     void SetReplaySpiritsEnabled(bool bOn);
+    // Aerobatic trick toasts ("Handcatch!", "Looping!", ...) shown on the HUD
+    // hint banner. One master toggle in settings gates all of them (default on).
+    bool GetTrickToastsEnabled() const { return bShowTrickToasts; }
+    void SetTrickToastsEnabled(bool bOn) { bShowTrickToasts = bOn; }
     // Delete all saved replay-spirit recordings for the current level.
     void DeleteReplaySpirits();
     // World time of the most recent wing contact (ground/object). The race gates
@@ -106,9 +110,11 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     bool TryHandcatch();
     bool IsInHandcatchWindow() const;
     // Reward toast ("Handcatch!"): text shown on the HUD hint banner for
-    // Duration seconds.
+    // Duration seconds. The banner pops in fast and fades out over the last
+    // half second of the window — GetRewardAlpha() returns the 0..1 envelope.
     void AnnounceReward(const FString& Text, float Duration);
     FString GetRewardText() const;
+    float GetRewardAlpha() const;
     // Optional shortcut: pick the grounded ornithopter up into the pilot's hand
     // (carry while walking/standing), or set it back down. The carried bird turns
     // with the pilot's gaze, which also sets the throw trajectory.
@@ -302,9 +308,24 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     float HandCatchRadius = 320.f;
     float HandCatchMaxDeltaZ = 150.f;
     float HandCatchMaxSpeed = 12.f;
-    // Reward toast: text + expiry (WorldTime) driven by the HUD hint banner.
+    // Reward toast: text + start/expiry (WorldTime) driven by the HUD hint
+    // banner. The HUD fades the banner via GetRewardAlpha() over the last
+    // 0.5 s of the window; the text itself clears at expiry.
     FString RewardText;
+    double RewardStart = 0.0;
     double RewardUntil = 0.0;
+    // Aerobatics registry: accumulated rotation about the body's lateral axis
+    // (loop) and forward axis (barrel roll), plus dwell timers that reset the
+    // accumulators when the rotation stalls or reverses. One shared cooldown
+    // spaces the toasts so a combo reads as separate calls.
+    double TrickAccumPitch = 0.0;
+    double TrickAccumRoll = 0.0;
+    double TrickPitchDwell = 0.0;
+    double TrickRollDwell = 0.0;
+    double TrickCooldownUntil = 0.0;
+    double TrickInvertedTimer = 0.0;
+    double TrickSkimTimer = 0.0;
+    void TickAerobatics(float Dt);
     FVector PrevAvatarFeet = FVector::ZeroVector;
     double CameraTime = 0, GroundSettleTime = 0;
     // True once the pilot has walked away from the auto-anchor beside the bird:
@@ -387,6 +408,7 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     float WingbeatVolume=1.0f;   // wingbeat-only voice volume (0..4)
     float FlightSafety=1.0f;  // 0 off · 1 very low (acro) · 2 normal
     bool bReplaySpirits = true;   // show replay shadow-doppelgängers
+    bool bShowTrickToasts = true; // aerobatic reward toasts (settings-gated)
     bool bCoupledThrottle = true;
     FVector MouseGains = FVector(1, -1, 1);
     int32 BirdModel = 0;

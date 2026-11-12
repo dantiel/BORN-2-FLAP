@@ -127,6 +127,47 @@ $null
 /.build-tmp/
 /scratch/
 /scratch_mathcore.diff
+
+# Root-level scratch and one-off build/debug artifacts
+/_build_*.cmd
+/_glb_anims.txt
+/_mixamo_characters.csv
+/_mp_forensic.txt
+/_old_vehicle.hs
+/_prev_vehicle.hs
+/_probe*.txt
+/_probe*.json
+/_selfshot*.png
+/_shiomori.diff
+/_terrain_*.txt
+/_terrain_*.png
+/_ground_crop*.png
+/scratch_*.txt
+/scratch_*.diff
+/scratch_*.hs
+
+# MathCore scratch copies and probe outputs
+/MathCore/Firmware.hs
+/MathCore/FirmwareVehicle.hs
+/MathCore/_*
+/MathCore/scratch_*
+/MathCore/diffroll_out.txt
+/MathCore/probe_authority.hs
+
+# One-off analysis scripts
+/Tools/tmp_*.py
+
+# Yunsha world backups and generated external actors
+/Unreal/Born2Flap/Content/Yunsha_backup_*/
+/Unreal/Born2Flap/Content/__ExternalActors__/Yunsha/
+
+# Scratch collision fixtures
+/Unreal/Born2Flap/Content/ScratchCollision/
+
+# Dev-log reports — kept out of the repo; distilled into CHANGELOG/ROADMAP/TODO
+/docs/tail-coupling-2026-11-12.md
+/docs/wing-air-coupling-2026-11-11.md
+/docs/yunsha-wind-ripples.md
 # wasm3/ghc-wasm native build outputs (regenerate via Tools/build-wasm3-android.sh)
 Native/lib/
 MathCore/tools/export-models/

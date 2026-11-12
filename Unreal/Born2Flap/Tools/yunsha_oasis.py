@@ -61,8 +61,8 @@ def plant_lake(imported,ground):
     water itself (built in create_yunsha_map). Ground height selects the band,
     so planting hugs the actual waterline rather than an analytic ellipse."""
     rng=random.Random(110520)
-    grass=u.load_asset('/Game/Nature/SM_Grass1');fern=u.load_asset('/Game/Nature/SM_Fern0')
-    palm=imported('OasisPalm')
+    grass=u.load_asset('/Game/Nature/SM_Grass1');meadow=u.load_asset('/Game/Nature/SM_Grass2')
+    fern=u.load_asset('/Game/Nature/SM_Fern0');palm=imported('OasisPalm')
     def radius(x,y):return math.hypot(x/15600,(y+52000)/9600)
     def scatter(sm,count,band,ground_lo,ground_hi,height_range,block):
         a=u.EditorLevelLibrary.spawn_actor_from_class(u.Born2FlapYunshaBatch,u.Vector())
@@ -80,6 +80,12 @@ def plant_lake(imported,ground):
             c.add_instance(u.Transform(location=u.Vector(x,y,gh-sc*(bounds.origin.z-bounds.box_extent.z)),
                 rotation=u.Rotator(yaw=rng.uniform(0,360)),scale=u.Vector(sc,sc,sc)),False)
             placed+=1
-    scatter(grass,700,(1.02,1.16),2,70,(35,85),False)   # reeds at the waterline
-    scatter(fern,320,(1.05,1.30),30,120,(50,140),False)  # ferns up the slope
-    scatter(palm,26,(1.12,1.42),90,165,(700,1400),True)  # palms on the bank
+    # The oasis term flattens the bank to 140 cm; ground bands must sit inside
+    # that plateau or they silently place nothing (the old 2-70 cm reed band
+    # never matched the terrain, so the shore read bare). Reeds stand in the
+    # shallow water and at the exact waterline; weeds/ferns fill the damp slope
+    # above; palms anchor the high rim.
+    scatter(grass,1600,(0.93,1.06),-30,45,(70,130),False)   # tall reeds at the waterline
+    scatter(meadow,1200,(0.96,1.12),30,150,(30,70),False)   # low weeds on the shore slope
+    scatter(fern,560,(1.00,1.30),40,160,(50,140),False)     # leafy weeds up the bank
+    scatter(palm,26,(1.06,1.45),90,180,(700,1400),True)     # palms on the high bank

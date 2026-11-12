@@ -12,13 +12,21 @@ grow without asking for more money.
 ## Already in Alpha 1
 
 - **Reduced physics core** — 2 × 16 spanwise wing strips, partial dynamic stall,
-  spanwise crossflow, aeroelastic bending, fixed 240 Hz timestep (Haskell MathCore).
+  spanwise crossflow, aeroelastic bending, fixed 240 Hz timestep (Haskell MathCore),
+  chronological Chaos load handoff (wing grip).
 - **Firmware emulation** — PteronautOS-derived mixer, servo kernel, PID and
   ONDAS phase-lock stabilisation, closed-loop against aerodynamic hinge torque.
-- **Three worlds** — Ravenstonefield (nature), Shiomori Bay (coast), Training
-  (gate-race course).
+- **Worlds** — base Shiomori Bay plus the four DLC-manifest worlds: Murex,
+  NeonAbyss, Ravenstonefield, Yunsha (6×6 km aeolian desert); gate-race Training
+  course.
 - **Points of interest** — named, selectable reset/launch points per level.
 - **Gate racing** — timed gate course with ghost replay and best-lap records.
+- **RC controllers** — CRSF/real transmitter input plus keyboard fallback.
+=======
+- **Aerobatic trick toasts** — Handcatch!, Looping!, Barrel Roll!, Inverted!,
+  Skim! with a TRICK TOASTS toggle.
+- **RC controllers** — CRSF/real transmitter input plus keyboard fallback.
+=======
 - **RC controllers** — CRSF/real transmitter input plus keyboard fallback.
 - **Live tuning hangar** — servo, battery and controller knobs edited in flight.
 - **13 languages** — en, de, ar, es, fr, hi, it, ja, ko, no, pt, ru, zh.
@@ -40,6 +48,19 @@ articulation and its aerodynamics are simulated.
 | **New models** | The fleet keeps growing — new machines and wing designs delivered as free updates. |
 
 Planned features — scope and order may evolve. The flying never stops.
+
+## In development (internal — current focus)
+
+- **Flight handling acceptance** — the chronological handoff and fixed-tail
+  corrections are installed and verified against fixtures; powered takeoff/relaunch,
+  the 45 s handling, 110 s flight and 180 s endurance criteria still fail (pre-existing
+  on both DLL versions), and user acceptance of the new tail handling is pending.
+- **Yawed-hinge geometry** — aerodynamic section kinematics already use the yawed
+  axis; `hingeTorque` and `SpatialDynamics` still hold parallel-axis approximations
+  and need certification for non-Kestrel hinge layouts.
+- **iOS math bridge** — mobile MathCore + Bluetooth controller input; Android follows.
+- **Render fidelity** — HW-Raytracing/MegaLights runtime verification, Niagara
+  wind-drift consumption, WindMotes ISM migration.
 
 ## Platforms
 

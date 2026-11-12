@@ -43,15 +43,18 @@ struct FB2FAvatarPalette
 struct FB2FAvatarPersonDef
 {
     const TCHAR* Name;   // display name (menu/settings)
-    const TCHAR* Base;   // asset folder root, e.g. /Game/Actor/SK_Xbot
+    const TCHAR* Base;   // asset folder root, e.g. /Game/Actor/SK_Scout_anim
+    const TCHAR* Mesh;   // skeletal mesh asset name inside the folder
+    const TCHAR* Clip;   // animation clip name prefix (== Mesh for the humans)
+    const TCHAR* Extra;  // optional second body mesh (X-Bot's Section1), or nullptr
 };
 const TArray<FB2FAvatarPersonDef>& AvatarPersons()
 {
     static const TArray<FB2FAvatarPersonDef> Persons = {
-        { TEXT("John"),    TEXT("/Game/Actor/SK_Founder") },
-        { TEXT("Scout"),   TEXT("/Game/Actor/SK_Scout") },
-        { TEXT("Soldier"), TEXT("/Game/Actor/SK_Soldier") },
-        { TEXT("X-Bot"),   TEXT("/Game/Actor/SK_Xbot") },
+        { TEXT("John"),    TEXT("/Game/Actor/SK_Founder"),      TEXT("SK_Founder"), TEXT("SK_Founder"), nullptr },
+        { TEXT("Scout"),   TEXT("/Game/Actor/SK_Scout_anim"),   TEXT("SK_Scout"),   TEXT("SK_Scout"),   nullptr },
+        { TEXT("Soldier"), TEXT("/Game/Actor/SK_Soldier_anim"), TEXT("SK_Soldier"), TEXT("SK_Soldier"), nullptr },
+        { TEXT("X-Bot"),   TEXT("/Game/Actor/SK_Xbot"),         TEXT("Section0"),   TEXT("SK_Xbot"),    TEXT("Section1") },
     };
     return Persons;
 }
@@ -88,6 +91,12 @@ ABorn2FlapAvatar::ABorn2FlapAvatar()
     Body->SetCollisionEnabled(ECollisionEnabled::NoCollision);
     Body->SetCastShadow(true);
 
+    BodyExtra = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("BodyExtra"));
+    BodyExtra->SetupAttachment(Root);
+    BodyExtra->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    BodyExtra->SetCastShadow(true);
+    BodyExtra->SetVisibility(false, true);
+
     CarrySocket = CreateDefaultSubobject<USceneComponent>(TEXT("CarrySocket"));
     CarrySocket->SetupAttachment(Body);
 }
@@ -107,22 +116,34 @@ void ABorn2FlapAvatar::LoadPerson(int32 Index)
         return;
     PersonIndex = Index;
     const FB2FAvatarPersonDef& P = Persons[Index];
-    const FString Short = FPaths::GetBaseFilename(P.Base);
     const FString Folder = FString(P.Base) + TEXT("/SkeletalMeshes/");
 
     // Mesh + skeleton come from the same glTF import; the Mixamo locomotion
     // clips are baked into that GLB (sharing its glTF frame — no FBX retarget
     // axis mismatch), so every person plays the identical clip set.
-    USkeletalMesh* Mesh = LoadObject<USkeletalMesh>(nullptr, *(Folder + Short + TEXT(".") + Short));
+    USkeletalMesh* Mesh = LoadObject<USkeletalMesh>(nullptr, *(Folder + P.Mesh + TEXT(".") + P.Mesh));
     if (!Mesh)
     {
-        UE_LOG(LogTemp, Warning, TEXT("Avatar: mesh missing for person %d (%s) - run the character import tool"), Index, *Short);
+        UE_LOG(LogTemp, Warning, TEXT("Avatar: mesh missing for person %d (%s) - run the character import tool"), Index, P.Mesh);
         return;
     }
     Body->SetSkeletalMesh(Mesh);
 
-    auto LoadAnim = [&](const TCHAR* Clip) {
-        return LoadObject<UAnimSequence>(nullptr, *(Folder + Short + Clip + TEXT(".") + Short + Clip));
+    // X-Bot is imported as two body sections (Section0 + Section1) sharing one
+    // mixamorig skeleton. Drive the second section from the leader so both
+    // halves play the identical clip without a second animation graph.
+    if (BodyExtra)
+    {
+        USkeletalMesh* ExtraMesh = P.Extra
+            ? LoadObject<USkeletalMesh>(nullptr, *(Folder + P.Extra + TEXT(".") + P.Extra))
+            : nullptr;
+        BodyExtra->SetSkeletalMesh(ExtraMesh);
+        BodyExtra->SetLeaderPoseComponent(ExtraMesh ? Body : nullptr);
+        BodyExtra->SetVisibility(ExtraMesh != nullptr, true);
+    }
+
+    auto LoadAnim = [&](const TCHAR* ClipSuffix) {
+        return LoadObject<UAnimSequence>(nullptr, *(Folder + P.Clip + ClipSuffix + TEXT(".") + P.Clip + ClipSuffix));
     };
     AnimIdle     = LoadAnim(TEXT("Idle"));
     AnimWalk     = LoadAnim(TEXT("Walk"));
@@ -437,6 +458,8 @@ void ABorn2FlapAvatar::SetFirstPerson(bool bFirstPersonView)
     bFirstPerson = bFirstPersonView;
     if (Body)
         Body->SetVisibility(!bFirstPerson, true);
+    if (BodyExtra && BodyExtra->GetSkeletalMeshAsset())
+        BodyExtra->SetVisibility(!bFirstPerson, true);
 }
 
 void ABorn2FlapAvatar::SetThrowAimPitch(float PitchDeg)

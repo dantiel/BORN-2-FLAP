@@ -6,7 +6,7 @@ import Born2Flap.Math.Firmware
   ( PilotInput(..), pilotToRc, defaultFirmwareParams, FirmwareParams(..)
   , FlightProfile(..) )
 import Born2Flap.Math.Servo
-  ( ServoSpec(..), BatterySpec(..), defaultServoSpec, defaultBatterySpec )
+  ( ServoSpec(..), BatterySpec(..), servoFromNominal, defaultBatterySpec )
 import Born2Flap.Math.Model ( kestrelModel )
 import Born2Flap.Math.FirmwareVehicle
   ( FirmwareVehicleState(..), defaultFirmwareVehicleState
@@ -29,11 +29,7 @@ main = do
       params = defaultFirmwareParams
         { fwServoSpeedMs = 80, fwFlapBaseFreqDh = 32, fwFlapCentreDeg = 0
         , fwVerticalMountIncidenceDeg = 0, fwProfile = prof }
-      servo = defaultServoSpec
-        { servoNoLoadSpeedDegPerSec = 750
-        , servoStallTorqueNm = 1.332
-        , servoBackdriveDegPerSecNm = 20
-        }
+      servo = servoFromNominal "kestrel-game" 750 1.332 20
       battery = defaultBatterySpec
       pilot = PilotInput 0.72 0 0 0 0.56 True
       rc = pilotToRc pilot

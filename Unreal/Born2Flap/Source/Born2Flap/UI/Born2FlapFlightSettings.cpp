@@ -85,11 +85,13 @@ void SendUpdate(UBorn2FlapUIRenderer* R, const TArray<int32>& Path, FProps Props
 // servo-power fidelity — the solver under-models a servo's effective authority,
 // so stall torque carries the ×1.8 to match measured flap authority. Backdrive
 // is not published on the table, so presets keep the simulator default (20).
+// A preset stores its nominal-voltage row (PTK 7465 Plus: 857°/s @ 7.4 V); the
+// full voltage curve incl. 8.4 V (983.6°/s) lives in MathCore Servo.hs.
 struct FServoPreset { const TCHAR* Name; float SpeedDegS; float StallTorqueNm; float Backdrive; float Voltage; };
 static const FServoPreset ServoPresets[] = {
     { TEXT("Blue Arrow AF D43S-6.0-MG"), 1500.f, 0.31f, 20.f, 6.0f },
     { TEXT("VOTIK PTK 7465 / 7465W MG"),   667.f, 1.01f, 20.f, 8.4f },
-    { TEXT("VOTIK PTK 7465 Plus"),         750.f, 1.33f, 20.f, 7.4f },
+    { TEXT("VOTIK PTK 7465 Plus"),         857.f, 1.32f, 20.f, 7.4f },
     { TEXT("Blue Arrow D0576HT-MG-HV"),   1000.f, 0.74f, 20.f, 7.4f },
     { TEXT("Inservos D0474HT-MG-HV"),      750.f, 0.63f, 20.f, 7.4f },
     { TEXT("KST MR320"),                   750.f, 0.97f, 20.f, 7.4f },
@@ -331,6 +333,19 @@ void ABorn2FlapFlightSettings::BuildTree()
         Props["on"] = S("ON  /  click to hide");
         Props["off"] = S("OFF  /  click to show");
         Props["value"] = B(Bird->GetReplaySpiritsEnabled());
+        Rows.push_back(Nd("Toggle", std::move(Props)));
+    }
+    // Aerobatic trick toasts: one master toggle for the reward call-outs
+    // ("Handcatch!", "Looping!", ...) shown on the HUD hint banner.
+    Rows.push_back(Nd("TextBlock", P({ {"text", S("TRICK TOASTS")}, {"tone", S("accent")}, {"size", S("l")} })));
+    Rows.push_back(Nd("TextBlock", P({ {"text", S("Pop-up call-outs for handcatches and aerobatics (looping, barrel roll, inverted, skim).")}, {"tone", S("dim")}, {"size", S("xs")}, {"wrap", B(true)} })));
+    {
+        FProps Props;
+        Props["action"] = S("trick.toasts");
+        Props["label"] = S("TRICK TOASTS");
+        Props["on"] = S("ON  /  click to hide");
+        Props["off"] = S("OFF  /  click to show");
+        Props["value"] = B(Bird->GetTrickToastsEnabled());
         Rows.push_back(Nd("Toggle", std::move(Props)));
     }
     {
@@ -630,6 +645,12 @@ void ABorn2FlapFlightSettings::HandleAction(const FString& Action, float Value, 
     if (Action == TEXT("replay.spirits"))
     {
         Bird->SetReplaySpiritsEnabled(Value > 0.5f);
+        return;
+    }
+
+    if (Action == TEXT("trick.toasts"))
+    {
+        Bird->SetTrickToastsEnabled(Value > 0.5f);
         return;
     }
 

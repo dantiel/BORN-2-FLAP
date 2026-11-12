@@ -240,7 +240,7 @@ bool UBorn2FlapMeshPartitionRuntime::HasMeshPartitionTerrain() const
 	{
 		return false;
 	}
-	for (TActorIterator<UE::MeshPartition::AMeshPartition> It(World); It; ++It)
+	if (TActorIterator<UE::MeshPartition::AMeshPartition>(World))
 	{
 		return true;
 	}

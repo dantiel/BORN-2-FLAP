@@ -55,7 +55,10 @@ return lerp(float3(.025,.19,.11),float3(.055,.29,.18),v*.65+mineral*.35);''',
                 light.set_actor_label(name+' concealed beam light');light.tags=['Yunsha']
                 c=light.light_component;c.set_mobility(u.ComponentMobility.MOVABLE)
                 c.set_editor_property('intensity_units',u.LightUnits.LUMENS)
-                c.set_intensity(80000*(h/4500)**2);c.set_attenuation_radius(h*.7)
+                # Subtle warm fill under the high beams — bright enough to read
+                # the vault, nowhere near sun-bright (the old quadratic term hit
+                # 1.3M lumens across the hall and made the temple out-glow noon).
+                c.set_intensity(6000*(h/4500));c.set_attenuation_radius(h*.7)
                 c.set_editor_property('source_width',h*.08);c.set_editor_property('source_height',h*.08)
                 c.set_editor_property('use_temperature',True);c.set_temperature(4300)
     for i,(y,h) in enumerate([(-65000,2800)]):

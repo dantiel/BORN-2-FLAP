@@ -24,6 +24,7 @@
       %Section{ title: "#{t('tuning.assist')}", open: true, visible: #{page == 3} }
         %Slider{ label: "#{t('tuning.flight_safety')}", value: #{flight_safety}, min: 0, max: 2, step: 1, action: "flight.safety" }
         %Toggle{ label: "#{t('tuning.replay_shadows')}", value: #{replay_spirits}, action: "replay.spirits" }
+        %Toggle{ label: "#{t('tuning.trick_toasts')}", value: #{trick_toasts}, action: "trick.toasts" }
         %Button{ label: "#{t('tuning.delete_replay')}", action: "replay.delete", disabled: #{frontend}, tooltip: "Deletes replay shadows in the loaded world." }
         %Slider{ label: "#{t('settings.wingbeat_volume')}", value: #{wingbeat_volume}, min: 0, max: 4, step: 0.05, action: "audio.wingbeat" }
         %Slider{ label: "#{t('settings.radio_volume')}", value: #{radio_volume}, min: 0, max: 1, step: 0.05, action: "radio.volume" }

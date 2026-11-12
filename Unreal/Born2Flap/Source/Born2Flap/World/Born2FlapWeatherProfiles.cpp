@@ -57,7 +57,6 @@ const TArray<FBorn2FlapSeason>& Seasons()
 TArray<FString> WeatherOptions(const FString& Level)
 {
     if(Level==TEXT("Yunsha")) return {TEXT("sunny"),TEXT("cloudy"),TEXT("rain"),TEXT("mist")};
-    if(Level==TEXT("Woshi")) return {TEXT("sunny"),TEXT("cloudy"),TEXT("mist")};
     if(Level==TEXT("Training")) return {TEXT("sunny"),TEXT("cloudy"),TEXT("rain")};
         if(Level==TEXT("Shiomori")) return {TEXT("sunny"),TEXT("cloudy"),TEXT("rain"),TEXT("mist"),TEXT("snow"),TEXT("parhelion")};
     // Parhelion is a Shiomori-Bay-only phenomenon (the ice-halo weather). The

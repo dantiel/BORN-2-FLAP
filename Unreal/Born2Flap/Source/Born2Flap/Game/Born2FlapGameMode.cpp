@@ -211,14 +211,12 @@ const FMenuWorld MenuWorlds[] = {
       TEXT("A flat grass course marked with floating sky-gates, ringed by the hum of a weather station and the chalk lines of a hundred practice rounds. This is the field where every pilot learns to fold the wing, hold the line and thread the gates against the clock. Start on the launch pad, hit the gates in order, and mind the wind arrow — the course rewards a clean line more than a fast one.") },
     { TEXT("Yunsha"), TEXT("Yúnshā"),
       TEXT("The Cloud-Sand Gorge. A crescent jade spring beneath a mile of singing grottoes. Ride the rising air to cloud-forest pillars and the flight-only sun-temples. Read the shimmer, earn the ridge, and come back to the Wind-Harp at dusk.") },
-    { TEXT("Woshi"), TEXT("WÒSHÍ — THE RESTING STONE"),
-      TEXT("A high canyon floor where a single sleeping boulder is cradled between sunlit cliff walls. A stone arch spans the gorge, a grotto is hollowed into the rock, and the wind pours through the corridor in steady, patient streams. The proving ground for the mesh-born world — fly the arch, skim the canyon, and greet the resting stone.") },
     { TEXT("NeonAbyss"), TEXT("NEON ABYSS"),
       TEXT("A primordial, eternal sanctuary that has always floated here — a void of soft nebulae and ringed planets hung under a circle of ancient bronzes, their verdigris seams opening to gold as you draw near. There is no ground and no horizon: a baby turtle swims the aether, chasing neon jellyfish that flutter like insects. Flap to pulse forward, glide to coast, and net the festival lights before the timer ends.") },
         { TEXT("Murex"), TEXT("MUREX SPIRE AERODROME"),
           TEXT("An airport grown from a vast murex shell lying on its side. Its pearl-lined opening shelters a glass-fronted arrival hall and a green entrance park; along the tapering shell, six long spines become smaller gate terminals with waiting aircraft. One powerful upward spine beside the main hall carries the control tower. Follow the shell's golden growth, explore the sheltered aperture, and land above the working apron.") },
     };
-    constexpr int32 MenuWorldCount = 7;
+    constexpr int32 MenuWorldCount = 6;
     
     // Scenario catalog for the SCENARIOS tab of the open-worlds overview. A world
     // without an entry simply has no tab. `Activity` is the URL option that arms
@@ -310,8 +308,7 @@ void ABorn2FlapGameMode::InitGame(const FString &MapName, const FString &Options
     bVoidLevel = Level.Equals(TEXT("NeonAbyss"), ESearchCase::IgnoreCase) || (Level.IsEmpty() && MapName.Contains(TEXT("NEONABYSS")));
     bDesertLevel = Level.Equals(TEXT("Yunsha"), ESearchCase::IgnoreCase) || (Level.IsEmpty() && MapName.Contains(TEXT("YUNSHA")));
     bAirportLevel = Level.Equals(TEXT("Murex"), ESearchCase::IgnoreCase) || (Level.IsEmpty() && MapName.Contains(TEXT("MUREX")));
-    bWoshiLevel = Level.Equals(TEXT("Woshi"), ESearchCase::IgnoreCase) || (Level.IsEmpty() && MapName.Contains(TEXT("WOSHI")));
-    if (bVoidLevel || bDesertLevel || bAirportLevel || bWoshiLevel) { bCoastLevel = false; bNatureLevel = false; }
+    if (bVoidLevel || bDesertLevel || bAirportLevel) { bCoastLevel = false; bNatureLevel = false; }
     // Menu mode: a plain interactive boot into the minimal Entry map (no
     // explicit level) is the home screen, NOT a playable level. Nothing is
     // built and no bird spawns behind the menu — a real level only loads when
@@ -385,46 +382,8 @@ void ABorn2FlapGameMode::RestartPlayerAtPlayerStart(AController* NewPlayer, AAct
     }
     Super::RestartPlayerAtPlayerStart(NewPlayer, StartSpot);
 }
-namespace
-{
-// Woshi (the Resting Stone) heightfield — mirrors create_pocterrain_map.py's
-// world_surface() and the two stone ellipsoids (staticmesh backend). Units are
-// cm: the canyon floor sits at -110 m, the gorge dome peaks at +120 m, and the
-// stones rise from the sand plane at z=0.
-double WoshiCanyon(double X, double Y)
-{
-    if (FMath::Abs(Y) > 28000.0) return 0.0;
-    const double T = FMath::Clamp((FMath::Abs(X) - 1800.0) / 2700.0, 0.0, 1.0);
-    return -11000.0 * (1.0 - T * T * (3.0 - 2.0 * T));
-}
-double WoshiDome(double X, double Y)
-{
-    const double R = FMath::Sqrt(X * X + Y * Y);
-    if (R > 15000.0) return 0.0;
-    const double T = 1.0 - R / 15000.0;
-    return 12000.0 * FMath::Pow(T, 1.35);
-}
-double WoshiStones(double X, double Y)
-{
-    double Z = 0.0;
-    const double Dx = (X - 14000.0) / 5000.0, Dy = (Y - 22000.0) / 1400.0;
-    const double S = 1.0 - Dx * Dx - Dy * Dy;
-    if (S > 0.0) Z = FMath::Max(Z, 900.0 + 1500.0 * FMath::Sqrt(S));
-    const double Hx = (X - 18500.0) / 1600.0, Hy = (Y - 21800.0) / 1200.0;
-    const double H = 1.0 - Hx * Hx - Hy * Hy;
-    if (H > 0.0) Z = FMath::Max(Z, 1500.0 + 1100.0 * FMath::Sqrt(H));
-    return Z;
-}
-double WoshiGroundHeight(double X, double Y)
-{
-    const double Canyon = WoshiCanyon(X, Y);
-    if (Canyon < 0.0) return Canyon;  // the gorge cuts through the dome
-    return FMath::Max3(0.0, WoshiDome(X, Y), WoshiStones(X, Y));
-}
-}
 double ABorn2FlapGameMode::GroundHeight(double X, double Y) const
 {
-    if (bWoshiLevel) return WoshiGroundHeight(X, Y);
     if (bAirportLevel)
     {
         // The aerodrome is a flat field: line-trace the saved geometry and
@@ -643,15 +602,6 @@ void ABorn2FlapGameMode::BeginPlay()
         // director owns the global ocean parameters + MPC binding for the
         // coast (spawned at runtime like the other managers).
         World->SpawnActor<AShiomoriWaterDirector>(FVector::ZeroVector, FRotator::ZeroRotator, Params);
-        return;
-    }
-    if (bWoshiLevel)
-    {
-        // The saved Woshi map carries all geometry and atmosphere (the gorge
-        // dome, the resting stones, the arch, the grotto); nothing is built at
-        // runtime — the weather system only re-tunes sun, fog and clouds.
-        Born2Flap::Loading::Report(0.40f, TEXT("READY AT WOSHI"));
-        UE_LOG(LogTemp, Display, TEXT("READY AT WOSHI"));
         return;
     }
     if (bNatureLevel)
@@ -939,17 +889,6 @@ void ABorn2FlapGameMode::PopulatePOIs()
         AddPoi(TEXT("poi.pine_grove"),   -86500.0, 17500.0);  // far-west pine forest
         AddPoi(TEXT("poi.launch_field"), -67300.0,  7050.0);  // flight test field
         AddPoi(TEXT("poi.hangar"),       -71000.0, -4000.0);  // workshop apron
-        return;
-    }
-    if (bWoshiLevel)
-    {
-        // Woshi (the Resting Stone): launch above the gorge dome, then the
-        // named landmarks — gorge floor, reclining stone, arch, grotto.
-        AddPoi(TEXT("poi.woshi_summit"), FVector(0.0, 0.0, 14500.0));
-        AddPoi(TEXT("poi.woshi_gate"), 0.0, 0.0);
-        AddPoi(TEXT("poi.woshi_stone"), 14000.0, 22000.0);
-        AddPoi(TEXT("poi.woshi_arch"), 24000.0, 4000.0);
-        AddPoi(TEXT("poi.woshi_grotto"), 30000.0, -16000.0);
         return;
     }
     if (bNatureLevel)
@@ -1497,6 +1436,7 @@ void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, c
         else if(Action==TEXT("mouse.reset")) S.MouseGains=FVector(1,-1,1);
         else if(Action==TEXT("flight.safety")) S.FlightSafety=Value;
         else if(Action==TEXT("replay.spirits")) S.bReplaySpirits=Value>.5f;
+        else if(Action==TEXT("trick.toasts")) S.bShowTrickToasts=Value>.5f;
         else if(Action==TEXT("audio.wingbeat")) S.WingbeatVolume=FMath::Clamp(Value,0.f,4.f);
         else {
             const bool Display=Action.StartsWith(TEXT("tuning.display."));
@@ -1785,6 +1725,12 @@ void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, c
             Bird->SetReplaySpiritsEnabled(Value > 0.5f);
         return;
     }
+    if (Action == TEXT("trick.toasts"))
+    {
+        if (ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
+            Bird->SetTrickToastsEnabled(Value > 0.5f);
+        return;
+    }
     if (Action == TEXT("replay.delete"))
     {
         if (ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
@@ -1902,7 +1848,6 @@ void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, c
         { TEXT("menu.shiomori"),        TEXT("/Game/Shiomori/Maps/SHIOMORI"),               TEXT("Shiomori") },
         { TEXT("menu.training"),        TEXT("/Engine/Maps/Entry"),                         TEXT("Training") },
         { TEXT("menu.yunsha"), TEXT("/Game/Yunsha/Maps/YUNSHA"), TEXT("Yunsha") },
-        { TEXT("menu.woshi"), TEXT("/Game/WoshiSM/Maps/WOSHI_SM"), TEXT("Woshi") },
         { TEXT("menu.murex"),          TEXT("/Game/Murex/Maps/MUREX"),                     TEXT("Murex") },
         { TEXT("menu.neonabyss"),       TEXT("/Game/NeonAbyss/Maps/NEONABYSS"),             TEXT("NeonAbyss") },
     };
@@ -2095,6 +2040,7 @@ FString ABorn2FlapGameMode::BuildBrainTelemetry() const
         Root->SetNumberField(TEXT("speed_modifier"), Settings.SpeedModifier);
         Root->SetNumberField(TEXT("flight_safety"), Settings.FlightSafety);
         Root->SetBoolField(TEXT("replay_spirits"), Settings.bReplaySpirits);
+        Root->SetBoolField(TEXT("trick_toasts"), Settings.bShowTrickToasts);
         Root->SetNumberField(TEXT("control_expo"), Settings.ControlExpo);
         {
             const FVector Gains = Settings.MouseGains;

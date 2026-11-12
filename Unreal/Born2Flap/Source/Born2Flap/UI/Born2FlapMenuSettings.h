@@ -76,6 +76,9 @@ struct FMenuSettings
     float ControlExpo = 0.65f;
     float SpeedModifier = 0.5f;
     bool bReplaySpirits = true;
+    // Aerobatic reward toasts ("Handcatch!", "Looping!", ...) on the HUD hint
+    // banner. One master toggle gates every trick call-out (default on).
+    bool bShowTrickToasts = true;
     float FlightSafety = 1.f;
     float WingbeatVolume = 1.f;
     // UI language code ("en", "de", ...) — matches the locale JSON filenames.

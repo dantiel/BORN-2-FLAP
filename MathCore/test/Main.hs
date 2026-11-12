@@ -166,6 +166,32 @@ main = do
      && and [banked a incidence | a<-[-0.6,0.6],incidence<-[-8,8]]
      && all (\p -> p*rollDamping p<0) [-1,1]
     then pure () else fail "fixed fan must rotate negative lift into yaw, damp roll, and use passive local airflow"
+  -- Independent thin-surface limit: flow tangent to the ACTUAL inclined fan
+  -- has no normal load. In-plane flow at nonzero normal incidence may also
+  -- have leading-edge suction/induced drag, as in the original XZ polar.
+  let fanArea=sum [a | (a,_,_)<-tailSamples]
+      tangentTail incidence velocity =
+        let fields=kestrelTailLoads incidence velocity zeroVec
+            total=foldr (addVec . tailForce) zeroVec fields
+            referenceFy= -0.5*airDensity*fanArea*surfaceSkinCd*magnitude velocity*vy velocity
+        in all (\f -> abs(vy(tfNormal f))<1e-12 && abs(vy(tfPressure f))<1e-12) fields
+           && abs(vy total-referenceFy)<1e-12
+      driftMoment=foldr (addVec . tfMoment) zeroVec
+        (kestrelTailLoads (-2.3) (Vec3 12.37 (-0.4) (-0.3)) zeroVec)
+      driftWorld=rotateX (radians(-7)) driftMoment
+  if and [tangentTail incidence velocity | incidence<-[-15,0,15],
+             velocity<-[Vec3 0 8 0,Vec3 0 (-8) 0,
+                Vec3 (8*cos(radians incidence)) 2 (8*sin(radians incidence)),
+                Vec3 (8*cos(radians incidence)) (-2) (8*sin(radians incidence))]]
+     && vz driftWorld>0
+    then pure () else fail "in-plane tail flow must not create a fictitious fin that reverses banked-tail yaw"
+  -- Sideways translation with a small normal velocity is attached flow over
+  -- a finite plate, not zero-speed / 90-degree-stalled flow. Require finite
+  -- restoring normal circulation and preserve passivity for both directions.
+  let lateralFan v w=kestrelTailLoads 0 (Vec3 0 v w) zeroVec
+      lateralLift v w=sum(map (vz.tfLift)(lateralFan v w))
+  if and [w*lateralLift v w<0 && abs(lateralLift v w)>0.01 | v<-[-8,8],w<-[-0.2,0.2]]
+    then pure () else fail "finite tail lost circulation in spanwise flight"
   let mixTail angle throttle =
         let params=defaultFirmwareParams {fwProfile=(fwProfile defaultFirmwareParams) {profTailElevatorAngleDeg=angle}}
         in fst(computeServoMixer True (pilotToRc (defaultPilotInput {piThrottle=throttle})) params defaultFirmwareState (1/240))
@@ -558,7 +584,7 @@ main = do
       boundedPair (target,load,rates) =
         let (l,r)=pair target load rates voltage
             (mr,ml)=pair (swap target) (swap load) (swap rates) voltage
-        in all (\t -> abs t<=servoStallTorqueNm servo+1e-12) [l,r]
+        in all (\t -> abs t<=servoNominalTorqueNm servo+1e-12) [l,r]
              && abs(l-ml)+abs(r-mr)<1e-10
              && pair target load rates 0 == (0,0)
   if all boundedPair pairCases then pure ()
@@ -568,7 +594,7 @@ main = do
       boundedRatePair (reference,(target,load,rates)) =
         let (l,r)=ratePair reference target load rates voltage
             (mr,ml)=ratePair (-reference) (swap target) (swap load) (swap rates) voltage
-        in all (\t -> abs t<=servoStallTorqueNm servo+1e-12) [l,r]
+        in all (\t -> abs t<=servoNominalTorqueNm servo+1e-12) [l,r]
              && abs(l-ml)+abs(r-mr)<1e-10
              && ratePair reference target load rates 0 == (0,0)
   if all boundedRatePair [(reference,entry) | reference<-[-100,0,100],entry<-pairCases]
@@ -598,7 +624,7 @@ main = do
   -- actively back-drives the shaft in the load's direction — that assist is
   -- what flung the wing into extreme-up flutter. The wing wins through the
   -- passive 'servoBackdriveTorque' in the joint solve, not through the motor.
-  let stall = servoStallTorqueNm servo
+  let stall = servoNominalTorqueNm servo
       (back, _) = stepServo servo battery 120 (negate stall * 2) wingI voltage (1 / 240) defaultServoState
   if back == 0
     then pure ()
@@ -668,7 +694,7 @@ main = do
   -- produce real, exactly mirrored roll moments on the symmetric airframe
   -- (stick right = +roll, stick left = −roll of equal size), and neither
   -- may fabricate a moment for a centred stick.
-  let tunnelServo = defaultServoSpec { servoNoLoadSpeedDegPerSec = 1200, servoStallTorqueNm = 8 }
+  let tunnelServo = servoFromNominal "tunnel" 1200 8 20
       tunnelBattery = defaultBatterySpec
         { batteryNominalVoltage = 11.1, batteryCapacityAh = 1.3, batteryInternalResistanceOhm = 0.08 }
       aileronParams skew scale = defaultFirmwareParams
@@ -842,8 +868,8 @@ main = do
                              | side <- [-1,1], stroke <- [0.1, 0.5]]
   if hingeCase kestrelModel && hingeCase ravenModel
     then pure () else fail "flap velocity must be a pure rotation about the true yawed hinge axis"
-  let speedLimit=servoNoLoadSpeedDegPerSec defaultServoSpec*pi/180
-      stallLimit=servoStallTorqueNm defaultServoSpec
+  let speedLimit=servoNominalSpeedDegPerSec defaultServoSpec*pi/180
+      stallLimit=servoNominalTorqueNm defaultServoSpec
       voltage=batteryNominalVoltage defaultBatterySpec
       torqueAt rate target=servoDriveTorque defaultServoSpec defaultBatterySpec voltage (1/240)
                             target 0 0.002 defaultServoState rate

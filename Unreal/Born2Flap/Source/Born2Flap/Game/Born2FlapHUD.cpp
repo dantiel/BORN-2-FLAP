@@ -190,8 +190,6 @@ void ABorn2FlapHUD::DrawHUD()
         FString RaceLine;
         if (Mode->IsNatureLevel())
             RaceLine = TEXT("WALDTAL  /  F4: Uebungsgelaende");
-        else if (Mode->IsWoshiLevel())
-            RaceLine = TEXT("WÒSHÍ — THE RESTING STONE");
         else if (Mode->IsRaceComplete())
             RaceLine = FString::Printf(TEXT("%s  %.2fs  /  %s %.2fs"),
                                        *Born2Flap::I18n::T("race.complete"), Mode->GetRaceTime(),

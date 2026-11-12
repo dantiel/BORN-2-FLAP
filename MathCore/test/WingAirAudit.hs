@@ -44,6 +44,31 @@ main = do
     -- The production model explicitly uses 85 percent circulation efficiency.
     -- Bound quadrature and profile-drag effects without fitting to its slope.
     unless (ratio>0.83 && ratio<0.89) $ fail "small-rate circulation disagrees with lifting-line reference"
+  -- Independent yaw-to-speed-to-lift reference for a rectangular wing pair.
+  -- With geometric incidence fixed and alpha small, dL = rho*U*c*Cl*dU*dy,
+  -- dU=-r*y, hence dMx/dr=-2*rho*U*c*Cl*b^3/3. A body bank is only a basis
+  -- change: the same result must hold about the wing-plane normal at 80 deg.
+  putStrLn "YAW SPEED/LIFT REFERENCE: bank, measured dMx/dr, reference, ratio, max velocity Jacobian error"
+  let incidence=radians 3; u=8
+      clRef=(2*pi/(1+2/ar))*incidence
+      yawRef= -2*rho*u*c*clRef*b^3/3
+      rotateX a (Vec3 x y z)=Vec3 x (cos a*y-sin a*z) (sin a*y+cos a*z)
+      pair bank rate = concat [
+        let angle=side*(-bank)
+            input=VehicleInput (1/960) (Vec3 u 0 0) zeroVec 0 0 0 0 1000 zeroVec
+            system=prepareWingSystem False side angle 0 input model incidence [s {stripCamber=0}|s<-initialStrips]
+        in wingTrialMotion system (rotateX (-bank)(Vec3 0 0 rate)) zeroVec 0 0 (0,0)
+        | side<-[-1,1]]
+  forM_ [0,radians 80] $ \bank -> do
+    let plus=pair bank eps; minus=pair bank (-eps)
+        mx rs=sum [vx(crossVec (stripPosition s)(stripLift s))|r<-rs,let s=resultState r]
+        measured=(mx plus-mx minus)/(2*eps)
+        kinematicError=maximum [abs((vx(stripAirVelocity a)-vx(stripAirVelocity b))/(2*eps)+vy(rotateX bank(stripPosition a)))
+          |(p,m)<-zip plus minus,let a=resultState p,let b=resultState m]
+        ratio=measured/yawRef
+    printf "%.1f, %.9f, %.9f, %.6f, %.3g\n" (bank*180/pi) measured yawRef ratio kinematicError
+    unless (ratio>0.83 && ratio<0.89 && kinematicError<1e-8) $
+      fail "yaw-induced wing velocity/lift disagrees with independent reference or changes under bank"
   putStrLn "HOST HANDOFF: test converged rates against the actual returned host impulse"
   let mass=0.05
       (ix,iy,iz)=airframeInertia kestrelModel mass 0

@@ -128,7 +128,21 @@ module Born2Flap
 
             aileronScale:    Field.new(action: "tuning.aileron_scale",      unit: "%",          min: 0,    max: 100,  step: 1,   value: values[:aileronScale]    || 100),
 
-            elevatorScale:   Field.new(action: "tuning.elevator_scale",     unit: "%",          min: 0,    max: 100,  step: 1,   value: values[:elevatorScale]   || 100)
+            elevatorScale:   Field.new(action: "tuning.elevator_scale",     unit: "%",          min: 0,    max: 100,  step: 1,   value: values[:elevatorScale]   || 100),
+
+            shapeMix:             Field.new(action: "tuning.shape_mix",                 unit: "%", min: 0,    max: 100,  step: 1, value: values[:shapeMix]              || 0),
+
+            throttleThrustShapeMix: Field.new(action: "tuning.throttle_thrust_shape_mix", unit: "%", min: 0,  max: 100,  step: 1, value: values[:throttleThrustShapeMix] || 0),
+
+            throttleThrustExpo:  Field.new(action: "tuning.throttle_thrust_expo",     unit: "%", min: -100, max: 100,  step: 1, value: values[:throttleThrustExpo]     || 0),
+
+            aileronSkewMix:      Field.new(action: "tuning.aileron_skew_mix",          unit: "%", min: 0,    max: 100,  step: 1, value: values[:aileronSkewMix]        || 0),
+
+            throttleSkewRateMix: Field.new(action: "tuning.throttle_skew_rate_mix",    unit: "%", min: 0,    max: 100,  step: 1, value: values[:throttleSkewRateMix]   || 0),
+
+            aileronSkewRateMix:  Field.new(action: "tuning.aileron_skew_rate_mix",     unit: "%", min: 0,    max: 100,  step: 1, value: values[:aileronSkewRateMix]    || 0),
+
+            elevatorFerocityMix: Field.new(action: "tuning.elevator_ferocity_mix",     unit: "%", min: 0,    max: 100,  step: 1, value: values[:elevatorFerocityMix]   || 0)
 
           }.values
 
@@ -150,21 +164,31 @@ module Born2Flap
 
           strokeFerocity: :StrokeFerocity, aileronScale: :AileronScale,
 
-          elevatorScale: :ElevatorScale
+          elevatorScale: :ElevatorScale,
+
+          shapeMix: :ShapeMix, throttleThrustShapeMix: :ThrottleThrustShapeMix,
+
+          throttleThrustExpo: :ThrottleThrustExpo, aileronSkewMix: :AileronSkewMix,
+
+          throttleSkewRateMix: :ThrottleSkewRateMix, aileronSkewRateMix: :AileronSkewRateMix,
+
+          elevatorFerocityMix: :ElevatorFerocityMix
 
         }.freeze
 
-        # Canonical grouping of the 18 firmware knobs. Field names are the
+        # Canonical grouping of the firmware knobs. Field names are the
         # PascalCase keys shared by the C++ Rows `key` and the fallback `action`
         # (e.g. "BatteryCRating", "YawScale"). FEROCITY pairs stroke + return
-        # ferocity; AUTHORITY pairs the pitch/roll/yaw authority scales.
+        # ferocity; WAVEFORM holds the stroke-shape + skew knobs (incl. the
+        # shape-mix family); AUTHORITY holds the pitch/roll/yaw authority scales
+        # plus their skew/ferocity rate mixes.
         FIRMWARE_GROUPS = [
           ['tuning.group_servos',    %w[ServoSpeed StallTorque Backdrive]],
           ['tuning.group_battery',   %w[BatteryVoltage BatteryResistance BatteryCapacity BatteryCRating BatteryBurstCRating]],
           ['tuning.group_geometry',  %w[FlapBaseFreq TailElevatorAngle GlideAngle FlapCentre VerticalMountAngle]],
           ['tuning.group_ferocity',  %w[StrokeFerocity ReturnFerocity]],
-          ['tuning.group_waveform',  %w[StrokeSkew ReturnSkew]],
-          ['tuning.group_authority', %w[AileronScale ElevatorScale YawScale]]
+          ['tuning.group_waveform',  %w[StrokeSkew ReturnSkew ShapeMix ThrottleThrustShapeMix ThrottleThrustExpo ThrottleSkewRateMix]],
+          ['tuning.group_authority', %w[AileronScale ElevatorScale YawScale AileronSkewMix AileronSkewRateMix ElevatorFerocityMix]]
         ].freeze
 
         def self.values_from_telemetry(locals)
@@ -204,6 +228,7 @@ module Born2Flap
             freelook_invert:locals.fetch(:freelook_invert,false),mouse_gains:locals.fetch(:mouse_gains,[1,-1,1]),
             control_expo:locals.fetch(:control_expo,0.65)*100,speed_modifier:locals.fetch(:speed_modifier,0.5),
             flight_safety:locals.fetch(:flight_safety,1),replay_spirits:locals.fetch(:replay_spirits,true),
+            trick_toasts:locals.fetch(:trick_toasts,true),
             wingbeat_volume:locals.fetch(:wingbeat_volume,1),radio_volume:locals.fetch(:radio_volume,0.5),
             groups:groups,frontend:locals.fetch(:frontend,false) }
         end

@@ -66,6 +66,7 @@ void ABorn2FlapFlightPawn::LoadFlightPreferences()
     // length-derived range once the silhouette is selected.
     CgOffsetMm=FMath::IsFinite(CgOffsetMm) ? FMath::Clamp(CgOffsetMm,-300.f,300.f) : 0.f;
     Config.GetBool(TEXT("Flight"),TEXT("ReplaySpirits"),bReplaySpirits);
+    Config.GetBool(TEXT("Flight"),TEXT("TrickToasts"),bShowTrickToasts);
     Config.GetFloat(TEXT("Flight"),TEXT("Safety"),FlightSafety);
     FlightSafety=FMath::IsFinite(FlightSafety) ? FMath::Clamp(FlightSafety,0.f,2.f) : 1.f;
     Config.GetFloat(TEXT("Audio"),TEXT("WingbeatVolume"),WingbeatVolume);
@@ -122,6 +123,7 @@ void ABorn2FlapFlightPawn::SaveFlightPreferences()
     Config.SetFloat(TEXT("Flight"),TEXT("CgOffsetMm"),CgOffsetMm);
     Config.SetInt64(TEXT("Flight"),TEXT("BirdModel"),BirdModel);
     Config.SetBool(TEXT("Flight"),TEXT("ReplaySpirits"),bReplaySpirits);
+    Config.SetBool(TEXT("Flight"),TEXT("TrickToasts"),bShowTrickToasts);
     Config.SetFloat(TEXT("Flight"),TEXT("Safety"),FlightSafety);
     Config.SetFloat(TEXT("Audio"),TEXT("WingbeatVolume"),WingbeatVolume);
     Config.SetDouble(TEXT("Controls"),TEXT("SpeedModifier"),Desktop.speedModifier);

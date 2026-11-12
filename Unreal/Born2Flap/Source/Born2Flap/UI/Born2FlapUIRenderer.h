@@ -154,6 +154,12 @@ public:
     // of the owning container) is then computed dynamically from the text.
     void SyncAutoWrap();
 
+    // Progressive-scroll-blur scrollbars: keep the ScrollBox scrollbar track
+    // inside the sharp safe zone (inset by the top/bottom blur half-bands) so
+    // the thumb never dissolves into the frosted edge band. Runs after layout,
+    // once the cached geometry reports a real height.
+    void SyncScrollbars();
+
     // --- semantic component actions (the interactivity "prowess") ----------
     // Broadcast when an interactive component is manipulated. The native
     // editor / gameplay code subscribes and routes the value into the bird's

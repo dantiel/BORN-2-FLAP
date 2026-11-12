@@ -11,7 +11,7 @@ import Born2Flap.Math.Firmware
   ( PilotInput(..), pilotToRc, defaultFirmwareParams, FirmwareParams(..)
   , FlightProfile(..) )
 import Born2Flap.Math.Servo
-  ( ServoSpec(..), BatterySpec(..), defaultServoSpec, defaultBatterySpec
+  ( ServoSpec(..), BatterySpec(..), servoFromNominal, defaultBatterySpec
   , servoAngleDeg )
 import Born2Flap.Math.Model ( kestrelModel )
 import Born2Flap.Math.FirmwareVehicle
@@ -90,11 +90,7 @@ gameParams =
           , fwVerticalMountIncidenceDeg = 0, fwProfile = prof }
 
 gameServo :: ServoSpec
-gameServo = defaultServoSpec
-  { servoNoLoadSpeedDegPerSec = 750
-  , servoStallTorqueNm = 0.74
-  , servoBackdriveDegPerSecNm = 20
-  }
+gameServo = servoFromNominal "kestrel-game" 750 0.74 20
 
 gameBattery :: BatterySpec
 gameBattery = defaultBatterySpec

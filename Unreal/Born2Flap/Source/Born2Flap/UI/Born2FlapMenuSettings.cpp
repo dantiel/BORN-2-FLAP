@@ -210,6 +210,7 @@ void MenuSettingsLoad(FMenuSettings& Out)
     Out.CgOffsetMm = FMath::IsFinite(Cg) ? FMath::Clamp(Cg, -300.f, 300.f) : 0.f;
 
     Config.GetBool(TEXT("Flight"), TEXT("ReplaySpirits"), Out.bReplaySpirits);
+    Config.GetBool(TEXT("Flight"), TEXT("TrickToasts"), Out.bShowTrickToasts);
     float Safety = Out.FlightSafety;
     Config.GetFloat(TEXT("Flight"), TEXT("Safety"), Safety);
     Out.FlightSafety = FMath::IsFinite(Safety) ? FMath::Clamp(Safety, 0.f, 2.f) : 1.f;
@@ -317,6 +318,7 @@ void MenuSettingsSave(const FMenuSettings& In)
     Config.SetFloat(TEXT("Flight"), TEXT("BodyMassKg"), In.BodyMassKg);
     Config.SetFloat(TEXT("Flight"), TEXT("CgOffsetMm"), In.CgOffsetMm);
     Config.SetBool(TEXT("Flight"), TEXT("ReplaySpirits"), In.bReplaySpirits);
+    Config.SetBool(TEXT("Flight"), TEXT("TrickToasts"), In.bShowTrickToasts);
     Config.SetFloat(TEXT("Flight"), TEXT("Safety"), In.FlightSafety);
     Config.SetFloat(TEXT("Audio"), TEXT("WingbeatVolume"), In.WingbeatVolume);
     Config.SetDouble(TEXT("Controls"), TEXT("SpeedModifier"), In.SpeedModifier);
@@ -374,6 +376,7 @@ void MenuSettingsFromPawn(const ABorn2FlapFlightPawn* Pawn, FMenuSettings& Out)
     Out.ControlExpo = Pawn->GetControlExpo();
     Out.SpeedModifier = Pawn->GetSpeedModifier();
     Out.bReplaySpirits = Pawn->GetReplaySpiritsEnabled();
+    Out.bShowTrickToasts = Pawn->GetTrickToastsEnabled();
     Out.FlightSafety = Pawn->GetFlightSafety();
     Out.WingbeatVolume = Pawn->GetWingbeatVolume();
 }
@@ -405,6 +408,7 @@ void MenuSettingsToPawn(const FMenuSettings& In, ABorn2FlapFlightPawn* Pawn)
     Pawn->SetControlExpo(In.ControlExpo);
     Pawn->SetSpeedModifier(In.SpeedModifier);
     Pawn->SetReplaySpiritsEnabled(In.bReplaySpirits);
+    Pawn->SetTrickToastsEnabled(In.bShowTrickToasts);
     Pawn->SetFlightSafety(In.FlightSafety);
     Pawn->SetWingbeatVolume(In.WingbeatVolume);
 }

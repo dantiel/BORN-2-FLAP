@@ -42,12 +42,11 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     bool IsDesertLevel() const { return bDesertLevel; }
     bool IsVoidLevel() const { return bVoidLevel; }
     bool IsAirportLevel() const { return bAirportLevel; }
-    bool IsWoshiLevel() const { return bWoshiLevel; }
     bool IsMenuOpen() const { return bMenuOpen; }
     bool IsWater(double X,double Y) const;
     double WaterHeight() const;
     FVector WindAt(const FVector& P,double Time) const;
-    FString GetLevelId() const { return bWoshiLevel ? TEXT("Woshi") : bAirportLevel ? TEXT("Murex") : bDesertLevel ? TEXT("Yunsha") : bVoidLevel ? TEXT("NeonAbyss") : (bCoastLevel ? TEXT("Shiomori") : (bNatureLevel ? TEXT("Ravenstonefield") : TEXT("Training"))); }
+    FString GetLevelId() const { return bAirportLevel ? TEXT("Murex") : bDesertLevel ? TEXT("Yunsha") : bVoidLevel ? TEXT("NeonAbyss") : (bCoastLevel ? TEXT("Shiomori") : (bNatureLevel ? TEXT("Ravenstonefield") : TEXT("Training"))); }
     const FBorn2FlapConditions& GetConditions() const { return Conditions; }
     // Live weather desk: push new conditions into the running world. Every
     // weather-sensitive system reads GetConditions() per frame (wind field,
@@ -125,7 +124,6 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     bool bVoidLevel = false;
     bool bDesertLevel = false;
     bool bAirportLevel = false;
-    bool bWoshiLevel = false;
     FBorn2FlapConditions Conditions;
     UPROPERTY() TObjectPtr<ABorn2FlapWeather> WeatherActor;
     float CoastTestTime=0;

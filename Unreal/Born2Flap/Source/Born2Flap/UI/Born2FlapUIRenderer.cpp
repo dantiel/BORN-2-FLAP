@@ -822,6 +822,36 @@ void UBorn2FlapUIRenderer::SyncAutoWrap()
     }
 }
 
+void UBorn2FlapUIRenderer::SyncScrollbars()
+{
+    if (!RendererImpl)
+        return;
+    // Progressive-blur scrollbars: keep the thumb track inside the sharp safe
+    // zone (inset by the top/bottom dissolve half-bands) so it never dissolves
+    // into the frosted edge band. The half-bands are stored normalized (fraction
+    // of the view height) at prop-apply time; here the cached geometry supplies
+    // the real pixel height.
+    for (const auto& Pair : RendererImpl->widgets)
+    {
+        UBorn2FlapComposite* C = Cast<UBorn2FlapComposite>(Pair.second);
+        if (!C || C->SemanticType != TEXT("ScrollBlur"))
+            continue;
+        if (C->State.Contains(TEXT("sb_manual")))
+            continue;  // explicit scrollbar_padding wins over the auto inset
+        if (!C->State.Contains(TEXT("sb_edge")))
+            continue;  // blur disabled — full-height track is correct
+        UScrollBox* Scroll = Cast<UScrollBox>(C->Part(TEXT("scroll")));
+        if (!Scroll)
+            continue;
+        const float H = Scroll->GetCachedGeometry().GetLocalSize().Y;
+        if (H <= 0.f)
+            continue;  // not laid out yet — retry next pass
+        const float EdgeTop = FMath::Clamp(FCString::Atof(*C->State.FindRef(TEXT("sb_edge"))), 0.f, 0.5f);
+        const float EdgeBot = FMath::Clamp(FCString::Atof(*C->State.FindRef(TEXT("sb_edge_bottom"))), 0.f, 0.5f);
+        Scroll->SetScrollbarPadding(FMargin(0.f, EdgeTop * H, 0.f, EdgeBot * H));
+    }
+}
+
 // ---- FRenderer host contract ----------------------------------------------
 
 UWidget* UBorn2FlapUIRenderer::CreateInstance(const std::string& Type)
@@ -1684,6 +1714,20 @@ void UBorn2FlapUIRenderer::ApplyCompositeProps(UBorn2FlapComposite* C, const FPr
                 SParam("Void",         PropFloat("void", 0.9f));
                 SetMaterialParams(Retainer, Params);
             }
+
+            // Remember the sharp-zone half-bands (normalized to the view height)
+            // so the post-layout pass can keep the scrollbar track inside the
+            // safe area instead of dissolving into the blur band.
+            if (bBlur)
+            {
+                C->State.Add(TEXT("sb_edge"), FString::SanitizeFloat(Edge));
+                C->State.Add(TEXT("sb_edge_bottom"), FString::SanitizeFloat(EdgeBottom));
+            }
+            else
+            {
+                C->State.Remove(TEXT("sb_edge"));
+                C->State.Remove(TEXT("sb_edge_bottom"));
+            }
         }
         if (Props.count("pad"))
             C->State.Add(TEXT("pad"), FString::SanitizeFloat((float)Props.at("pad").AsNumber(0.0)));
@@ -1706,7 +1750,14 @@ void UBorn2FlapUIRenderer::ApplyCompositeProps(UBorn2FlapComposite* C, const FPr
             // `padding`/`margin`.
             const char* ScrollbarKey = Props.count("scrollbar_padding") ? "scrollbar_padding" : "scrollbarPadding";
             if (Props.count(ScrollbarKey))
+            {
                 Scroll->SetScrollbarPadding(ParseMargin(Props.at(ScrollbarKey)));
+                C->State.Add(TEXT("sb_manual"), TEXT("1"));
+            }
+            else
+            {
+                C->State.Remove(TEXT("sb_manual"));
+            }
         }
     }
     else if (Type == TEXT("Value") || Type == TEXT("Stat"))
@@ -1804,7 +1855,15 @@ void UBorn2FlapUIRenderer::ApplyCompositeProps(UBorn2FlapComposite* C, const FPr
         if (!Tone.IsEmpty())
         {
             C->SetBrush(FSlateRoundedBoxBrush(FLinearColor::Transparent,3.f));
-            if (Text) Text->SetColorAndOpacity(FSlateColor(ToneColor));
+            if (Text)
+            {
+                // `alpha` (0..1) fades the whole banner in/out — the HUD drives
+                // it every tick for the pop-in/fade-out reward toasts.
+                FLinearColor C = ToneColor;
+                if (Props.count("alpha"))
+                    C.A *= FMath::Clamp((float)Num(Props.at("alpha"), 1.0), 0.f, 1.f);
+                Text->SetColorAndOpacity(FSlateColor(C));
+            }
         }
         StyleText(Text, Props);
     }

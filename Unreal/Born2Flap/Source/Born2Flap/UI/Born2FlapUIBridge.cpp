@@ -103,7 +103,10 @@ void ABorn2FlapUIBridge::Tick(float DeltaSeconds)
         // After the tree settled, re-sync auto-wrap TextBlocks to their
         // allotted width so multi-line descriptions measure their real height.
         if (Renderer)
+        {
             Renderer->SyncAutoWrap();
+            Renderer->SyncScrollbars();
+        }
     }
     MaxBridgeMs=FMath::Max(MaxBridgeMs,(FPlatformTime::Seconds()-Now)*1000.);
     RunUITest(DeltaSeconds);

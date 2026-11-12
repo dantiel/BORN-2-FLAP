@@ -8,6 +8,20 @@
 #include "NiagaraComponent.h"
 #include "NiagaraSystem.h"
 
+namespace
+{
+    // Aperiodic foam turbulence: two octaves of product-sines over world
+    // coordinates, animated in time. Product-sines vary in BOTH the shore-
+    // parallel (X) and shore-perpendicular (Y) directions, so there is no single
+    // coherent ridge — this breaks the smooth sculpted "ribs" and lets the surf
+    // read as churning white water instead of a static mesh. Returns [-1,1].
+    inline double FoamTurb(double X, double Y, double T, double Seed)
+    {
+        return 0.65*FMath::Sin(X*0.021+Seed*1.3+T*1.1)*FMath::Sin(Y*0.031+Seed*2.7-T*0.7)
+             + 0.35*FMath::Sin(X*0.047+Seed*3.1-T*1.6)*FMath::Sin(Y*0.061+Seed*4.2+T*1.2);
+    }
+}
+
 ABorn2FlapSurf::ABorn2FlapSurf()
 {
     PrimaryActorTick.bCanEverTick=true;
@@ -102,7 +116,8 @@ void ABorn2FlapSurf::Tick(float Dt)
         const double Growth=(1-FMath::SmoothStep(3400.,6100.,Front));
         const double Collapse=FMath::SmoothStep(-250.,950.,Front);
         // Undulating crest: waves travel along the shore and rise/fall in time.
-        const double H=(100+25*FMath::Sin(X*.0011+Wave)+18*FMath::Sin(X*.0023+Time*.8+Wave*2.1))*Growth*Collapse*Strength;
+        const double H=(100+25*FMath::Sin(X*.0011+Wave)+18*FMath::Sin(X*.0023+Time*.8+Wave*2.1)
+            +14*FoamTurb(X,Shore+Front,Time,Wave*3.7))*Growth*Collapse*Strength;
         const double Curl=(1-FMath::SmoothStep(1600.,3000.,Front))*Collapse;
         // Broad rounded fade at the strip ends — organic, not square-cut.
         // Smootherstep over a wider run softens the wash into rounded lobes
@@ -137,7 +152,7 @@ void ABorn2FlapSurf::Tick(float Dt)
                 // as rounded, rippling lobes — not a flat rectangle.
                 Y=Front-160+V*1500;
                 const double Ground=GM ? GM->GroundHeight(X,Shore+Y) : -60.;
-                Z=FMath::Max(-43.,Ground+3)+6*FMath::Sin(V*9+Time*2.2+X*.004+Wave*1.3);
+                Z=FMath::Max(-43.,Ground+3)+12*FoamTurb(X,Shore+Y,Time,Wave*3.7);
                 Foam=1;
                 const double Lobe=.55+.45*FMath::Sin(X*.0016+Time*1.1+Wave*2.3);
                 Alpha=EdgeFade*Lobe*(1-FMath::SmoothStep(1100.,3200.,Front))*FMath::SmoothStep(-550.,100.,Front)

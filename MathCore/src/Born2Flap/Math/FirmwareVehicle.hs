@@ -527,7 +527,7 @@ advanceFirmwareVehicle totalMass hostInertia coupled rc params servo battery mod
           auditParts = zipWith (*) (spatialMass!!3) (map (/dt) auditDelta)
           (torqueL,torqueR) = motorTorques (y ratesNext) (z ratesNext) aeroNext
           motorPower = max 0 (torqueL*y ratesNext) + max 0 (torqueR*z ratesNext)
-          torqueCurrent = (abs torqueL + abs torqueR) / max 0.01 (servoStallTorqueNm servo / 5)
+          torqueCurrent = (abs torqueL + abs torqueR) / max 0.01 (servoNominalTorqueNm servo / 5)
           motorCurrent = if voltage <= 0 then 0
                          else max torqueCurrent (motorPower / (0.70 * voltage))
           socDrop = motorCurrent * dt / (3600 * max 0.01 (batteryCapacityAh battery))
@@ -645,67 +645,39 @@ kestrelTailLoads incidenceDeg velocity rates = map at tailSamples
     ci = cos incidence; si = sin incidence
     normal = Vec3 (-si) 0 ci
     area = sum [a | (a,_,_) <- tailSamples]
-    width = maximum (map snd tailOutline)-minimum (map snd tailOutline)
-    aspect = width*width/area
+    point px py = Vec3 (tailRootX+ci*(px-tailRootX)) py (si*(px-tailRootX))
+    outline = [point px py | (px,py)<-tailOutline]
+    dot (Vec3 a b c) (Vec3 d e f) = a*d+b*e+c*f
     at (patchArea,px,py) =
-      let position = Vec3 (tailRootX+ci*(px-tailRootX)) py (si*(px-tailRootX))
+      let position = point px py
           flow = addVec velocity (crossVec rates position)
-          u = x flow; w = z flow
-          speed = sqrt(u*u+w*w)
-          alpha = atan2 (sin(incidence+atan2 (-w) u)) (cos(incidence+atan2 (-w) u))
+          -- A finite fan is a lifting surface in ANY in-plane flow direction.
+          -- Dropping body-Y velocity spuriously stalls/unloads it in a slip.
+          -- Resolve flow against the physical surface, not the body XZ plane.
+          normalSpeed = dot flow normal
+          tangentFlow = addVec flow (scaleVec (-normalSpeed) normal)
+          tangentSpeed = magnitude tangentFlow
+          tangent = if tangentSpeed>1e-9 then scaleVec (1/tangentSpeed) tangentFlow else Vec3 ci 0 si
+          speed = magnitude flow
+          alpha = atan2 (-normalSpeed) tangentSpeed
+          -- Project the real polygon perpendicular to the in-plane flow.
+          -- At zero sideslip this is the original span^2/area; at 90 degrees
+          -- the finite fan's length becomes its aerodynamic span.
+          spanDirection = crossVec normal tangent
+          spans = map (dot spanDirection) outline
+          width = maximum spans-minimum spans
+          aspect = width*width/area
           t = max 0 (min 1 ((abs alpha-radians 13)/radians 7))
           separation = t*t*(3-2*t)
           cl = (1-separation)*max (-1.9) (min 1.9 (finiteWingLiftSlope aspect*alpha))
           q = 0.5*airDensity*patchArea*speed*speed
-          lift = scaleVec (q*cl/max 1e-9 speed) (Vec3 (-w) 0 u)
-          pressure = scaleVec (surfacePressure patchArea ((-si)*u+ci*w)) normal
-          (fx,fz) = tailSurfaceForAspect aspect patchArea incidence u w
-          -- SIDE FORCE: the fan is a thin, mostly open surface — its lateral
-          -- silhouette is small, so side force from lateral flow (sideslip or
-          -- yaw sweep) is WEAK. It must stay weak: a strong side force here
-          -- weathercocks the nose and pins the tail in the air, which reads
-          -- as the fake auto-rotation (nose swings around a stationary tail).
-          -- Only the (x,y) flow plane is used, so the fan's pitch incidence
-          -- cannot leak vertical flow into the sideslip angle. Forces act at
-          -- the patch position: no injected torques.
-          vlat = y flow
-          platSpeed = sqrt (u*u+vlat*vlat)
-          -- Fin beta = the local sideslip. The fan is FIXED to the fuselage;
-          -- it deflects only because the fuselage banks/rotates, and its
-          -- tilted force then yaws the nose.
-          betaFin = atan2 (-vlat) (abs u)
-          qLat = 0.5*airDensity*patchArea*platSpeed*platSpeed
-          fyLat = qLat * (fanLatCl * sin (2*betaFin)
-                          - fanLatCd * sin betaFin * sin betaFin * signum vlat)
-          -- Lateral DRAG of the spread feathers: the fan catches air whenever
-          -- it sweeps sideways (sideslip or yaw rate × arm), so this term is
-          -- the tail's REAL yaw-rate damper. The skin-friction term alone is
-          -- nearly zero for the thin feathers; the faned spread is closer to
-          -- a slotted plate at ~1.0 drag coefficient normal to its plane.
-          fy = -0.5*airDensity*patchArea*(surfaceSkinCd + fanLatDragCd)*abs(y flow)*y flow + fyLat
-          force = Vec3 fx fy fz
-          drag = addVec force (scaleVec (-1) (addVec lift pressure))
+          lift = scaleVec (q*cl/max 1e-9 speed)
+                   (addVec (scaleVec tangentSpeed normal) (scaleVec (-normalSpeed) tangent))
+          pressure = scaleVec (surfacePressure patchArea normalSpeed) normal
+          cd = surfaceSkinCd + inducedDragCoefficient aspect cl
+          drag = scaleVec (-0.5*airDensity*patchArea*speed*cd) flow
+          force = addVec lift (addVec pressure drag)
       in TailField position normal flow lift pressure drag (crossVec position force)
-
--- | Lateral side-force coefficients of the fixed fan tail. The fan's side
--- silhouette is small (thin feathers, mostly open area), so BOTH the
--- circulation slope and the pressure term are deliberately weak: the tail's
--- yaw authority in a turn comes from the BANKED tail's tilted vertical load,
--- not from fin weathervaning. A strong fin term here weathercocks the bird
--- flat — the nose swings around an almost stationary tail, which is exactly
--- the fake auto-rotation. With these weak terms a sideslip barely turns the
--- nose, and a wind gust can only push the bird (inertia), never steer it.
-fanLatCl :: Double
-fanLatCl = 0.10
-fanLatCd :: Double
-fanLatCd = 0.5
-
--- | Drag coefficient of the fanned tail against lateral motion (the fan
--- sweeping sideways through the air). This is the tail's REAL yaw-rate
--- damper: it resists the sweep, not the sideslip heading. Small enough that
--- a crosswind gust cannot sail the tail around.
-fanLatDragCd :: Double
-fanLatDragCd = 1.0
 
 -- | Round lifting-body polar.
 -- lift than a flat plate (its sides/top are curved, so the Kutta condition is

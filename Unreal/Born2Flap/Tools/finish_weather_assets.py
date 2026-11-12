@@ -77,37 +77,85 @@ for folder in ['/Game/Ravenstonefield/Materials','/Game/Shiomori/Materials','/Ga
             output(layer,prop)
         lib.recompile_material(m);assert ela.save_loaded_asset(m);count+=1
 
-# Breaking-surf foam. Mirrors the WORKING M_Foam recipe (create_shiomori_map.py):
-# BLEND_TRANSLUCENT + MSM_DEFAULT_LIT (default TLM, no TLM_SURFACE) + white in
-# BASE_COLOR + ROUGHNESS. Both TLM_SURFACE (surface forward shading does not
-# light here) and MSM_UNLIT+EMISSIVE (translucent unlit renders black) are the
-# black-foam regressions — neither is used.
+# Breaking-surf foam, v2 "volumetric-cloud" shading. The v1 recipe (a single
+# static Noise + constant roughness) rendered as a flat, glossy plastic sheet:
+# its smooth specular and coherent geometry undulation read as shoreline-
+# orthogonal "ribs". Real surf foam is a turbulent 3D field of bubbles — light
+# scatters through it (sub-surface tint), it boils over time, and its surface
+# glints with fine detail. We reproduce that the same way volumetric clouds do:
+# a domain-warped, time-animated FBM "density" field (three offset warp probes
+# -> float3 warp -> a 4-octave density Noise), then light it — warm sunlit tops,
+# aqua light-transmitted bases, a Fresnel rim on the breaking lip, a density-
+# gradient detail normal for bubble sparkle, and density-modulated opacity so
+# the foam's edges churn instead of cutting hard.
 m=material('M_BreakingSurf')
 m.set_editor_property('disable_depth_test',False)
 m.set_editor_property('translucency_pass',u.MaterialTranslucencyPass.MTP_BEFORE_DOF)
 m.set_editor_property('blend_mode',u.BlendMode.BLEND_TRANSLUCENT)
 m.set_editor_property('shading_model',u.MaterialShadingModel.MSM_DEFAULT_LIT)
-vc=node(m,'VertexColor');pos=node(m,'WorldPosition')
-scaled=node(m,'Multiply',const_b=.025);connect(pos,scaled,'A')
-noise=node(m,'Noise',levels=3,output_min=0.,output_max=1.);connect(scaled,noise,'')
-# Each Custom node takes ONLY built-in inputs (Noise / VertexColor). Chaining a
-# Custom output into another Custom input (foam -> color.F) via
-# connect_material_expressions silently drops the FExpressionInput in UE 5.8 —
-# the SM6 shader then fails ("missing input 1 (F)") and the mesh falls back to
-# the grey Default Material checkerboard. Inline the foam mask instead.
-# Foam is bright white with only a whisper of noise and crest brightening. The
-# old lerp toward a dark teal base (0.05,0.42,0.46) left a dark translucent band
-# at the base of the crest that read as an unnatural shadow over the water.
-# Fade-to-liquid is carried by OPACITY, so BASE_COLOR stays white.
-color=custom(m,'return float3(.94,.96,.96)*(0.85+0.10*N+0.05*C.r);',{'N':noise,'C':vc},3)
+vc=node(m,'VertexColor');pos=node(m,'WorldPosition');time=node(m,'Time')
+geomN=node(m,'VertexNormalWS');fres=node(m,'Fresnel')
+
+# Domain-warped, time-animated density field (the volumetric-cloud FBM).
+base=node(m,'Multiply',const_b=.012);connect(pos,base,'A')
+tx=node(m,'Multiply',const_b=.20);connect(time,tx,'A')
+ty=node(m,'Multiply',const_b=.12);connect(time,ty,'A')
+z0=node(m,'Constant',r=0.)
+txy=node(m,'AppendVector');connect(tx,txy,'A');connect(z0,txy,'B')
+tvec=node(m,'AppendVector');connect(txy,tvec,'A');connect(ty,tvec,'B')
+p0=node(m,'Add');connect(base,p0,'A');connect(tvec,p0,'B')
+half=node(m,'Constant',r=.5)
+offA=node(m,'Constant3Vector',constant=u.LinearColor(0.,0.,0.,0.))
+offB=node(m,'Constant3Vector',constant=u.LinearColor(37.1,17.2,0.,0.))
+offC=node(m,'Constant3Vector',constant=u.LinearColor(0.,11.3,91.7,0.))
+pa=node(m,'Add');connect(p0,pa,'A');connect(offA,pa,'B')
+pb=node(m,'Add');connect(p0,pb,'A');connect(offB,pb,'B')
+pc=node(m,'Add');connect(p0,pc,'A');connect(offC,pc,'B')
+wa=node(m,'Noise',levels=1,output_min=0.,output_max=1.);connect(pa,wa,'')
+wb=node(m,'Noise',levels=1,output_min=0.,output_max=1.);connect(pb,wb,'')
+wc=node(m,'Noise',levels=1,output_min=0.,output_max=1.);connect(pc,wc,'')
+sa=node(m,'Subtract');connect(wa,sa,'A');connect(half,sa,'B')
+sb=node(m,'Subtract');connect(wb,sb,'A');connect(half,sb,'B')
+sc=node(m,'Subtract');connect(wc,sc,'A');connect(half,sc,'B')
+ma=node(m,'Multiply',const_b=1.2);connect(sa,ma,'A')
+mb=node(m,'Multiply',const_b=1.2);connect(sb,mb,'A')
+mc=node(m,'Multiply',const_b=1.2);connect(sc,mc,'A')
+wxy=node(m,'AppendVector');connect(ma,wxy,'A');connect(mb,wxy,'B')
+wvec=node(m,'AppendVector');connect(wxy,wvec,'A');connect(mc,wvec,'B')
+pw=node(m,'Add');connect(p0,pw,'A');connect(wvec,pw,'B')
+dens=node(m,'Noise',levels=4,output_min=0.,output_max=1.);connect(pw,dens,'')
+ex=node(m,'Constant3Vector',constant=u.LinearColor(.25,0.,0.,0.))
+ey=node(m,'Constant3Vector',constant=u.LinearColor(0.,.25,0.,0.))
+px=node(m,'Add');connect(pw,px,'A');connect(ex,px,'B')
+py=node(m,'Add');connect(pw,py,'A');connect(ey,py,'B')
+dxn=node(m,'Noise',levels=4,output_min=0.,output_max=1.);connect(px,dxn,'')
+dyn=node(m,'Noise',levels=4,output_min=0.,output_max=1.);connect(py,dyn,'')
+
+# Base colour: sub-surface foam — warm sunlit top, aqua transmitted base, and a
+# Fresnel rim glow on the breaking lip. Density brightens (more bubbles scatter).
+color=custom(m,
+    'float3 lit=float3(0.97,0.98,0.97);'
+    'float3 sss=float3(0.62,0.86,0.83);'
+    'float3 col=lerp(sss,lit,Dens);'
+    'col=lerp(col,float3(1.0,1.0,1.0),Fres*0.55);'
+    'col*=0.92+0.08*(1.0-VCol.g);'
+    'return col;',
+    {'Dens':dens,'Fres':fres,'VCol':vc},3)
 output(color,'BASE_COLOR')
-output(node(m,'Constant',r=.35),'ROUGHNESS')
-# The VertexColor node's output pin is MCT_Float3 (alpha masked out) — passing
-# it into a Custom input and swizzling .a fails ("vector swizzle 'a' is out of
-# bounds"). The underlying interpolant is full float4: read the alpha straight
-# from Parameters.VertexColor. The vc node stays connected to BASE_COLOR so the
-# engine still flags bUsesVertexColor and interpolates the full RGBA.
-opacity=custom(m,'return Parameters.VertexColor.a*lerp(.5,1.,saturate(Parameters.VertexColor.r*(.20+1.35*N)));',{'N':noise})
+# Dense foam is rough (bubbles scatter); thin film is glossier.
+output(custom(m,'return 0.22+0.50*Dens;',{'Dens':dens}),'ROUGHNESS')
+# Density-gradient detail normal: high-frequency bubble glint that breaks the
+# smooth specular "plastic" mirror (and the rib banding it produced).
+normal=custom(m,
+    'float3 dn=normalize(float3(-(DX-D0)*0.7,-(DY-D0)*0.7,1.0));'
+    'return normalize(GeomN+dn*0.55);',
+    {'GeomN':geomN,'D0':dens,'DX':dxn,'DY':dyn},3)
+output(normal,'NORMAL')
+# The VertexColor node's output pin is MCT_Float3 (alpha masked) — read the full
+# RGBA from Parameters.VertexColor. vc stays connected to BASE_COLOR so the
+# engine flags bUsesVertexColor and interpolates RGBA. Density churns the foam's
+# edge so it boils like a cloud silhouette instead of a hard cut.
+opacity=custom(m,'return saturate(Parameters.VertexColor.a*(0.55+0.90*Dens));',{'Dens':dens})
 output(opacity,'OPACITY');lib.recompile_material(m);assert ela.save_loaded_asset(m)
 
 m=material('M_RainSplash');m.set_editor_property('blend_mode',u.BlendMode.BLEND_TRANSLUCENT)

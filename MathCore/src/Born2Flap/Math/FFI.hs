@@ -16,7 +16,8 @@ import Born2Flap.Math.Firmware
 import Born2Flap.Math.FirmwareVehicle
 import Born2Flap.Math.Servo
   ( ServoSpec(..), BatterySpec(..), ServoState(..)
-  , defaultServoSpec, defaultBatterySpec )
+  , defaultServoSpec, defaultBatterySpec
+  , servoFromNominal, servoNominalSpeedDegPerSec, servoNominalTorqueNm )
 import Control.Exception (SomeException, catch)
 import Data.IORef
 import Data.Int (Int32)
@@ -441,11 +442,11 @@ b2f_math_create_firmware_vehicle configPointer = do
   config <- if configPointer == nullPtr
               then pure (FwConfig 0 0 0 0 0 0)
               else peekConfig configPointer
-  let servo = defaultServoSpec
-        { servoNoLoadSpeedDegPerSec = posOr (servoNoLoadSpeedDegPerSec defaultServoSpec) (cfgServoSpeed config)
-        , servoStallTorqueNm = posOr (servoStallTorqueNm defaultServoSpec) (cfgStallTorque config)
-        , servoBackdriveDegPerSecNm = posOr (servoBackdriveDegPerSecNm defaultServoSpec) (cfgBackdrive config)
-        }
+  let servo = servoFromNominal
+        (servoName defaultServoSpec)
+        (posOr (servoNominalSpeedDegPerSec defaultServoSpec) (cfgServoSpeed config))
+        (posOr (servoNominalTorqueNm defaultServoSpec) (cfgStallTorque config))
+        (posOr (servoBackdriveDegPerSecNm defaultServoSpec) (cfgBackdrive config))
       battery = defaultBatterySpec
         { batteryNominalVoltage = posOr (batteryNominalVoltage defaultBatterySpec) (cfgBatteryVoltage config)
         , batteryInternalResistanceOhm = posOr (batteryInternalResistanceOhm defaultBatterySpec) (cfgBatteryResistance config)
@@ -456,7 +457,7 @@ b2f_math_create_firmware_vehicle configPointer = do
       -- A full stroke at excessive cadence used to saturate the actuator, so
       -- more throttle barely changed its actual motion.
       flightParams = defaultFirmwareParams
-        { fwServoSpeedMs = 60000 / servoNoLoadSpeedDegPerSec servo
+        { fwServoSpeedMs = 60000 / servoNominalSpeedDegPerSec servo
         , fwFlapBaseFreqDh = 32
         , fwProfile = (fwProfile defaultFirmwareParams)
             { profThrottleFrequencyMix = 100, profAileronSkewMix = 10
@@ -610,11 +611,11 @@ peekTuning pointer = do
 
 applyTuning :: TuningConfig -> FwContext -> FwContext
 applyTuning t ctx =
-  let servo = ServoSpec
-        { servoNoLoadSpeedDegPerSec = max 1 (tgServoSpeed t)
-        , servoStallTorqueNm = max 0 (tgStallTorque t)
-        , servoBackdriveDegPerSecNm = max 0 (tgBackdrive t)
-        }
+  let servo = servoFromNominal
+        (servoName (fwcServo ctx))
+        (max 1 (tgServoSpeed t))
+        (max 0 (tgStallTorque t))
+        (max 0 (tgBackdrive t))
       cRate = clampRange 1 200 (tgBatteryCRating t)
       battery = (fwcBattery ctx)
         { batteryNominalVoltage = max 0 (tgBatteryVoltage t)
@@ -644,7 +645,7 @@ applyTuning t ctx =
       -- Preserve the requested frequency. The mixer limits cadence using the
       -- actual arc and waveform derivative, once all control mixes are known.
       -- Adding body mass does not change the requested motion or wing geometry.
-      servoSpeedDegS = max 1 (servoNoLoadSpeedDegPerSec servo)
+      servoSpeedDegS = max 1 (servoNominalSpeedDegPerSec servo)
       flapBaseFreqDh = clampRange 10 200 (tgFlapBaseFreqDh t)
       params = (fwcParams ctx)
         { fwServoSpeedMs = 60000 / servoSpeedDegS

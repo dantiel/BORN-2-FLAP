@@ -495,19 +495,48 @@ backend.commit_boolean('ExcavationPit', carve_verts, carve_tris, u.Transform(),
                        operation='trim', channel='Sandstone', weight=1.0)
 backend.tick('surfaces')
 
-# Water follows the actual terrain zero-contour so the shoreline is smooth and
-# matches the crescent basin exactly (the terrain now stays continuous beneath
-# the water instead of skipping lake tiles).
-verts = []
-tris = []
-CELL = 120
-for y in range(-62000, -42000, CELL):
-    for x in range(-15800, 15801, CELL):
-        corners = [(x, y), (x + CELL, y), (x + CELL, y + CELL), (x, y + CELL)]
-        if all(ground(px, py) < -4 for px, py in corners):
-            k = len(verts)
-            verts.extend((px, py, 0) for px, py in corners)
-            tris.extend([(k, k + 1, k + 2), (k, k + 2, k + 3)])
+# Water follows the actual terrain zero-contour. Marching-squares on the
+# ground field traces the smooth shoreline (ground == 0) instead of
+# stair-stepping a coarse grid of fully-submerged cells, so the crescent reads
+# as a round spring, not a staircase of sharp polygons.
+def water_surface(ground, x0, x1, y0, y1, cell, z=0.0):
+    verts = []
+    tris = []
+    def cross(a, b, fa, fb):
+        t = 0.5 if abs(fa - fb) < 1e-9 else fa / (fa - fb)
+        return (a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1]))
+    y = y0
+    while y < y1:
+        x = x0
+        while x < x1:
+            corners = [(x, y), (x + cell, y), (x + cell, y + cell), (x, y + cell)]
+            f = [ground(px, py) for px, py in corners]
+            inside = [fi < 0 for fi in f]
+            n = sum(inside)
+            if n == 4:
+                k = len(verts)
+                verts.extend((px, py, z) for px, py in corners)
+                tris.extend([(k, k + 1, k + 2), (k, k + 2, k + 3)])
+            elif n > 0:
+                poly = []
+                for i in range(4):
+                    j = (i + 1) % 4
+                    if inside[i]:
+                        poly.append(corners[i])
+                    if inside[i] != inside[j]:
+                        poly.append(cross(corners[i], corners[j], f[i], f[j]))
+                cx = sum(p[0] for p in poly) / len(poly)
+                cy = sum(p[1] for p in poly) / len(poly)
+                k = len(verts)
+                verts.append((cx, cy, z))
+                verts.extend((px, py, z) for px, py in poly)
+                for t in range(len(poly)):
+                    tris.append((k, k + 1 + t, k + 1 + (t + 1) % len(poly)))
+            x += cell
+        y += cell
+    return verts, tris
+
+verts, tris = water_surface(ground, -15800, 15800, -62000, -42000, 80)
 actor('Lunya crescent spring', mesh('Lunya', verts, tris, water, False), collision=False)
 
 # Lotus: a floating pad and a cup of petals scattered on the crescent so the
@@ -564,20 +593,38 @@ flower_batch.tags = ['Yunsha', 'YunshaLakeFlora']
 flower_batch.instances.set_static_mesh(petal_mesh)
 flower_batch.instances.set_collision_profile_name('NoCollision')
 lotus_rng = random.Random(110519)
-placed = 0
-for attempt in range(6000):
-    if placed >= 120:
+# Lotus grows in colonies: a few tight stands hug the water instead of a
+# uniform sprinkle across the whole crescent, so the spring reads inhabited.
+clusters = []
+# Bounded rejection sampling: the crescent band is only ~1200-2000 cm wide, so
+# an over-large min-separation would reject forever (infinite regen). 2600 cm
+# keeps stands distinct while letting enough fit along the crescent length.
+for _ in range(6000):
+    if len(clusters) >= 15:
         break
-    x = lotus_rng.uniform(-15000, 15000)
-    y = lotus_rng.uniform(-61500, -42500)
-    if not u.Born2FlapYunsha.spring_contains(x, y) or ground(x, y) > -8:
+    cx = lotus_rng.uniform(-14500, 14500)
+    cy = lotus_rng.uniform(-61000, -43000)
+    if not u.Born2FlapYunsha.spring_contains(cx, cy) or ground(cx, cy) > -8:
         continue
-    s = lotus_rng.uniform(.7, 1.4)
-    ang = lotus_rng.uniform(0, 360)
-    tr = u.Transform(location=u.Vector(x, y, 0), rotation=u.Rotator(yaw=ang), scale=u.Vector(s, s, s))
-    pad_batch.instances.add_instance(tr, False)
-    flower_batch.instances.add_instance(tr, False)
-    placed += 1
+    if any(math.hypot(cx - ox, cy - oy) < 2600 for ox, oy in clusters):
+        continue
+    clusters.append((cx, cy))
+placed = 0
+for cx, cy in clusters:
+    for _ in range(8):
+        if placed >= 120:
+            break
+        ang = lotus_rng.uniform(0, 360)
+        r = abs(lotus_rng.gauss(0, 700))
+        x = cx + r * math.cos(ang)
+        y = cy + r * math.sin(ang)
+        if not u.Born2FlapYunsha.spring_contains(x, y) or ground(x, y) > -8:
+            continue
+        s = lotus_rng.uniform(.7, 1.4)
+        tr = u.Transform(location=u.Vector(x, y, 0), rotation=u.Rotator(yaw=lotus_rng.uniform(0, 360)), scale=u.Vector(s, s, s))
+        pad_batch.instances.add_instance(tr, False)
+        flower_batch.instances.add_instance(tr, False)
+        placed += 1
 
 
 # Authored architecture preserves its source geometry, UVs and weathering.
@@ -847,7 +894,10 @@ sun.light_component.set_intensity(80000)
 sun.light_component.set_atmosphere_sun_light(True)
 sky = u.EditorLevelLibrary.spawn_actor_from_class(u.SkyLight, u.Vector())
 sky.light_component.set_mobility(u.ComponentMobility.MOVABLE)
-sky.light_component.set_editor_property('real_time_capture', False)
+# Real-time capture fills shadowed faces with sky ambient so shadows read as
+# natural shade, not pitch black (a non-real-time movable skylight has no
+# baked cubemap under force_no_precomputed_lighting -> zero ambient bounce).
+sky.light_component.set_editor_property('real_time_capture', True)
 sky.light_component.set_intensity(1.)
 u.EditorLevelLibrary.spawn_actor_from_class(u.SkyAtmosphere, u.Vector())
 fog = u.EditorLevelLibrary.spawn_actor_from_class(u.ExponentialHeightFog, u.Vector())

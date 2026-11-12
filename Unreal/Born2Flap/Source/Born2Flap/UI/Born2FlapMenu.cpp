@@ -166,13 +166,17 @@ void SendUpdate(UBorn2FlapUIRenderer* R, const TArray<int32>& Path, FProps Props
 }
 
 // Servos tested for flapping (dantiel.github.io/OrniFlight servo-efficiency
-// table). Speed = 60 / s-per-60°, torque = kg·cm × 0.0980665 → N·m. Backdrive
+// table). Speed = 60 / s-per-60°; torque = kg·cm × 0.0980665 → N·m, then × 1.8
+// servo-power fidelity — the solver under-models a servo's effective authority,
+// so stall torque carries the ×1.8 to match measured flap authority. Backdrive
 // is not published on the table, so presets keep the simulator default (20).
+// A preset stores its nominal-voltage row (PTK 7465 Plus: 857°/s @ 7.4 V); the
+// full voltage curve incl. 8.4 V (983.6°/s) lives in MathCore Servo.hs.
 struct FServoPreset { const TCHAR* Name; float SpeedDegS; float StallTorqueNm; float Backdrive; float Voltage; };
 static const FServoPreset ServoPresets[] = {
     { TEXT("Blue Arrow AF D43S-6.0-MG"), 1500.f, 0.31f, 20.f, 6.0f },
     { TEXT("VOTIK PTK 7465 / 7465W MG"),   667.f, 1.01f, 20.f, 8.4f },
-    { TEXT("VOTIK PTK 7465 Plus"),         750.f, 1.33f, 20.f, 7.4f },
+    { TEXT("VOTIK PTK 7465 Plus"),         857.f, 1.32f, 20.f, 7.4f },
     { TEXT("Blue Arrow D0576HT-MG-HV"),   1000.f, 0.74f, 20.f, 7.4f },
     { TEXT("Inservos D0474HT-MG-HV"),      750.f, 0.63f, 20.f, 7.4f },
     { TEXT("KST MR320"),                   750.f, 0.97f, 20.f, 7.4f },
@@ -192,8 +196,6 @@ const FWorldDef Worlds[] = {
       TEXT("A flat grass course marked with floating sky-gates. The field where every pilot learns to fold the wing, hold the line and thread the gates against the clock.") },
     { TEXT("Yunsha"), TEXT("Yúnshā"),
       TEXT("The Cloud-Sand Gorge. A crescent jade spring beneath a mile of singing grottoes. Ride the rising air to cloud-forest pillars and the flight-only sun-temples. Read the shimmer, earn the ridge, and come back to the Wind-Harp at dusk.") },
-    { TEXT("Woshi"), TEXT("WÒSHÍ — THE RESTING STONE"),
-      TEXT("A high canyon floor where a single sleeping boulder is cradled between sunlit cliff walls. A stone arch spans the gorge, a grotto is hollowed into the rock, and the wind pours through the corridor in steady, patient streams. The proving ground for the mesh-born world — fly the arch, skim the canyon, and greet the resting stone.") },
     { TEXT("NeonAbyss"), TEXT("NEON ABYSS"),
       TEXT("A primordial, eternal sanctuary floating outside time — soft nebulae, ringed planets and a circle of ancient bronzes whose gold seams brighten as you draw near. There is no ground and no horizon: a baby turtle swims the aether, netting neon jellyfish before the festival timer ends.") },
     { TEXT("Murex"), TEXT("MUREX SPIRE AERODROME"),
@@ -385,7 +387,7 @@ void ABorn2FlapMenu::BeginPlay()
     // Apply the persisted language before the first Build() so every localized
     // string (nav rail, pane titles, HUD/status via the shared locale) is right.
     Born2Flap::I18n::SetLocale(Settings.Language);
-    for(const FString& Level:{FString(TEXT("Ravenstonefield")),FString(TEXT("Shiomori")),FString(TEXT("Training")),FString(TEXT("NeonAbyss")),FString(TEXT("Yunsha")),FString(TEXT("Murex")),FString(TEXT("Woshi"))})
+    for(const FString& Level:{FString(TEXT("Ravenstonefield")),FString(TEXT("Shiomori")),FString(TEXT("Training")),FString(TEXT("NeonAbyss")),FString(TEXT("Yunsha")),FString(TEXT("Murex"))})
         LevelConditions.Add(Level,Born2FlapWeather::Load(Level));
     Build();
     if(FParse::Param(FCommandLine::Get(),TEXT("B2FWeatherMenuTest")))
@@ -494,7 +496,7 @@ void ABorn2FlapMenu::Build()
         const int32 LocationStart=PaneChildren.size();
         // Murex reuses the Valley key until its own Airport artwork lands
         // (menu artwork pass, GDD step 7).
-        const FString Preview = Level == TEXT("Yunsha") ? TEXT("Desert") : Level == TEXT("Shiomori") ? TEXT("Coast") : Level == TEXT("Ravenstonefield") ? TEXT("Valley") : Level == TEXT("NeonAbyss") ? TEXT("Abyss") : Level == TEXT("Murex") ? TEXT("Valley") : Level == TEXT("Woshi") ? TEXT("Mountains") : TEXT("Islands");
+        const FString Preview = Level == TEXT("Yunsha") ? TEXT("Desert") : Level == TEXT("Shiomori") ? TEXT("Coast") : Level == TEXT("Ravenstonefield") ? TEXT("Valley") : Level == TEXT("NeonAbyss") ? TEXT("Abyss") : Level == TEXT("Murex") ? TEXT("Valley") : TEXT("Islands");
         PaneChildren.push_back(Nd("HorizontalBox", P({{"spacing",N(18)}}), {
             Nd("SizeBox",P({{"width",N(234)},{"height",N(128)}}),{
                 Nd("Image",P({{"texture",S(TEXT("/Game/UI/Elements/")+Preview+TEXT(".")+Preview)}}))}),
@@ -885,17 +887,30 @@ void ABorn2FlapMenu::BuildFlightDesk(std::vector<FNode>& Out)
     PushTuning(ETuningField::BatteryVoltage, 2);
     PushTuning(ETuningField::BatteryResistance, 2);
     PushTuning(ETuningField::BatteryCapacity, 2);
+    PushTuning(ETuningField::BatteryCRating, 2);
+    PushTuning(ETuningField::BatteryBurstCRating, 2);
 
     // ---- FLIGHT (3): stroke, trim, control authority, assist ----
     Push(Nd("TextBlock", P({ {"text", S("STROKE")}, {"tone", S("accent")}, {"size", S("l")} })), 3);
     PushTuning(ETuningField::FlapBaseFreq, 3);
     PushTuning(ETuningField::StrokeFerocity, 3);
+    PushTuning(ETuningField::ReturnFerocity, 3);
+    PushTuning(ETuningField::StrokeSkew, 3);
+    PushTuning(ETuningField::ReturnSkew, 3);
+    PushTuning(ETuningField::ShapeMix, 3);
+    PushTuning(ETuningField::ThrottleThrustShapeMix, 3);
+    PushTuning(ETuningField::ThrottleThrustExpo, 3);
+    PushTuning(ETuningField::ThrottleSkewRateMix, 3);
     Push(Nd("TextBlock", P({ {"text", S("TRIM")}, {"tone", S("accent")}, {"size", S("l")} })), 3);
     PushTuning(ETuningField::TailElevatorAngle, 3);
     PushTuning(ETuningField::GlideAngle, 3);
     Push(Nd("TextBlock", P({ {"text", S("CONTROL AUTHORITY")}, {"tone", S("accent")}, {"size", S("l")} })), 3);
     PushTuning(ETuningField::AileronScale, 3);
     PushTuning(ETuningField::ElevatorScale, 3);
+    PushTuning(ETuningField::YawScale, 3);
+    PushTuning(ETuningField::AileronSkewMix, 3);
+    PushTuning(ETuningField::AileronSkewRateMix, 3);
+    PushTuning(ETuningField::ElevatorFerocityMix, 3);
     Push(Nd("TextBlock", P({ {"text", S("ASSIST")}, {"tone", S("accent")}, {"size", S("l")} })), 3);
     Push(Nd("TextBlock", P({ {"text", S(FString(TEXT("0 = OFF (only glitch guards)   ·   1 = VERY LOW (acro)   ·   2 = NORMAL")))}, {"tone", S("dim")}, {"size", S("xs")}, {"wrap", B(true)} })), 3);
     {
@@ -1405,6 +1420,18 @@ void ABorn2FlapMenu::BuildPreferences(std::vector<FNode>& Out)
                 Props["value"] = B(Settings.bReplaySpirits);
                 Rows.push_back(Nd("Toggle", std::move(Props)));
             }
+            // TRICK TOASTS
+            Rows.push_back(Nd("TextBlock", P({ {"text", S("TRICK TOASTS")}, {"tone", S("accent")}, {"size", S("l")} })));
+            Rows.push_back(Nd("TextBlock", P({ {"text", S(FString(TEXT("Pop-up call-outs for handcatches and aerobatics (looping, barrel roll, inverted, skim).")))}, {"tone", S("dim")}, {"size", S("xs")}, {"wrap", B(true)} })));
+            {
+                FProps Props;
+                Props["action"] = S("trick.toasts");
+                Props["label"] = S(FString(TEXT("TRICK TOASTS")));
+                Props["on"] = S("ON  /  click to hide");
+                Props["off"] = S("OFF  /  click to show");
+                Props["value"] = B(Settings.bShowTrickToasts);
+                Rows.push_back(Nd("Toggle", std::move(Props)));
+            }
             {
                 FProps Props;
                 Props["action"] = S("replay.delete");
@@ -1785,7 +1812,6 @@ void ABorn2FlapMenu::OnAction(const FString& Action, float Value, const FString&
         { TEXT("menu.shiomori"),        TEXT("/Game/Shiomori/Maps/SHIOMORI"),               TEXT("Shiomori") },
         { TEXT("menu.training"),        TEXT("/Engine/Maps/Entry"),                         TEXT("Training") },
         { TEXT("menu.yunsha"), TEXT("/Game/Yunsha/Maps/YUNSHA"), TEXT("Yunsha") },
-        { TEXT("menu.woshi"), TEXT("/Game/WoshiSM/Maps/WOSHI_SM"), TEXT("Woshi") },
         { TEXT("menu.murex"),          TEXT("/Game/Murex/Maps/MUREX"),                     TEXT("Murex") },
         { TEXT("menu.neonabyss"),       TEXT("/Game/NeonAbyss/Maps/NEONABYSS"),             TEXT("NeonAbyss") },
     };
@@ -1882,6 +1908,7 @@ void ABorn2FlapMenu::OnAction(const FString& Action, float Value, const FString&
         return;
     }
     if (Action == TEXT("replay.spirits")) { Settings.bReplaySpirits = Value > 0.5f; if (Bird.IsValid()) Bird->SetReplaySpiritsEnabled(Settings.bReplaySpirits); return; }
+    if (Action == TEXT("trick.toasts")) { Settings.bShowTrickToasts = Value > 0.5f; if (Bird.IsValid()) Bird->SetTrickToastsEnabled(Settings.bShowTrickToasts); return; }
     if (Action == TEXT("replay.delete")) { if (Bird.IsValid()) Bird->DeleteReplaySpirits(); return; }
     if (Action == TEXT("language.set"))
     {
@@ -1980,6 +2007,7 @@ void ABorn2FlapMenu::OnAction(const FString& Action, float Value, const FString&
         return;
     }
     if (Action == TEXT("replay.spirits")) { Settings.bReplaySpirits = Value > 0.5f; if (Bird.IsValid()) Bird->SetReplaySpiritsEnabled(Settings.bReplaySpirits); return; }
+    if (Action == TEXT("trick.toasts")) { Settings.bShowTrickToasts = Value > 0.5f; if (Bird.IsValid()) Bird->SetTrickToastsEnabled(Settings.bShowTrickToasts); return; }
     if (Action == TEXT("replay.delete")) { if (Bird.IsValid()) Bird->DeleteReplaySpirits(); return; }
 
     const ETuningField Field = born2flap::tuning::FromKey(Action);

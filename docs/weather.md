@@ -74,7 +74,10 @@ terrain, houses or trees" are *simulated* versus *authored*:
 
 **Wiring** (`Born2FlapWeather::Wind`, `World/Born2FlapWeatherProfiles.cpp`):
 Shiomori layers `WindwardLift` over `WindExposure`; Ravenstonefield layers it
-over thermals. Training stays neutral (no lift, no shelter).
+over thermals. Training stays neutral (no lift, no shelter). Yunsha's aeolian
+wind potential (baked into terrain UV1 by `FYunshaRippleSolver`) shares
+`DefaultWindDirection("Yunsha")` and the dry-season bias; see
+[yunsha.md](yunsha.md) for the full aeolian field.
 
 ## Development and verification
 

@@ -417,8 +417,6 @@ int32 ABorn2FlapFlightPawn::DefaultBirdModel() const
     if (GameMode && GameMode->IsDesertLevel())return 5;
     if (GameMode && GameMode->IsVoidLevel())
         return 3;                       // Neon Abyss -> the neon turtle
-    if (GameMode && GameMode->IsWoshiLevel())
-        return 0;                       // Woshi -> RavenCrow (the raven and the resting stone)
     if (GameMode && GameMode->IsCoastLevel())
         return 2;                       // Shiomori Bay -> common kestrel
     if (GameMode && !GameMode->IsNatureLevel())
@@ -1105,7 +1103,8 @@ bool ABorn2FlapFlightPawn::TryHandcatch()
     Avatar->BeginCatch();
     bFlying = false;
     bThrown = false;   // a catch is no landing — the observer stays put
-    AnnounceReward(Born2Flap::I18n::T("reward.handcatch"), 2.5f);
+    if (bShowTrickToasts)
+        AnnounceReward(Born2Flap::I18n::T("reward.handcatch"), 2.5f);
     UE_LOG(LogTemp, Display, TEXT("FlightHandcatch speed=%.1fm/s pos=%s"), SpeedAtCatch,
            *Body->GetComponentLocation().ToString());
     return true;
@@ -1114,12 +1113,112 @@ bool ABorn2FlapFlightPawn::TryHandcatch()
 void ABorn2FlapFlightPawn::AnnounceReward(const FString& Text, float Duration)
 {
     RewardText = Text;
+    RewardStart = WorldTime;
     RewardUntil = WorldTime + FMath::Max(0.f, Duration);
 }
 
 FString ABorn2FlapFlightPawn::GetRewardText() const
 {
     return WorldTime < RewardUntil ? RewardText : FString();
+}
+
+float ABorn2FlapFlightPawn::GetRewardAlpha() const
+{
+    if (WorldTime >= RewardUntil || RewardText.IsEmpty())
+        return 0.f;
+    // Pop in over 0.12 s, hold at full strength, fade out over the last 0.5 s.
+    const float FadeIn = FMath::Clamp(float(WorldTime - RewardStart) / 0.12f, 0.f, 1.f);
+    const float FadeOut = FMath::Clamp(float(RewardUntil - WorldTime) / 0.5f, 0.f, 1.f);
+    return FMath::Min(FadeIn, FadeOut);
+}
+
+void ABorn2FlapFlightPawn::TickAerobatics(float Dt)
+{
+    // The sky only speaks when the bird is truly flying and toasts are wanted.
+    if (!bShowTrickToasts || !bFlying || !Body || Dt <= 0.f)
+    {
+        TrickAccumPitch = TrickAccumRoll = 0.0;
+        TrickPitchDwell = TrickRollDwell = 0.0;
+        TrickInvertedTimer = TrickSkimTimer = 0.0;
+        return;
+    }
+    // Chaos truth, independent of the math core: the physics pose + world-space
+    // angular velocity, rotated into body axes. Forward = +X (roll), right = +Y
+    // (pitch); a loop accumulates about +Y, a barrel roll about +X.
+    const FTransform Pose = Body->GetBodyInstance()->GetUnrealWorldTransform(false, true);
+    const FVector OmegaBody = Pose.GetRotation().UnrotateVector(Body->GetPhysicsAngularVelocityInRadians());
+    const float PitchRate = (float)OmegaBody.Y;
+    const float RollRate = (float)OmegaBody.X;
+    const float Speed = GetSpeed();
+    const bool bCool = WorldTime >= TrickCooldownUntil;
+
+    const auto Advance = [](double& Accum, double& Dwell, float Rate, float Dt) -> double
+    {
+        // A trick is a continuous rotation: stalling (>1.1 s below 0.6 rad/s)
+        // or reversing direction invalidates the accumulated arc.
+        if (FMath::Abs(Rate) < 0.6f)
+        {
+            Dwell += Dt;
+            if (Dwell > 1.1) Accum = 0.0;
+        }
+        else
+        {
+            Dwell = 0.0;
+            if (Accum * Rate < 0.0 && FMath::Abs(Rate) > 0.8f)
+                Accum = 0.0;   // reversal cancels the manoeuvre
+            Accum += Rate * Dt;
+        }
+        return Accum;
+    };
+
+    const double kFullCircle = 2.0 * PI * 0.92;   // ~331°: exits happen a little early
+    if (bCool)
+    {
+        TrickAccumPitch = Advance(TrickAccumPitch, TrickPitchDwell, PitchRate, Dt);
+        TrickAccumRoll = Advance(TrickAccumRoll, TrickRollDwell, RollRate, Dt);
+        if (FMath::Abs(TrickAccumPitch) >= kFullCircle && Speed > 4.f && GetAltitude() > 1.f)
+        {
+            AnnounceReward(Born2Flap::I18n::T("reward.looping"), 2.2f);
+            TrickAccumPitch = 0.0;
+            TrickCooldownUntil = WorldTime + 2.5;
+        }
+        else if (FMath::Abs(TrickAccumRoll) >= kFullCircle && Speed > 5.f)
+        {
+            AnnounceReward(Born2Flap::I18n::T("reward.barrelroll"), 2.2f);
+            TrickAccumRoll = 0.0;
+            TrickCooldownUntil = WorldTime + 2.5;
+        }
+    }
+    else
+    {
+        TrickAccumPitch = TrickAccumRoll = 0.0;
+        TrickPitchDwell = TrickRollDwell = 0.0;
+    }
+    // Inverted flight: sustained knife-edge past ~110° of bank while airborne.
+    const FVector BodyUp = Pose.GetRotation().RotateVector(FVector::UpVector);
+    if (BodyUp.Z < -0.35f && Speed > 3.f)
+    {
+        TrickInvertedTimer += Dt;
+        if (TrickInvertedTimer > 1.5 && bCool)
+        {
+            AnnounceReward(Born2Flap::I18n::T("reward.inverted"), 2.0f);
+            TrickCooldownUntil = WorldTime + 2.5;
+            TrickInvertedTimer = 0.0;
+        }
+    }
+    else TrickInvertedTimer = FMath::Max(0.0, TrickInvertedTimer - Dt * 2.0);
+    // Skim: a fast sustained pass within 60 cm of the surface.
+    if (GetAltitude() < 0.6f && Speed > 6.f)
+    {
+        TrickSkimTimer += Dt;
+        if (TrickSkimTimer > 1.2 && bCool)
+        {
+            AnnounceReward(Born2Flap::I18n::T("reward.skim"), 2.0f);
+            TrickCooldownUntil = WorldTime + 2.5;
+            TrickSkimTimer = 0.0;
+        }
+    }
+    else TrickSkimTimer = FMath::Max(0.0, TrickSkimTimer - Dt * 2.0);
 }
 
 void ABorn2FlapFlightPawn::StartThrowCharge()
@@ -1657,6 +1756,9 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
     LastMathRotation = Rotation;
     if (bFlightTest && FParse::Param(FCommandLine::Get(), TEXT("B2FWingAirTrace")))
     {
+        UE_LOG(LogTemp, Display, TEXT("SpatialHostTrace t=%.9f actual=(%.12f,%.12f,%.12f) previousPredicted=(%.12f,%.12f,%.12f) predicted=(%.12f,%.12f,%.12f)"),
+            TestTime, AuditActualOmega.X, AuditActualOmega.Y, AuditActualOmega.Z,
+            AuditPreviousPrediction.X, AuditPreviousPrediction.Y, AuditPreviousPrediction.Z, Omega.X, Omega.Y, Omega.Z);
         UE_LOG(LogTemp, Display, TEXT("WingAirIntegration t=%.6f actualWorldX=%.9f previousPredictedWorldX=%.9f predictedWorldX=%.9f appliedWorldX=%.9f dt=%.9f actualRoll=%.9f previousPredictedRoll=%.9f predictedRoll=%.9f"),
             TestTime, AuditActualOmega.X, AuditPreviousPrediction.X, Omega.X, AeroMoment.X, PhysicsDt,
             PhysicsTransform.Rotator().Roll, AuditPreviousRoll, Rotation.Rotator().Roll);
@@ -2472,7 +2574,11 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
             FParse::Value(FCommandLine::Get(), TEXT("B2FAuditThrottle="), AuditThrottle);
             FParse::Value(FCommandLine::Get(), TEXT("B2FAuditRoll="), AuditRoll);
             AuditRamp = FMath::Max(0.05, AuditRamp);
-            const bool AuditFree = FParse::Param(FCommandLine::Get(), TEXT("B2FAuditFree"));
+            double InitialBank = 0, InitialSink = 0;
+            const bool AuditRelease = FParse::Value(FCommandLine::Get(), TEXT("B2FAuditInitialBank="), InitialBank);
+            FParse::Value(FCommandLine::Get(), TEXT("B2FAuditInitialSink="), InitialSink);
+            const bool AuditFree = FParse::Param(FCommandLine::Get(), TEXT("B2FAuditFree")) || (AuditRelease && TestTime >= 3);
+            const bool AuditYawFree = FParse::Param(FCommandLine::Get(), TEXT("B2FAuditYawFree"));
             Effort = FMath::Clamp(AuditThrottle, 0.0, 1.0);
             Roll = FMath::Clamp(AuditRoll, -1.0, 1.0) * FMath::Clamp((TestTime - 3.0) / AuditRamp, 0.0, 1.0);
             FString CapturePrefix;
@@ -2502,17 +2608,27 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
                 // measured slow-roll grip ~10x against free flight). Re-orient
                 // only when the attitude genuinely drifts.
                 FRotator Attitude = Body->GetComponentRotation();
-                if (FMath::Abs(Attitude.Pitch) > 2 || FMath::Abs(Attitude.Yaw) > 2)
+                if (FMath::Abs(Attitude.Pitch) > 2 || (!AuditYawFree && FMath::Abs(Attitude.Yaw) > 2))
                 {
-                    Attitude.Pitch = Attitude.Yaw = 0;
+                    Attitude.Pitch = 0;
+                    if (!AuditYawFree) Attitude.Yaw = 0;
                     Body->SetWorldRotation(Attitude, false, nullptr, ETeleportType::TeleportPhysics);
                 }
                 FVector Velocity = Body->GetPhysicsLinearVelocity();
                 Velocity.X = AuditSpeed * 100;
                 Body->SetPhysicsLinearVelocity(Velocity);
                 FVector Rates = Body->GetPhysicsAngularVelocityInRadians();
-                Rates.Y = Rates.Z = 0;
+                Rates.Y = 0;
+                if (!AuditYawFree) Rates.Z = 0;
                 Body->SetPhysicsAngularVelocityInRadians(Rates);
+            }
+            if (AuditRelease && Previous < 3 && TestTime >= 3)
+            {
+                // Initial-condition fixture only: settle the articulated wings,
+                // then release all axes into the specified bank and descent.
+                Body->SetWorldLocationAndRotation(FVector(0,0,3000), FRotator(0,0,InitialBank), false, nullptr, ETeleportType::TeleportPhysics);
+                Body->SetPhysicsLinearVelocity(FVector(AuditSpeed*100,0,-InitialSink*100));
+                Body->SetPhysicsAngularVelocityInRadians(FVector::ZeroVector);
             }
             if (TestTime >= 3) RollTestPeakRate = FMath::Max(RollTestPeakRate,
                 FMath::Abs(Body->GetComponentQuat().UnrotateVector(Body->GetPhysicsAngularVelocityInRadians()).X));
@@ -2534,6 +2650,37 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
                 RollTestBaseline = FVector(Body->GetComponentRotation().Roll, SurfaceBank(FieldsL), SurfaceBank(FieldsR));
             if (HaveFields && FParse::Param(FCommandLine::Get(), TEXT("B2FWingAirTrace")))
             {
+                FVector AuditTailMomentWorld = FVector::ZeroVector;
+                B2F_TailField TailFields[18];
+                if (MathBridge->ReadTailFields(TailFields))
+                {
+                    FVector TailForce = FVector::ZeroVector, TailMoment = FVector::ZeroVector;
+                    FVector LiftMoment = FVector::ZeroVector, PressureMoment = FVector::ZeroVector;
+                    FVector DragMoment = FVector::ZeroVector;
+                    double TailAlpha = 0;
+                    const FQuat PhysicalRotation = Body->GetBodyInstance()->GetUnrealWorldTransform(false, true).GetRotation();
+                    for (const auto& Field : TailFields)
+                    {
+                        auto V3 = [](const double* V) { return FVector(V[0], V[1], V[2]); };
+                        const FVector R = V3(Field.position_m) - FVector(-CgOffsetMm * .001, 0, 0);
+                        const FVector L = V3(Field.lift_n), P = V3(Field.pressure_n), D = V3(Field.drag_n);
+                        TailForce += L + P + D;
+                        LiftMoment += FVector::CrossProduct(R, L);
+                        PressureMoment += FVector::CrossProduct(R, P);
+                        DragMoment += FVector::CrossProduct(R, D);
+                        TailAlpha += FMath::RadiansToDegrees(FMath::Atan2(-Field.normal[0], Field.normal[2]) +
+                            FMath::Atan2(-Field.air_velocity_m_s[2], Field.air_velocity_m_s[0])) / 18.;
+                    }
+                    TailMoment = PhysicalRotation.RotateVector(LiftMoment + PressureMoment + DragMoment);
+                    AuditTailMomentWorld = TailMoment;
+                    const FRotator Pose = PhysicalRotation.Rotator();
+                    const FVector Rates = Body->GetPhysicsAngularVelocityInRadians();
+                    UE_LOG(LogTemp, Display, TEXT("TailAirTrace t=%.6f attitude=(%.9f,%.9f,%.9f) rates=(%.9f,%.9f,%.9f) forceBody=(%.9f,%.9f,%.9f) momentWorld=(%.9f,%.9f,%.9f) yawParts=(%.9f,%.9f,%.9f) alpha=%.9f failures=%d"),
+                        TestTime, Pose.Roll, Pose.Pitch, Pose.Yaw, Rates.X, Rates.Y, Rates.Z,
+                        TailForce.X, TailForce.Y, TailForce.Z, TailMoment.X, TailMoment.Y, TailMoment.Z,
+                        PhysicalRotation.RotateVector(LiftMoment).Z, PhysicalRotation.RotateVector(PressureMoment).Z,
+                        PhysicalRotation.RotateVector(DragMoment).Z, TailAlpha, MathFailures);
+                }
                 double Balance[8]{};
                 if (MathBridge->ReadRollBalance(Balance))
                     UE_LOG(LogTemp, Display, TEXT("WingAirBalance t=%.6f external=%.9f gravity=%.9f bias=%.9f body=%.9f hinges=%.9f other=%.9f driveL=%.9f driveR=%.9f"),
@@ -2563,6 +2710,24 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
                     *Lift[0].ToString(), *Lift[1].ToString(), *Pressure[0].ToString(), *Pressure[1].ToString(),
                     Hinge[0], Hinge[1], AeroMoment.X, AeroMoment.Y, AeroMoment.Z, Body->GetInertiaTensor().X / 10000.,
                     *Tips[0].ToString(), *Tips[1].ToString(), MathFailures);
+                FVector NormalBody = FVector::ZeroVector, WingMomentBody = FVector::ZeroVector;
+                double MeanU[2]{};
+                for (int Side=0; Side<2; ++Side)
+                    for (uint32 I=0; I<B2F_WING_STATIONS; ++I)
+                    {
+                        const auto& F = Side == 0 ? FieldsL[I] : FieldsR[I];
+                        NormalBody += FVector(F.normal[0],F.normal[1],F.normal[2]);
+                        MeanU[Side] += F.air_velocity_m_s[0]/B2F_WING_STATIONS;
+                        if (HaveLoads) WingMomentBody += FVector(Loads[Side][I].moment_nm[0],Loads[Side][I].moment_nm[1],Loads[Side][I].moment_nm[2]) -
+                            FVector::CrossProduct(FVector(-CgOffsetMm*.001,0,0),FVector(Loads[Side][I].force_n[0],Loads[Side][I].force_n[1],Loads[Side][I].force_n[2]));
+                    }
+                NormalBody.X = 0;
+                NormalBody.Normalize();
+                const FVector NormalWorld = Body->GetComponentQuat().RotateVector(NormalBody);
+                UE_LOG(LogTemp, Display, TEXT("TurnAirTrace t=%.6f normalWorld=(%.9f,%.9f,%.9f) tailYawPlane=%.9f wingYawPlane=%.9f wingRoll=%.9f meanU=(%.9f,%.9f) liftPlane=(%.9f,%.9f)"),
+                    TestTime,NormalWorld.X,NormalWorld.Y,NormalWorld.Z,FVector::DotProduct(AuditTailMomentWorld,NormalWorld),
+                    FVector::DotProduct(WingMomentBody,NormalBody),WingMomentBody.X,MeanU[0],MeanU[1],
+                    FVector::DotProduct(Lift[0],NormalBody),FVector::DotProduct(Lift[1],NormalBody));
             }
             if (TestTime >= 13.0 && !bTestFinished)
             {
@@ -2664,7 +2829,7 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     else if (GetAltitude() > .5f && GetSpeed() > 1.f)
         bFlying = true;
     UpdateLandingCamera(Dt);
-    const double FieldRadius = Mode && Mode->IsDesertLevel() ? 185000. : Mode && Mode->IsVoidLevel() ? 20000. : (Mode && Mode->IsNatureLevel() ? 190000. : (Mode && Mode->IsWoshiLevel() ? 70000. : 30000.));
+    const double FieldRadius = Mode && Mode->IsDesertLevel() ? 185000. : Mode && Mode->IsVoidLevel() ? 20000. : (Mode && Mode->IsNatureLevel() ? 190000. : 30000.);
     if (bFlying && !bReturning && P.Size2D() > FieldRadius)
     {
         bReturning = true;
@@ -2789,6 +2954,7 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
             Body->AddForce(FVector(0.f, 0.f, -DepthM * 0.4f * Body->GetMass()));
         }
     }
+    TickAerobatics(Dt);
     // Ground repositioning: a deliberate downstroke shoves the grounded bird
     // forward along its heading so the wings can creep it into place for the
     // next throw (complementing the wing-tip lever in SweepWingColliders).

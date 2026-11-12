@@ -70,7 +70,7 @@ void UBorn2FlapTerrainProbe::Tick(float DeltaSeconds)
 	}
 
 	const FString CurrentMap = World->GetMapName();
-	const bool bIsTargetMap = CurrentMap.Contains(TEXT("YUNSHA")) || CurrentMap.Contains(TEXT("WOSHI"));
+	const bool bIsTargetMap = CurrentMap.Contains(TEXT("YUNSHA"));
 	if (!bIsTargetMap)
 	{
 		if (FMath::FloorToInt(Time * 2.f) % 4 == 0)

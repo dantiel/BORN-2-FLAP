@@ -681,3 +681,44 @@ Fossils now use the exact triangles of the 2 m excavation grid. Each scan fits a
 Terrain vertex normals are sampled from the native height field in the editor builder, so dune lighting stays smooth across triangles and tile boundaries. The horizon apron has matching perimeter vertices and upward faces. Four additional cameras inspect dune fields, the oasis approach and close sand relief (22 views total).
 
 Validation (2026-10-29): normal Editor build passed after file locks were released. The final generator saved and reloaded 483 actors in 257.1 s. Noon/dry runtime validation passed with seven general ground probes, seven excavation-floor probes, daylight and passage checks, relocated thermals and summit checks. All 22 fresh captures were produced; fossil, dune, sand-detail and oasis-spacing views were inspected. A separate saved-map inspection confirmed the 6 x 6 km footprint, 36 smoothly shaded dune tiles and relocated landmarks. Windows execution verified; native macOS execution remains unverified.
+
+## Aeolian wind field and sand ripples (2026-11-11)
+
+**Map-scale wind and shelter.** The editor-only `FYunshaRippleSolver` samples
+`GroundHeight` over the 6 km map on a 301 x 301 grid, using
+`DefaultWindDirection("Yunsha")` plus the dry-season bias — shared with gameplay
+weather. A terrain-dependent conductivity potential equation is relaxed for up to
+600 red-black sweeps. This is an art-directed reduced-order flow model, not CFD.
+
+A six-distance upwind horizon test (20–640 m), local slope, lee slope, actual water
+and the immediate oasis footprint control sediment transport. Absolute ground
+elevation does not suppress dry sand. Generation asserts that every sampled open
+flat point outside the protected oasis has active transport (65,898 samples on the
+2026-11-11 refresh). Terrain shelter is modeled; buildings and vegetation are not
+included as wind obstacles.
+
+UV1 stores the continuous wind potential in metres and the transport mask at full
+precision. Shared world sampling prevents phase resets at mesh tile edges. The field
+is baked — seasonal gusts do not instantly rewrite the landforms.
+
+**Small-scale sediment transport.** `yunsha_aeolian.py` generates three
+deterministic 128 x 128 periodic sand beds, starting from small random
+perturbations. Height-dependent saltation hops, short impact hops, and conservative
+creep/avalanche transfers reshape the bed; each simulation checks conservation of
+sediment mass and a Fourier measurement identifies the dominant along-wind
+wavelength. The patches are scaled to dominant wavelengths of 5, 11 and 20 cm and
+global trough-to-crest heights of 0.5, 1.1 and 2 cm — artistic scale targets, not
+validated physical predictions. Slopes and height are baked to three small textures
+and blended regionally in the solved wind coordinates; texture mips handle
+unresolved distance detail. Fine ridges affect surface normals/lighting, not
+silhouettes or collision.
+
+**Generation and verification.** Full rebuild: `Tools/generate_maps.py --maps yunsha
+--force` with the Unreal Python interpreter. `refresh_yunsha_aeolian.py` refreshes
+existing terrain UVs and sand materials, saves them, and reloads YUNSHA without
+replacing world actors; a material-only refresh cannot install changed wind-field
+UVs. `Tools/test_yunsha.py --timeout 900` renders 24 views (22 and 23 inspect
+exposed sand and a lee area at ground level) and checks the `YunshaRippleCoverage`,
+`YunshaRippleSolver` and `YUNSHA_AEOLIAN_PATCHES` markers, shader compilation, native
+collision checks and the rendered captures. Source-hashed patch caches in
+Saved/Aeolian are disposable; imported textures live in generated Materials.

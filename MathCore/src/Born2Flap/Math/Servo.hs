@@ -10,12 +10,19 @@
 --      so under load the servo slows, and beyond stall torque it is
 --      back-driven (the wing pushes the servo instead of the reverse).
 --
--- Battery voltage sag under load scales BOTH limits through a voltage
--- factor, so a sagging battery makes the bird flap slower and weaker — the
--- "servo struggling" behaviour the owner wants to feel.
+-- Battery voltage sag under load reads BOTH limits off the servo's own
+-- voltage-response tables, so a sagging battery makes the bird flap slower
+-- and weaker — the "servo struggling" behaviour the owner wants to feel, and
+-- each servo degrades along its own curve.
 module Born2Flap.Math.Servo
   ( ServoSpec(..)
   , defaultServoSpec
+  , servoFromNominal
+  , servoSpeedAt
+  , servoTorqueAt
+  , servoNominalSpeedDegPerSec
+  , servoNominalTorqueNm
+  , servoReferenceVoltage
   , BatterySpec(..)
   , defaultBatterySpec
   , ServoState(..)
@@ -35,35 +42,115 @@ module Born2Flap.Math.Servo
 -- The servo is modelled in *flap-deviation* space: 0° = level wing, and the
 -- linkage/gearing that maps the firmware's raw 100° shaft neutral to 0° flap
 -- deviation is absorbed here (the firmware's @ORNI_ANGULAR_MULTIPLIER@).
+-- A servo's physical identity is a pair of *voltage-response tables* — one
+-- mapping terminal voltage to no-load slew rate (deg/s), one mapping it to
+-- stall torque (N·m). These tables ARE the servo's degradation function: a DC
+-- servo's no-load speed and stall torque both rise with pack voltage, but on
+-- *different* curves, so each servo carries its own curve and degrades along
+-- it as the battery sags. Below 'servoCutoffVoltage' the actuator is dead.
 data ServoSpec = ServoSpec
-  { servoNoLoadSpeedDegPerSec :: !Double  -- ^ no-load slew rate (e.g. 857)
-  , servoStallTorqueNm        :: !Double  -- ^ stall torque (e.g. 2.0)
-  , servoBackdriveDegPerSecNm :: !Double  -- ^ compliance when overpowered
+  { servoName                 :: !String               -- ^ identifier (e.g. "PTK 7465 Plus")
+  , servoSpeedTable           :: ![(Double, Double)]   -- ^ [(terminal V, no-load deg/s)], ascending V
+  , servoTorqueTable          :: ![(Double, Double)]   -- ^ [(terminal V, stall N·m)], ascending V
+  , servoBackdriveDegPerSecNm :: !Double               -- ^ compliance when overpowered
+  , servoCutoffVoltage        :: !Double               -- ^ below this V the servo is dead
   } deriving stock (Eq, Show)
 
+-- | The common kestrel's default actuator: a VOTIK PTK 7465 Plus. The table is
+-- the datasheet verbatim — operating speed (s/60°) and stall torque (kg·cm)
+-- at each pack voltage, converted here to deg/s and N·m:
+--
+--   speed  (deg/s): 5 V→566.04, 6 V→681.82, 7.4 V→857.14, 8.4 V→983.61
+--   torque (N·m):  5 V→0.3923, 6 V→0.5100, 7.4 V→0.7355, 8.4 V→0.9120
 defaultServoSpec :: ServoSpec
 defaultServoSpec = ServoSpec
-  { servoNoLoadSpeedDegPerSec = 857   -- PTK 7465 Plus @ 7.4 V (0.070 s/60°)
-  , servoStallTorqueNm = 0.735        -- PTK 7465 Plus @ 7.4 V (7.5 kg·cm)
+  { servoName = "PTK 7465 Plus"
+  , servoSpeedTable = ptk7465PlusSpeedTable
+  , servoTorqueTable = ptk7465PlusTorqueTable
   , servoBackdriveDegPerSecNm = 20
+  , servoCutoffVoltage = 4.0
   }
 
--- | PTK 7465 Plus voltage response, normalised to the 2S nominal point (7.4 V).
--- A DC servo's no-load speed and stall torque both rise with pack voltage, but
--- on *different* curves: torque falls off faster at low voltage than speed
--- (the motor's torque constant is more voltage-sensitive than its back-EMF
--- speed limit). 'ServoSpec' therefore carries the 7.4 V datasheet numbers, and
--- these factors map any terminal voltage onto them.
---
---   speed  (deg/s): 5 V→566, 6 V→682, 7.4 V→857, 8.4 V→984
---   torque (N·m):  5 V→0.392, 6 V→0.510, 7.4 V→0.735, 8.4 V→0.912
-ptkServoSpeedFactor, ptkServoTorqueFactor :: Double -> Double
-ptkServoSpeedFactor v
-  | v <= 4.0 = 0
-  | otherwise = piecewiseLinear [(5.0,566),(6.0,682),(7.4,857),(8.4,984)] v / 857
-ptkServoTorqueFactor v
-  | v <= 4.0 = 0
-  | otherwise = piecewiseLinear [(5.0,0.392),(6.0,0.510),(7.4,0.735),(8.4,0.912)] v / 0.735
+-- | PTK 7465 Plus operating-speed table, straight from the datasheet:
+-- 0.106/0.088/0.070/0.061 s per 60° at 5/6/7.4/8.4 V.
+ptk7465PlusSpeedTable :: [(Double, Double)]
+ptk7465PlusSpeedTable =
+  [ (5.0, 60 / 0.106)
+  , (6.0, 60 / 0.088)
+  , (7.4, 60 / 0.070)
+  , (8.4, 60 / 0.061)
+  ]
+
+-- | PTK 7465 Plus stall-torque table: 4.0/5.2/7.5/9.3 kg·cm at 5/6/7.4/8.4 V.
+ptk7465PlusTorqueTable :: [(Double, Double)]
+ptk7465PlusTorqueTable =
+  [ (5.0, kgCmToNm 4.0)
+  , (6.0, kgCmToNm 5.2)
+  , (7.4, kgCmToNm 7.5)
+  , (8.4, kgCmToNm 9.3)
+  ]
+
+-- 1 kg·cm = 9.80665e-2 N·m.
+kgCmToNm :: Double -> Double
+kgCmToNm = (* 0.0980665)
+
+-- | Reference (nominal) voltage: 2S LiPo 7.4 V — the table row reported as a
+-- servo's "nominal" speed/torque.
+servoReferenceVoltage :: Double
+servoReferenceVoltage = 7.4
+
+-- | No-load speed at a terminal voltage (deg/s), read off the servo's own
+-- table. Flat-extrapolated past the table ends, 0 below the cutoff voltage.
+servoSpeedAt :: ServoSpec -> Double -> Double
+servoSpeedAt servo v = tableAt (servoCutoffVoltage servo) (servoSpeedTable servo) v
+
+-- | Stall torque at a terminal voltage (N·m), read off the servo's own table.
+servoTorqueAt :: ServoSpec -> Double -> Double
+servoTorqueAt servo v = tableAt (servoCutoffVoltage servo) (servoTorqueTable servo) v
+
+-- | The 7.4 V (nominal) no-load speed in deg/s — the single-number identity
+-- the firmware mixer uses to match cadence to the actuator.
+servoNominalSpeedDegPerSec :: ServoSpec -> Double
+servoNominalSpeedDegPerSec servo = tableAt (servoCutoffVoltage servo) (servoSpeedTable servo) servoReferenceVoltage
+
+-- | The 7.4 V (nominal) stall torque in N·m.
+servoNominalTorqueNm :: ServoSpec -> Double
+servoNominalTorqueNm servo = tableAt (servoCutoffVoltage servo) (servoTorqueTable servo) servoReferenceVoltage
+
+-- | Build a servo from a scalar nominal (7.4 V) speed and stall torque — e.g.
+-- the hangar's live-tuning knobs, which only know one operating point. The
+-- servo inherits the PTK 7465 Plus voltage-response SHAPE, scaled so its 7.4 V
+-- row equals the given nominal values.
+servoFromNominal :: String -> Double -> Double -> Double -> ServoSpec
+servoFromNominal name speedNominal torqueNominal backdrive =
+  ServoSpec
+    { servoName = name
+    , servoSpeedTable = scaleCurve speedNominal servoReferenceSpeedCurve
+    , servoTorqueTable = scaleCurve torqueNominal servoReferenceTorqueCurve
+    , servoBackdriveDegPerSecNm = backdrive
+    , servoCutoffVoltage = 4.0
+    }
+  where
+    scaleCurve reference curve = [(v, reference * f) | (v, f) <- curve]
+
+-- | The PTK 7465 Plus voltage-response shape, normalised to 1.0 at 7.4 V.
+-- Reused as the fallback shape for any servo defined only by a nominal point.
+servoReferenceSpeedCurve, servoReferenceTorqueCurve :: [(Double, Double)]
+servoReferenceSpeedCurve = normaliseCurve ptk7465PlusSpeedTable
+servoReferenceTorqueCurve = normaliseCurve ptk7465PlusTorqueTable
+
+normaliseCurve :: [(Double, Double)] -> [(Double, Double)]
+normaliseCurve points =
+  let nominal = piecewiseLinear points servoReferenceVoltage
+  in [(v, y / nominal) | (v, y) <- points]
+
+-- | Piecewise-linear table lookup with flat extrapolation past the endpoints
+-- and a hard 0 below @cutoff@, so a dead pack reads as a dead servo.
+tableAt :: Double -> [(Double, Double)] -> Double -> Double
+tableAt cutoff points v
+  | null points = 0
+  | v <= cutoff = 0
+  | otherwise = piecewiseLinear points v
 
 -- | Piecewise-linear interpolation with flat extrapolation past the endpoints.
 piecewiseLinear :: [(Double, Double)] -> Double -> Double
@@ -145,14 +232,12 @@ reflectedDriveInertia = 0.0016
 -- joint acceleration independently of the moving fuselage.
 servoDriveTorque :: ServoSpec -> BatterySpec -> Double -> Double -> Double -> Double -> Double -> ServoState -> Double -> Double
 servoDriveTorque servo battery voltage dt target load wingInertia old rate =
-  let tf = ptkServoTorqueFactor voltage
-      sf = ptkServoSpeedFactor voltage
-      stall = max 0 (servoStallTorqueNm servo * tf)
+  let stall = max 0 (servoTorqueAt servo voltage)
       (_, reference) = stepServo servo battery target load wingInertia voltage dt old
       acceleration = ((2*servoRateDegPerSec reference-servoRateDegPerSec old)*pi/180-rate)/dt
       demand = (wingInertia+reflectedDriveInertia)*acceleration-load
       -- DC drive envelope: stall torque and no-load speed cannot coexist.
-      freeRate = max 1e-6 (servoNoLoadSpeedDegPerSec servo * sf * pi/180)
+      freeRate = max 1e-6 (servoSpeedAt servo voltage * pi/180)
       positiveLimit = stall * clampRate 0 1 (1-rate/freeRate)
       negativeLimit = -stall * clampRate 0 1 (1+rate/freeRate)
   in clampRate negativeLimit positiveLimit demand
@@ -190,8 +275,7 @@ servoPairDriveTorqueWithRate servo battery voltage dt _targetDifferenceRate (tar
 -- motion. This torque always dissipates energy and cannot power a dead servo.
 servoBackdriveTorque :: ServoSpec -> BatterySpec -> Double -> Double -> Double -> Double
 servoBackdriveTorque servo battery voltage load rate =
-  let tf = ptkServoTorqueFactor voltage
-      stall = max 0 (servoStallTorqueNm servo * tf)
+  let stall = max 0 (servoTorqueAt servo voltage)
       engaged = clampRate 0 1 ((abs load-stall) / max 0.05 (0.2*stall))
       compliance = max 0.001 (servoBackdriveDegPerSecNm servo) * pi/180
   in -engaged * signum load * max 0 (rate*signum load) / compliance
@@ -204,11 +288,12 @@ servoBackdriveTorque servo battery voltage load rate =
 --                     tries to rotate the shaft in the positive-angle direction.
 --   * @wingInertia@ — wing moment of inertia about the flap hinge [kg·m²],
 --                     derived from the planform (structural + added mass).
---   * @voltage@     — battery terminal voltage (drives the voltage factor)
+--   * @voltage@     — battery terminal voltage (looked up on the servo table)
 --   * @dt@          — timestep
 --
 -- Torque–speed curve: available torque falls linearly from stall torque at
--- zero speed to zero at the no-load speed, scaled by @voltage / V_nom@.
+-- zero speed to zero at the no-load speed, both read off the servo's own
+-- voltage table.
 -- When the load exceeds the available torque the servo is back-driven by the
 -- excess (the wing wins), otherwise it tracks the target at the load-reduced
 -- speed. This is the physical "struggle".
@@ -217,10 +302,8 @@ stepServo :: ServoSpec -> BatterySpec -> Double -> Double -> Double -> Double ->
 stepServo servo battery targetDeg loadTorqueNm wingInertia voltage dt state
   | dt <= 0 = (servoAngleDeg state, state)
   | otherwise =
-      let sf = ptkServoSpeedFactor voltage
-          tf = ptkServoTorqueFactor voltage
-          stallT = max 1.0e-6 (servoStallTorqueNm servo * tf)
-          maxRate = servoNoLoadSpeedDegPerSec servo * sf
+      let stallT = max 1.0e-6 (servoTorqueAt servo voltage)
+          maxRate = servoSpeedAt servo voltage
           err = clampRate (-80) 80 targetDeg - servoAngleDeg state
           -- Unified tracker (NO back-drive branch). The servo ALWAYS tracks the
           -- target; the aerodynamic load only reduces the achievable speed, it
@@ -259,8 +342,7 @@ stepServo servo battery targetDeg loadTorqueNm wingInertia voltage dt state
           rateStep = clampRate (negate (alphaMaxDeg * dt)) (alphaMaxDeg * dt)
                                (requestedRate - servoRateDegPerSec state)
           smoothRate = servoRateDegPerSec state + rateStep
-          limitedRate = clampRate (negate (servoNoLoadSpeedDegPerSec servo))
-                                  (servoNoLoadSpeedDegPerSec servo) smoothRate
+          limitedRate = clampRate (negate maxRate) maxRate smoothRate
           angle = clampRate (-80) 80 (servoAngleDeg state + limitedRate * dt)
           next = ServoState angle ((angle - servoAngleDeg state) / dt)
       in (angle, next)

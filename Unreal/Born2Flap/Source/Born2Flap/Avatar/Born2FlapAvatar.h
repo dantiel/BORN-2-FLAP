@@ -71,6 +71,7 @@ private:
 
     UPROPERTY() USceneComponent* Root = nullptr;
     UPROPERTY() USkeletalMeshComponent* Body = nullptr;
+    UPROPERTY() USkeletalMeshComponent* BodyExtra = nullptr;  // X-Bot second body section
     UPROPERTY() USceneComponent* CarrySocket = nullptr;
 
     // Retargeted Mixamo locomotion clips (kept alive by UPROPERTY; a bare

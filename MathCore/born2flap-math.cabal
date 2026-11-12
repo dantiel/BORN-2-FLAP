@@ -138,3 +138,18 @@ executable born2flap-wing-air-audit
   build-depends: base >=4.17 && <5, born2flap-math
   default-language: GHC2021
   ghc-options: -O1
+
+executable born2flap-tail-coupling-audit
+  main-is: TailCouplingAudit.hs
+  hs-source-dirs: test
+  build-depends: base >=4.17 && <5, born2flap-math
+  default-language: GHC2021
+  ghc-options: -O1
+
+executable born2flap-banked-turn-audit
+  main-is: BankedTurnAudit.hs
+  other-modules: WakeReference
+  hs-source-dirs: test
+  build-depends: base >=4.17 && <5, born2flap-math
+  default-language: GHC2021
+  ghc-options: -O1
