@@ -303,10 +303,13 @@ void UBorn2FlapMeshPartitionRuntime::EnforceVariantDataLayerPolicy()
 				UE_LOG(LogTemp, Log, TEXT("B2FMeshPartitionRuntime: variant policy %s -> Unloaded"), *ShortName);
 			}
 		}
-		else if (Current == EDataLayerRuntimeState::Unloaded)
+		else if (Current != EDataLayerRuntimeState::Activated)
 		{
-			// Common/HighEnd must stream; heal maps finalized with everything
-			// unloaded (the pre-fix default).
+			// Common/HighEnd must stream. Heal both the pre-fix default
+			// (everything Unloaded) AND maps finalized to Loaded: Loaded
+			// spawns the compiled-section actors but does not activate them,
+			// so the terrain renders invisible and has no collision until it
+			// is promoted to Activated.
 			DataLayerManager->SetDataLayerInstanceRuntimeState(Instance, EDataLayerRuntimeState::Activated, /*bIsRecursive=*/true);
 			UE_LOG(LogTemp, Log, TEXT("B2FMeshPartitionRuntime: variant policy %s -> Activated"), *ShortName);
 		}
