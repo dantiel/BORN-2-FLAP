@@ -171,3 +171,22 @@ $null
 # wasm3/ghc-wasm native build outputs (regenerate via Tools/build-wasm3-android.sh)
 Native/lib/
 MathCore/tools/export-models/
+# Imported/generated content purged from history 2026-11-13 - regenerate via Tools scripts
+/Unreal/Born2Flap/Content/Nature/
+/Unreal/Born2Flap/Content/Ravenstonefield/
+/Unreal/Born2Flap/Content/NeonAbyss/
+/Unreal/Born2Flap/Content/Murex/
+/Unreal/Born2Flap/Content/Weather/
+/Unreal/Born2Flap/Content/Birds/
+/Unreal/Born2Flap/Content/WorldAssets/
+/Unreal/Born2Flap/Content/ThirdParty/
+/Unreal/Born2Flap/Content/Shiomori/Meshes/
+/Unreal/Born2Flap/Content/Shiomori/Imported/
+/Unreal/Born2Flap/Content/Shiomori/EastShore/
+/Unreal/Born2Flap/Content/Shiomori/HarvestWatch/
+/Unreal/Born2Flap/Content/Shiomori/Cliffs/
+/Unreal/Born2Flap/Content/Shiomori/LavaScans/
+/Unreal/Born2Flap/Content/Shiomori/Audio/
+/Unreal/Born2Flap/Content/Actor/
+/Unreal/Born2Flap/SourceAssets/
+/Unreal/Born2Flap/Build/
