@@ -254,9 +254,8 @@ def yunsha_sky_material():
 
 
 sand = material('WindRippleSand', (1.0, .77, .48))
-from yunsha_sand import normal_code
-out(custom(sand, normal_code(), {
-    'P': expr(sand, 'WorldPosition'), 'N': expr(sand, 'VertexNormalWS')}), 'NORMAL')
+from yunsha_sand import normal_code, normal_inputs
+out(custom(sand, normal_code(), normal_inputs(sand, expr)), 'NORMAL')
 sand.set_editor_property('tangent_space_normal', False)
 M.recompile_material(sand)
 E.save_loaded_asset(sand)
