@@ -21,6 +21,7 @@ module Born2Flap.Math.Model
   , prototypeModel
   , turtleModel
   , kestrelLightModel
+  , withWingCamberBias
   ) where
 
 import Born2Flap.Math.Planform
@@ -37,6 +38,21 @@ data WingModel = WingModel
   , wmMassKg :: !Double        -- ^ dry mass of the whole bird [kg] (Chaos body mass + airframe inertia)
   } deriving stock (Eq, Show)
 
+-- | Small built-in airfoil camber adjustment, expressed as a fraction of
+-- chord. This changes the same section camber used for zero-lift angle,
+-- quarter-chord pitching moment, membrane shape and rendered geometry.
+-- Preserve the attached root and blend into the free membrane over 16% span.
+withWingCamberBias :: Double -> WingModel -> WingModel
+withWingCamberBias requested model = model {wmWing=wing {wsStations=map adjust (wsStations wing)}}
+  where
+    wing=wmWing model
+    bias=max (-0.01) (min 0.01 requested)
+    adjust station =
+      let t=max 0 (min 1 (ssFraction station/0.16))
+          freedom=t*t*(3-2*t)
+          profile=ssSection station
+      in station {ssSection=profile {spRestCamber=spRestCamber profile+freedom*bias}}
+
 -- | The reference kestrel: 0.55 m half-span (1.10 m full span), 50 g dry mass,
 -- 2.0 mm inner → 1.6 mm outer LE mainspar + diagonal/mid-chord brace box.
 -- PTK 7465 (or 7465 Plus) servo.
@@ -45,17 +61,12 @@ kestrelModel = WingModel "kestrel" kestrelMembraneWing flightSpars 0.050
   where
     -- Effective skin/brace calibration (not measured carbon material values).
     -- Increase load-dependent bending without lengthening the carbon rods.
-    -- siTwistScale 8: the long-known-good elastic torsion. (The roll-overdrive
-    -- fix is the glide dihedral + bounded spiral, NOT the spar: probe runs at
-    -- 24/10/4 showed the washout has no effect on the differential roll
-    -- moment at glide speeds, so the spar stays at its proven value.)
-    -- lift asymmetry under load — the soft settings (8 and below) let the
-    -- loaded wing feather (washout) until the left/right lift asymmetry
-    -- collapses and the roll command dies at speed. The stiffening keeps the
-    -- differential steer alive across the speed range (torsion nat. freq
-    -- still ≫ flap, so the aeroelastic stroke itself is unchanged).
+    -- User-requested modest increase in passive twist: 6.3 rather than 7
+    -- gives 11.1% greater STATIC compliance under the same load. Actual dynamic
+    -- twist, lift and thrust must be measured; stiffness is identical on
+    -- both wings and does not change with commanded stroke phase.
     -- Bending siBendScale stays 3.6.
-    flightSpars = kestrelSpars { siBendScale = 3.6, siTwistScale = 8 }
+    flightSpars = kestrelSpars { siBendScale = 3.6, siTwistScale = 6.3 }
 
 -- Matches the current native KestrelMeshScale and KestrelScale. Shoulder
 -- placement remains (3, +/-1, 4) cm; it is not scaled by the renderer.
@@ -83,7 +94,10 @@ kestrelMembraneWing = defaultBirdWing
           scaleCm=kestrelGeometryScale/100
       in ShapeStation f (-(0.03+le*scaleCm)) ((le-te)*scaleCm)
            ((shapeTwistRad defaultBirdWing f-shapeTwistRad defaultBirdWing 0)*180/pi) 0
-           (profile {spRestCamber=freedom*spRestCamber profile,
+           -- The membrane mesh has a parabolic mean line, without a reflexed
+           -- trailing edge. Do not remove its pitching moment with a reflex
+           -- coefficient inherited from the feathered bird profile.
+           (profile {spReflex=0,spRestCamber=freedom*spRestCamber profile,
                      spMembraneK=freedom*spMembraneK profile})
            (shapeStructure defaultBirdWing f)
 

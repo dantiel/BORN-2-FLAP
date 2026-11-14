@@ -76,7 +76,7 @@ double SampleStationField(const B2F_WingSection* Shape, int32 Count, double Stat
     return H00 * P0 + H10 * M0 + H01 * P1 + H11 * M1;
 }
 // Render physical deformation at its actual scale. Exaggeration produces
-// folds that do not exist in the aerodynamic surface.
+// folds and section orientations that do not exist in the aerodynamic surface.
 constexpr double AeroBendVisualGain  = 1.0;
 constexpr double AeroTwistVisualGain = 1.0;
 constexpr double KestrelMeshScale = 0.55; // authored at 100 cm half-span → 55 cm to match the 0.55 m physics half-span

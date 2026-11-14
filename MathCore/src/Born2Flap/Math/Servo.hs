@@ -331,16 +331,19 @@ stepServo servo battery targetDeg loadTorqueNm wingInertia voltage dt state
           -- servo power genuinely shows up in how quickly the stroke reverses.
           servoInertia = reflectedDriveInertia
           inertia = servoInertia + wingInertia
-          -- The torque available to accelerate the rate. When tracking, the
-          -- servo's spare torque (stallT − load) drives it; when overpowered,
-          -- the aerodynamic load's EXCESS torque (load − stallT) is what back-
-          -- drives the wing, so |stallT − load| is the right driving torque in
-          -- both regimes. Without the absolute value a back-driven servo would
-          -- be clamped to zero acceleration and never actually move.
-          accelTorque = abs (stallT - abs loadTorqueNm)
+          -- Budget acceleration in the requested direction: a load that helps
+          -- that acceleration ADDS to motor torque; an opposing load consumes
+          -- it. This includes braking, where rateError can oppose shaft motion.
+          -- abs(stallT-abs(load)) incorrectly subtracted helpful lift, allowing
+          -- the reference to stop completely at load=stallT during an upstroke.
+          -- An overpowering opposing load cannot accelerate this reference
+          -- toward its request. Real backdrive is integrated by the coupled
+          -- joint equation, not prescribed as a motor command here.
+          rateError = requestedRate - servoRateDegPerSec state
+          accelTorque = max 0 (stallT + signum rateError * loadTorqueNm)
           alphaMaxDeg = (accelTorque / inertia) * (180 / pi)   -- deg/s²
           rateStep = clampRate (negate (alphaMaxDeg * dt)) (alphaMaxDeg * dt)
-                               (requestedRate - servoRateDegPerSec state)
+                               rateError
           smoothRate = servoRateDegPerSec state + rateStep
           limitedRate = clampRate (negate maxRate) maxRate smoothRate
           angle = clampRate (-80) 80 (servoAngleDeg state + limitedRate * dt)

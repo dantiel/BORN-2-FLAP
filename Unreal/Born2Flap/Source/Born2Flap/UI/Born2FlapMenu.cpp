@@ -12,6 +12,7 @@
 #include "Flight/Born2FlapFlightPawn.h"
 #include "Flight/Born2FlapTuning.h"
 #include "Avatar/Born2FlapAvatar.h"
+#include "DLC/Born2FlapDLCSubsystem.h"
 #include "Rendering/Born2FlapGraphics.h"
 #include "Input/Born2FlapRcController.h"
 #include "Input/Born2FlapKeybinds.h"
@@ -201,7 +202,7 @@ const FWorldDef Worlds[] = {
     { TEXT("Murex"), TEXT("MUREX SPIRE AERODROME"),
       TEXT("A working international airport of concrete, glass and jet wash, where the one living instrument is an ornithopter: the bird-scarer that keeps every landing clear. Heat shimmers off the runway in strong, steady thermals, flocks drift in from the wetlands and the verges, and above it all rises the control tower — a murex spine of pale concrete with a glazed cab. Ride the apron thermal, hold the approach lane empty, and set down where no aircraft can: on the tower's crown.") },
 };
-constexpr int32 WorldCount = 7;
+constexpr int32 WorldCount = (int32)(sizeof(Worlds) / sizeof(Worlds[0]));
 
 // Available locales for the language switch. Names are the languages' native
 // endonyms (always shown in their own language regardless of the active locale);
@@ -227,8 +228,8 @@ constexpr int32 LanguageCount = (int32)(sizeof(Languages) / sizeof(Languages[0])
 // UI scale presets (the mobile "UI scale" setting). Labels are shown to the
 // pilot; values are the theme::UIScale multipliers applied to every design
 // token (fonts, spacing, element size, corner radius).
-static const TCHAR* UIScaleLabels[] = { TEXT("75%"), TEXT("90%"), TEXT("100%"), TEXT("115%"), TEXT("130%"), TEXT("150%") };
-static const float   UIScaleValues[] = { 0.75f, 0.90f, 1.00f, 1.15f, 1.30f, 1.50f };
+static const TCHAR* UIScaleLabels[] = { TEXT("75%"), TEXT("90%"), TEXT("100%"), TEXT("115%"), TEXT("130%"), TEXT("150%"), TEXT("175%"), TEXT("200%") };
+static const float   UIScaleValues[] = { 0.75f, 0.90f, 1.00f, 1.15f, 1.30f, 1.50f, 1.75f, 2.00f };
 constexpr int32 UIScaleCount = (int32)(sizeof(UIScaleValues) / sizeof(UIScaleValues[0]));
 
 // Captures the next key while a KEY BINDINGS row is armed for rebinding. The
@@ -389,6 +390,11 @@ void ABorn2FlapMenu::BeginPlay()
     Born2Flap::I18n::SetLocale(Settings.Language);
     for(const FString& Level:{FString(TEXT("Ravenstonefield")),FString(TEXT("Shiomori")),FString(TEXT("Training")),FString(TEXT("NeonAbyss")),FString(TEXT("Yunsha")),FString(TEXT("Murex"))})
         LevelConditions.Add(Level,Born2FlapWeather::Load(Level));
+    // Default the chooser to the first installed world so the detail desk (and
+    // any direct SelectedWorld read) starts on a playable map, not a DLC world
+    // whose chunk is not downloaded yet.
+    for (int32 I = 0; I < WorldCount; ++I)
+        if (IsWorldInstalled(Worlds[I].Id)) { SelectedWorld = I; break; }
     Build();
     if(FParse::Param(FCommandLine::Get(),TEXT("B2FWeatherMenuTest")))
     {
@@ -412,6 +418,21 @@ void ABorn2FlapMenu::BeginPlay()
             OnAction(TEXT("menu.shiomori"),1.f,TEXT(""));return false;
         }),4.f);
     }
+}
+
+bool ABorn2FlapMenu::IsWorldInstalled(const TCHAR* Id) const
+{
+    // Training has no real map (it routes to /Engine/Maps/Entry), so it never
+    // counts as an installed world on any platform.
+    if (FCString::Stricmp(Id, TEXT("Training")) == 0)
+        return false;
+    // Base worlds (Shiomori) are always installed; the four DLC worlds report
+    // available only once their chunk pak is downloaded and mounted.
+    if (const UGameInstance* GI = GetGameInstance())
+        if (const UBorn2FlapDLCSubsystem* DLC = GI->GetSubsystem<UBorn2FlapDLCSubsystem>())
+            return DLC->IsWorldAvailable(FName(Id));
+    // No DLC subsystem (should not happen): fall back to base worlds only.
+    return FCString::Stricmp(Id, TEXT("Shiomori")) == 0;
 }
 
 void ABorn2FlapMenu::Build()
@@ -458,7 +479,39 @@ void ABorn2FlapMenu::Build()
     }
     else
     {
-        // ---- OPEN WORLDS page: one open world at a time ----
+        // ---- OPEN WORLDS page ----
+        // New menu: the home screen lists every installed world as a card
+        // (matching the Brain-authored menu). Picking a card opens that world's
+        // detail desk below. On Android only the baked-in world(s) are listed;
+        // the four DLC worlds appear once their chunk is downloaded+mounted.
+        if (bWorldList && !bInLevel)
+        {
+            PaneChildren.push_back(Nd("TextBlock", P({ {"text", S(Born2Flap::I18n::T("menu.maps"))}, {"size", S("xl")}, {"tone", S("accent")} })));
+            for (int32 I = 0; I < WorldCount; ++I)
+            {
+                const FWorldDef& W = Worlds[I];
+                if (!IsWorldInstalled(W.Id)) continue;
+                const FString Lv = W.Id;
+                const FString Preview = Lv == TEXT("Yunsha") ? TEXT("Desert") : Lv == TEXT("Shiomori") ? TEXT("Coast") : Lv == TEXT("Ravenstonefield") ? TEXT("Valley") : Lv == TEXT("NeonAbyss") ? TEXT("Abyss") : Lv == TEXT("Murex") ? TEXT("Valley") : TEXT("Islands");
+                PaneChildren.push_back(Nd("HorizontalBox", P({ {"spacing", N(14)} }), {
+                    Nd("SizeBox", P({ {"width", N(168)}, {"height", N(94)} }), {
+                        Nd("Image", P({ {"texture", S(TEXT("/Game/UI/Elements/") + Preview + TEXT(".") + Preview)} }))
+                    }),
+                    Nd("SizeBox", P({ {"width", N(730)} }), {
+                        Nd("VerticalBox", P({ {"spacing", N(6)} }), {
+                            Nd("Button", P({ {"label", S(W.Title)}, {"action", S(FString(TEXT("menu.pick.")) + Lv.ToLower())}, {"tone", S("accent")} })),
+                            Nd("TextBlock", P({ {"text", S(W.Story)}, {"size", S("s")}, {"wrap", B(true)} }))
+                        })
+                    })
+                }));
+            }
+            ContentPane = Nd("SizeBox", P({}), {
+                Nd("Panel", P({ {"title", S(PaneTitle)}, {"bg", S("solid")}, {"padding", N(30)}, {"spacing", N(14)} }), std::move(PaneChildren))
+            });
+        }
+        else
+        {
+        // ---- OPEN WORLDS detail: the selected world's desk ----
         // In-level the browser is the loaded world's parameter desk: lock the
         // selection onto the current map (no PREV/NEXT), drop the travel ROUTE
         // tab, and swap the FLY button for APPLY CHANGES.
@@ -590,17 +643,13 @@ void ABorn2FlapMenu::Build()
         if (!bInLevel)
         {
             PaneChildren.push_back(Nd("Spacer", P({})));
-            PaneChildren.push_back(Nd("TextBlock", P({ {"text", S(FString::Printf(TEXT("WORLD %d OF %d"), SelectedWorld + 1, WorldCount))}, {"size", S("xs")}, {"align", S("center")}, {"tone", S("dim")} })));
-            PaneChildren.push_back(Nd("HorizontalBox", P({}),
-            {
-                Nd("Button", P({ {"label", S("PREV")}, {"action", S("menu.prevWorld")} })),
-                Nd("Button", P({ {"label", S("NEXT")}, {"action", S("menu.nextWorld")} })),
-            }));
+            PaneChildren.push_back(Nd("Button", P({ {"label", S(Born2Flap::I18n::T("menu.all_maps"))}, {"action", S("menu.allWorlds")}, {"tone", S("dim")} })));
         }
 
         ContentPane = Nd("SizeBox", P({}), {
             Nd("Panel", P({ {"title", S(PaneTitle)}, {"bg", S("solid")}, {"padding", N(30)}, {"spacing", N(14)} }), std::move(PaneChildren))
         });
+        }
     }
 
     // ---- Left navigation rail (persistent across both pages) ----
@@ -853,6 +902,8 @@ void ABorn2FlapMenu::BuildFlightDesk(std::vector<FNode>& Out)
     Push(Nd("TextBlock", P({ {"text", S("MOUNT")}, {"tone", S("accent")}, {"size", S("l")} })), 1);
     PushTuning(ETuningField::FlapCentre, 1);
     PushTuning(ETuningField::VerticalMountAngle, 1);
+    PushTuning(ETuningField::LeftWingCamberBias, 1);
+    PushTuning(ETuningField::RightWingCamberBias, 1);
 
     // ---- SERVO & POWER (2) ----
     Push(Nd("TextBlock", P({ {"text", S("SERVO")}, {"tone", S("accent")}, {"size", S("l")} })), 2);
@@ -1615,7 +1666,7 @@ void ABorn2FlapMenu::OnAction(const FString& Action, float Value, const FString&
 {
     // ---- top-level pages: OPEN WORLDS, FLIGHT DESK and SETTINGS share one
     // full-screen view; the nav rail switches between them, no back-and-forth ----
-    if (Action == TEXT("menu.play"))         { NavPage = 0; Build(); return; }
+    if (Action == TEXT("menu.play"))         { NavPage = 0; if (!bInLevel) bWorldList = true; Build(); return; }
     if (Action == TEXT("menu.settings"))     { NavPage = 1; Build(); return; }
     if (Action == TEXT("menu.preferences"))  { NavPage = 2; PrefsPage = 0; Build(); return; }
     if (Action == TEXT("prefs.page"))        { PrefsPage = FMath::Clamp(FMath::RoundToInt(Value), 0, 2); Build(); return; }
@@ -1759,6 +1810,30 @@ void ABorn2FlapMenu::OnAction(const FString& Action, float Value, const FString&
                     Born2FlapWeather::Save(Level, *C);
                     GM->ApplyConditionsLive(*C);
                 }
+            }
+        }
+        return;
+    }
+    // New menu: ALL MAPS returns to the installed-world list; picking a world
+    // card opens that world's detail desk.
+    if (Action == TEXT("menu.allWorlds"))
+    {
+        bWorldList = true;
+        Build();
+        return;
+    }
+    if (Action.StartsWith(TEXT("menu.pick.")))
+    {
+        const FString Picked = Action.Mid(10).ToLower();
+        for (int32 I = 0; I < WorldCount; ++I)
+        {
+            if (FString(Worlds[I].Id).ToLower() == Picked)
+            {
+                SelectedWorld = I;
+                SelectedPage = 0;
+                bWorldList = false;
+                Build();
+                return;
             }
         }
         return;

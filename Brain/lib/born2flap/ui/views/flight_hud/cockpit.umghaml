@@ -16,3 +16,4 @@
         %WindArrow{ angle: #{wind_angle}, size: 30, tone: "#{wind_tone}" }
         %Banner{ text: "#{wind_word}", tone: "#{wind_tone}" }
       %Banner{ text: "#{status}", tone: "normal" }
+      %Banner{ text: "#{reward_text}", tone: "accent", visible: #{reward_alpha > 0.01} }

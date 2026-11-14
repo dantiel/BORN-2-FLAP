@@ -25,7 +25,8 @@ class ABorn2FlapPoiOverlay;
 class ABorn2FlapWindLeaves;
 class IInputProcessor;
 // Live-tuning surface the hangar edits: servo, battery and the exposed
-// controller knobs. Mirrors B2F_TuningConfig field order.
+// controller knobs. Legacy entries mirror B2F_TuningConfig; airfoil biases
+// use the additive math API so older DLL layouts remain readable.
 enum class ETuningField : uint8
 {
     ServoSpeed, StallTorque, Backdrive, BatteryVoltage, BatteryResistance, BatteryCapacity,
@@ -33,7 +34,8 @@ enum class ETuningField : uint8
     FlapBaseFreq, TailElevatorAngle, GlideAngle, StrokeFerocity, AileronScale, ElevatorScale,
     FlapCentre, VerticalMountAngle, ReturnFerocity, YawScale, StrokeSkew, ReturnSkew,
     ShapeMix, ThrottleThrustShapeMix, ThrottleThrustExpo, AileronSkewMix,
-    ThrottleSkewRateMix, AileronSkewRateMix, ElevatorFerocityMix, Count
+    ThrottleSkewRateMix, AileronSkewRateMix, ElevatorFerocityMix,
+    LeftWingCamberBias, RightWingCamberBias, Count
 };
 // RC channels drive the native actuators. All forces and moments are aerodynamic.
 UCLASS()
@@ -416,6 +418,8 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     float CgOffsetMm = 0.f;
     double CgPitchMomentCorrection = 0;
     B2F_TuningConfig Tuning{};
+    float LeftWingCamberBiasPercent = 0.25f;
+    float RightWingCamberBiasPercent = 0.25f;
     void ApplyTuning();
     void ApplyBodyMass();
     TWeakObjectPtr<ABorn2FlapFlightSettings> SettingsPanel;
@@ -472,6 +476,10 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     FVector2D GesturePrev[2];
     float GestureViewYaw = 0.f, GestureViewPitch = 0.f;
     float GestureWalkForward = 0.f, GestureWalkStrafe = 0.f;
+    // Latched walk: after a pan/zoom/pinch/pivot walk gesture the pilot keeps
+    // walking in the commanded direction; the drag length sets walk-vs-run speed.
+    FVector GestureWalkLatchedDir = FVector::ZeroVector;   // horizontal unit dir
+    float   GestureWalkLatchedSpeed = 0.f;                 // cm/s
     void UpdateTouchGestures(float Dt, class APlayerController* PC);
     // Raw F8/Esc capture. An input pre-processor (registered in BeginPlay) sees
     // every key-down before FInputModeGameAndUI routes keyboard away from

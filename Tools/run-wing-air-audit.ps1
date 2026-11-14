@@ -15,6 +15,10 @@ param(
     [switch]$Render,
     [switch]$Installed,
     [double]$Roll = .25,
+    [double]$Pitch = 0,
+    [double]$Yaw = 0,
+    [double]$InputDuration = 1000,
+    [switch]$TailControlTrace,
     [int]$Fps = 60,
     [int]$BirdModel = 2,
     [string]$ArtifactDirectory = '.setup/wing-air-20261111',
@@ -47,6 +51,8 @@ if ($ChronologyAudit) {
 }
 if ($ChronologyTrace) { $arguments += '-B2FChronologyTrace' }
 $arguments += ('-B2FAuditRoll='+$Roll)
+$arguments += @(('-B2FAuditPitch='+$Pitch), ('-B2FAuditYaw='+$Yaw), ('-B2FAuditInputDuration='+$InputDuration))
+if ($TailControlTrace) { $arguments += '-B2FTailControlTrace' }
 if ($Render) {
     $arguments = @($arguments | Where-Object { $_ -ne '-nullrhi' })
     $prefix = Join-Path (Join-Path $repo $ArtifactDirectory) ([IO.Path]::GetFileNameWithoutExtension($LogName))

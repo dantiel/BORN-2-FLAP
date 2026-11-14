@@ -431,7 +431,15 @@ def water_material(name, color, rough=0.08, specular=0.6, shore_color=(0.03, 0.2
     path = '/Game/Shiomori/Materials/M_' + name
     m = u.load_asset(path) if ela.does_asset_exist(path) else assets.create_asset(
         'M_' + name, '/Game/Shiomori/Materials', u.Material, u.MaterialFactoryNew())
-    lib.delete_all_material_expressions(m)
+    # UE 5.8 DeleteAllMaterialExpressions iterates a live TConstArrayView while
+    # RemoveExpression mutates it (iterator invalidation) — it deletes only ~half
+    # the expressions per call, silently accumulating stale nodes across re-runs.
+    # Loop until the expression list is actually empty (same fix as the weather
+    # materials), then strip any surviving SLW output node below.
+    for _ in range(64):
+        if not lib.get_material_expressions(m):
+            break
+        lib.delete_all_material_expressions(m)
     # A Single Layer Water output node survives delete_all_material_expressions
     # (it is bound to the shading model); remove it so this is a plain translucent
     # surface — SLW is opaque-only and cannot take WorldPositionOffset, which is
@@ -467,25 +475,31 @@ def water_material(name, color, rough=0.08, specular=0.6, shore_color=(0.03, 0.2
     # Base colour: Beer-Lambert depth absorption + Fresnel sky + surf/crest foam.
     # Tuned for the shallow lagoon (floor -300 cm): near shore the turquoise is
     # bright and sand shows through; at 3 m it settles into a rich teal rather
-    # than a navy abyss. Fresnel reflection is stronger so the sky dominates at
-    # grazing angles like real water.
+    # than a navy abyss. The deep colour MUST stay in the wave family — a
+    # near-black "deep" paints the thick-water crest faces black, which makes
+    # the wave ribs read as hard dark bands instead of water. Fresnel reflection
+    # is stronger so the sky dominates at grazing angles like real water.
     bc = custom(m, '''float d=max(SceneDepth-PixelDepth,0.0);
- float3 shallow=float3(%.6g,%.6g,%.6g);
- float3 deep=float3(%.6g,%.6g,%.6g);
- float3 water=deep+(shallow-deep)*exp(-d/250.0);
- float3 sky=float3(0.30,0.52,0.74);
- float3 col=lerp(water, sky, saturate(Fresnel*0.85));
- float h=0.0; // The runtime surf mesh supplies synchronized breaking crests.
- float surf=smoothstep(26.0,6.0,d)*Foam;
- float crest=smoothstep(26.0,80.0,h)*Foam*Foam;
- return lerp(col, float3(0.96,0.97,0.96), saturate(surf+crest));''' % (
+  float3 shallow=float3(%.6g,%.6g,%.6g);
+  float3 deep=float3(%.6g,%.6g,%.6g);
+  // Soft Beer-Lambert: /900 keeps the lagoon luminous instead of dropping to a
+  // dark abyss by ~3 m. Bright teal, never near-black.
+  float3 water=deep+(shallow-deep)*exp(-d/900.0);
+  float3 sky=float3(0.55,0.75,0.95);
+  // Schlick water fresnel (F0=0.04): mirrors the sky at grazing angles and keeps
+  // a bright sheen straight down, instead of the old pow(Fresnel,.75)*1.15 hack
+  // that only reflected near the horizon and left the bay see-through.
+  float refl=saturate(0.04+0.96*Fresnel);
+  float3 col=lerp(water, sky, refl);
+  float surf=smoothstep(26.0,6.0,d)*Foam;
+  return lerp(col, float3(0.96,0.97,0.96), saturate(surf));''' % (
         shore_color[0], shore_color[1], shore_color[2], color[0], color[1], color[2]),
         {'SceneDepth': sd, 'PixelDepth': pd, 'Fresnel': fn, 'P': p, 'T': t, 'Foam': nz})
     output(bc, 'BASE_COLOR')
     output(node(m, 'Constant', r=rough), 'ROUGHNESS')
     output(node(m, 'Constant', r=specular), 'SPECULAR')
     op = custom(m, '''float d=max(SceneDepth-PixelDepth,0.0);
-return 1.0-exp(-d/90.0);''', {'SceneDepth': sd, 'PixelDepth': pd}, 1)
+return 1.0-exp(-d/55.0);''', {'SceneDepth': sd, 'PixelDepth': pd}, 1)
     output(op, 'OPACITY')
     # Travelling normal: long swell, chop, and fine glitter ripple.
     n = custom(m, '''float2 q=P.xy*0.004;
@@ -518,18 +532,48 @@ return 1.0-exp(-d/90.0);''', {'SceneDepth': sd, 'PixelDepth': pd}, 1)
     gerst = custom(m, SHORE_EDGE + '''
     float shore=smoothstep(100.0,3000.0,P.y-edge);
 ''' + HEIGHT_INLINE + '''
-    H*=shore;
-    return float3(0.0,0.0,H);''',
+    // Choppy Gerstner: displace horizontally toward each crest so swells sharpen
+    // into peaked, leaning crests (the classic UE5 "choppy ocean" look) instead
+    // of soft round bumps. Choppiness = 30% of amplitude, aligned with the wave.
+    float Qx=0.0; float Qy=0.0;
+    for(int j=0;j<16;j++)
+    {
+        float L=Wl*lenF[j];
+        float A=Amp*ampF[j]*ampScale;
+        float ang=(Dir+dirOff[j])*d2r;
+        float K=6.28318530718/L;
+        float Om=6.28318530718*Cs/(Wl*sqrt(lenF[j]));
+        // Horizontal Gerstner displacement Q*A*sin(theta) — Q=0.5 steepens each
+        // crest into a leaning peak. Amplitude, not A*K (the A*K form is ~2 cm
+        // and invisible; Q*A is ~12 cm and visibly sharpens the swells).
+        float s=A*0.5*sin(K*(P.x*cos(ang)+P.y*sin(ang))-Om*WT+phase[j]);
+        Qx-=cos(ang)*s; Qy-=sin(ang)*s;
+    }
+    Qx*=shore; Qy*=shore; H*=shore;
+    return float3(Qx,Qy,H);''',
         wave_inputs, 3)
     output(gerst, 'WORLD_POSITION_OFFSET')
     gerst_normal = custom(m, SHORE_EDGE + '''
-    float e=60.0;
     float shore=smoothstep(100.0,3000.0,P.y-edge);
-''' + HEIGHT_GRAD + '''
-    // Softened slope: 0.55 keeps the long swell readable without the choppy
-    // trough shadows of the old 0.72.
-    h0*=shore; hx*=shore; hy*=shore;
-    return normalize(float3(-(hx-h0)/e*0.55,-(hy-h0)/e*0.55,1.0));''',
+''' + HEIGHT_INLINE + '''
+    // Analytic Gerstner gradient (exact slope, not finite difference): the crest
+    // faces sharpen into a crisp specular line and the troughs stay broad and
+    // bright — the signature "real ocean" shading. Strength 0.8 makes the long
+    // swells read clearly (the old finite-difference damped the fine ripple);
+    // the brightened deep colour keeps the troughs from ever going near-black.
+    float dHdx=0.0; float dHdy=0.0;
+    for(int j=0;j<16;j++)
+    {
+        float L=Wl*lenF[j];
+        float A=Amp*ampF[j]*ampScale;
+        float ang=(Dir+dirOff[j])*d2r;
+        float K=6.28318530718/L;
+        float Om=6.28318530718*Cs/(Wl*sqrt(lenF[j]));
+        float s=A*K*sin(K*(P.x*cos(ang)+P.y*sin(ang))-Om*WT+phase[j]);
+        dHdx-=cos(ang)*s; dHdy-=sin(ang)*s;
+    }
+    dHdx*=shore; dHdy*=shore;
+    return normalize(float3(-dHdx*0.8,-dHdy*0.8,1.0));''',
         wave_inputs, 3)
     wave_normal = custom(m, 'return normalize(A + float3(B.xy*0.30,0.0));',
                          {'A': gerst_normal, 'B': n}, 3)
@@ -570,13 +614,24 @@ def sand_material(name, diffuse, normal, rough=0.8, rough_tex=None, tiling_cm=30
     pebble_blend = None
     pebble_n = None
     if pebble is not None:
+        from shore_antitiling import HLSL
         pd, pn, _, peb_tint, peb_start, peb_end = pebble
-        pc = sample_tex(m, pd, ('world', 95.0))
-        if peb_tint is not None:
-            pt = node(m, 'Constant3Vector', constant=u.LinearColor(*peb_tint))
-            pm = node(m, 'Multiply'); wire(pc, pm, 'A'); wire(pt, pm, 'B'); pc = pm
-        pebble_n = sample_tex(m, pn, ('world', 95.0), normal=True)
         ppos = node(m, 'WorldPosition')
+        # Stochastic (rotated + jittered) basalt sampling, same ShoreSampling
+        # lattice fold as the eastern headland strand: a bare photo tile at a
+        # fixed world scale reads as a loud repeating pattern on the beach ends
+        # (fully visible at the island-beach POI where the pebble blend saturates).
+        # The fold destroys the tiling, so the strand reads as continuous pebble.
+        peb_scale = 140.0
+        peb_code = 'float3 t=shore.sampleSurface(T,TSampler,P.xy/%g,false);\n' % peb_scale
+        if peb_tint is not None:
+            peb_code += 'return t*float3(%g,%g,%g);' % peb_tint
+        else:
+            peb_code += 'return t;'
+        pc = custom(m, HLSL + peb_code, {'T': node(m, 'TextureObject', texture=pd), 'P': ppos}, 3)
+        pebble_n = custom(m, HLSL + 'float3 t=shore.sampleSurface(T,TSampler,P.xy/%g,true);\n'
+                             'return normalize(float3(t.xy*.8,max(.2,t.z)));' % peb_scale,
+                          {'T': node(m, 'TextureObject', texture=pn), 'P': ppos}, 3)
         pnx = node(m, 'Multiply'); wire(ppos, pnx, 'A'); pnx.set_editor_property('const_b', 0.00009)
         pnz = node(m, 'Noise', levels=2, output_min=-1.0, output_max=1.0); wire(pnx, pnz, '')
         pebble_blend = custom(m, 'return (1-smoothstep(30000,34000,P.x))*smoothstep(%g + N*%g, %g, abs(P.x));'
@@ -1035,8 +1090,8 @@ mats['Headland'] = (coastal_terrain_material(
     'Headland', (sand_d, sand_n, sand_r), (grass_d, grass_n, grass_r),
     (basalt_d, basalt_n, basalt_r), scale_cm=240.0)
     if grass_d and grass_n and grass_r else mats['Earth'])
-mats['Water'] = water_material('Water', (0.008, 0.09, 0.16), rough=0.05, specular=0.8,
-                             shore_color=(0.05, 0.36, 0.32), waves=wave_n)
+mats['Water'] = water_material('Water', (0.07, 0.42, 0.48), rough=0.02, specular=1.0,
+                             shore_color=(0.12, 0.52, 0.48), waves=wave_n)
 mats['Foam'] = pbr_material('Foam', color=(0.9, 0.94, 0.93), rough=0.35, specular=0.3)
 
 # Translucent foam with soft, noisy edges.
@@ -1307,12 +1362,16 @@ def place_mesh(label, p, mesh, mat, rot=(0, 0, 0), collision=False):
     return a
 
 
-def collision_box(label, cx, cy, top_z, sx, sy, thick=600.0):
+def collision_box(label, cx, cy, top_z, sx, sy, thick=600.0, rot=None):
     """Invisible BlockAll box whose top face sits at top_z. The commandlet build
     drops complex (triMesh) collision for procedural meshes, so the smooth beach
-    gets a stepped ramp of these primitive boxes (proven to collide)."""
+    gets a stepped ramp of these primitive boxes (proven to collide). `rot` is a
+    (pitch, yaw, roll) tuple that slope-aligns the box to the local beach
+    gradient so the flat top face hugs the dune ramp instead of staircasing it."""
     global count
-    a = u.EditorLevelLibrary.spawn_actor_from_class(u.StaticMeshActor, u.Vector(cx, cy, top_z - thick / 2.0), u.Rotator())
+    a = u.EditorLevelLibrary.spawn_actor_from_class(
+        u.StaticMeshActor, u.Vector(cx, cy, top_z - thick / 2.0),
+        u.Rotator(pitch=rot[0], yaw=rot[1], roll=rot[2]) if rot else u.Rotator())
     a.set_actor_label(label)
     a.set_editor_property('tags', ['BeachCollision'])
     c = a.static_mesh_component
@@ -1737,10 +1796,27 @@ place_mesh('Long beach / clear flight sand', (0, 0, 0), beach_mesh, mats['Sand']
 # boxes over the same beach_height surface so the bird lands on the dry sand.
 # The dunes vary with X (13-216 m crests); a 50 m X step staircases them by up to
 # ~50 cm, so the bird hovers above the sand. Denser X cells hug the dune surface.
-for cx in range(-42500, 42501, 500):
-    for cy in range(-200, 15801, 2000):
-        collision_box('Beach collision', cx, cy, beach_height(cx, cy), 500, 2000)
+# The columns must reach the beach mesh edge (|x|=45000): the island-beach POI
+# (-44800, 9500) sits beyond the old |x|<=42500 grid, where the bird fell through
+# the NoCollision sand (the avatar rides the analytic GroundHeight, the bird is a
+# real physics body and needs these boxes).
+# Flat 2000 cm Y cells left up to ~66 cm of dune above the cell-centre box top
+# where the foreshore ramp climbs (~130 cm per cell at the POI): the bird sank
+# into the visible sand. Slope-aligned tops sampled on beach_visual_height (the
+# actual mesh surface, ripple included) keep the feet within a few cm everywhere.
+for cx in range(-44750, 44751, 500):
+    for cy in range(-200, 15801, 1000):
+        gx = (beach_visual_height(cx + 250.0, cy) - beach_visual_height(cx - 250.0, cy)) / 500.0
+        gy = (beach_visual_height(cx, cy + 500.0) - beach_visual_height(cx, cy - 500.0)) / 1000.0
+        rot = (math.degrees(math.atan(-gx)), 0.0, math.degrees(math.atan(gy)))
+        collision_box('Beach collision', cx, cy, beach_visual_height(cx, cy), 500, 1000, rot=rot)
 place_mesh('Seabed', (0, 0, 0), seabed_mesh, mats['WetSand'])
+# The bay surface is the translucent M_Water grid again: the native UE5 Water
+# system (AWaterBodyOcean, spawned by AShiomoriWaterDirector) rendered the
+# shallow bay opaque in the plugin default deep-navy — "black and not
+# transparent" at the island-beach POI. The director now defaults to
+# bUseNativeOcean=false, so the grid (Beer-Lambert transparency, teal deep
+# colour, MPC-driven Gerstner waves) is the visible water again.
 place_mesh('Open bay', (0, 0, 0), ocean_mesh, mats['Water'])
 # Distant mountain ranges: a hazy blue-grey skyline far behind the hinterland
 # and closing off both ends of the beach.
@@ -1915,6 +1991,47 @@ for side in (-1, 1):
         foliage('Coastal forest west' if side<0 else 'Coastal forest east',
                 (x,y,0), _pick_mesh(foliage_meshes['Fir'], vrng), vrng.uniform(500,820),
                 rot=(0,vrng.uniform(0,360),0), ground_z=beach_height(x,y))
+# Island-beach scrub: the strand before the western islet is the closest
+# walkable ground to the volcano, so it grows thick — a dense, wind-combed wall
+# of bushes, dune grass and mossy boulders that covers the pebbly foreshore and
+# leaves only a narrow strip of beach free to walk between the scrub edge and
+# the waterline. The island-beach POI spawn (-44800, 9500) sits on that strip.
+ibrng = random.Random(907741)
+def _islet_scrub_edge(x):
+    # Seaward (north) edge of the scrub: wobbles around y=9320 so the spawn
+    # point stays on the free walking strip and the edge reads wind-combed.
+    return 9320.0 - 300.0 * math.sin((x + 44800.0) * 0.0038 + 1.7) \
+                 - 130.0 * math.sin((x + 44800.0) * 0.011 + 4.1)
+for i in range(150):
+    x = ibrng.uniform(-45550.0, -43950.0)
+    y = ibrng.uniform(8280.0, 9320.0)
+    if y > _islet_scrub_edge(x):
+        continue
+    foliage('Islet scrub bush', (x, y, 0), _pick_mesh(foliage_meshes['Fir'], ibrng),
+            ibrng.uniform(95, 220), rot=(0, ibrng.uniform(0, 360), 0),
+            ground_z=beach_height(x, y))
+for i in range(90):
+    x = ibrng.uniform(-45500.0, -44000.0)
+    y = ibrng.uniform(8380.0, 9400.0)
+    if y > _islet_scrub_edge(x):
+        continue
+    foliage('Islet scrub grass', (x, y, 0), _pick_mesh(foliage_meshes['Grass'], ibrng),
+            ibrng.uniform(50, 130), rot=(0, ibrng.uniform(0, 360), 0),
+            ground_z=beach_height(x, y))
+for i in range(28):
+    x = ibrng.uniform(-45450.0, -44050.0)
+    y = ibrng.uniform(8300.0, 9260.0)
+    if y > _islet_scrub_edge(x):
+        continue
+    foliage('Islet scrub boulder', (x, y, 0), _pick_mesh(foliage_meshes['Rock'], ibrng),
+            ibrng.uniform(35, 110), rot=(0, ibrng.uniform(0, 360), 0),
+            ground_z=beach_height(x, y))
+for i in range(14):
+    x = ibrng.uniform(-45500.0, -44100.0)
+    y = ibrng.uniform(8180.0, 8480.0)
+    foliage('Islet scrub sapling', (x, y, 0), _pick_mesh(foliage_meshes['Fir'], ibrng),
+            ibrng.uniform(240, 460), rot=(0, ibrng.uniform(0, 360), 0),
+            ground_z=beach_height(x, y))
 # Seaward headland woodland: the low land tongue east of the beach (between the
 # coastal treeline and the volcanic shoal) is generated at runtime but was left
 # bare. Plant loose, wind-shaped groves of fir and broadleaf on it so the outer
@@ -2044,6 +2161,7 @@ for name, p, target in [('Sun horizon', (0, -6000, 400), (0, 13226, 5912)),
                         ('Shoreline', (0, 7900, 220), (3500, 12500, -50)),
                         ('East vegetation', (38700, 3000, 320), (43700, 4800, 240)),
                         ('West vegetation', (-38500, 2800, 380), (-43800, 4800, 220)),
+                        ('Island beach', (-44800, 9500, 400), (-45200, 18200, 200)),
                         ('East shoal', (45200, 18200, 3600), (45200, 23200, 120))]:
     a = u.EditorLevelLibrary.spawn_actor_from_class(u.CameraActor, u.Vector(*p),
                                                     u.MathLibrary.find_look_at_rotation(u.Vector(*p), u.Vector(*target)))

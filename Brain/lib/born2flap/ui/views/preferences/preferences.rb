@@ -8,7 +8,7 @@ module Born2Flap
           { page: 0, graphics_quality: 0, lang: 'en', camera_fpv: false, fpv_angle: 0,
             freelook_invert: false, wingbeat_volume: 1, radio_volume: 0.5, keybindings: [],
             display_mode: 1, display_follow_system: true, display_resolution: 0,
-            avatar_enabled: true, avatar_person: 0
+            avatar_enabled: true, avatar_person: 0, trick_toasts: true
           }.merge(locals).merge(page: locals.fetch(:preferences_page,0))
         end
       end

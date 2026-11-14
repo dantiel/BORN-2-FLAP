@@ -599,11 +599,8 @@ for i,(p,target) in enumerate(views):
     a.tags=['YunshaView%d'%i];a.set_actor_label('Yunsha view %d'%i)
 u.EditorLevelLibrary.set_level_viewport_camera_info(u.Vector(*views[0][0]),u.MathLibrary.find_look_at_rotation(u.Vector(*views[0][0]),u.Vector(*views[0][1])))
 assert u.EditorLoadingAndSavingUtils.save_map(world,ROOT+'/Maps/YUNSHA')
-# This directory contains only disposable outputs owned by this recipe. Retire
-# old roofs and arcade pieces so CookAll does not bundle abandoned prototypes.
-for path in E.list_assets(ROOT+'/Meshes',recursive=True,include_folder=False):
-    package=path.split('.')[0]
-    if package not in generated_meshes:assert E.delete_asset(package),package
+# Meshes are shared with the experimental MeshPartition recipe. Do not delete
+# assets absent from this recipe: they may be referenced by its external actors.
 u.log('YUNSHA_MAP_READY seed=221022 sky_temples=5 grotto_mouths=60')
 if not globals().get('B2F_GENERATION_BATCH'):
     # Shutdown flush (UE 5.8 stock teardown bug): PythonScriptPlugin finalizes

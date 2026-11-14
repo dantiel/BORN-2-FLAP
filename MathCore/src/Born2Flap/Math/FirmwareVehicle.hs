@@ -29,7 +29,7 @@ import Born2Flap.Math.Firmware
 import Born2Flap.Math.Servo
 import Born2Flap.Math.RollDynamics (solveImplicitSystemCached)
 import Born2Flap.Math.SpatialDynamics (spatialSystem, tailFluidInertia, multiply)
-import Born2Flap.Math.Model (WingModel(..))
+import Born2Flap.Math.Model (WingModel(..), withWingCamberBias)
 import Born2Flap.Math.Airframe (airframeMasses, tailRootX, tailOutline, tailSamples)
 import Born2Flap.Math.Planform
   ( shapeFlapInertia, referenceWingMassKg, shapeChord, WingShape(..) )
@@ -68,6 +68,7 @@ data FirmwareVehicleState = FirmwareVehicleState
   , fvDriveTorques :: !(Double,Double)       -- ^ signed motor torques, including static holding torque
   , fvRollBalance :: ![Double]              -- ^ external, gravity, bias, body, hinges, other inertia, drives
   , fvMassFrame :: !(Maybe (Double,Double,Double)) -- ^ CG x, dry pitch/yaw inertia; absent = fixture fallback (cg 0, host inertia for pitch/yaw)
+  , fvWingCamberBias :: !(Double,Double) -- ^ left/right built-in camber addition, fraction of chord
   , fvPreviousDifferenceTarget :: !(Maybe Double) -- ^ previous commanded half-difference, radians
   , fvHangDelta     :: !Double        -- ^ fuselage roll RELATIVE to the wing plane [rad] (shoulder-hinge pendulum)
   , fvHangDeltaRate :: !Double        -- ^ [rad/s]
@@ -98,6 +99,7 @@ defaultFirmwareVehicleState = FirmwareVehicleState
   , fvDriveTorques = (0,0)
   , fvRollBalance = replicate 8 0
   , fvMassFrame = Nothing
+  , fvWingCamberBias = (0.0025,0.0025)
   , fvPreviousDifferenceTarget = Nothing
   , fvHangDelta = 0
   , fvHangDeltaRate = 0
@@ -302,8 +304,11 @@ advanceFirmwareVehicle totalMass hostInertia coupled rc params servo battery mod
           -- mass). Gravity is carried by the vehicle mass budget in the
           -- spatial solve; the aileron differential rolls the bird through
           -- the wings' own tilted aerodynamic forces.
-          leftSystem = prepareWingSystem (mixIsFlapping mix) (-1) angleL (y oldRates) input model mountIncidence (fvLeftStrips state)
-          rightSystem = prepareWingSystem (mixIsFlapping mix) 1 angleR (z oldRates) input model mountIncidence (fvRightStrips state)
+          (camberBiasL,camberBiasR)=fvWingCamberBias state
+          leftSystem = prepareWingSystem (mixIsFlapping mix) (-1) angleL (y oldRates) input
+            (withWingCamberBias camberBiasL model) mountIncidence (fvLeftStrips state)
+          rightSystem = prepareWingSystem (mixIsFlapping mix) 1 angleR (z oldRates) input
+            (withWingCamberBias camberBiasR model) mountIncidence (fvRightStrips state)
           (vbL,vtL) = wingInitialRates leftSystem
           (vbR,vtR) = wingInitialRates rightSystem
           initial = [x oldRates,y oldRates,z oldRates,vbL,vtL,vbR,vtR,y bodyRates,z bodyRates,0,0,0]

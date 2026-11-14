@@ -1727,8 +1727,10 @@ void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, c
     }
     if (Action == TEXT("trick.toasts"))
     {
+        BrainPreferences.bShowTrickToasts = Value > 0.5f;
         if (ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
             Bird->SetTrickToastsEnabled(Value > 0.5f);
+        born2flap::MenuSettingsSave(BrainPreferences);
         return;
     }
     if (Action == TEXT("replay.delete"))
@@ -1967,6 +1969,9 @@ FString ABorn2FlapGameMode::BuildBrainTelemetry() const
         // INSTRUMENTS readout only refreshes on a perceptible beat-rate shift.
         Root->SetNumberField(TEXT("flap_hz"), FMath::RoundToFloat((float)Bird->GetFlapHz() * 10.f) / 10.f);
         Root->SetStringField(TEXT("status"), Bird->GetFlightStatus());
+        // Aerobatic/handcatch reward toast (empty when no reward is active).
+        Root->SetStringField(TEXT("reward_text"), Bird->GetRewardText());
+        Root->SetNumberField(TEXT("reward_alpha"), Bird->GetRewardAlpha());
         // Wind readout for the Ruby cockpit. The relative source bearing is
         // pre-computed in screen space (0° = ahead, clockwise positive) so the
         // Brain stays declarative: it feeds the WindArrow's `angle` prop and the

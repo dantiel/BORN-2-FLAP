@@ -53,6 +53,8 @@ float MenuSettingsTuningClamp(ETuningField Field, float Value)
     case ETuningField::ThrottleSkewRateMix: return FMath::Clamp(Value, 0.f, 100.f);
     case ETuningField::AileronSkewRateMix: return FMath::Clamp(Value, 0.f, 100.f);
     case ETuningField::ElevatorFerocityMix: return FMath::Clamp(Value, 0.f, 100.f);
+    case ETuningField::LeftWingCamberBias:
+    case ETuningField::RightWingCamberBias: return FMath::Clamp(Value, -1.f, 1.f);
     default: return 0.f;
     }
 }
@@ -88,6 +90,8 @@ float MenuSettingsGetTuning(const FMenuSettings& S, ETuningField Field)
     case ETuningField::ThrottleSkewRateMix: return float(S.Tuning.throttle_skew_rate_mix_percent);
     case ETuningField::AileronSkewRateMix: return float(S.Tuning.aileron_skew_rate_mix_percent);
     case ETuningField::ElevatorFerocityMix: return float(S.Tuning.elevator_ferocity_mix_percent);
+    case ETuningField::LeftWingCamberBias: return S.LeftWingCamberBiasPercent;
+    case ETuningField::RightWingCamberBias: return S.RightWingCamberBiasPercent;
     default: return 0.f;
     }
 }
@@ -125,6 +129,8 @@ void MenuSettingsSetTuning(FMenuSettings& S, ETuningField Field, float Value)
     case ETuningField::ThrottleSkewRateMix: S.Tuning.throttle_skew_rate_mix_percent = Value; break;
     case ETuningField::AileronSkewRateMix: S.Tuning.aileron_skew_rate_mix_percent = Value; break;
     case ETuningField::ElevatorFerocityMix: S.Tuning.elevator_ferocity_mix_percent = Value; break;
+    case ETuningField::LeftWingCamberBias: S.LeftWingCamberBiasPercent = Value; break;
+    case ETuningField::RightWingCamberBias: S.RightWingCamberBiasPercent = Value; break;
     default: return;
     }
 }
@@ -136,6 +142,7 @@ FString MenuSettingsModelTuningSection(int32 Model)
 
 void MenuSettingsResetTuningForModel(FMenuSettings& S, int32 Model)
 {
+    S.LeftWingCamberBiasPercent = S.RightWingCamberBiasPercent = 0.25f;
     S.Tuning = born2flap::tuning::DefaultTuningForModel(Model);
     S.BodyMassKg = born2flap::tuning::DefaultBodyMassForModel(Model);
     S.CgOffsetMm = born2flap::tuning::DefaultCgOffsetForModel(Model);
@@ -145,6 +152,7 @@ void MenuSettingsLoadModelProfile(FMenuSettings& S, int32 Model)
 {
     if (Model < 0 || Model > 5)
         return;
+    S.LeftWingCamberBiasPercent = S.RightWingCamberBiasPercent = 0.25f;
     const FString Path = PreferencesPath();
     FConfigFile Config;
     Config.Read(Path);
@@ -266,6 +274,7 @@ void MenuSettingsLoad(FMenuSettings& Out)
         else
         {
             Out.Tuning = born2flap::tuning::DefaultTuningForModel(Out.BirdModel);
+            Out.LeftWingCamberBiasPercent = Out.RightWingCamberBiasPercent = 0.25f;
             Out.BodyMassKg = born2flap::tuning::DefaultBodyMassForModel(Out.BirdModel);
             Out.CgOffsetMm = born2flap::tuning::DefaultCgOffsetForModel(Out.BirdModel);
         }

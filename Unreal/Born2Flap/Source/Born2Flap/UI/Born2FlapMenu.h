@@ -44,7 +44,7 @@ public:
     // player can tune or return to flight without picking a level.
     // Rebuilds if the flag actually changed (opening in-level must add the
     // FLIGHT DESK/RESUME buttons, which Build() gates on bInLevel).
-    void SetInLevel(bool b) { if (bInLevel != b) { bInLevel = b; Build(); } }
+    void SetInLevel(bool b) { if (bInLevel != b) { bInLevel = b; bWorldList = !b; Build(); } }
 
     // Detach the UMG window immediately (Destroy() only schedules GC).
     void Close();
@@ -64,6 +64,10 @@ public:
 
 private:
     void Build();
+    // True if the world is playable right now: base worlds (Shiomori) always,
+    // DLC worlds only after their chunk pak is downloaded+mounted. Training has
+    // no real map (it routes to /Engine/Maps/Entry) and never counts.
+    bool IsWorldInstalled(const TCHAR* Id) const;
 
     // Unregister the global Slate key-capture pre-processor (which holds a raw
     // `this`). Close() and EndPlay() both funnel through here so the processor
@@ -124,6 +128,10 @@ private:
     int32 PrefsPage = 0;
     // Which open world the browser is currently showing (0..WorldCount-1).
     int32 SelectedWorld = 0;
+    // true = the OPEN WORLDS page shows the installed-world list (the new
+    // menu); false = it shows the selected world's detail desk (weather/wind/
+    // route + FLY). Picking a card flips to detail; "ALL MAPS" flips back.
+    bool bWorldList = true;
     // Which world-browser sub-page is shown (0 LOCATION / 1 WEATHER / 2 ROUTE).
     int32 SelectedPage = 0;
     TMap<FString,FBorn2FlapConditions> LevelConditions;

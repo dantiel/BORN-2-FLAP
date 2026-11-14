@@ -26,7 +26,7 @@ exec(compile(ast.Module(body=[n for n in tree.body
 # Water: the canonical translucent ocean — mirrors the invocation in
 # create_shiomori_map.py's main flow (waves omitted; the procedural swell
 # normal carries the surface on its own).
-scope['water_material']('Water', (0.008, 0.09, 0.16), rough=0.05, specular=0.8,
+scope['water_material']('Water', (0.02, 0.22, 0.27), rough=0.05, specular=0.8,
                         shore_color=(0.05, 0.36, 0.32))
 u.log('WATER_MATERIAL_READY')
 

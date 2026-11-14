@@ -60,6 +60,21 @@ foreign export ccall "hs_b2f_math_get_hang_state" b2f_math_get_hang_state :: Ptr
 foreign export ccall "hs_b2f_math_get_tail_fields" b2f_math_get_tail_fields :: Ptr () -> Word32 -> Ptr () -> IO Int32
 foreign export ccall "hs_b2f_math_get_external_force" b2f_math_get_external_force :: Ptr () -> Ptr () -> IO Int32
 foreign export ccall "hs_b2f_math_set_mass_frame" b2f_math_set_mass_frame :: Ptr () -> Double -> Double -> Double -> IO Int32
+foreign export ccall "hs_b2f_math_set_wing_camber_bias" b2f_math_set_wing_camber_bias :: Ptr () -> Double -> Double -> IO Int32
+
+-- Additive ABI extension; fractions of chord, not force multipliers.
+b2f_math_set_wing_camber_bias :: Ptr () -> Double -> Double -> IO Int32
+b2f_math_set_wing_camber_bias pointer left right
+  | pointer == nullPtr || any (\v -> isNaN v || isInfinite v || abs v > 0.01) [left,right] = pure 0
+  | otherwise = run `catch` failure
+  where
+    run = do
+      ref <- deRefStablePtr (castPtrToStablePtr pointer :: StablePtr (IORef FwContext))
+      modifyIORef' ref (\context -> context {fwcState=(fwcState context)
+        {fvWingCamberBias=(left,right),fvTangent=Nothing}})
+      pure 1
+    failure :: SomeException -> IO Int32
+    failure _ = pure 0
 
 -- Enable simultaneous angular force evaluation using the host's actual tensor.
 -- Existing prescribed-pitch/yaw wind tunnels leave this extension unset.

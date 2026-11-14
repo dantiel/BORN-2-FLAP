@@ -11,6 +11,15 @@
 #include "Game/Born2FlapGameMode.h"
 #include "Components/MeshComponent.h"
 #include "Materials/MaterialInterface.h"
+#include "WaterBodyOceanActor.h"
+#include "WaterBodyActor.h"
+#include "WaterBodyComponent.h"
+#include "GerstnerWaterWaves.h"
+#include "WaterWaves.h"
+#include "WaterTerrainComponent.h"
+#include "Engine/StaticMeshActor.h"
+#include "Components/StaticMeshComponent.h"
+#include "Materials/Material.h"
 
 AShiomoriWaterDirector::AShiomoriWaterDirector()
 {
@@ -33,6 +42,18 @@ AShiomoriWaterDirector* AShiomoriWaterDirector::Get(const UWorld* World)
 void AShiomoriWaterDirector::BeginPlay()
 {
     Super::BeginPlay();
+
+    // Shiomori has no Landscape under the bay — only procedural meshes. The
+    // native Water system's CPU depth query falls back to r.Water.OceanFallbackDepth
+    // (3000 cm) when it finds no terrain, which reports the shallow ~2.5 m bay as
+    // deep ocean. Clamp the fallback to the real bay depth (ocean Z=-50, seabed
+    // Z=-300). The rendered Single Layer Water depth comes from the Water Info
+    // Texture, which the UWaterTerrainComponent on the Seabed mesh feeds.
+    if (IConsoleVariable* OceanDepthCVar = IConsoleManager::Get().FindConsoleVariable(TEXT("r.Water.OceanFallbackDepth")))
+    {
+        OceanDepthCVar->Set(250.0f, ECVF_SetByCode);
+    }
+
     for(TActorIterator<AActor> It(GetWorld());It;++It)
     {
         TInlineComponentArray<UMeshComponent*> Meshes(*It);
@@ -65,11 +86,112 @@ void AShiomoriWaterDirector::BeginPlay()
     }
 
     ApplyParameters();
+    if (bUseNativeOcean)
+    {
+        SpawnNativeOcean();
+    }
 }
 
 float AShiomoriWaterDirector::GetWaterHeightAt(float X, float Y) const
 {
+    // Prefer the native Gerstner field — identical to the rendered water mesh —
+    // so splash detection, surf and wetness stay locked to the visible surface.
+    if (OceanWaves)
+    {
+        return Parameters.OceanLevel
+            + OceanWaves->GetSimpleWaveHeightAtPosition(FVector(X, Y, 0.0f), 10000.0f, TimeSeconds);
+    }
     return Parameters.OceanLevel + Parameters.SampleWaveHeight(FVector2D(X, Y), TimeSeconds);
+}
+
+void AShiomoriWaterDirector::SpawnNativeOcean()
+{
+    UWorld* World = GetWorld();
+    if (!World)
+        return;
+
+    FActorSpawnParameters SpawnParams;
+    SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+    OceanBody = World->SpawnActor<AWaterBodyOcean>(
+        AWaterBodyOcean::StaticClass(),
+        FVector(0.0f, 0.0f, Parameters.OceanLevel),
+        FRotator::ZeroRotator, SpawnParams);
+    if (!OceanBody)
+        return;
+
+    // Water presence is analytic (GroundHeight) and the ornithopter glides over
+    // it — never let the ocean's collision box trap or block the bird.
+    OceanBody->SetActorEnableCollision(false);
+
+    // Plugin default Single Layer Water surface (real refraction + absorption).
+    if (UMaterial* OceanMat = LoadObject<UMaterial>(nullptr,
+        TEXT("/Water/Materials/WaterSurface/Water_Material_Ocean.Water_Material_Ocean")))
+    {
+        if (UWaterBodyComponent* Body = OceanBody->GetWaterBodyComponent())
+            Body->SetWaterMaterial(OceanMat);
+    }
+
+    // Gerstner spectrum configured from the authorable ocean parameters.
+    OceanWaves = NewObject<UGerstnerWaterWaves>(this, TEXT("ShiomoriOceanWaves"));
+    if (OceanWaves)
+    {
+        if (UGerstnerWaterWaveGeneratorSimple* Gen =
+            Cast<UGerstnerWaterWaveGeneratorSimple>(OceanWaves->GerstnerWaveGenerator))
+        {
+            Gen->Seed = 11;
+            Gen->NumWaves = 24;
+            Gen->MinWavelength = FMath::Max(1.0f, Parameters.SwellLength * 0.08f);
+            Gen->MaxWavelength = Parameters.SwellLength;
+            Gen->WavelengthFalloff = 2.0f;
+            Gen->MinAmplitude = FMath::Max(0.5f, Parameters.SwellAmplitude * 0.03f);
+            Gen->MaxAmplitude = Parameters.SwellAmplitude;
+            Gen->AmplitudeFalloff = 2.0f;
+            Gen->WindAngleDeg = Parameters.PrimaryWaveDirection;
+            Gen->DirectionAngularSpreadDeg = 24.0f;
+        }
+        OceanWaves->RecomputeWaves(true);
+        OceanBody->SetWaterWaves(OceanWaves);
+    }
+
+    // Register the procedural seabed as terrain for the native Water system. The
+    // Water Info Texture (which drives Single Layer Water depth + absorption)
+    // reads ground height from Landscapes or UWaterTerrainComponent primitives.
+    // Shiomori has no Landscape, so without this the ocean falls back to the
+    // 3000 cm deep-ocean depth and renders black. The Seabed mesh already encodes
+    // the real 0..2.5 m depth ramp (Z=-50 at the shore → Z=-300 in the open sea).
+    for (TActorIterator<AStaticMeshActor> It(World); It; ++It)
+    {
+        AStaticMeshActor* SMA = *It;
+        if (SMA && SMA->ActorHasTag(TEXT("Seabed")))
+        {
+            UWaterTerrainComponent* Terrain = NewObject<UWaterTerrainComponent>(SMA);
+            SMA->AddInstanceComponent(Terrain);
+            Terrain->RegisterComponent();
+            break;
+        }
+    }
+
+    HideLegacyOceanMesh();
+}
+
+void AShiomoriWaterDirector::HideLegacyOceanMesh()
+{
+    for (TActorIterator<AStaticMeshActor> It(GetWorld()); It; ++It)
+    {
+        AStaticMeshActor* SMA = *It;
+        UStaticMeshComponent* SMC = SMA->GetStaticMeshComponent();
+        if (!SMC)
+            continue;
+        const UStaticMesh* Mesh = SMC->GetStaticMesh();
+        if (!Mesh)
+            continue;
+        if (Mesh->GetName().Contains(TEXT("OceanGrid")))
+        {
+            SMA->SetActorHiddenInGame(true);
+            SMC->SetVisibility(false, true);
+        }
+    }
 }
 
 void AShiomoriWaterDirector::ApplyParameters()
@@ -109,8 +231,8 @@ void AShiomoriWaterDirector::Tick(float DeltaSeconds)
                 // Swell size and sea state are wind-determined: a calm breeze leaves a
                 // long, low, glassy swell; a fresh wind stacks the waves up and roughens
                 // the chop. (SeaState is a 0..6 scale feeding the shared Gerstner amp.)
-                Parameters.SwellAmplitude=FMath::Clamp(18.f+Parameters.WindSpeed*2.6f,18.f,60.f);
-                Parameters.SeaState=FMath::Clamp(1.1f+Parameters.WindSpeed*.24f,1.1f,2.8f);
+                Parameters.SwellAmplitude=FMath::Clamp(28.f+Parameters.WindSpeed*3.2f,28.f,80.f);
+                Parameters.SeaState=FMath::Clamp(1.5f+Parameters.WindSpeed*.28f,1.5f,3.4f);
                 Parameters.ShoreBreakIntensity=.85f+Parameters.WindSpeed*.065f;
                 Parameters.FoamAmount=1.1f+Parameters.WindSpeed*.08f;
         Parameters.StormAmount=0.f; // these presets intentionally exclude storms

@@ -67,7 +67,9 @@ module Born2Flap
             wind_angle: (locals[:wind_arrow_angle] || 0).to_f,
             wind_tone: wind_tone,
             wind_word: wind_word,
-            status: locals[:status] || I18n.t("hud.ready", lang: locals[:lang])
+            status: locals[:status] || I18n.t("hud.ready", lang: locals[:lang]),
+            reward_text: locals[:reward_text] || "",
+            reward_alpha: (locals[:reward_alpha] || 0.0).to_f
           }
         end
       end

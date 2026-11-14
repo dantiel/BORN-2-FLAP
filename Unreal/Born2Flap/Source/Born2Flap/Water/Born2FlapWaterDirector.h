@@ -15,6 +15,8 @@
 
 class UMaterialParameterCollection;
 class UMaterialParameterCollectionInstance;
+class AWaterBodyOcean;
+class UGerstnerWaterWaves;
 
 UCLASS(BlueprintType)
 class BORN2FLAP_API AShiomoriWaterDirector : public AActor
@@ -44,6 +46,8 @@ public:
 protected:
     void ApplyParameters();      // push the full parameter set into the MPC
     void PushDynamic(float Time); // per-frame time / LOD / quality updates
+    void SpawnNativeOcean();     // native UE5 Water system ocean + Gerstner waves
+    void HideLegacyOceanMesh();  // hide the old flat translucent SM_OceanGrid
 
     // Authorable global ocean parameters. If ParametersAsset is set and loads,
     // its values override these inline defaults.
@@ -65,6 +69,26 @@ protected:
 
     UPROPERTY(Transient)
     TObjectPtr<UMaterialParameterCollectionInstance> MPCInstance;
+
+    // Native UE5 Water ocean (AWaterBodyOcean + Single Layer Water + Gerstner
+    // spectrum) is the real water. It needs a ground height to read depth from;
+    // Shiomori has no Landscape, so SpawnNativeOcean registers the procedural
+    // Seabed mesh as a UWaterTerrainComponent and clamps the r.Water.*FallbackDepth
+    // CVars to the ~2.5 m bay depth — otherwise the plugin falls back to 3000 cm
+    // and renders opaque deep-navy ("black"). Even with the fallback clamped, the
+    // native Single Layer Water still reads the bay as deep and paints a dark slab
+    // under the translucent grid ("black floor"), so the translucent Gerstner
+    // M_Water grid is the single visible surface again.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Water")
+    bool bUseNativeOcean = false;
+
+    // Native UE5 Water system: a real, tessellated Gerstner ocean body plus its
+    // spectrum-based waves asset, replacing the flat translucent ocean grid.
+    UPROPERTY(Transient)
+    TObjectPtr<AWaterBodyOcean> OceanBody;
+
+    UPROPERTY(Transient)
+    TObjectPtr<UGerstnerWaterWaves> OceanWaves;
 
     float TimeSeconds = 0.0f;
 };

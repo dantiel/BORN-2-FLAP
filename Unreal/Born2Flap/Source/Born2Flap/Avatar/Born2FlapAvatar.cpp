@@ -43,7 +43,7 @@ struct FB2FAvatarPalette
 struct FB2FAvatarPersonDef
 {
     const TCHAR* Name;   // display name (menu/settings)
-    const TCHAR* Base;   // asset folder root, e.g. /Game/Actor/SK_Scout_anim
+    const TCHAR* Base;   // asset folder root, e.g. /Game/Actor/SK_Scout
     const TCHAR* Mesh;   // skeletal mesh asset name inside the folder
     const TCHAR* Clip;   // animation clip name prefix (== Mesh for the humans)
     const TCHAR* Extra;  // optional second body mesh (X-Bot's Section1), or nullptr
@@ -51,10 +51,16 @@ struct FB2FAvatarPersonDef
 const TArray<FB2FAvatarPersonDef>& AvatarPersons()
 {
     static const TArray<FB2FAvatarPersonDef> Persons = {
-        { TEXT("John"),    TEXT("/Game/Actor/SK_Founder"),      TEXT("SK_Founder"), TEXT("SK_Founder"), nullptr },
-        { TEXT("Scout"),   TEXT("/Game/Actor/SK_Scout_anim"),   TEXT("SK_Scout"),   TEXT("SK_Scout"),   nullptr },
-        { TEXT("Soldier"), TEXT("/Game/Actor/SK_Soldier_anim"), TEXT("SK_Soldier"), TEXT("SK_Soldier"), nullptr },
-        { TEXT("X-Bot"),   TEXT("/Game/Actor/SK_Xbot"),         TEXT("Section0"),   TEXT("SK_Xbot"),    TEXT("Section1") },
+        { TEXT("John"),     TEXT("/Game/Actor/SK_Founder"),  TEXT("SK_Founder"),  TEXT("SK_Founder"),  nullptr },
+        { TEXT("Erika"),    TEXT("/Game/Actor/SK_Erika"),    TEXT("SK_Erika"),    TEXT("SK_Erika"),    nullptr },
+        { TEXT("Amy"),      TEXT("/Game/Actor/SK_Amy"),      TEXT("SK_Amy"),      TEXT("SK_Amy"),      nullptr },
+        { TEXT("Michelle"), TEXT("/Game/Actor/SK_Michelle"), TEXT("SK_Michelle"), TEXT("SK_Michelle"), nullptr },
+        { TEXT("Sophie"),   TEXT("/Game/Actor/SK_Sophie"),   TEXT("SK_Sophie"),   TEXT("SK_Sophie"),   nullptr },
+        { TEXT("Kate"),     TEXT("/Game/Actor/SK_Kate"),     TEXT("SK_Kate"),     TEXT("SK_Kate"),     nullptr },
+        { TEXT("James"),    TEXT("/Game/Actor/SK_James"),    TEXT("SK_James"),    TEXT("SK_James"),    nullptr },
+        { TEXT("Adam"),     TEXT("/Game/Actor/SK_Adam"),     TEXT("SK_Adam"),     TEXT("SK_Adam"),     nullptr },
+        { TEXT("Brian"),    TEXT("/Game/Actor/SK_Brian"),    TEXT("SK_Brian"),    TEXT("SK_Brian"),    nullptr },
+        { TEXT("Alex"),     TEXT("/Game/Actor/SK_Alex"),     TEXT("SK_Alex"),     TEXT("SK_Alex"),     nullptr },
     };
     return Persons;
 }

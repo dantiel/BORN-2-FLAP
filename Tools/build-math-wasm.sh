@@ -64,6 +64,7 @@ EXPORTS=(
     b2f_math_set_strip_wind b2f_math_transport_airfields
     b2f_math_get_tail_incidence b2f_math_get_tail_fields
     b2f_math_get_external_force b2f_math_set_mass_frame
+    b2f_math_set_wing_camber_bias
     b2f_math_get_wing_loads b2f_math_get_mass_properties
 )
 EXPORT_FLAGS=()

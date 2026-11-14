@@ -202,6 +202,11 @@ typedef struct B2F_WingSection {
 } B2F_WingSection;
 B2F_API int32_t b2f_math_get_wing_shape(B2F_MathContext* context,
     uint32_t capacity, B2F_WingSection* left, B2F_WingSection* right);
+/* Built-in camber additions as fractions of chord, each in [-0.01,0.01].
+ * Default +0.0025 per wing. Affects lift, pitching moment and physical shape.
+ * Additive API: B2F_TuningConfig and ABI-21 struct layouts are unchanged. */
+B2F_API int32_t b2f_math_set_wing_camber_bias(B2F_MathContext* context,
+    double left_fraction, double right_fraction);
 /* Per-strip aerodynamic force magnitude [N], left then right in separate
  * caller-owned arrays (ABI v9). Root-to-tip midpoints. Returns station count,
  * or 0 on invalid arguments/insufficient capacity. Read-only; does not advance

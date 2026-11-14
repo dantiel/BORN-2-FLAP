@@ -25,6 +25,36 @@ import Born2Flap.Math.ResponsePhase
 
 main :: IO ()
 main = do
+  -- Independent Fourier quadrature of the actual parabolic mean line used
+  -- by the membrane mesh. The old pi/2 moment constant failed this reference.
+  let thinAirfoil m =
+        let n=4096::Int
+            h=pi/fromIntegral n
+            angles=[(fromIntegral i+0.5)*h | i<-[0..n-1]]
+            slope theta=4*m*cos theta
+            coeff k=2/pi*sum [slope theta*cos(fromIntegral k*theta)*h | theta<-angles]
+            a0=sum [slope theta*(1-cos theta)*h | theta<-angles]/pi
+        in (a0,pi/4*(coeff (2::Int)-coeff (1::Int)))
+      polarReference m=let (a0,cm)=thinAirfoil m
+                       in abs(zeroLiftAngle m-a0)<1e-12 &&
+                          abs(sectionPitchMomentCoeff m 0-cm)<1e-12
+      biased=wmWing(withWingCamberBias 0.0025 kestrelModel)
+      base=wmWing kestrelModel
+  if all polarReference [-0.04,-0.02,0,0.02,0.04] &&
+     abs(spRestCamber(shapeSection biased 0))<1e-12 &&
+     abs(spRestCamber(shapeSection biased 0.5)-spRestCamber(shapeSection base 0.5)-0.0025)<1e-12 &&
+     all (\f -> spReflex(shapeSection base f)==0) [0,0.25,0.5,0.75,1]
+    then pure () else fail "membrane airfoil lift and pitching moment must match the rendered mean line"
+  -- Loaded upward travel must not disappear when lift assists the motor.
+  -- Far from the target at zero speed, a 0.74 Nm motor can still drive up
+  -- while holding the same external load at a stationary target.
+  let assistingServo=servoFromNominal "assisting-load regression" 857.142883 0.74 20
+      assistingDrive target load=servoDriveTorque assistingServo defaultBatterySpec 7.4 (1/240)
+        target load 0.00098 defaultServoState 0
+  if and [abs(assistingDrive 60 load-0.74)<1e-9 &&
+          abs(assistingDrive (-60) load+0.74)<1e-9 &&
+          abs(assistingDrive 0 load+load)<1e-9 | load<-[0,0.1,0.3,0.5,0.7,0.74]]
+    then pure () else fail "aiding lift must not be converted into servo braking before upward travel"
   -- The spatial solver and the dry Chaos host must finish a step at the same
   -- angular velocity. This catches a second parallel-axis shift in the ABI
   -- torque conversion, including the CG force-moment convention.
@@ -380,7 +410,9 @@ main = do
      && plainMoment < reflexedMoment && reflexedMoment < 0
      && cupped > restCamber && cupped < membraneCamberTarget defaultBirdHandSection 1.0
      && twistLoaded < reflexedMoment
-     && twistReversed > 0 && twistReversed > twistLoaded
+     -- Reversing lift unloads nose-down torsion; it need not overwhelm the
+     -- section's camber moment at this particular force magnitude.
+     && twistReversed > reflexedMoment && twistReversed > twistLoaded
      && leverInboard < leverOutboard && leverInboard > 0 && leverOutboard < 0.25
     then pure ()
     else fail "section model must couple camber to lift, reflex to trim, membrane to load"
@@ -485,21 +517,37 @@ main = do
      && abs (mixLeftFlapDevDeg neutral - mixRightFlapDevDeg neutral) < 1e-9
     then pure ()
     else fail "neutral glide must hold a static symmetric stroke, no cadence"
-  -- Positive aileron raises the RIGHT wing; positive rudder (yaw) initiates
-  -- the SAME bank through the wing joints, and the PITCH stick shifts the
-  -- common wing position (pull = anhedral). The tail stays fixed to the
-  -- fuselage — no stick ever actuates it.
-  -- Default profile: glide angle −4° → neutral centre = +4°; ElevatorScale
-  -- 60 → half stick = 18° centre shift; AileronScale 40 × glideAileronMax
-  -- 175 → half stick = ±35° differential; RudderAmpDiff 60 × 12 → ±3.6°.
+  -- Roll articulates the shoulders; yaw only changes powered amplitudes.
+  -- Pitch shifts their common centre. The tail remains fixed to the body.
   if mixRightFlapDevDeg rollTop > mixLeftFlapDevDeg rollTop
-     && mixRightFlapDevDeg yawTop > mixLeftFlapDevDeg yawTop
+     && mixRightFlapDevDeg yawTop == mixLeftFlapDevDeg yawTop
      && abs (centre rollTop - 4) < 1e-9
      && abs (centre yawTop - 4) < 1e-9
      && abs (centre pitchTop - (-14)) < 1e-9
      && abs (mixLeftFlapDevDeg pitchTop - mixRightFlapDevDeg pitchTop) < 1e-9
     then pure ()
-    else fail "glide: roll/yaw differential on the wings, pitch shifts the common centre"
+    else fail "glide: roll differential and common pitch, no yaw articulation"
+  -- Regression for the captured recovery: the old 175-degree differential
+  -- plus duplicated mouse yaw removed 87% of full pitch at 65% roll. Travel
+  -- saturation must preserve the requested common/differential direction,
+  -- stay within both physical stops, and leave an unsaturated request intact.
+  let travelParams = defaultFirmwareParams {fwProfile=(fwProfile defaultFirmwareParams)
+        {profAileronScale=100,profElevatorScale=100,profGlideAngleDeg= -4}}
+      travelMixer r p y=fst(computeServoMixer True (pilotToRc(pilot4 0 r p y))
+        travelParams defaultFirmwareState (1/240))
+      travelCase r p =
+        let o=travelMixer r p r; c=centre o
+            d=(mixRightFlapDevDeg o-mixLeftFlapDevDeg o)/2
+            requestedC=4-60*p; requestedD=80*r
+            noYaw=travelMixer r p 0
+        in abs(mixLeftFlapDevDeg o)<=80+1e-9 && abs(mixRightFlapDevDeg o)<=80+1e-9
+           && abs(c*requestedD-d*requestedC)<1e-9
+           && mixLeftFlapDevDeg o==mixLeftFlapDevDeg noYaw
+           && mixRightFlapDevDeg o==mixRightFlapDevDeg noYaw
+           && (abs requestedC+abs requestedD>80 || abs(c-requestedC)+abs(d-requestedD)<1e-9)
+  if and [travelCase r p | r<-[-1,-0.65,-0.2,0,0.2,0.65,1],p<-[-1,-0.5,0,0.5,1]]
+     && centre(travelMixer (-0.65) 1 (-0.65))< -40
+    then pure () else fail "combined glide inputs must preserve pitch/roll ratio within physical travel"
   -- Powered roll must command the same static centre differential at every
   -- stroke phase (both wings keep full travel; the load stays distributed).
   let positionParams = defaultFirmwareParams
@@ -541,6 +589,14 @@ main = do
     then pure () else fail "yaw must drive the amplitude differential (outside wing beats larger) without shifting the wing midpoint"
   if all (\pitch -> abs(travel pitch-travel 0)<1e-8) [-1,1]
     then pure () else fail "extreme anhedral/dihedral trim must preserve full powered stroke travel"
+  let steeringArc roll yaw field =
+        let outputs=[fst(computeServoMixer True (pilotToRc(pilot4 0.4 roll 0 yaw)) positionParams
+                       (defaultFirmwareState {fwOscillator=defaultOscillator {oscBasePhase=p,oscPhase=p}})
+                       (1/960)) | p<-phases]
+        in travelOf field outputs
+  if and [abs(steeringArc roll yaw field-steeringArc 0 yaw field)<1e-8
+         | roll<-[-0.5,0.5],yaw<-[-0.6,0,0.6],field<-[mixLeftFlapDevDeg,mixRightFlapDevDeg]]
+    then pure () else fail "roll centre steering must not cancel yaw-owned amplitude differential"
   -- Fixed-tail doctrine: roll (and powered roll) must never drive the
   -- rudder channel. mixRudderUs serves only the ruddervator models' movable
   -- panels; the kestrel fan consumes it nowhere (the tail is fixed).
@@ -790,6 +846,79 @@ main = do
            && magnitude (addVec f (Vec3 (-x g) (-y g) (z g))) < 1e-7
   if all checkAero [(a,r,i,v) | a<-[-0.6,0,0.6],r<-[-8,0,8],i<-[-0.25,0,0.25],v<-[-2,0,2]]
     then pure () else fail "surface forces must dissipate relative-flow energy and reflect for inverted geometry"
+  -- A banked section in the correspondingly rotated apparent wind must
+  -- produce the rotated force, including its lateral component. This checks
+  -- a physical change of frame, independently of a force-direction formula.
+  let rotateBank a (Vec3 xx yy zz)=Vec3 xx (cos a*yy-sin a*zz) (sin a*yy+cos a*zz)
+      bankCovariance side bank stroke rate =
+        let air=Vec3 8 1 (-0.5)
+            input v=flow {bodyVelocityMS=v,bodyRatesRadS=zeroVec,groundClearanceM=1000}
+            loads a v=wingLoadsWithStroke True side a rate rate (input v) flatModel 0.1 flatState
+            check a b=
+              let f=rotateBank bank (resultForce a)
+                  g=resultForce b
+                  v=stripAirVelocity(resultState b)
+                  lift=stripLift(resultState b)
+              in magnitude(addVec f (scaleVec (-1) g))<1e-10 && abs(dotV lift v)<1e-10
+        in and(zipWith check (loads stroke air)
+                 (loads (stroke+side*bank) (rotateBank bank air)))
+  if and [bankCovariance side bank stroke rate | side<-[-1,1],bank<-[-1.3,-0.6,0.6,1.3],
+          stroke<-[-0.5,0,0.5],rate<-[-8,0,8]]
+    then pure () else fail "bank and apparent wind must rotate the whole force with no artificial circulation work"
+  -- Independently differentiate physical section positions. A multiplier on
+  -- the elastic torque alone cannot pass this force/couple virtual-work test,
+  -- even if the elastic integrator balances its own fictitious load exactly.
+  let twistWork model side angle rate =
+        let eps=1e-6
+            states delta=replicate stripCount (emptyStrip {stripTwistAero=0.15+delta})
+            loads delta=wingLoadsWithStroke True side angle rate rate
+              (flow {bodyVelocityMS=Vec3 8 0 (-0.5),groundClearanceM=1000}) model 0 (states delta)
+            check r p m=
+              let s=resultState r
+                  (_,_,spanAxis,_,_,_)=resultFrame r
+                  jac=scaleVec (1/(2*eps)) (addVec (stripPosition(resultState p))
+                        (scaleVec (-1) (stripPosition(resultState m))))
+                  couple=addVec (resultMoment r) (scaleVec (-1)
+                           (crossVec (stripPosition s) (resultForce r)))
+                  reference=dotV (resultForce r) jac + dotV couple (scaleVec (-side) spanAxis)
+              in abs(resultSectionMoment r-reference)<1e-9+1e-6*abs reference
+        in and(zipWith3 check (loads 0) (loads eps) (loads (-eps)))
+  if and [twistWork model side angle rate | model<-[kestrelModel,ravenModel],
+          side<-[-1,1],angle<-[-0.5,0,0.5],rate<-[-4,0,4]]
+    then pure () else fail "elastic twist torque must equal physical force/couple virtual work on both wings"
+  -- Independently integrate uniform broadside traction over 2000 chord cells.
+  -- A concentrated quarter-chord load cannot match either this centroid or
+  -- the resisting couple when a rotating chord crosses zero normal velocity.
+  let pressureWork side stroke rate twistRate bodyPitch =
+        let input=flow {bodyVelocityMS=Vec3 0 0 0,bodyRatesRadS=Vec3 0 bodyPitch 0,
+                       groundClearanceM=1000}
+            states=replicate stripCount (emptyStrip {stripCamber=0,stripTwistRateRadS=twistRate})
+            rs=wingLoadsWithStroke True side stroke rate rate input kestrelModel 0 states
+            check (i,r)=
+              let (pos,c,s,normal,velocity,flapVelocity)=resultFrame r
+                  chord=shapeChord (wmWing kestrelModel) ((fromIntegral i+0.5)/fromIntegral stripCount)
+                  area=chord*wsSpanM(wmWing kestrelModel)/fromIntegral stripCount
+                  omega=addVec (Vec3 (side*rate) bodyPitch 0) (scaleVec (-side*twistRate) s)
+                  n=2000::Int
+                  panels=[let offset=scaleVec ((0.25-(fromIntegral j+0.5)/fromIntegral n)*chord) c
+                              v=addVec velocity (crossVec omega offset)
+                              f=scaleVec (surfacePressure area (dotV v normal)/fromIntegral n) normal
+                          in (f,crossVec offset f,dotV f v) | j<-[0..n-1]]
+                  referenceF=foldr (addVec . (\(f,_,_)->f)) zeroVec panels
+                  referenceM=foldr (addVec . (\(_,m,_)->m)) zeroVec panels
+                  p=stripPressure(resultState r)
+                  couple=addVec (resultMoment r) (scaleVec (-1) (crossVec pos (resultForce r)))
+                  close a b=magnitude(addVec a (scaleVec (-1) b))<1e-8+0.01*magnitude b
+                  pressurePower=dotV p velocity+dotV couple omega
+                  flapPower=dotV(resultForce r) flapVelocity+dotV couple (Vec3 (side*rate) 0 0)
+                  ok=close p referenceF && close couple referenceM && pressurePower<=1e-10 &&
+                     abs(resultPower r+flapPower)<1e-10
+              in if ok then True else error ("pressure reference mismatch "++show
+                   (side,stroke,rate,twistRate,bodyPitch,i,p,referenceF,couple,referenceM,pressurePower,resultPower r+flapPower))
+        in all check(zip [0::Int ..] rs)
+  if and [pressureWork side stroke rate twistRate bodyPitch | side<-[-1,1],
+          stroke<-[-0.5,0,0.5],rate<-[-4,0,4],twistRate<-[-7,0,7],bodyPitch<-[-2,0,2]]
+    then pure () else fail "distributed pressure must match chord quadrature, dissipate energy and transmit its full couple"
   -- Identical geometry and airflow must give identical aero force in glide
   -- and flap — the flapping flag is not an aero channel; lift comes only
   -- from the wing's motion through the air. Per-strip wind deltas are dead

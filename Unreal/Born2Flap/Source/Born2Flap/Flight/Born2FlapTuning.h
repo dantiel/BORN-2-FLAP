@@ -45,6 +45,8 @@ FORCEINLINE const TCHAR* Key(ETuningField Field)
     case ETuningField::ThrottleSkewRateMix: return TEXT("ThrottleSkewRateMix");
     case ETuningField::AileronSkewRateMix: return TEXT("AileronSkewRateMix");
     case ETuningField::ElevatorFerocityMix: return TEXT("ElevatorFerocityMix");
+    case ETuningField::LeftWingCamberBias: return TEXT("LeftWingCamberBias");
+    case ETuningField::RightWingCamberBias: return TEXT("RightWingCamberBias");
     default:                               return TEXT("");
     }
 }
@@ -96,6 +98,8 @@ FORCEINLINE float FromDisplayValue(ETuningField Field, float Display)
 
 static const FRow Rows[] =
 {
+    { ETuningField::LeftWingCamberBias, TEXT("LEFT AIRFOIL BIAS"), TEXT("% chord"), -1.f, 1.f, 2, TEXT("Extra built-in camber on the left wing. Positive adds lift at the same airflow and changes the airfoil pitching moment. Zero keeps the model's original airfoil.") },
+    { ETuningField::RightWingCamberBias, TEXT("RIGHT AIRFOIL BIAS"), TEXT("% chord"), -1.f, 1.f, 2, TEXT("Extra built-in camber on the right wing. Equal values keep the wings symmetric; unequal values provide physical airfoil trim.") },
     { ETuningField::ServoSpeed,         TEXT("SERVO SPEED"),           TEXT("s/60°"),       0.025f,  0.6f, 3, TEXT("Seconds per 60° stroke. Low = faster/more agile; high = slower and gentler on the servo.") },
     { ETuningField::StallTorque,        TEXT("STALL TORQUE"),          TEXT("kg·cm"),         0.5f,  40.f, 1, TEXT("How hard the servo can push before stalling. Low = weak micro servo; high = very strong metal-gear. Too low and the wing stalls mid-stroke.") },
     { ETuningField::Backdrive,          TEXT("BACKDRIVE"),             TEXT("°/s per N·m"),   0.f,  100.f, 0, TEXT("How easily the wing pushes the servo backwards when aero load exceeds torque. Low = stiff/holds shape; high = soft/backdrivable.") },

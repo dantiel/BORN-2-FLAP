@@ -24,7 +24,7 @@ public class Born2Flap : ModuleRules
         {
             "Slate", "SlateCore", "UMG", "ProceduralMeshComponent", "ApplicationCore",
             "AudioMixer", "Json", "MoviePlayer", "Niagara", "HTTP", "PakFile",
-            "MeshPartition", "Chaos"
+            "MeshPartition", "Chaos", "Water"
         });
 
         if (Target.Platform == UnrealTargetPlatform.Win64)

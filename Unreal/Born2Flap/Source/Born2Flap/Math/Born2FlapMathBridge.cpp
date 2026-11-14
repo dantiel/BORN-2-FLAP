@@ -66,6 +66,7 @@ bool FBorn2FlapMathBridge::Load()
         GetTailIncidence = &::b2f_math_get_tail_incidence;
         GetExternalForce = &::b2f_math_get_external_force;
         SetMassFrameHook = &::b2f_math_set_mass_frame;
+        SetWingCamberBiasHook = &::b2f_math_set_wing_camber_bias;
         GetTailFields = &::b2f_math_get_tail_fields;
         SetStripWindHook = &::b2f_math_set_strip_wind;
         TransportAirfieldsHook = &::b2f_math_transport_airfields;
@@ -134,6 +135,9 @@ bool FBorn2FlapMathBridge::Load()
     GetTailIncidence = LoadExport<GetTailIncidenceFn>(LibraryHandle, TEXT("b2f_math_get_tail_incidence"));
     GetExternalForce = LoadExport<GetTailIncidenceFn>(LibraryHandle, TEXT("b2f_math_get_external_force"));
     SetMassFrameHook = LoadExport<SetMassFrameFn>(LibraryHandle, TEXT("b2f_math_set_mass_frame"));
+    SetWingCamberBiasHook = LoadExport<SetWingCamberBiasFn>(LibraryHandle, TEXT("b2f_math_set_wing_camber_bias"));
+    if (!SetWingCamberBiasHook)
+        UE_LOG(LogTemp, Warning, TEXT("Airfoil bias unavailable in this physics library; rebuild the Haskell backend."));
     GetTailFields = LoadExport<GetTailFieldsFn>(LibraryHandle, TEXT("b2f_math_get_tail_fields"));
     TransportAirfieldsHook = LoadExport<TransportAirfieldsFn>(LibraryHandle, TEXT("b2f_math_transport_airfields"));
     SetStripWindHook = LoadExport<SetStripWindFn>(LibraryHandle, TEXT("b2f_math_set_strip_wind"));
@@ -223,6 +227,7 @@ void FBorn2FlapMathBridge::Unload()
     GetTailIncidence = nullptr;
     GetExternalForce = nullptr;
     SetMassFrameHook = nullptr;
+    SetWingCamberBiasHook = nullptr;
     GetTailFields = nullptr;
     SetStripWindHook = nullptr;
     TransportAirfieldsHook = nullptr;
@@ -307,6 +312,11 @@ bool FBorn2FlapMathBridge::ReadExternalForce(double* Force) const
 bool FBorn2FlapMathBridge::SetMassFrame(double CgX, double PitchInertia, double YawInertia) const
 {
     return Context && SetMassFrameHook && SetMassFrameHook(Context, CgX, PitchInertia, YawInertia) == 1;
+}
+
+bool FBorn2FlapMathBridge::SetWingCamberBias(double LeftFraction, double RightFraction) const
+{
+    return Context && SetWingCamberBiasHook && SetWingCamberBiasHook(Context, LeftFraction, RightFraction) == 1;
 }
 
 bool FBorn2FlapMathBridge::SetStripWind(const double* Left, const double* Right) const

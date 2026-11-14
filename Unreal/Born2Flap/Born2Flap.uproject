@@ -9,7 +9,8 @@
     { "Name": "EditorScriptingUtilities", "Enabled": true, "TargetAllowList": ["Editor"] },
     { "Name": "MeshPartition", "Enabled": true },
     { "Name": "GeometryProcessing", "Enabled": true, "TargetAllowList": ["Editor"] },
-    { "Name": "MeshModelingToolset", "Enabled": true, "TargetAllowList": ["Editor"] }
+    { "Name": "MeshModelingToolset", "Enabled": true, "TargetAllowList": ["Editor"] },
+    { "Name": "Water", "Enabled": true }
   ],
   "Modules": [
     {

@@ -247,6 +247,8 @@ float TuningClamp(ETuningField Field, float Value)
     case ETuningField::ThrottleSkewRateMix: return FMath::Clamp(Value, 0.f, 100.f);
     case ETuningField::AileronSkewRateMix: return FMath::Clamp(Value, 0.f, 100.f);
     case ETuningField::ElevatorFerocityMix: return FMath::Clamp(Value, 0.f, 100.f);
+    case ETuningField::LeftWingCamberBias:
+    case ETuningField::RightWingCamberBias: return FMath::Clamp(Value, -1.f, 1.f);
     default: return 0.f;
     }
 }
@@ -282,6 +284,8 @@ float ABorn2FlapFlightPawn::GetTuning(ETuningField Field) const
     case ETuningField::ThrottleSkewRateMix: return float(Tuning.throttle_skew_rate_mix_percent);
     case ETuningField::AileronSkewRateMix: return float(Tuning.aileron_skew_rate_mix_percent);
     case ETuningField::ElevatorFerocityMix: return float(Tuning.elevator_ferocity_mix_percent);
+    case ETuningField::LeftWingCamberBias: return LeftWingCamberBiasPercent;
+    case ETuningField::RightWingCamberBias: return RightWingCamberBiasPercent;
     default: return 0.f;
     }
 }
@@ -318,6 +322,8 @@ void ABorn2FlapFlightPawn::SetTuning(ETuningField Field, float Value)
     case ETuningField::ThrottleSkewRateMix: Tuning.throttle_skew_rate_mix_percent = Value; break;
     case ETuningField::AileronSkewRateMix: Tuning.aileron_skew_rate_mix_percent = Value; break;
     case ETuningField::ElevatorFerocityMix: Tuning.elevator_ferocity_mix_percent = Value; break;
+    case ETuningField::LeftWingCamberBias: LeftWingCamberBiasPercent = Value; break;
+    case ETuningField::RightWingCamberBias: RightWingCamberBiasPercent = Value; break;
     default: return;
     }
     ApplyTuning();
@@ -331,6 +337,9 @@ void ABorn2FlapFlightPawn::ApplyTuning()
     if (MathBridge && MathBridge->IsReady())
     {
         MathBridge->Reconfigure(Tuning);
+        const bool bCamberApplied = MathBridge->SetWingCamberBias(LeftWingCamberBiasPercent * .01, RightWingCamberBiasPercent * .01);
+        UE_LOG(LogTemp, Display, TEXT("FlightAirfoilBias leftPercent=%.4f rightPercent=%.4f applied=%d strokeFerocity=%.3f returnFerocity=%.3f"),
+            LeftWingCamberBiasPercent, RightWingCamberBiasPercent, bCamberApplied ? 1 : 0, Tuning.stroke_ferocity, Tuning.return_ferocity);
         B2F_MassProperties Props{};
         if (MathBridge->ReadMassProperties(-double(CgOffsetMm)/1000.0, Props))
         {
@@ -1661,6 +1670,55 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
         // previously created a spurious CG-dependent pitching moment.
         const FVector Mcg = M - FVector::CrossProduct(CgBody, SurfaceForce);
         CgPitchMomentCorrection = Mcg.Y - M.Y;
+        if (Steps == 0 && FParse::Param(FCommandLine::Get(), TEXT("B2FTailControlTrace")))
+        {
+            B2F_TailField Tail[18];
+            B2F_WingField Fields[2][B2F_WING_STATIONS];
+            B2F_WingLoads Loads[2][B2F_WING_STATIONS];
+            if (MathBridge->ReadTailFields(Tail) && MathBridge->ReadWingFields(Fields[0], Fields[1]) &&
+                MathBridge->ReadWingLoads(Loads[0], Loads[1]))
+            {
+                auto V3 = [](const double* Values) { return FVector(Values[0], Values[1], Values[2]); };
+                FVector TailForce = FVector::ZeroVector, TailMoment = FVector::ZeroVector;
+                FVector TailFlow = FVector::ZeroVector, Normal = FVector::ZeroVector, WingMoment = FVector::ZeroVector;
+                double Alpha = 0, Lift[2]{}, MeanU[2]{}, Motor[8]{};
+                for (const auto& Patch : Tail)
+                {
+                    const FVector Force = V3(Patch.lift_n) + V3(Patch.pressure_n) + V3(Patch.drag_n);
+                    const FVector Flow = V3(Patch.air_velocity_m_s), N = V3(Patch.normal);
+                    const double Vn = FVector::DotProduct(Flow, N);
+                    TailForce += Force;
+                    TailMoment += FVector::CrossProduct(V3(Patch.position_m) - CgBody, Force);
+                    TailFlow += Flow / 18.;
+                    Alpha += FMath::RadiansToDegrees(FMath::Atan2(-Vn, (Flow - Vn * N).Size())) / 18.;
+                }
+                for (int Side = 0; Side < 2; ++Side)
+                    for (uint32 I = 0; I < B2F_WING_STATIONS; ++I)
+                    {
+                        Normal += V3(Fields[Side][I].normal);
+                        WingMoment += V3(Loads[Side][I].moment_nm) -
+                            FVector::CrossProduct(CgBody, V3(Loads[Side][I].force_n));
+                        Lift[Side] += Rotation.RotateVector(V3(Fields[Side][I].lift_n)).Z;
+                        MeanU[Side] += Fields[Side][I].air_velocity_m_s[0] / B2F_WING_STATIONS;
+                    }
+                Normal.X = 0;
+                Normal.Normalize();
+                const FVector NormalWorld = Rotation.RotateVector(Normal), Accel = Mcg / Inertia;
+                const FRotator Pose = Rotation.Rotator();
+                double TailIncidence = 0;
+                MathBridge->ReadTailIncidence(TailIncidence);
+                MathBridge->ReadRollBalance(Motor);
+                UE_LOG(LogTemp, Display, TEXT("TailControlTrace t=%.6f dt=%.9f frameDt=%.9f physicsDt=%.9f pilot=(%.6f,%.6f,%.6f,%.6f) pose=(%.6f,%.6f,%.6f) position=(%.6f,%.6f,%.6f) altitude=%.6f velocity=(%.9f,%.9f,%.9f) rates=(%.9f,%.9f,%.9f) shoulders=(%.6f,%.6f) wingNormalWorld=(%.9f,%.9f,%.9f) tailFlow=(%.9f,%.9f,%.9f) tailAlpha=%.6f tailIncidence=%.6f tailForce=(%.9f,%.9f,%.9f) tailMoment=(%.9f,%.9f,%.9f) wingMoment=(%.9f,%.9f,%.9f) tailYawPlane=%.9f wingYawPlane=%.9f hostAcceleration=(%.9f,%.9f,%.9f) liftWorld=(%.9f,%.9f) meanU=(%.9f,%.9f) motor=(%.9f,%.9f) inertia=(%.9f,%.9f,%.9f) cg=%.9f failures=%d"),
+                    WorldTime, StepDt, double(DeltaSeconds), PhysicsDt, Pilot.throttle, Pilot.roll, Pilot.pitch, Pilot.yaw,
+                    Pose.Roll, Pose.Pitch, Pose.Yaw, BodyPos.X / 100., BodyPos.Y / 100., BodyPos.Z / 100., GetAltitude(),
+                    V.X, V.Y, V.Z, W.X, W.Y, W.Z, O.left_flap_deg, O.right_flap_deg,
+                    NormalWorld.X, NormalWorld.Y, NormalWorld.Z, TailFlow.X, TailFlow.Y, TailFlow.Z, Alpha, TailIncidence,
+                    TailForce.X, TailForce.Y, TailForce.Z, TailMoment.X, TailMoment.Y, TailMoment.Z,
+                    WingMoment.X, WingMoment.Y, WingMoment.Z, FVector::DotProduct(TailMoment, Normal),
+                    FVector::DotProduct(WingMoment, Normal), Accel.X, Accel.Y, Accel.Z, Lift[0], Lift[1], MeanU[0], MeanU[1],
+                    Motor[6], Motor[7], Inertia.X, Inertia.Y, Inertia.Z, CgBody.X, MathFailures);
+            }
+        }
         if (bFlightTest && FParse::Param(FCommandLine::Get(), TEXT("B2FCgTest")) && TestTime >= 18)
         {
             const int32 CgSampleBit = TestTime < 19.4 ? 1 : 2;
@@ -2294,13 +2352,38 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
                 ChaseOrbitPitch = FMath::Clamp(ChaseOrbitPitch, -80.f, 10.f);
             }
         }
-        if (bGroundView && (!FMath::IsNearlyZero(GestureWalkForward) || !FMath::IsNearlyZero(GestureWalkStrafe)))
+        if (bGroundView)
         {
-            const float FwdYaw = float(GroundGaze.Yaw + GroundLookYaw);
-            const FVector Dir = FRotator(0.f, FwdYaw, 0.f).Vector() * GestureWalkForward +
-                                FRotator(0.f, FwdYaw + 90.f, 0.f).Vector() * GestureWalkStrafe;
-            if (!Dir.IsNearlyZero())
-                MoveWalker(Dir);
+            // Latch the walk: a pan/zoom/pinch/pivot gesture sets a direction and
+            // a speed from the drag length, and the pilot KEEPS walking in that
+            // direction after the fingers lift (coasting gently to a stop). A long
+            // drag runs, a short drag walks.
+            const bool bGestureWalking = !FMath::IsNearlyZero(GestureWalkForward) ||
+                                         !FMath::IsNearlyZero(GestureWalkStrafe);
+            if (bGestureWalking)
+            {
+                const float FwdYaw = float(GroundGaze.Yaw + GroundLookYaw);
+                const FVector Dir = FRotator(0.f, FwdYaw, 0.f).Vector() * GestureWalkForward +
+                                    FRotator(0.f, FwdYaw + 90.f, 0.f).Vector() * GestureWalkStrafe;
+                if (!Dir.IsNearlyZero())
+                {
+                    GestureWalkLatchedDir = Dir.GetSafeNormal();
+                    // Drag length (this frame's displacement) -> walk/run speed.
+                    GestureWalkLatchedSpeed = FMath::Clamp(
+                        Dir.Size() / FMath::Max(DeltaSeconds, 1e-3f), 120.f, 460.f);
+                }
+            }
+            if (GestureWalkLatchedSpeed > 1.f)
+            {
+                MoveWalker(GestureWalkLatchedDir * GestureWalkLatchedSpeed * DeltaSeconds);
+                if (!bGestureWalking)
+                    GestureWalkLatchedSpeed = FMath::Max(0.f, GestureWalkLatchedSpeed - 300.f * DeltaSeconds);
+            }
+            else
+            {
+                GestureWalkLatchedSpeed = 0.f;
+                GestureWalkLatchedDir = FVector::ZeroVector;
+            }
         }
     }
 #endif
@@ -2573,6 +2656,10 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
             FParse::Value(FCommandLine::Get(), TEXT("B2FAuditSpeed="), AuditSpeed);
             FParse::Value(FCommandLine::Get(), TEXT("B2FAuditThrottle="), AuditThrottle);
             FParse::Value(FCommandLine::Get(), TEXT("B2FAuditRoll="), AuditRoll);
+            double AuditPitch = 0, AuditYaw = 0, AuditInputDuration = 1000;
+            FParse::Value(FCommandLine::Get(), TEXT("B2FAuditPitch="), AuditPitch);
+            FParse::Value(FCommandLine::Get(), TEXT("B2FAuditYaw="), AuditYaw);
+            FParse::Value(FCommandLine::Get(), TEXT("B2FAuditInputDuration="), AuditInputDuration);
             AuditRamp = FMath::Max(0.05, AuditRamp);
             double InitialBank = 0, InitialSink = 0;
             const bool AuditRelease = FParse::Value(FCommandLine::Get(), TEXT("B2FAuditInitialBank="), InitialBank);
@@ -2580,7 +2667,11 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
             const bool AuditFree = FParse::Param(FCommandLine::Get(), TEXT("B2FAuditFree")) || (AuditRelease && TestTime >= 3);
             const bool AuditYawFree = FParse::Param(FCommandLine::Get(), TEXT("B2FAuditYawFree"));
             Effort = FMath::Clamp(AuditThrottle, 0.0, 1.0);
-            Roll = FMath::Clamp(AuditRoll, -1.0, 1.0) * FMath::Clamp((TestTime - 3.0) / AuditRamp, 0.0, 1.0);
+            const double AuditBlend = TestTime < 3.0 + AuditInputDuration
+                ? FMath::Clamp((TestTime - 3.0) / AuditRamp, 0.0, 1.0) : 0.;
+            Roll = FMath::Clamp(AuditRoll, -1.0, 1.0) * AuditBlend;
+            Pitch = FMath::Clamp(AuditPitch, -1.0, 1.0) * AuditBlend;
+            Steer = FMath::Clamp(AuditYaw, -1.0, 1.0) * AuditBlend;
             FString CapturePrefix;
             if (FParse::Value(FCommandLine::Get(), TEXT("B2FAuditCapturePrefix="), CapturePrefix))
             {

@@ -106,7 +106,7 @@ springLoadTau = 0.05
 -- this makes the aeroelastic spring oscillate more visibly after a load step
 -- (a livelier "bounce") without fully undamping the structure.
 structuralDampingRatio :: Double
-structuralDampingRatio = 0.15
+structuralDampingRatio = 0.12
 
 -- | Rotational (Kramer) lift coefficient: the extra circulation a section gains
 -- when it pitches about its span axis. Flat-plate theory gives pi*(3/4-x0) times
@@ -483,12 +483,17 @@ stepStripPreparedMotion station aspectRatio implicitLoads _phaseRate _flapping s
   let flapVelocity = scaleVec (side * strokeRate)
                        (crossVec hingeAxis (addVec position (Vec3 0 0 (-wingRootHeight))))
       bendAngleRate = stripBendSlopeRate old / (1+bendSlope*bendSlope)
+      bendAxis = rotateAxis u hingeAxis (Vec3 side 0 0)
       bendRotationVelocity = scaleVec bendAngleRate
-        (crossVec (Vec3 side 0 0) (scaleVec (-0.25*chord) chordAxis))
+        (crossVec bendAxis (scaleVec (-0.25*chord) chordAxis))
       elasticVelocity = addVec
         (scaleVec (stripBendRateMS old) (rotateX (side * dihedralApprox) (Vec3 0 0 1)))
         (scaleVec (-0.25*chord*stripTwistRateRadS old) normal)
       sectionVelocity = addVec deltaVelocity (addVec bendRotationVelocity (addVec elasticVelocity (addVec velocity (addVec (crossVec rates position) flapVelocity))))
+      flapOmega = scaleVec (side*strokeRate) hingeAxis
+      sectionOmega = addVec rates (addVec flapOmega
+        (addVec (scaleVec bendAngleRate bendAxis)
+                (scaleVec (-side*stripTwistRateRadS old) spanAxis)))
       dot (Vec3 a b c) (Vec3 d e f) = a*d + b*e + c*f
       chordVelocity = dot sectionVelocity chordAxis
       normalVelocity = dot sectionVelocity normal
@@ -535,8 +540,7 @@ stepStripPreparedMotion station aspectRatio implicitLoads _phaseRate _flapping s
       -- Rotational circulation follows section pitch, not the difference of
       -- flow angle (which includes roll acceleration and gust acceleration).
       -- The latter duplicated added-air inertia and introduced timestep feedback.
-      sectionPitchRate = stripTwistRateRadS old - side * dot
-                           (addVec rates (Vec3 (side*strokeRate) 0 0)) spanAxis
+      sectionPitchRate = -side * dot sectionOmega spanAxis
       rotationalCl = clamp (-0.65) 0.65 (rotationalLiftCoefficient * chord * sectionPitchRate / safeSpeed)
       -- Keep separation/LEV memory fixed during the implicit mechanical solve.
       -- Updating its discrete vortex gate at each trial velocity can leave no
@@ -574,20 +578,46 @@ stepStripPreparedMotion station aspectRatio implicitLoads _phaseRate _flapping s
       flowZ = normalVelocity / safeSpeed
       -- Lift is orthogonal to section velocity, drag opposes it, including
       -- reverse flow. In particular a passive falling wing cannot add energy.
-      chordForce = scaleVec (-drag * flowX - lift * flowZ) chordAxis
-      normalForce = scaleVec (-drag * flowZ + lift * flowX) normal
+      -- Vector Kutta-Joukowski direction: local motion crossed with the
+      -- consistently oriented bound-vortex axis. This includes sideways force
+      -- from banking/bending and changes immediately with the apparent wind.
+      -- No fixed body/world lift direction and no prescribed outward force.
+      liftPart = scaleVec (lift / safeSpeed)
+                   (crossVec sectionVelocity (scaleVec side spanAxis))
+      profileDrag = scaleVec (-drag / safeSpeed)
+                      (addVec (scaleVec chordVelocity chordAxis) (scaleVec normalVelocity normal))
       spanDrag = scaleVec (-0.5 * airDensity * area * sideCd * abs spanVelocity * spanVelocity) spanAxis
       -- Every strip sees complete local flow in glide and flap. No cross-wing
       -- positional spring: air does not retain a fixed bank/support plane.
       -- Non-circulatory added-air inertia is in the coupled mass solve.
       oldPatch = stripPressureField old
-      quadraticPressure = scaleVec (surfacePressure area normalVelocity) normal
+      -- Broadside pressure is a distributed surface traction, unlike bound
+      -- circulation at the quarter chord. Integrate over the chord, sampling
+      -- each point's actual velocity. Uniform pressure acts at midchord;
+      -- rotation also creates a real resisting couple even when the centroid
+      -- is stationary. Split at any zero of normal velocity: on each interval
+      -- pressure is quadratic and its moment cubic, so two Gauss points give
+      -- the exact integral without a minimum force or damping constant.
+      pressureAt (s,w) =
+        let offset=scaleVec ((0.25-s)*chord) chordAxis
+            localVelocity=addVec sectionVelocity (crossVec sectionOmega offset)
+            -- Quadrature weights integrate the traction; they must not change
+            -- the physical strip length used by its low-Re pressure law.
+            localForce=scaleVec (w*surfacePressure area (dot localVelocity normal)) normal
+        in (localForce,crossVec offset localForce)
+      pressureGradient=chord*dot (crossVec sectionOmega chordAxis) normal
+      pressureZero=0.25+normalVelocity/pressureGradient
+      pressureIntervals=if abs pressureGradient>1e-12 && pressureZero>0 && pressureZero<1
+        then [(0,pressureZero),(pressureZero,1)] else [(0,1)]
+      pressurePanels=map pressureAt
+        [((a+b)/2+sign*(b-a)/(2*sqrt 3),(b-a)/2)
+         | (a,b)<-pressureIntervals,sign<-[-1,1]]
+      quadraticPressure=foldr (addVec . fst) zeroVec pressurePanels
+      pressureCouple=foldr (addVec . snd) zeroVec pressurePanels
       -- Pure aerodynamic lift, no position-based modulation: a held
       -- differential must roll the bird through the wings' real tilted lift
       -- vectors, never through an invented counter-rotation gain.
-      liftPart = addVec (scaleVec (lift * flowX) normal)
-                        (scaleVec (-lift * flowZ) chordAxis)
-      force = addVec quadraticPressure (addVec chordForce (addVec normalForce spanDrag))
+      force = addVec quadraticPressure (addVec liftPart (addVec profileDrag spanDrag))
       aeroForce = force
       nextLoad = fieldLoad oldPatch + (1-exp(-dt/0.15))
                    * (magnitude liftPart + magnitude quadraticPressure - fieldLoad oldPatch)
@@ -600,10 +630,16 @@ stepStripPreparedMotion station aspectRatio implicitLoads _phaseRate _flapping s
       sectionPitchMoment = cm0 * q * chord * chord * dr
       -- Twist is driven by the SAME force at its actual quarter-chord lever,
       -- not a separate 2-4% chord coefficient. Otherwise the structure barely
-      -- feathers even when the aerodynamic moment is large.
-      leMoment = crossVec (addVec position (scaleVec (-1) leadingEdge)) force
+      -- feathers even when the aerodynamic moment is large. This is the
+      -- physical virtual-work load, not a compliance tuning parameter:
+      -- multiplying only this torque breaks the force/moment energy balance.
+      -- Positive strokeRate raises BOTH wings; it needs no extra side sign.
+      leMoment = addVec pressureCouple
+        (crossVec (addVec position (scaleVec (-1) leadingEdge)) force)
       sectionTwistMoment = -side * dot leMoment spanAxis + sectionPitchMoment
-      sectionBendMoment = side * vx leMoment - sectionPitchMoment * vx spanAxis
+      sectionCouple = addVec pressureCouple (scaleVec (-side*sectionPitchMoment) spanAxis)
+      sectionBendMoment = dot bendAxis (addVec
+        (crossVec (addVec position (scaleVec (-1) leadingEdge)) force) sectionCouple)
       -- Section Cm is positive nose-up. With body +x forward,+y right,+z up,
       -- the axial +Y moment rotates the nose DOWN, so convert the sign here.
       -- Keep the scalar section moment in its original convention for twist.
@@ -612,8 +648,7 @@ stepStripPreparedMotion station aspectRatio implicitLoads _phaseRate _flapping s
       -- section couple. No pendulum term, no invented restoring torque: roll
       -- stability must come from dihedral effect, the side-force lever and
       -- the CG position — the geometry itself.
-      moment = addVec (crossVec position force)
-                      (scaleVec (-side * sectionPitchMoment) spanAxis)
+      moment = addVec (crossVec position force) sectionCouple
       -- SIGNED instantaneous mechanical power: −F·v_flap — the rate at which
       -- the WING does work on the air. Positive = the wing drives the air
       -- (actuator input / elastic energy release); negative = the flow
@@ -621,7 +656,7 @@ stepStripPreparedMotion station aspectRatio implicitLoads _phaseRate _flapping s
       -- Clamping at zero hid the recovery half of the exchange; the elastic
       -- solver and the host must see the full signed power to audit the
       -- energy balance of the whole system.
-      power = negate (dot force flapVelocity)
+      power = negate (dot force flapVelocity + dot sectionCouple flapOmega)
       dragDiag = addVec (scaleVec (-drag*flowX) chordAxis)
                    (addVec (scaleVec (-drag*flowZ) normal) spanDrag)
       -- The diagnostic decomposition must reconstruct the TOTAL force exactly

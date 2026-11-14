@@ -296,6 +296,10 @@ extern HsInt32 hs_b2f_math_get_tail_incidence(HsPtr context, HsPtr output);
 extern HsInt32 hs_b2f_math_get_tail_fields(HsPtr context, HsWord32 capacity, HsPtr output);
 extern HsInt32 hs_b2f_math_get_external_force(HsPtr context, HsPtr output);
 extern HsInt32 hs_b2f_math_set_mass_frame(HsPtr context, HsDouble cg_x, HsDouble iy, HsDouble iz);
+extern HsInt32 hs_b2f_math_set_wing_camber_bias(HsPtr context, HsDouble left, HsDouble right);
+B2F_EXPORT HsInt32 b2f_math_set_wing_camber_bias(HsPtr context, HsDouble left, HsDouble right) {
+    return hs_b2f_math_set_wing_camber_bias(context, left, right);
+}
 B2F_EXPORT HsInt32 b2f_math_set_mass_frame(HsPtr context, HsDouble cg_x, HsDouble iy, HsDouble iz) {
     return hs_b2f_math_set_mass_frame(context, cg_x, iy, iz);
 }

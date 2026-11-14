@@ -59,6 +59,7 @@ IM3Function FnGetTailIncidence = nullptr;
 IM3Function FnGetTailFields = nullptr;
 IM3Function FnGetExternalForce = nullptr;
 IM3Function FnSetMassFrame = nullptr;
+IM3Function FnSetWingCamberBias = nullptr;
 IM3Function FnGetMassProperties = nullptr;
 
 M3Result Find(const char* name, IM3Function* out)
@@ -186,6 +187,7 @@ bool LoadWasm()
     Find("b2f_math_get_tail_fields", &FnGetTailFields);
     Find("b2f_math_get_external_force", &FnGetExternalForce);
     Find("b2f_math_set_mass_frame", &FnSetMassFrame);
+    Find("b2f_math_set_wing_camber_bias", &FnSetWingCamberBias);
     Find("b2f_math_get_mass_properties", &FnGetMassProperties);
 
     return FnMalloc && FnFree && FnRuntimeInit;
@@ -515,6 +517,18 @@ B2F_API int32_t b2f_math_set_mass_frame(
     m3_CallV(FnSetMassFrame,
         static_cast<uint32_t>(reinterpret_cast<uintptr_t>(context)),
         cg_x_m, pitch_inertia_kg_m2, yaw_inertia_kg_m2);
+    return rc;
+}
+
+B2F_API int32_t b2f_math_set_wing_camber_bias(
+    B2F_MathContext* context, double left_fraction, double right_fraction)
+{
+    if (!context || !FnSetWingCamberBias) return 0;
+    int32_t rc = 0;
+    m3_GetResultsV(FnSetWingCamberBias, &rc);
+    m3_CallV(FnSetWingCamberBias,
+        static_cast<uint32_t>(reinterpret_cast<uintptr_t>(context)),
+        left_fraction, right_fraction);
     return rc;
 }
 

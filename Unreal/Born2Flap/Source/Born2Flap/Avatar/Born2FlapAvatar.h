@@ -22,10 +22,10 @@ public:
     void SetSkin(int32 Index);
     static int32 GetSkinCount() { return 4; }
 
-    // Four distinct pilot characters (John/Founder + Scout/Soldier/X-Bot),
-    // each with its own Mixamo-rigged mesh, skeleton and baked clip set.
+    // John (the founder), Erika, + eight modern Mixamo characters, each with
+    // its own mesh, skeleton and baked clip set.
     void SetPerson(int32 Index);
-    static int32 GetPersonCount() { return 4; }
+    static int32 GetPersonCount() { return 10; }
     static FString GetPersonName(int32 Index);
 
     void SetPlacement(const FVector& WorldFeet, float WorldYaw);

@@ -78,11 +78,12 @@ zeroLiftAngle camber = -2.0 * camber
 
 -- | Section pitching-moment coefficient about the quarter-chord [dimensionless],
 -- from camber and reflex. Conventional camber is nose-down (negative); reflex
--- (0..1) trims that toward neutral. @momentK = π/2@ is the circular-arc mean-line
--- value — enough to give a real, tunable pitch-trim coupling.
+-- (0..1) trims that toward neutral. For the rendered parabolic mean line
+-- z/c = 4*m*x*(1-x), thin-airfoil Fourier coefficients are A1=4*m, A2=0,
+-- hence Cm(c/4)=pi/4*(A2-A1)=-pi*m. This is consistent with alpha0=-2*m.
 sectionPitchMomentCoeff :: Double -> Double -> Double
 sectionPitchMomentCoeff camber reflex =
-  let momentK = pi / 2
+  let momentK = pi
       trim = clamp01 reflex
   in -momentK * camber * (1.0 - trim)
 

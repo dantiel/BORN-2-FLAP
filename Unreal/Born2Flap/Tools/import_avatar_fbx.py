@@ -1,6 +1,9 @@
-"""Import the 8 additional Mixamo FBX pilots (fantasy + casual) as SkeletalMeshes,
-then retarget the shared locomotion clips onto each character's own mixamorig
-skeleton.
+"""Import the 8 modern Mixamo FBX pilots as SkeletalMeshes, then retarget the
+shared locomotion clips onto each character's own mixamorig skeleton.
+
+All 8 are 65-bone `mixamorig:` characters (covers_animation_rig=true) so the
+shared clip set retargets 1:1 with no undriven prop bones (the old fantasy
+roster had 67-99 bone rigs whose extra prop/hair bones froze in ref pose).
 
 Why FBX (not GLB): these come from the Mixamo library snapshot (FBX 7.7), already
 carrying the clean 65-bone `mixamorig:*` skeleton at cm scale.  UE imports them
@@ -28,17 +31,21 @@ _CHAR_DIR = _PROJECT / 'SourceAssets/Mixamo/Characters'
 # onto the character skeletons (the originals use `mixamorig_` underscore).
 _CLIP_DIR = _PROJECT / 'SourceAssets/Mixamo/Clips_Colon'
 
-# (asset base / mesh / clip prefix, display name, source character FBX)
+# (asset base / mesh / clip prefix, source character FBX)
 CHARACTERS = [
-    ('SK_Uriel',      'Uriel_A_Plotexia.fbx'),
-    ('SK_Erika',      'Erika_Archer.fbx'),
-    ('SK_Medea',      'Medea_By_M._Arrebola.fbx'),
-    ('SK_Captain',    'Pirate_By_P._Konstantinov.fbx'),
-    ('SK_Dreyar',     'Dreyar_By_M.Aure.fbx'),
-    ('SK_Nightshade', 'Nightshade_J_Friedrich.fbx'),
-    ('SK_Peasant',    'Peasant_Girl.fbx'),
-    ('SK_Granny',     'Sporty_Granny.fbx'),
+    ('SK_Amy',      'Amy.fbx'),
+    ('SK_Michelle', 'Michelle.fbx'),
+    ('SK_Sophie',   'Sophie.fbx'),
+    ('SK_Kate',     'Kate.fbx'),
+    ('SK_James',    'James.fbx'),
+    ('SK_Adam',     'Adam.fbx'),
+    ('SK_Brian',    'Brian.fbx'),
+    ('SK_Alex',     'Alex.fbx'),
 ]
+
+# Old roster packages removed from /Game/Actor before import.
+OBSOLETE = ['SK_Uriel', 'SK_Medea', 'SK_Captain', 'SK_Dreyar', 'SK_Nightshade',
+            'SK_Peasant', 'SK_Granny', 'SK_Scout', 'SK_Soldier']
 
 # (source clip FBX, LoadPerson suffix)
 CLIPS = [
@@ -201,6 +208,10 @@ def _import_clips(base, clip_prefix, skeleton):
 
 
 def main():
+    for base in OBSOLETE:
+        _delete_folder('/Game/Actor/' + base)
+        print('DELETED_%s' % base)
+
     for base, fbx in CHARACTERS:
         # Mesh + skeleton were imported on the first pass; reuse them and only
         # (re)import the clips (fast) unless the mesh is missing.
@@ -214,6 +225,14 @@ def main():
         if skeleton is None:
             u.log_error('import_avatar_fbx: %s has no skeleton' % base)
             continue
+        # Sanity: report the imported mesh bounds so scale problems are visible
+        # in the log (expect a ~150-200 unit tall human in Mixamo cm).
+        mesh = u.load_asset('/Game/Actor/%s/SkeletalMeshes/%s' % (base, base))
+        if mesh is not None and isinstance(mesh, u.SkeletalMesh):
+            b = mesh.get_bounds()
+            ext = b.box_extent
+            print('BOUNDS_%s extent=(%.1f, %.1f, %.1f) height=%.1f'
+                  % (base, ext.x, ext.y, ext.z, ext.z * 2.0))
         clips = _import_clips(base, base, skeleton)
         u.log('import_avatar_fbx: %s done (%d clips)' % (base, len(clips)))
         print('CHARACTER_%s clips=%d' % (base, len(clips)))

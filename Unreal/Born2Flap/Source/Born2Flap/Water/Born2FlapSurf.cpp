@@ -17,8 +17,13 @@ namespace
     // read as churning white water instead of a static mesh. Returns [-1,1].
     inline double FoamTurb(double X, double Y, double T, double Seed)
     {
-        return 0.65*FMath::Sin(X*0.021+Seed*1.3+T*1.1)*FMath::Sin(Y*0.031+Seed*2.7-T*0.7)
-             + 0.35*FMath::Sin(X*0.047+Seed*3.1-T*1.6)*FMath::Sin(Y*0.061+Seed*4.2+T*1.2);
+        // Low-frequency domain warp: the X terms are tuned to wavelengths of
+        // several hundred cm so they roll smoothly across the 100 cm columns
+        // instead of flipping sign every column (the old ~134 cm / ~300 cm terms
+        // painted hard shore-orthogonal "ribs" onto the crest). The Y terms stay
+        // shorter so the wash still churns cross-shore.
+        return 0.65*FMath::Sin(X*0.008+Seed*1.3+T*0.6)*FMath::Sin(Y*0.018+Seed*2.7-T*0.5)
+             + 0.35*FMath::Sin(X*0.016+Seed*3.1-T*0.9)*FMath::Sin(Y*0.031+Seed*4.2+T*0.7);
     }
 }
 
@@ -105,19 +110,22 @@ void ABorn2FlapSurf::Tick(float Dt)
         MistFX->SetWorldLocation(FVector(CX,MistY,MistZ));
     }
     Vertices.Reset();Normals.Reset();UV.Reset();Colors.Reset();
-    constexpr int NX=110, NY=24;
+    // Doubled along-shore tessellation (200 cm -> 100 cm columns) and more
+    // cross-shore rows erase the coarse vertical facets that read as hard
+    // "ribs" on the foam crest, so the surf shades as one continuous curl.
+    constexpr int NX=220, NY=28;
     for(int Wave=0;Wave<3;++Wave)
     for(int Kind=0;Kind<2;++Kind)
     for(int I=0;I<=NX;++I)
     {
-        const double X=CX-11000+I*200;
+        const double X=CX-11000+I*100;
         const double Front=Born2FlapSurf::Front(X,Time,Wave);
         const double Shore=Born2FlapSurf::Shore(X);
         const double Growth=(1-FMath::SmoothStep(3400.,6100.,Front));
         const double Collapse=FMath::SmoothStep(-250.,950.,Front);
         // Undulating crest: waves travel along the shore and rise/fall in time.
         const double H=(100+25*FMath::Sin(X*.0011+Wave)+18*FMath::Sin(X*.0023+Time*.8+Wave*2.1)
-            +14*FoamTurb(X,Shore+Front,Time,Wave*3.7))*Growth*Collapse*Strength;
+            +6*FoamTurb(X,Shore+Front,Time,Wave*3.7))*Growth*Collapse*Strength;
         const double Curl=(1-FMath::SmoothStep(1600.,3000.,Front))*Collapse;
         // Broad rounded fade at the strip ends — organic, not square-cut.
         // Smootherstep over a wider run softens the wash into rounded lobes
@@ -200,8 +208,11 @@ void ABorn2FlapSurf::Tick(float Dt)
     {
         if(N.IsNearlyZero()) { N=FVector::UpVector; continue; }
         N.Normalize();
-        N.Z=FMath::Max(N.Z, 0.35);
-        N.Normalize();
+        // Gentle upward lift instead of a hard clamp: the old max(N.Z,0.35) froze
+        // every steep face at the same flat normal, which banded the curl into
+        // vertical light/dark stripes. Blending toward up keeps the under-curl
+        // slightly darker (readable form) but with a smooth continuous gradient.
+        N = (N + FVector(0.0, 0.0, 0.45)).GetSafeNormal();
     }
     if(!bCreated) Mesh->CreateMeshSection_LinearColor(0,Vertices,Triangles,Normals,UV,Colors,{},false);
     else Mesh->UpdateMeshSection_LinearColor(0,Vertices,Normals,UV,Colors,{});

@@ -36,6 +36,7 @@ public:
     bool ReadExternalForce(double* Force) const;
     bool ReadRollBalance(double* Values) const;
     bool SetMassFrame(double CgX, double PitchInertia, double YawInertia) const;
+    bool SetWingCamberBias(double LeftFraction, double RightFraction) const;
     bool TransportAirfields(const FVector& RotationVector) const;
     bool SetStripWind(const double* Left, const double* Right) const;
     bool ReadMassProperties(double CgX, B2F_MassProperties& Out) const;
@@ -90,6 +91,8 @@ private:
     GetTailIncidenceFn GetExternalForce = nullptr;
     using SetMassFrameFn = int32_t (*)(B2F_MathContext*, double, double, double);
     SetMassFrameFn SetMassFrameHook = nullptr;
+    using SetWingCamberBiasFn = int32_t (*)(B2F_MathContext*, double, double);
+    SetWingCamberBiasFn SetWingCamberBiasHook = nullptr;
     GetTailFieldsFn GetTailFields = nullptr;
     SetStripWindFn SetStripWindHook = nullptr;
     TransportAirfieldsFn TransportAirfieldsHook = nullptr;

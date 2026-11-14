@@ -2,8 +2,11 @@
 MeshPartition pipeline (the WOSHI-verified route).
 
 Deterministic (seed 221022, identical to create_yunsha_map.py). The native
-dune sampler (Born2FlapYunsha.ground_height + sand_relief) stays the source of
-truth for flight and gameplay collision; ONE continuous MeshPartition base
+dune sampler (Born2FlapYunsha.ground_height) stays the source of truth for
+flight and gameplay collision — it already bakes the wind relief, so the mesh
+adds NOTHING on top (the retired extra sand_relief add doubled the relief and
+detached the visible surface from the collision/flight height). ONE continuous
+MeshPartition base
 surface replaces the retired 6x6 dune tile field. The excavation pit is
 expressed as a MeshPartition Boolean carve (the old pipeline skipped tile
 triangles there), and the lake shore/excavation get local remesh modifiers.
@@ -31,6 +34,11 @@ from yunsha_escarpment import noise as erosion_noise
 from project_guard import require_project
 from terrain_backend import make_backend
 
+# This experimental route replaces the playable world, not just its material.
+# Require an explicit opt-in before any assets are changed.
+import os
+if os.environ.get('B2F_ALLOW_YUNSHA_MP_OVERWRITE') != '1':
+    raise RuntimeError('YUNSHA MeshPartition overwrite is disabled. Use Tools/generate_maps.py --maps yunsha --force for the supported terrain repair. See docs/yunsha-terrain-repair.md. Experimental overwrite requires B2F_ALLOW_YUNSHA_MP_OVERWRITE=1.')
 require_project()
 A = u.AssetToolsHelpers.get_asset_tools()
 E = u.EditorAssetLibrary

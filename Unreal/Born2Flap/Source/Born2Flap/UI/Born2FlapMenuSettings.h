@@ -20,6 +20,8 @@ namespace born2flap {
 struct FMenuSettings
 {
     B2F_TuningConfig Tuning{};
+    float LeftWingCamberBiasPercent = 0.25f;
+    float RightWingCamberBiasPercent = 0.25f;
     FMenuSettings()
     {
         // Defaults mirror ABorn2FlapFlightPawn's constructor (reference kestrel:
