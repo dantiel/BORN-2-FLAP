@@ -554,7 +554,6 @@ stepStripPreparedMotion station aspectRatio implicitLoads _phaseRate _flapping s
       alphaRate = atan2 (sin alphaDelta) (cos alphaDelta) / dt
       reynolds = planarSpeed * chord / 1.48e-5
       stallAngle = radians (clamp 10 18 (16 - 1.4 * logBase 10 (max 1 (150000 / reynolds))))
-      dynamicDelay = clamp (-0.16) 0.16 (0.018 * alphaRate * signum alphaEff)
       target = stallOnset dt chordVelocity normalVelocity planarSpeed (stripPreviousAlpha old) camberPrev chord
       -- Stall hysteresis: separation sets in fast (0.045 s), but reattachment
       -- is deliberately slower so a passing gust doesn't chatter the flow.
