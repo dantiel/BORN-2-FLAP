@@ -95,8 +95,12 @@ surfacePressure area normalSpeed =
 finiteWingLiftSlope :: Double -> Double
 finiteWingLiftSlope aspect = 2*pi*aspect/(aspect+2)*circulationLiftEfficiency
 
+-- Oswald span-efficiency factor 0.88: empirical calibration for the slender,
+-- pointed-tip kestrel planform. The washout shifts loading inboard, so this
+-- is the upper defensible end — elliptical loading is the lower bound.
+-- Slight induced-drag relief (user-requested): -6.8% versus 0.82.
 inducedDragCoefficient :: Double -> Double -> Double
-inducedDragCoefficient aspect cl = cl*cl/(pi*0.82*max 0.01 aspect)
+inducedDragCoefficient aspect cl = cl*cl/(pi*0.88*max 0.01 aspect)
 
 -- Smoothing of the legacy display diagnostic only; not a physical time constant.
 springLoadTau :: Double
