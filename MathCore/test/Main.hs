@@ -339,19 +339,32 @@ main = do
     then pure () else fail "symmetry, passive dissipation and internal end-stop momentum must hold"
   if servoDriveTorque defaultServoSpec defaultBatterySpec 0 dt 40 0 j defaultServoState 1 == 0
     then pure () else fail "empty battery must supply no motor torque"
-  -- If roll and hinge motion cancel in world space, the wing sees the same
-  -- air velocity (including compensation for translation of the high root).
-  let wingInput=VehicleInput dt (Vec3 8 0 0) zero 0 0 0 0 1000 (Vec3 0 0 1)
-      sumForce=foldr (addVec . resultForce) zero
-      steady=sumForce (wingLoadsWithStroke False 1 0 0 0 wingInput kestrelModel 0 initialStrips)
-      counter=sumForce (wingLoadsWithStroke False 1 0 (-1) 0
-                 (wingInput {bodyRatesRadS=Vec3 1 0 0,bodyVelocityMS=Vec3 8 wingRootHeight 0}) kestrelModel 0 initialStrips)
+  -- Active feathering: the recovery stroke aligns with its COMMANDED stroke
+  -- path (alpha = featherAngle(stroke) + flow angle). The body roll must NOT
+  -- enter the feather term — incidental roll-induced flow is left for the
+  -- loaded wing to resist, and that resistance is the roll-damping channel.
+  -- Assert the exact per-strip alpha decomposition across stroke AND roll
+  -- sweeps, so a roll-coupled feather (the measured ~4x roll-damping
+  -- collapse) fails here.
+  let dot (Vec3 a b c) (Vec3 d e f) = a*d + b*e + c*f
+      wingInput=VehicleInput dt (Vec3 8 0 0) zero 0 0 0 0 1000 (Vec3 0 0 1)
+      radiusOf i = wsShoulderM (wmWing kestrelModel) + wsSpanM (wmWing kestrelModel)
+                   * spanFraction (shapeStationsAt (wmWing kestrelModel) stripCount !! i)
+      decompose strokeR rollR =
+        [ let (_,chordAxis,_,normal,sectionVel,_) = resultFrame r
+              chordVel = dot chordAxis sectionVel
+              normalVel = dot normal sectionVel
+              expected = featherAngle (radiusOf i * strokeR) chordVel + atan2 (-normalVel) chordVel
+          in abs (stripPreviousAlpha (resultState r) - expected)
+        | (i,r) <- zip [0..] (wingLoadsWithStroke False 1 0 strokeR 0
+                     (wingInput {bodyRatesRadS=Vec3 rollR 0 0}) kestrelModel 0 initialStrips) ]
       falling=wingInput {bodyVelocityMS=Vec3 8 0 (-1)}
+      sumForce=foldr (addVec . resultForce) zero
       before=sumForce (wingLoadsWithStroke True 1 0 (-1e-8) (-0.1) falling kestrelModel 0 initialStrips)
       after=sumForce (wingLoadsWithStroke True 1 0 1e-8 (-0.1) falling kestrelModel 0 initialStrips)
-  if magnitude (addVec steady (scaleVec (-1) counter)) < 1e-8
+  if all (< 1e-9) [e | strokeR <- [0, 0.4, -0.4], rollR <- [-1, 0, 1], e <- decompose strokeR rollR]
      && magnitude (addVec before (scaleVec (-1) after)) < 1e-6
-    then pure () else fail "world-stationary wing flow and continuous implicit reversal loads must hold"
+    then pure () else fail "feather alpha must be keyed to the commanded stroke (roll-free) and reversal loads must stay continuous"
   let loadedStrip = emptyStrip { stripSpringLoad = 1 }
       strip moment = StripResult loadedStrip (Vec3 0 0 1) moment (Vec3 0 0 1) 0 0 0 (zeroVec,zeroVec,zeroVec,zeroVec,zeroVec,zeroVec)
       leftTorque = hingeTorque (-1) [strip (Vec3 (-2) 90 0)]
