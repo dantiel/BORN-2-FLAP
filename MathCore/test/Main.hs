@@ -25,6 +25,32 @@ import Born2Flap.Math.ResponsePhase
 
 main :: IO ()
 main = do
+  -- Renderer contract: Kestrel shoulders are at z=2 cm. Changing mount height
+  -- translates a force's moment by delta-r cross F, without changing the
+  -- aerodynamic force or its hinge-relative velocity in uniform body flow.
+  let low = kestrelModel
+      high = low {wmWing=(wmWing low) {wsRootHeightM=0.04}}
+      mountFlow = VehicleInput (1/240) (Vec3 8 0 0) zeroVec 0 0 0 0 1000 (Vec3 0 0 1)
+      mountLoads model side = wingLoadsWithStroke True side 0.3 (-2) (-2) mountFlow model 0 initialStrips
+      mountPair a b =
+        let forceError=addVec (resultForce a) (scaleVec (-1) (resultForce b))
+            momentDelta=addVec (resultMoment a) (scaleVec (-1) (resultMoment b))
+            expected=crossVec (Vec3 0 0 (-0.02)) (resultForce a)
+        in magnitude forceError<1e-10 && magnitude (addVec momentDelta (scaleVec (-1) expected))<1e-10
+  if wsRootHeightM (wmWing low)==0.02 &&
+     and [and (zipWith mountPair (mountLoads low side) (mountLoads high side)) | side<-[-1,1]]
+    then pure () else fail "wing mount must match the renderer and preserve the force translation identity"
+  -- Independent AVL 3.52 fan reference (12 chord / 96 span panels), alpha=3
+  -- degrees. A low-AR approximation is not exact for this polygon: allow 12%
+  -- error, including sideways flow. The former high-AR slope missed by 16-20%.
+  let fanReference bearing reference =
+        let a=3*pi/180; b=bearing*pi/180
+            fields=kestrelTailLoads 0 (Vec3 (8*cos a*cos b) (8*cos a*sin b) (-8*sin a)) zeroVec
+            area=sum [w | (w,_,_)<-tailSamples]
+            measured=sum [vz(tfLift f) | f<-fields]/(0.5*airDensity*64*area*cos a)
+        in abs(measured/reference-1)<0.12
+  if and [fanReference bearing ref | (bearing,ref)<-[(0,0.12128),(15,0.11571),(30,0.10561),(60,0.11402),(90,0.09267)]]
+    then pure () else fail "finite fan lift slope must agree with the independent attached-flow reference"
   -- Independent Fourier quadrature of the actual parabolic mean line used
   -- by the membrane mesh. The old pi/2 moment constant failed this reference.
   let thinAirfoil m =
@@ -988,7 +1014,7 @@ main = do
         let r = head (wingLoadsWithStroke True side stroke (2*side*stroke) (2*side*stroke)
                         stillInput model 0 flatState)
             (pos,_,_,_,_,v) = resultFrame r
-            hinge = Vec3 0 0 wingRootHeight
+            hinge = Vec3 0 0 (wsRootHeightM (wmWing model))
             axis = Vec3 (cos (radians (wsMountAngleDeg (wmWing model))))
                         (side * sin (radians (wsMountAngleDeg (wmWing model)))) 0
             rel = addVec pos (scaleVec (-1) hinge)

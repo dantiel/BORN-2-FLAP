@@ -61,12 +61,13 @@ kestrelModel = WingModel "kestrel" kestrelMembraneWing flightSpars 0.050
   where
     -- Effective skin/brace calibration (not measured carbon material values).
     -- Increase load-dependent bending without lengthening the carbon rods.
-    -- User-requested modest increase in passive twist: 6.3 rather than 7
-    -- gives 11.1% greater STATIC compliance under the same load. Actual dynamic
-    -- twist, lift and thrust must be measured; stiffness is identical on
-    -- both wings and does not change with commanded stroke phase.
+    -- User-requested further increase in passive twist: 4.2 gives +14.3%
+    -- static compliance over 4.8. More load-proportional washout redirects
+    -- the high-flap-speed stream: the tilted section normal turns broadside
+    -- pressure forward (thrust) and shrinks its vertical component (less
+    -- pitch momentum), and alpha settles closer to zero on both strokes.
     -- Bending siBendScale stays 3.6.
-    flightSpars = kestrelSpars { siBendScale = 3.6, siTwistScale = 6.3 }
+    flightSpars = kestrelSpars { siBendScale = 3.6, siTwistScale = 4.2 }
 
 -- Matches the current native KestrelMeshScale and KestrelScale. Shoulder
 -- placement remains (3, +/-1, 4) cm; it is not scaled by the renderer.
@@ -78,7 +79,7 @@ kestrelGeometryScale = 0.55
 
 kestrelMembraneWing :: WingShape
 kestrelMembraneWing = defaultBirdWing
-  { wsSpanM=kestrelGeometryScale, wsShoulderM=0.01,
+  { wsSpanM=kestrelGeometryScale, wsShoulderM=0.01, wsRootHeightM=0.02,
     wsStations=zipWith at [0..] outline }
   where
     outline = [(8.9537,-38.3238),(1.8829,-35.2478),(0.4742,-34.5084),

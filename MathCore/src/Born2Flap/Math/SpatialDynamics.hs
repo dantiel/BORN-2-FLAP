@@ -58,7 +58,7 @@ spatialSystem model mass cg (ix,iy,iz) density (left,right) velocity (Vec3 gx gy
         let product a b=[map (sum . zipWith (*) weighted) b | row<-a,let weighted=multiply cov row]
         in add (product rates rows) (product rows rates)
       wing side angle =
-        let s=sin angle;c=cos angle;h=0.04
+        let s=sin angle;c=cos angle;h=wsRootHeightM wp
             z=[0,0,0];one=[1,0,0]
             joint a = if side<0 then [a,z] else [z,a]
             jx=[one,z,z,z,[h,s,0],[0,-side*c,0]]++joint z

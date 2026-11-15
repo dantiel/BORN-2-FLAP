@@ -226,7 +226,10 @@ addedAirGain = 1.0
 -- external moment transmitted to the hinge; a dynamic spring would need its
 -- own inertia and stored-energy state to account for that exchange.
 hingeTorque :: Double -> [StripResult] -> Double
-hingeTorque side = (* side) . sum . map (\r -> (x (resultMoment r) + wingRootHeight * y (resultForce r)))
+hingeTorque = hingeTorqueAt wingRootHeight
+
+hingeTorqueAt :: Double -> Double -> [StripResult] -> Double
+hingeTorqueAt height side = (* side) . sum . map (\r -> (x (resultMoment r) + height * y (resultForce r)))
 
 
 advanceFirmwareVehicle
@@ -342,7 +345,7 @@ advanceFirmwareVehicle totalMass hostInertia coupled rc params servo battery mod
                 forceAt = addVec wingF (addVec bodyF tailF)
                 torqueAt = Vec3 (sum (zipWith (\l r -> x (resultMoment l) + x (resultMoment r)) ls rs)
                                 + x tailM + x bodyM)
-                            (hingeTorque (-1) ls) (hingeTorque 1 rs)
+                            (hingeTorqueAt (wsRootHeightM (wmWing model)) (-1) ls) (hingeTorqueAt (wsRootHeightM (wmWing model)) 1 rs)
                 jointLoad = addVec torqueAt (Vec3 0 (spatialGravity!!6) (spatialGravity!!7))
             in (jointLoad,forceAt,wingsM,fuseM)
           (aero0,_,_,_) = aeroAt bodyRates zeroVec (trial initial)
@@ -364,7 +367,7 @@ advanceFirmwareVehicle totalMass hostInertia coupled rc params servo battery mod
                 spatialDelta = [dvx,dvy,dvz,p-x bodyRates,q-y bodyRates,s-z bodyRates,l-y oldRates,r-z oldRates]
                 applied = components forceAt
                   ++ (x momentCg : [y momentCg, z momentCg])
-                  ++ [hingeTorque (-1) ls+driveL+drag (y aero0) l,hingeTorque 1 rs+driveR+drag (z aero0) r]
+                  ++ [hingeTorqueAt (wsRootHeightM (wmWing model)) (-1) ls+driveL+drag (y aero0) l,hingeTorqueAt (wsRootHeightM (wmWing model)) 1 rs+driveR+drag (z aero0) r]
                 net = zipWith (-) (zipWith (+) applied spatialGravity) spatialBias
                 spatialImpulse = zipWith (-) (multiply wingPlaneMass spatialDelta) (map (*dt) net)
                 e = zipWith (/) spatialImpulse [wingPlaneMass!!i!!i | i<-[0..7]]
@@ -414,8 +417,8 @@ advanceFirmwareVehicle totalMass hostInertia coupled rc params servo battery mod
           wingResults = leftResults ++ rightResults
 
           -- 4. Generalized torque conjugate to each wing's flap coordinate.
-          leftHinge = hingeTorque (-1) leftResults
-          rightHinge = hingeTorque 1 rightResults
+          leftHinge = hingeTorqueAt (wsRootHeightM (wmWing model)) (-1) leftResults
+          rightHinge = hingeTorqueAt (wsRootHeightM (wmWing model)) 1 rightResults
 
           -- 5. Assemble full-vehicle forces (wings + body drag + tail).
           --    Every control moment is a force acting at a physical lever arm.
@@ -674,7 +677,13 @@ kestrelTailLoads incidenceDeg velocity rates = map at tailSamples
           aspect = width*width/area
           t = max 0 (min 1 ((abs alpha-radians 13)/radians 7))
           separation = t*t*(3-2*t)
-          cl = (1-separation)*max (-1.9) (min 1.9 (finiteWingLiftSlope aspect*alpha))
+          -- The compact fan has low aspect ratio in either flow direction.
+          -- Use Helmbold's lifting-surface denominator, 2+sqrt(4+AR^2),
+          -- instead of the higher-AR lifting-line approximation AR+2.
+          -- Preserve the existing section efficiency, without fitting a gain
+          -- to the desired handling. Compare against the independent AVL fan.
+          fanSlope = finiteWingLiftSlope aspect * (aspect+2)/(2+sqrt(4+aspect*aspect))
+          cl = (1-separation)*max (-1.9) (min 1.9 (fanSlope*alpha))
           q = 0.5*airDensity*patchArea*speed*speed
           lift = scaleVec (q*cl/max 1e-9 speed)
                    (addVec (scaleVec tangentSpeed normal) (scaleVec (-normalSpeed) tangent))

@@ -104,7 +104,7 @@ sectionTwistLever frac =
   let f = clamp01 frac
       t = clamp01 ((f - 0.15) / 0.45)
       s = t * t * (3.0 - 2.0 * t)   -- smoothstep inboard → outboard
-  in 0.02 + 0.02 * s
+  in 0.02 + 0.028 * s
 
 -- | Section pitching-moment coefficient about the LEADING-EDGE elastic axis
 -- (the twist axis), not the quarter-chord AC. It is the camber/reflex AC moment

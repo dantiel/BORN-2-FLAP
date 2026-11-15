@@ -55,6 +55,7 @@ import Born2Flap.Math.Structure
 -- stations from root (fraction 0) to tip (fraction 1).
 data WingShape = WingShape
   { wsSpanM     :: !Double          -- ^ half-span (spanwise extent) [m]
+  , wsRootHeightM :: !Double        -- ^ shoulder height above the body origin [m]
   , wsShoulderM :: !Double          -- ^ shoulder distance: wing-root hinge offset from body centreline [m]
   , wsMountAngleDeg :: !Double      -- ^ horizontal servo mount angle: yaw of the flap-hinge axis [deg], set per wing pair
   , wsArmAngleDeg   :: !Double      -- ^ horizontal servo-arm angle: LE carbon-spar rotation at the arm, compensating the mount [deg]
@@ -100,6 +101,7 @@ data SpanStation = SpanStation
 defaultBirdWing :: WingShape
 defaultBirdWing = WingShape
   { wsSpanM = 0.55
+  , wsRootHeightM = 0.04
   , wsShoulderM = 0.0127  -- 1.27 cm shoulder: parallel-flapping ornithopter flies best with almost no shoulder width
   , wsMountAngleDeg = 0   -- parallel flapping: flap hinge unyawed (pure dihedral)
   , wsArmAngleDeg = 0     -- no spar compensation needed when the mount is unyawed

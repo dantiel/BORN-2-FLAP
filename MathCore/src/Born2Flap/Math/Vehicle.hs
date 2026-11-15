@@ -368,10 +368,10 @@ stepCoupledWing flapping side stroke rate phaseRate commonRate input model incid
       results=transportSeparation side input wp raw
   in (results,map resultState results)
 
--- High wing / low centre of mass. The side-force lever contributes natural
--- lateral stability; it is not an attitude-dependent restoring torque.
+-- Reference Kestrel height for legacy diagnostic callers. Production geometry
+-- reads the selected wing's mount height, shared with mass and hinge dynamics.
 wingRootHeight :: Double
-wingRootHeight = 0.04
+wingRootHeight = wsRootHeightM (wmWing kestrelModel)
 
 stepStrip :: Bool -> Double -> Bool -> Double -> Double -> VehicleInput -> Double -> WingShape -> Int -> StripState -> Double -> Double -> Double -> StripResult
 stepStrip implicitLoads phaseRate flapping side stroke input incidenceRad wp index old rollRate rate common =
@@ -460,7 +460,8 @@ stepStripPreparedMotion station aspectRatio implicitLoads _phaseRate _flapping s
       -- rotated about the yawed hinge axis, then the elastic bend offset along
       -- the stroke-rotated normal.
       !spanRest = rotateX (side * spanDihed station) (Vec3 (-sin sweep0) (side * cos sweep0) 0)
-      !leadingEdge = addVec (Vec3 0 0 wingRootHeight)
+      !rootHeight = wsRootHeightM wp
+      !leadingEdge = addVec (Vec3 0 0 rootHeight)
                      (addVec (rotateAxis u hingeAxis
                                (addVec (scaleVec (-spanLeadX station) (Vec3 1 0 0))
                                        (scaleVec radius spanRest)))
@@ -481,7 +482,7 @@ stepStripPreparedMotion station aspectRatio implicitLoads _phaseRate _flapping s
       -- generalized torque about the hinge, with no free lift or grip.
   in \rates deltaVelocity strokeRate _commonRate ->
   let flapVelocity = scaleVec (side * strokeRate)
-                       (crossVec hingeAxis (addVec position (Vec3 0 0 (-wingRootHeight))))
+                       (crossVec hingeAxis (addVec position (Vec3 0 0 (-rootHeight))))
       bendAngleRate = stripBendSlopeRate old / (1+bendSlope*bendSlope)
       bendAxis = rotateAxis u hingeAxis (Vec3 side 0 0)
       bendRotationVelocity = scaleVec bendAngleRate
