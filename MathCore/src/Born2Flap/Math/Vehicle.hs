@@ -16,6 +16,10 @@ module Born2Flap.Math.Vehicle
   , airDensity
   , surfaceSkinCd
   , surfacePressure
+  , surfacePressureCp
+  , stalledPressureBoost
+  , surfacePressureWith
+  , stallOnset
   , finiteWingLiftSlope
   , inducedDragCoefficient
   , emptyStrip
@@ -68,7 +72,15 @@ surfaceSkinCd = 0.012
 
 -- Flat-plate normal-pressure coefficient for wings and ruddervators.
 surfacePressureCp :: Double
-surfacePressureCp = 2.0
+surfacePressureCp = 2.5
+
+-- | Extra broadside resistance a separated (stalled) wing presents: the
+-- effective flat-plate coefficient ramps from 'surfacePressureCp' when the
+-- flow is attached up to 'surfacePressureCp * (1 + stalledPressureBoost)'
+-- when fully stalled. A separated or reversed wing is a bluff body, not a
+-- smooth airfoil, and must present full flat-plate resistance at once.
+stalledPressureBoost :: Double
+stalledPressureBoost = 0.8
 
 -- Kinematic viscosity of air at 15 °C [m²/s] and the Stokes creeping-flow
 -- plate constant (≈4π for a thin strip normal to the flow). Together they
@@ -85,12 +97,33 @@ surfaceStokesPlateCd = 4 * pi
 -- linear term. No artificial minimum-speed floor: a surface at rest in still
 -- air produces no force, and vanishingly slow motion meets only true viscous
 -- drag. @sqrt area@ is the reference chord scale (exact per strip, panel-scale
--- for the fixed fan).
-surfacePressure :: Double -> Double -> Double
-surfacePressure area normalSpeed =
+-- for the fixed fan). @pressureCp@ is the flat-plate coefficient: wings pass a
+-- stall-boosted value, rigid panels the plain 'surfacePressureCp'.
+surfacePressureWith :: Double -> Double -> Double -> Double
+surfacePressureWith pressureCp area normalSpeed =
   -0.5 * airDensity * area * normalSpeed
-    * (surfacePressureCp * abs normalSpeed
+    * (pressureCp * abs normalSpeed
        + 2 * surfaceStokesPlateCd * airKinematicViscosity / max 1e-9 (sqrt area))
+
+surfacePressure :: Double -> Double -> Double
+surfacePressure = surfacePressureWith surfacePressureCp
+
+-- | Instantaneous stall onset (0 = attached, 1 = fully separated) for one wing
+-- section: the smooth blend of |alphaEff| across the Reynolds-dependent stall
+-- angle, with a dynamic delay on alpha rate. This is the single source of
+-- truth shared by the separation relaxation and the stall-boosted broadside
+-- pressure, so the chord-quadrature audit and tests reconstruct the identical
+-- threshold from raw kinematics. @prevAlpha@/@camber@ are the strip's previous
+-- alpha and camber state.
+stallOnset :: Double -> Double -> Double -> Double -> Double -> Double -> Double -> Double
+stallOnset dt chordVelocity normalVelocity planarSpeed prevAlpha camber chord =
+  let alpha = atan2 (-normalVelocity) chordVelocity
+      alphaEff = alpha - zeroLiftAngle camber
+      alphaRate = atan2 (sin (alpha - prevAlpha)) (cos (alpha - prevAlpha)) / dt
+      reynolds = planarSpeed * chord / airKinematicViscosity
+      stallAngle = radians (clamp 10 18 (16 - 1.4 * logBase 10 (max 1 (150000 / reynolds))))
+      dynamicDelay = clamp (-0.16) 0.16 (0.018 * alphaRate * signum alphaEff)
+  in smoothStep (stallAngle - radians 3) (stallAngle + radians 4) (abs alphaEff - dynamicDelay)
 
 finiteWingLiftSlope :: Double -> Double
 finiteWingLiftSlope aspect = 2*pi*aspect/(aspect+2)*circulationLiftEfficiency
@@ -106,20 +139,25 @@ inducedDragCoefficient aspect cl = cl*cl/(pi*0.88*max 0.01 aspect)
 springLoadTau :: Double
 springLoadTau = 0.05
 
--- | Fraction of critical damping for the elastic bend/twist modes. Lowering
--- this makes the aeroelastic spring oscillate more visibly after a load step
--- (a livelier "bounce") without fully undamping the structure.
+-- | Fraction of critical damping for the elastic bend/twist modes. The spar
+-- is CARBON, not glass fibre: 0.08 keeps the recoil crisp and near-lossless,
+-- so the stored stroke energy returns almost entirely as snap-back. 0.12 read
+-- slightly viscous; glass-fibre hysteresis would sit nearer 0.2. Raising this
+-- dulls the spring-back; the modes must stay underdamped.
 structuralDampingRatio :: Double
-structuralDampingRatio = 0.12
+structuralDampingRatio = 0.08
 
 -- | Rotational (Kramer) lift coefficient: the extra circulation a section gains
 -- when it pitches about its span axis. Flat-plate theory gives pi*(3/4-x0) times
 -- (c*pitchRate)/V, i.e. ~2.36 for a leading-edge pivot and ~0.785 for a mid-chord
 -- pivot (the classic pi/4). The aeroelastic twist pivots about the LE spar, so
--- 0.785 is the conservative lower bound — the previous 0.20 was a ~4x-de-tuned
--- calibration, not a measured value.
+-- the LE-pivot bound applies. 1.6 stays below that bound but well above the
+-- mid-chord value: the load-driven nose-up twist of the DOWNSTROKE now converts
+-- into visibly more lift (the pitch-up bite), and the snap-back at reversal
+-- feathers the upstroke through the same term. Symmetric in the polar, so
+-- glide (near-zero section pitch rates) is unaffected.
 rotationalLiftCoefficient :: Double
-rotationalLiftCoefficient = 1.0
+rotationalLiftCoefficient = 1.6
 
 -- | Strength 0..1 of ground effect at a strip height @h@ above the surface,
 -- normalised by the total wingspan @b@. 1 on the deck, ~0.08 by one span, so
@@ -515,8 +553,7 @@ stepStripPreparedMotion station aspectRatio implicitLoads _phaseRate _flapping s
       reynolds = planarSpeed * chord / 1.48e-5
       stallAngle = radians (clamp 10 18 (16 - 1.4 * logBase 10 (max 1 (150000 / reynolds))))
       dynamicDelay = clamp (-0.16) 0.16 (0.018 * alphaRate * signum alphaEff)
-      target = smoothStep (stallAngle - radians 3) (stallAngle + radians 4)
-                (abs alphaEff - dynamicDelay)
+      target = stallOnset dt chordVelocity normalVelocity planarSpeed (stripPreviousAlpha old) camberPrev chord
       -- Stall hysteresis: separation sets in fast (0.045 s), but reattachment
       -- is deliberately slower so a passing gust doesn't chatter the flow.
       -- 0.090 s, however, made a brief stall LINGER through several flap cycles:
@@ -606,9 +643,14 @@ stepStripPreparedMotion station aspectRatio implicitLoads _phaseRate _flapping s
       pressureAt (s,w) =
         let offset=scaleVec ((0.25-s)*chord) chordAxis
             localVelocity=addVec sectionVelocity (crossVec sectionOmega offset)
+            -- A separated wing is a bluff body: ramp the flat-plate coefficient
+            -- with the INSTANTANEOUS stall onset (not the lagged forceSeparation)
+            -- so a freshly stalled or reversed strip presents full resistance at
+            -- once, independent of the separation hysteresis memory.
+            stallCp=surfacePressureCp*(1+stalledPressureBoost*target)
             -- Quadrature weights integrate the traction; they must not change
             -- the physical strip length used by its low-Re pressure law.
-            localForce=scaleVec (w*surfacePressure area (dot localVelocity normal)) normal
+            localForce=scaleVec (w*surfacePressureWith stallCp area (dot localVelocity normal)) normal
         in (localForce,crossVec offset localForce)
       pressureGradient=chord*dot (crossVec sectionOmega chordAxis) normal
       pressureZero=0.25+normalVelocity/pressureGradient

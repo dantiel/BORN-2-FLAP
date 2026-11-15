@@ -925,10 +925,19 @@ main = do
                   chord=shapeChord (wmWing kestrelModel) ((fromIntegral i+0.5)/fromIntegral stripCount)
                   area=chord*wsSpanM(wmWing kestrelModel)/fromIntegral stripCount
                   omega=addVec (Vec3 (side*rate) bodyPitch 0) (scaleVec (-side*twistRate) s)
+                  -- Reconstruct the SAME stall-boosted broadside coefficient the
+                  -- strip used (quarter-chord onset, uniform across the chord),
+                  -- so the independent fine integration matches the strip's
+                  -- Gauss quadrature on an identical pressure law.
+                  cv=dotV velocity c
+                  nv=dotV velocity normal
+                  planarSpeed=sqrt(cv*cv+nv*nv)
+                  onset=stallOnset (stepSeconds input) cv nv planarSpeed 0 0 chord
+                  stallCp=surfacePressureCp*(1+stalledPressureBoost*onset)
                   n=2000::Int
                   panels=[let offset=scaleVec ((0.25-(fromIntegral j+0.5)/fromIntegral n)*chord) c
                               v=addVec velocity (crossVec omega offset)
-                              f=scaleVec (surfacePressure area (dotV v normal)/fromIntegral n) normal
+                              f=scaleVec (surfacePressureWith stallCp area (dotV v normal)/fromIntegral n) normal
                           in (f,crossVec offset f,dotV f v) | j<-[0..n-1]]
                   referenceF=foldr (addVec . (\(f,_,_)->f)) zeroVec panels
                   referenceM=foldr (addVec . (\(_,m,_)->m)) zeroVec panels
