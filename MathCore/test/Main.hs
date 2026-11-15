@@ -864,23 +864,31 @@ main = do
       flatModel=kestrelModel {wmWing=flatWing}
       flatState=replicate stripCount emptyStrip
       dotV a b=x a*x b+y a*y b+z a*z b
-      checkAero (angle,rate,incidence,vzAir) =
+      checkPassive (angle,rate,incidence,vzAir) =
         let input=flow {bodyVelocityMS=Vec3 8 0 vzAir, groundClearanceM=1000}
             loads=wingLoadsWithStroke True 1 angle rate rate input flatModel incidence flatState
-            mirror=wingLoadsWithStroke True 1 (-angle) (-rate) (-rate)
-                      (input {bodyVelocityMS=Vec3 8 0 (-vzAir)}) flatModel (-incidence) flatState
-            checkStrip (i,r) =
+        in all (\ (i,r) ->
               let f=(fromIntegral i+0.5)/fromIntegral stripCount
                   radius=wsShoulderM flatWing+wsSpanM flatWing*f
                   chord=shapeChord flatWing f
                   c=Vec3 (cos incidence) (-sin incidence*sin angle) (sin incidence*cos angle)
                   p=addVec (Vec3 0 (radius*cos angle) (radius*sin angle)) (scaleVec (-0.25*chord) c)
                   velocity=addVec (bodyVelocityMS input) (crossVec (Vec3 rate 0 0) p)
-              in dotV (resultForce r) velocity <= 1e-8
+              in dotV (resultForce r) velocity <= 1e-8)
+            (zip [0::Int ..] loads)
+      -- Phase-selected feathering deliberately breaks up/down stroke
+      -- symmetry (upstroke sheds load at negative alpha), so exact inverted-
+      -- geometry reflection holds only where the feather channel is
+      -- quiescent: zero stroke rate (glide / held dihedral).
+      checkReflect (angle,incidence,vzAir) =
+        let input=flow {bodyVelocityMS=Vec3 8 0 vzAir, groundClearanceM=1000}
+            loads=wingLoadsWithStroke True 1 angle 0 0 input flatModel incidence flatState
+            mirror=wingLoadsWithStroke True 1 (-angle) 0 0
+                      (input {bodyVelocityMS=Vec3 8 0 (-vzAir)}) flatModel (-incidence) flatState
             f=summed loads; g=summed mirror
-        in all checkStrip (zip [0::Int ..] loads)
-           && magnitude (addVec f (Vec3 (-x g) (-y g) (z g))) < 1e-7
-  if all checkAero [(a,r,i,v) | a<-[-0.6,0,0.6],r<-[-8,0,8],i<-[-0.25,0,0.25],v<-[-2,0,2]]
+        in magnitude (addVec f (Vec3 (-x g) (-y g) (z g))) < 1e-7
+  if all checkPassive [(a,r,i,v) | a<-[-0.6,0,0.6],r<-[-8,0,8],i<-[-0.25,0,0.25],v<-[-2,0,2]]
+     && all checkReflect [(a,i,v) | a<-[-0.6,0,0.6],i<-[-0.25,0,0.25],v<-[-2,0,2]]
     then pure () else fail "surface forces must dissipate relative-flow energy and reflect for inverted geometry"
   -- A banked section in the correspondingly rotated apparent wind must
   -- produce the rotated force, including its lateral component. This checks
@@ -1041,14 +1049,20 @@ main = do
   if all (\r -> all (\target -> torqueAt r target*r <= stallLimit*speedLimit/4+1e-9) [-80,0,80])
          (map (*speedLimit) [-2,-1,-0.75,-0.5,0,0.5,0.75,1,2])
     then pure () else fail "servo mechanical power must respect torque-speed envelope"
+  -- Left/right wing reflection with unsteady stall/structural history.
+  -- Phase-selected feathering makes the up/down stroke deliberately
+  -- asymmetric (that asymmetry IS flapping propulsion), so an upside-down
+  -- (XY) mirror of a stroking wing is not a symmetry. The mirror that must
+  -- hold exactly is the XZ mirror: the bird's two wings stroking in phase
+  -- exchange only the lateral force sign. Stall, LEV and structural history
+  -- evolve mirrored and must stay mirrored at every step.
   let mirroredStep (left,right,err) i =
         let t=fromIntegral i/240; a=0.4*cos (4*pi*t); rate= -1.6*pi*sin (4*pi*t)
             v=flow {bodyVelocityMS=Vec3 6 0 (-0.5),groundClearanceM=1000}
             (ls,ln)=stepCoupledWing True 1 a rate rate 0 v flatModel 0.1 left
-            (rs,rn)=stepCoupledWing True 1 (-a) (-rate) (-rate) 0
-                      (v {bodyVelocityMS=Vec3 6 0 0.5}) flatModel (-0.1) right
+            (rs,rn)=stepCoupledWing True (-1) a rate rate 0 v flatModel 0.1 right
             f=summed ls; g=summed rs
-        in (ln,rn,max err (magnitude (addVec f (Vec3 (-x g) (-y g) (z g)))))
+        in (ln,rn,max err (magnitude (addVec f (Vec3 (-x g) (y g) (-z g)))))
       (_,_,reflectionError)=foldl mirroredStep (flatState,flatState,0) [1..480::Int]
   if reflectionError < 1e-7 then pure ()
     else fail ("unsteady stall and structural history break inverted reflection: "++show reflectionError)

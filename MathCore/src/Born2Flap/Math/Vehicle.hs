@@ -546,9 +546,25 @@ stepStripPreparedMotion station aspectRatio implicitLoads _phaseRate _flapping s
       planarSpeed = sqrt (chordVelocity * chordVelocity + normalVelocity * normalVelocity)
       safeSpeed = max 1.0e-6 planarSpeed
       -- Incidence, rest twist and load-driven elastic twist are already in
-      -- the section frame. No phase-selected feathering or recovery assistance:
-      -- the same relative flow and polar act in either stroke direction.
-      alpha = atan2 (-normalVelocity) chordVelocity
+      -- the section frame. Phase-selected passive feathering of the recovery
+      -- stroke: on the upstroke the section sheds the flap-induced inflow and
+      -- rotates PAST zero incidence by overfeather, presenting a slightly
+      -- NEGATIVE alpha (inverted airfoil) to the relative wind — the recovery
+      -- stroke then pushes thrust instead of eating broadside drag, and the
+      -- reversed (nose-up) load drives the hand-wing wash-in a real bird
+      -- shows. The downstroke keeps 85% stall-onset compliance so the power
+      -- stroke stays attached near stall onset instead of the rigid-plate
+      -- 90° stall. The envelope is keyed to the WORLD stroke rate (hinge rate
+      -- + body-roll sweep compensation), so a wing held world-stationary by
+      -- an opposite roll sees no feathering — the channel is Galilean, not
+      -- hinge-local. It ramps smoothly across the stroke reversal so the
+      -- implicit residual stays continuous at worldStrokeRate = 0.
+      worldStrokeRate = strokeRate + side * vx rates
+      sweepNormal = radius * worldStrokeRate
+      inflow = atan2 sweepNormal (max 1.0e-6 (abs chordVelocity))
+      upEnv = smoothStep 0 0.5 sweepNormal
+      feather = (0.85 + 0.15 * upEnv) * inflow - upEnv * radians 3
+      alpha = feather + atan2 (-normalVelocity) chordVelocity
       alphaEff = alpha - zeroLiftAngle camberPrev
       alphaDelta = alpha - stripPreviousAlpha old
       alphaRate = atan2 (sin alphaDelta) (cos alphaDelta) / dt

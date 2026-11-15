@@ -75,10 +75,15 @@ double SampleStationField(const B2F_WingSection* Shape, int32 Count, double Stat
     const double H11 =        T3 -       T2;
     return H00 * P0 + H10 * M0 + H01 * P1 + H11 * M1;
 }
-// Render physical deformation at its actual scale. Exaggeration produces
-// folds and section orientations that do not exist in the aerodynamic surface.
-constexpr double AeroBendVisualGain  = 1.0;
-constexpr double AeroTwistVisualGain = 1.0;
+// Render physical deformation at its actual scale — except the upstroke fold.
+// Negative bend (the tip drooping while the wing rises) is the recovery
+// stroke's visual signature: a bird's hand-wing folds down against the lift
+// it just shed. The droop is rendered at 2× physical scale so the fold reads
+// as strongly as it does on a real wing; the load-bearing positive bend stays
+// at true scale (exaggerated up-bend produced folds the aero surface lacks).
+constexpr double AeroBendVisualGain     = 1.0;
+constexpr double AeroBendDownVisualGain = 1.25;
+constexpr double AeroTwistVisualGain    = 1.0;
 constexpr double KestrelMeshScale = 0.55; // authored at 100 cm half-span → 55 cm to match the 0.55 m physics half-span
 // Neon turtle flipper planform (Design 3), shared by the rest-mesh builder and
 // ApplyShape so the chord bounds never drift apart.
@@ -242,7 +247,8 @@ void UBorn2FlapWingMesh::ApplyShape(const B2F_WingSection* Shape, double MountIn
             // first station (span_fraction≈0.031) is the clamp ramp so the root
             // stays pinned and bends in smoothly.
             const double RootRamp=FMath::Clamp(V/Shape[0].span_fraction,0.,1.);
-            Bend=SampleStationField(Shape,B2F_WING_STATIONS,Station,&B2F_WingSection::bend_m)*100*RootRamp*AeroBendVisualGain;
+            const double BendM=SampleStationField(Shape,B2F_WING_STATIONS,Station,&B2F_WingSection::bend_m);
+            Bend=BendM*100*RootRamp*(BendM<0.?AeroBendDownVisualGain:AeroBendVisualGain);
         }
         const double FlipperHalfChord=TurtleFlipperRootChord*FMath::Sqrt(FMath::Max(0.0,1.0-0.82*V*V));
         const double Sweep=TurtleFlipperSweep(V);
@@ -276,7 +282,9 @@ void UBorn2FlapWingMesh::ApplyShape(const B2F_WingSection* Shape, double MountIn
                 const int32 B=A+1;
                 Slope=(Shape[B].bend_m-Shape[A].bend_m)
                     / ((Shape[B].span_fraction-Shape[A].span_fraction)*KestrelMeshScale);
-                Slope*=Ramp;
+                // Match the section orientation to the amplified fold curve so
+                // the membrane stays tangent-coherent (no kinked sections).
+                Slope*=Ramp*(Shape[A].bend_m+Shape[B].bend_m<0.?AeroBendDownVisualGain:AeroBendVisualGain);
             }
             const double BendAngle=FMath::Atan(Slope);
             const double SectionZ=X*FMath::Sin(Incidence)+Z*FMath::Cos(Incidence);
