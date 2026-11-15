@@ -51,6 +51,15 @@ main = do
         in abs(measured/reference-1)<0.12
   if and [fanReference bearing ref | (bearing,ref)<-[(0,0.12128),(15,0.11571),(30,0.10561),(60,0.11402),(90,0.09267)]]
     then pure () else fail "finite fan lift slope must agree with the independent attached-flow reference"
+  -- The same independent AVL case reports Cm=-0.03710 (Cref=1 m).
+  -- Body +Y is nose-down, opposite AVL's reported pitch sign. The old
+  -- area-centroid application exceeded this moment by more than 10%.
+  let fanAlpha=3*pi/180
+      referenceFields=kestrelTailLoads 0 (Vec3 (8*cos fanAlpha) 0 (-8*sin fanAlpha)) zeroVec
+      fanMomentCoefficient=sum [vy(tfMoment f) | f<-referenceFields] /
+        (0.5*airDensity*64*sum [a | (a,_,_)<-tailSamples])
+  if abs(fanMomentCoefficient/0.03710-1)<0.08
+    then pure () else fail ("tail pitching lever must agree with independent AVL moment: "++show fanMomentCoefficient)
   -- Independent Fourier quadrature of the actual parabolic mean line used
   -- by the membrane mesh. The old pi/2 moment constant failed this reference.
   let thinAirfoil m =
@@ -203,11 +212,12 @@ main = do
   -- The real fixed fan sees the full local relative flow at every patch.
   let tailForce f=addVec (tfLift f) (addVec (tfPressure f) (tfDrag f))
       tailCase incidence velocity rates = all (\f ->
-        abs(dotVector (tfLift f) (tfVelocity f))<1e-10 &&
-        dotVector (tfDrag f) (tfVelocity f)<=1e-10 &&
+        -- Lift and induced drag act at the quarter chord; pressure/skin at
+        -- the area point. Include the resulting couple in local wrench power.
+        dotVector (tailForce f) (tfVelocity f) +
+          dotVector (addVec (tfMoment f) (scaleVec (-1) (crossVec (tfPosition f) (tailForce f)))) rates<=1e-10 &&
         dotVector (tfPressure f) (tfVelocity f)<=1e-10 &&
-        magnitude(addVec (tfVelocity f) (scaleVec (-1) (addVec velocity (crossVec rates (tfPosition f)))))<1e-12 &&
-        magnitude(addVec (tfMoment f) (scaleVec (-1) (crossVec (tfPosition f) (tailForce f))))<1e-12)
+        magnitude(addVec (tfVelocity f) (scaleVec (-1) (addVec velocity (crossVec rates (tfPosition f)))))<1e-12)
         (kestrelTailLoads incidence velocity rates)
       fanLoad incidence=foldr (addVec . tailForce) zeroVec (kestrelTailLoads incidence (Vec3 8 0 0) zeroVec)
       fanMoment incidence=foldr (addVec . tfMoment) zeroVec (kestrelTailLoads incidence (Vec3 8 0 0) zeroVec)
@@ -343,7 +353,7 @@ main = do
      && magnitude (addVec before (scaleVec (-1) after)) < 1e-6
     then pure () else fail "world-stationary wing flow and continuous implicit reversal loads must hold"
   let loadedStrip = emptyStrip { stripSpringLoad = 1 }
-      strip moment = StripResult loadedStrip (Vec3 0 0 1) moment 0 0 0 (zeroVec,zeroVec,zeroVec,zeroVec,zeroVec,zeroVec)
+      strip moment = StripResult loadedStrip (Vec3 0 0 1) moment (Vec3 0 0 1) 0 0 0 (zeroVec,zeroVec,zeroVec,zeroVec,zeroVec,zeroVec)
       leftTorque = hingeTorque (-1) [strip (Vec3 (-2) 90 0)]
       rightTorque = hingeTorque 1 [strip (Vec3 2 90 0)]
       wingI = shapeFlapInertia referenceWingMassKg airDensity defaultBirdWing
@@ -351,9 +361,9 @@ main = do
     else fail "mirrored flap hinges must project signed X torque, ignoring pitch torque"
   -- Internal compliance cannot erase the external moment at the hinge.
   let unloadedStrip = emptyStrip { stripSpringLoad = 0 }
-      easedTorque = hingeTorque (-1) [StripResult unloadedStrip (Vec3 0 0 1) (Vec3 (-2) 90 0) 0 0 0 (zeroVec,zeroVec,zeroVec,zeroVec,zeroVec,zeroVec)]
+      easedTorque = hingeTorque (-1) [StripResult unloadedStrip (Vec3 0 0 1) (Vec3 (-2) 90 0) (Vec3 0 0 1) 0 0 0 (zeroVec,zeroVec,zeroVec,zeroVec,zeroVec,zeroVec)]
       twistedStrip = emptyStrip { stripSpringLoad = 0, stripTwistAero = -0.2 }
-      twistedTorque = hingeTorque (-1) [StripResult twistedStrip (Vec3 0 0 1) (Vec3 (-2) 90 0) 0 0 0 (zeroVec,zeroVec,zeroVec,zeroVec,zeroVec,zeroVec)]
+      twistedTorque = hingeTorque (-1) [StripResult twistedStrip (Vec3 0 0 1) (Vec3 (-2) 90 0) (Vec3 0 0 1) 0 0 0 (zeroVec,zeroVec,zeroVec,zeroVec,zeroVec,zeroVec)]
   if easedTorque == 2 && twistedTorque == 2 then pure ()
     else fail "elastic geometry must not discount an unchanged external hinge moment"
   let fwStep dt vel s = stepFirmwareVehicle True defaultRcChannels defaultFirmwareParams
@@ -925,19 +935,10 @@ main = do
                   chord=shapeChord (wmWing kestrelModel) ((fromIntegral i+0.5)/fromIntegral stripCount)
                   area=chord*wsSpanM(wmWing kestrelModel)/fromIntegral stripCount
                   omega=addVec (Vec3 (side*rate) bodyPitch 0) (scaleVec (-side*twistRate) s)
-                  -- Reconstruct the SAME stall-boosted broadside coefficient the
-                  -- strip used (quarter-chord onset, uniform across the chord),
-                  -- so the independent fine integration matches the strip's
-                  -- Gauss quadrature on an identical pressure law.
-                  cv=dotV velocity c
-                  nv=dotV velocity normal
-                  planarSpeed=sqrt(cv*cv+nv*nv)
-                  onset=stallOnset (stepSeconds input) cv nv planarSpeed 0 0 chord
-                  stallCp=surfacePressureCp*(1+stalledPressureBoost*onset)
                   n=2000::Int
                   panels=[let offset=scaleVec ((0.25-(fromIntegral j+0.5)/fromIntegral n)*chord) c
                               v=addVec velocity (crossVec omega offset)
-                              f=scaleVec (surfacePressureWith stallCp area (dotV v normal)/fromIntegral n) normal
+                              f=scaleVec (surfacePressure area (dotV v normal)/fromIntegral n) normal
                           in (f,crossVec offset f,dotV f v) | j<-[0..n-1]]
                   referenceF=foldr (addVec . (\(f,_,_)->f)) zeroVec panels
                   referenceM=foldr (addVec . (\(_,m,_)->m)) zeroVec panels

@@ -32,7 +32,7 @@ import Born2Flap.Math.SpatialDynamics (spatialSystem, tailFluidInertia, multiply
 import Born2Flap.Math.Model (WingModel(..), withWingCamberBias)
 import Born2Flap.Math.Airframe (airframeMasses, tailRootX, tailOutline, tailSamples)
 import Born2Flap.Math.Planform
-  ( shapeFlapInertia, referenceWingMassKg, shapeChord, WingShape(..) )
+  ( shapeFlapInertia, referenceWingMassKg, shapeChord, shapeAspectRatio, WingShape(..) )
 import Born2Flap.Math.Simulation
 import Born2Flap.Math.Waveform (OscillatorState(..), limiarFromFerocities)
 import Born2Flap.Math.PhaseEnvelope
@@ -41,7 +41,7 @@ import Born2Flap.Math.Vehicle
   ( VehicleInput(..), VehicleOutput(..)
   , StripState(..), StripResult(..), initialStrips
   , WingSystem(..), prepareWingSystem, wingRootHeight, airDensity, surfaceSkinCd, surfacePressure
-  , finiteWingLiftSlope, inducedDragCoefficient
+  , finiteWingLiftSlope, rollLiftSlopeRatio, inducedDragCoefficient
   , addVec, crossVec, scaleVec, magnitude, zeroVec, radians )
 
 data FirmwareVehicleState = FirmwareVehicleState
@@ -231,6 +231,34 @@ hingeTorque = hingeTorqueAt wingRootHeight
 hingeTorqueAt :: Double -> Double -> [StripResult] -> Double
 hingeTorqueAt height side = (* side) . sum . map (\r -> (x (resultMoment r) + height * y (resultForce r)))
 
+-- | Rescale the anti-symmetric (roll/dihedral) circulation lift to its own
+-- slope. The strip solver charges every strip's lift through the symmetric 3D
+-- Helmbold slope, but the anti-symmetric channel (opposite circulation on the
+-- two wings) has its mutual trailing-vortex downwash cancelled, so it responds
+-- at the higher 'rollLiftSlope'. Decompose the two wings' lift at each span
+-- station into mirror-symmetric and mirror-odd parts and rescale only the odd
+-- part. This is Galilean-invariant because it acts on the NET lift, not on how
+-- the flow was composed. Pressure and drag are untouched; only the lift force
+-- and its lever moment change.
+rescaleRollLift :: Double -> ([StripResult],[StripResult]) -> ([StripResult],[StripResult])
+rescaleRollLift ratio (ls,rs) = (map fst pairs, map snd pairs)
+  where
+    pairs = zipWith split ls rs
+    mirror (Vec3 fx fy fz) = Vec3 fx (-fy) fz
+    framePos (pos,_,_,_,_,_) = pos
+    gain = 0.5 * (ratio - 1)
+    split l r =
+      let lLift = resultLift l
+          rLift = resultLift r
+          lAnti = scaleVec gain (addVec lLift (scaleVec (-1) (mirror rLift)))
+          rAnti = scaleVec gain (addVec rLift (scaleVec (-1) (mirror lLift)))
+          posL = framePos (resultFrame l)
+          posR = framePos (resultFrame r)
+      in ( l { resultForce = addVec (resultForce l) lAnti
+             , resultMoment = addVec (resultMoment l) (crossVec posL lAnti) }
+         , r { resultForce = addVec (resultForce r) rAnti
+             , resultMoment = addVec (resultMoment r) (crossVec posR rAnti) } )
+
 
 advanceFirmwareVehicle
   :: Double -> Double -> Bool -> RcChannels -> FirmwareParams -> ServoSpec -> BatterySpec -> WingModel
@@ -244,6 +272,10 @@ advanceFirmwareVehicle totalMass hostInertia coupled rc params servo battery mod
           -- solve, never a decoupled legacy fixture.
           (cgX,pitchInertia,yawInertia) = maybe (0,hostInertia,hostInertia) id (fvMassFrame state)
           cg = Vec3 cgX 0 0
+          -- Anti-symmetric lift slope ratio (roll/dihedral channel) for this
+          -- planform: the factor by which the strip solver's roll lift is
+          -- rescaled to use the downwash-free anti-symmetric slope.
+          rollRatio = rollLiftSlopeRatio (shapeAspectRatio (wmWing model))
           -- Body orientation is the root coordinate; both shoulders articulate
           -- relative to it. There is no additional wing-plane/fuselage pendulum
           -- coordinate. Body, tail and wings share the spatial mass matrix;
@@ -334,18 +366,19 @@ advanceFirmwareVehicle totalMass hostInertia coupled rc params servo battery mod
           -- tail see the body's own angular rates (no separate hang DOF).
           wingPlaneMass = spatialMass
           aeroAt candidateBodyRates deltaVelocity (ls,rs) =
-            let fuselageRates = candidateBodyRates
+            let (ls',rs') = rescaleRollLift rollRatio (ls,rs)
+                fuselageRates = candidateBodyRates
                 (bodyF,bodyM) = bodyLoadsAt fuselageRates deltaVelocity
                 tailPanels = panelsAt fuselageRates deltaVelocity
                 tailF = foldr (addVec . fst) zeroVec tailPanels
                 tailM = foldr (addVec . snd) zeroVec tailPanels
-                wingF = foldr (addVec . resultForce) zeroVec (ls++rs)
-                wingsM = foldr (addVec . resultMoment) zeroVec (ls++rs)
+                wingF = foldr (addVec . resultForce) zeroVec (ls'++rs')
+                wingsM = foldr (addVec . resultMoment) zeroVec (ls'++rs')
                 fuseM = addVec bodyM tailM
                 forceAt = addVec wingF (addVec bodyF tailF)
-                torqueAt = Vec3 (sum (zipWith (\l r -> x (resultMoment l) + x (resultMoment r)) ls rs)
+                torqueAt = Vec3 (sum (zipWith (\l r -> x (resultMoment l) + x (resultMoment r)) ls' rs')
                                 + x tailM + x bodyM)
-                            (hingeTorqueAt (wsRootHeightM (wmWing model)) (-1) ls) (hingeTorqueAt (wsRootHeightM (wmWing model)) 1 rs)
+                            (hingeTorqueAt (wsRootHeightM (wmWing model)) (-1) ls') (hingeTorqueAt (wsRootHeightM (wmWing model)) 1 rs')
                 jointLoad = addVec torqueAt (Vec3 0 (spatialGravity!!6) (spatialGravity!!7))
             in (jointLoad,forceAt,wingsM,fuseM)
           (aero0,_,_,_) = aeroAt bodyRates zeroVec (trial initial)
@@ -659,14 +692,31 @@ kestrelTailLoads incidenceDeg velocity rates = map at tailSamples
     at (patchArea,px,py) =
       let position = point px py
           flow = addVec velocity (crossVec rates position)
+          -- Broadside pressure acts at the area quadrature point. Attached
+          -- circulation acts at the quarter chord of the local streamwise
+          -- slice, not at that area's centroid. Locate that point on the real
+          -- polygon, including sideways/reverse flow, and sample its velocity.
+          pressureNormalSpeed = dot flow normal
+          sliceFlow = addVec flow (scaleVec (-pressureNormalSpeed) normal)
+          sliceSpeed = magnitude sliceFlow
+          sliceTangent = if sliceSpeed>1e-9 then scaleVec (1/sliceSpeed) sliceFlow else Vec3 ci 0 si
+          sliceSpan = crossVec normal sliceTangent
+          sliceY = dot position sliceSpan
+          cuts = [dot a sliceTangent + f*dot (addVec b (scaleVec (-1) a)) sliceTangent
+                 | (a,b)<-zip outline (drop 1 outline++take 1 outline),
+                   let ya=dot a sliceSpan, let dy=dot b sliceSpan-ya,
+                   abs dy>1e-12, let f=(sliceY-ya)/dy, f>=0, f<=1]
+          acX = if null cuts then dot position sliceTangent else 0.75*maximum cuts+0.25*minimum cuts
+          liftPosition = addVec position (scaleVec (acX-dot position sliceTangent) sliceTangent)
+          liftFlow = addVec velocity (crossVec rates liftPosition)
           -- A finite fan is a lifting surface in ANY in-plane flow direction.
           -- Dropping body-Y velocity spuriously stalls/unloads it in a slip.
           -- Resolve flow against the physical surface, not the body XZ plane.
-          normalSpeed = dot flow normal
-          tangentFlow = addVec flow (scaleVec (-normalSpeed) normal)
+          normalSpeed = dot liftFlow normal
+          tangentFlow = addVec liftFlow (scaleVec (-normalSpeed) normal)
           tangentSpeed = magnitude tangentFlow
           tangent = if tangentSpeed>1e-9 then scaleVec (1/tangentSpeed) tangentFlow else Vec3 ci 0 si
-          speed = magnitude flow
+          speed = magnitude liftFlow
           alpha = atan2 (-normalSpeed) tangentSpeed
           -- Project the real polygon perpendicular to the in-plane flow.
           -- At zero sideslip this is the original span^2/area; at 90 degrees
@@ -687,11 +737,16 @@ kestrelTailLoads incidenceDeg velocity rates = map at tailSamples
           q = 0.5*airDensity*patchArea*speed*speed
           lift = scaleVec (q*cl/max 1e-9 speed)
                    (addVec (scaleVec tangentSpeed normal) (scaleVec (-normalSpeed) tangent))
-          pressure = scaleVec (surfacePressure patchArea normalSpeed) normal
-          cd = surfaceSkinCd + inducedDragCoefficient aspect cl
-          drag = scaleVec (-0.5*airDensity*patchArea*speed*cd) flow
-          force = addVec lift (addVec pressure drag)
-      in TailField position normal flow lift pressure drag (crossVec position force)
+          pressure = scaleVec (surfacePressure patchArea pressureNormalSpeed) normal
+          induced = scaleVec (-0.5*airDensity*patchArea*speed*inducedDragCoefficient aspect cl) liftFlow
+          skin = scaleVec (-0.5*airDensity*patchArea*magnitude flow*surfaceSkinCd) flow
+          drag = addVec induced skin
+          -- Preserve the ABI's area reference point and transmit the physical
+          -- couple from the displaced circulation force. Moment is no longer
+          -- just r_area cross totalForce. Wrench power includes this couple.
+          moment = addVec (crossVec position (addVec pressure skin))
+                          (crossVec liftPosition (addVec lift induced))
+      in TailField position normal flow lift pressure drag moment
 
 -- | Round lifting-body polar.
 -- lift than a flat plate (its sides/top are curved, so the Kutta condition is

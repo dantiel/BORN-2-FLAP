@@ -267,6 +267,10 @@ B2F_API int32_t b2f_math_get_external_force(B2F_MathContext* context, double* fo
 B2F_API int32_t b2f_math_set_mass_frame(B2F_MathContext* context, double cg_x_m,
     double pitch_inertia_kg_m2, double yaw_inertia_kg_m2);
 typedef struct B2F_TailField {
+    /* Area reference point and its local surface velocity. Circulation acts
+     * at the streamwise quarter chord, pressure/skin at the area point.
+     * moment_nm includes the offset-force couple: use it directly, rather
+     * than reconstructing the moment as position cross summed force. */
     double position_m[3], normal[3], air_velocity_m_s[3];
     double lift_n[3], pressure_n[3], drag_n[3], moment_nm[3];
 } B2F_TailField;

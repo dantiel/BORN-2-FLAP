@@ -61,16 +61,14 @@ kestrelModel = WingModel "kestrel" kestrelMembraneWing flightSpars 0.050
   where
     -- Effective skin/brace calibration (not measured carbon material values).
     -- Increase load-dependent bending without lengthening the carbon rods.
-    -- User-requested further increase in passive twist: 4.2 gives +14.3%
-    -- static compliance over 4.8. More load-proportional washout redirects
-    -- the high-flap-speed stream: the tilted section normal turns broadside
-    -- pressure forward (thrust) and shrinks its vertical component (less
-    -- pitch momentum), and alpha settles closer to zero on both strokes.
+    -- User-requested torsional scale 4.2: 14.3% more static compliance than
+    -- 4.8. This is a design setting, not a measured carbon material constant;
+    -- greater washout can reduce lift as well as redirect pressure forces.
     -- Bending siBendScale stays 3.6.
     flightSpars = kestrelSpars { siBendScale = 3.6, siTwistScale = 4.2 }
 
 -- Matches the current native KestrelMeshScale and KestrelScale. Shoulder
--- placement remains (3, +/-1, 4) cm; it is not scaled by the renderer.
+-- placement is (3, +/-1, 2) cm; it is not scaled by the renderer.
 -- The attached root defines zero incidence. Preserve relative washout from
 -- the template, not its old +6.5 degree root mounting offset: the actual
 -- mounting incidence is supplied separately by VerticalMountAngle.

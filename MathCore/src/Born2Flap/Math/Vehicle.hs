@@ -17,10 +17,11 @@ module Born2Flap.Math.Vehicle
   , surfaceSkinCd
   , surfacePressure
   , surfacePressureCp
-  , stalledPressureBoost
   , surfacePressureWith
   , stallOnset
   , finiteWingLiftSlope
+  , rollLiftSlope
+  , rollLiftSlopeRatio
   , inducedDragCoefficient
   , emptyStrip
   , initialStrips
@@ -72,15 +73,7 @@ surfaceSkinCd = 0.012
 
 -- Flat-plate normal-pressure coefficient for wings and ruddervators.
 surfacePressureCp :: Double
-surfacePressureCp = 2.5
-
--- | Extra broadside resistance a separated (stalled) wing presents: the
--- effective flat-plate coefficient ramps from 'surfacePressureCp' when the
--- flow is attached up to 'surfacePressureCp * (1 + stalledPressureBoost)'
--- when fully stalled. A separated or reversed wing is a bluff body, not a
--- smooth airfoil, and must present full flat-plate resistance at once.
-stalledPressureBoost :: Double
-stalledPressureBoost = 0.8
+surfacePressureCp = 2.0
 
 -- Kinematic viscosity of air at 15 °C [m²/s] and the Stokes creeping-flow
 -- plate constant (≈4π for a thin strip normal to the flow). Together they
@@ -97,8 +90,8 @@ surfaceStokesPlateCd = 4 * pi
 -- linear term. No artificial minimum-speed floor: a surface at rest in still
 -- air produces no force, and vanishingly slow motion meets only true viscous
 -- drag. @sqrt area@ is the reference chord scale (exact per strip, panel-scale
--- for the fixed fan). @pressureCp@ is the flat-plate coefficient: wings pass a
--- stall-boosted value, rigid panels the plain 'surfacePressureCp'.
+-- for the fixed fan). The same provisional broadside coefficient applies in
+-- glide and flap; it already represents separated pressure resistance.
 surfacePressureWith :: Double -> Double -> Double -> Double
 surfacePressureWith pressureCp area normalSpeed =
   -0.5 * airDensity * area * normalSpeed
@@ -111,9 +104,7 @@ surfacePressure = surfacePressureWith surfacePressureCp
 -- | Instantaneous stall onset (0 = attached, 1 = fully separated) for one wing
 -- section: the smooth blend of |alphaEff| across the Reynolds-dependent stall
 -- angle, with a dynamic delay on alpha rate. This is the single source of
--- truth shared by the separation relaxation and the stall-boosted broadside
--- pressure, so the chord-quadrature audit and tests reconstruct the identical
--- threshold from raw kinematics. @prevAlpha@/@camber@ are the strip's previous
+-- truth for the separation relaxation. @prevAlpha@/@camber@ are the strip's previous
 -- alpha and camber state.
 stallOnset :: Double -> Double -> Double -> Double -> Double -> Double -> Double -> Double
 stallOnset dt chordVelocity normalVelocity planarSpeed prevAlpha camber chord =
@@ -128,10 +119,23 @@ stallOnset dt chordVelocity normalVelocity planarSpeed prevAlpha camber chord =
 finiteWingLiftSlope :: Double -> Double
 finiteWingLiftSlope aspect = 2*pi*aspect/(aspect+2)*circulationLiftEfficiency
 
--- Oswald span-efficiency factor 0.88: empirical calibration for the slender,
--- pointed-tip kestrel planform. The washout shifts loading inboard, so this
--- is the upper defensible end — elliptical loading is the lower bound.
--- Slight induced-drag relief (user-requested): -6.8% versus 0.82.
+-- Anti-symmetric (roll/dihedral) lift slope. The finite-wing reduction above
+-- is the SYMMETRIC downwash of the whole bound-vortex sheet (both wings shed
+-- same-sign trailing vortices). In the roll/dihedral channel the two wings
+-- carry OPPOSITE circulation, so their mutual downwash cancels and the section
+-- responds at the 2D section slope, not the reduced 3D slope. This is the
+-- downwash-free end of the anti-symmetric lifting-line mode.
+rollLiftSlope :: Double
+rollLiftSlope = 2 * pi * circulationLiftEfficiency
+
+-- | Factor by which the strip solver's (3D-slope) roll/dihedral lift must be
+-- rescaled to use the anti-symmetric slope. Equal to (AR+2)/AR.
+rollLiftSlopeRatio :: Double -> Double
+rollLiftSlopeRatio aspect = rollLiftSlope / finiteWingLiftSlope aspect
+
+-- Provisional span-efficiency setting: 0.88 reduces induced drag by 6.8%
+-- relative to 0.82. This is not a measured calibration of the flapping wake.
+-- Ideal planar elliptical loading has e=1 and MINIMUM induced drag.
 inducedDragCoefficient :: Double -> Double -> Double
 inducedDragCoefficient aspect cl = cl*cl/(pi*0.88*max 0.01 aspect)
 
@@ -139,23 +143,20 @@ inducedDragCoefficient aspect cl = cl*cl/(pi*0.88*max 0.01 aspect)
 springLoadTau :: Double
 springLoadTau = 0.05
 
--- | Fraction of critical damping for the elastic bend/twist modes. The spar
--- is CARBON, not glass fibre: 0.08 keeps the recoil crisp and near-lossless,
--- so the stored stroke energy returns almost entirely as snap-back. 0.12 read
--- slightly viscous; glass-fibre hysteresis would sit nearer 0.2. Raising this
--- dulls the spring-back; the modes must stay underdamped.
+-- | Provisional fraction of critical damping for the assembled elastic modes.
+-- 0.08 is underdamped, not lossless: a free linear mode retains about 36% of
+-- its energy after one damped period. Carbon alone does not determine losses
+-- in the membrane, attachments and joints. Aerodynamic damping is separate.
 structuralDampingRatio :: Double
 structuralDampingRatio = 0.08
 
 -- | Rotational (Kramer) lift coefficient: the extra circulation a section gains
--- when it pitches about its span axis. Flat-plate theory gives pi*(3/4-x0) times
--- (c*pitchRate)/V, i.e. ~2.36 for a leading-edge pivot and ~0.785 for a mid-chord
--- pivot (the classic pi/4). The aeroelastic twist pivots about the LE spar, so
--- the LE-pivot bound applies. 1.6 stays below that bound but well above the
--- mid-chord value: the load-driven nose-up twist of the DOWNSTROKE now converts
--- into visibly more lift (the pitch-up bite), and the snap-back at reversal
--- feathers the upstroke through the same term. Symmetric in the polar, so
--- glide (near-zero section pitch rates) is unaffected.
+-- when it pitches about its span axis. This is a provisional coefficient in
+-- Cl (q=0.5*rho*V^2) convention, on top of quarter-chord apparent-flow lift.
+-- Published Crot coefficients use their own force normalization and reference
+-- translation point; a leading-edge value is not directly interchangeable.
+-- The contribution follows signed pitch rate, not stroke phase, and can
+-- decrease downstroke lift during washout. It is not a pitch-up control gain.
 rotationalLiftCoefficient :: Double
 rotationalLiftCoefficient = 1.6
 
@@ -236,6 +237,7 @@ data StripResult = StripResult
   { resultState :: ~StripState
   , resultForce :: !Vec3
   , resultMoment :: !Vec3
+  , resultLift :: !Vec3              -- ^ circulation lift force (Kutta-Joukowski), pre-drag/pre-pressure
   , resultPower :: !Double
   , resultSectionMoment :: !Double  -- ^ twist-driving moment about the LE elastic axis [N·m] (nose-up +)
   , resultBendMoment :: !Double     -- ^ moment conjugate to the local bend angle
@@ -643,14 +645,9 @@ stepStripPreparedMotion station aspectRatio implicitLoads _phaseRate _flapping s
       pressureAt (s,w) =
         let offset=scaleVec ((0.25-s)*chord) chordAxis
             localVelocity=addVec sectionVelocity (crossVec sectionOmega offset)
-            -- A separated wing is a bluff body: ramp the flat-plate coefficient
-            -- with the INSTANTANEOUS stall onset (not the lagged forceSeparation)
-            -- so a freshly stalled or reversed strip presents full resistance at
-            -- once, independent of the separation hysteresis memory.
-            stallCp=surfacePressureCp*(1+stalledPressureBoost*target)
             -- Quadrature weights integrate the traction; they must not change
             -- the physical strip length used by its low-Re pressure law.
-            localForce=scaleVec (w*surfacePressureWith stallCp area (dot localVelocity normal)) normal
+            localForce=scaleVec (w*surfacePressure area (dot localVelocity normal)) normal
         in (localForce,crossVec offset localForce)
       pressureGradient=chord*dot (crossVec sectionOmega chordAxis) normal
       pressureZero=0.25+normalVelocity/pressureGradient
@@ -717,7 +714,7 @@ stepStripPreparedMotion station aspectRatio implicitLoads _phaseRate _flapping s
                  , stripDrag = dragDiag
                  , stripMoment = moment
                  , stripAirVelocity = sectionVelocity }
- in StripResult next force moment power sectionTwistMoment sectionBendMoment (position,chordAxis,spanAxis,normal,sectionVelocity,flapVelocity)
+ in StripResult next force moment liftPart power sectionTwistMoment sectionBendMoment (position,chordAxis,spanAxis,normal,sectionVelocity,flapVelocity)
 
 transportSeparation :: Double -> VehicleInput -> WingShape -> [StripResult] -> [StripResult]
 transportSeparation _side input wp results = zipWith update [0 ..] results
