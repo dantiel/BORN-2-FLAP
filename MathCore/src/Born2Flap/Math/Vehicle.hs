@@ -19,7 +19,6 @@ module Born2Flap.Math.Vehicle
   , surfacePressureCp
   , surfacePressureWith
   , stallOnset
-  , featherAngle
   , finiteWingLiftSlope
   , rollLiftSlope
   , rollLiftSlopeRatio
@@ -119,22 +118,6 @@ stallOnset dt chordVelocity normalVelocity planarSpeed prevAlpha camber chord =
 
 finiteWingLiftSlope :: Double -> Double
 finiteWingLiftSlope aspect = 2*pi*aspect/(aspect+2)*circulationLiftEfficiency
-
--- | Phase-selected feather angle [rad] for one wing section. The commanded
--- stroke sweeps the section through the air at @sweepNormal@ (spanwise lever
--- arm x stroke rate); the section sheds that inflow — fully (plus
--- 'overfeather' past zero incidence) on the upstroke, 85% on the downstroke.
--- Keyed to the COMMANDED stroke rate, never the body roll: the recovery
--- rotation is an active wing motion, and incidental roll-induced flow is a
--- perturbation the loaded wing must resist — that resistance is the
--- roll-damping channel (a roll-coupled feather was measured to collapse
--- roll damping ~4x). Continuous at sweepNormal = 0 for the implicit Newton
--- solve.
-featherAngle :: Double -> Double -> Double
-featherAngle sweepNormal chordVelocity =
-  let inflow = atan2 sweepNormal (max 1.0e-6 (abs chordVelocity))
-      upEnv = smoothStep 0 0.5 sweepNormal
-  in (0.85 + 0.15 * upEnv) * inflow - upEnv * radians 3
 
 -- Anti-symmetric (roll/dihedral) lift slope. The finite-wing reduction above
 -- is the SYMMETRIC downwash of the whole bound-vortex sheet (both wings shed
@@ -563,25 +546,9 @@ stepStripPreparedMotion station aspectRatio implicitLoads _phaseRate _flapping s
       planarSpeed = sqrt (chordVelocity * chordVelocity + normalVelocity * normalVelocity)
       safeSpeed = max 1.0e-6 planarSpeed
       -- Incidence, rest twist and load-driven elastic twist are already in
-      -- the section frame. Phase-selected ACTIVE feathering of the recovery
-      -- stroke: on the upstroke the section sheds the flap-induced inflow and
-      -- rotates PAST zero incidence by overfeather, presenting a slightly
-      -- NEGATIVE alpha (inverted airfoil) to the relative wind — the recovery
-      -- stroke then pushes thrust instead of eating broadside drag, and the
-      -- reversed (nose-up) load drives the hand-wing wash-in a real bird
-      -- shows. The downstroke keeps 85% stall-onset compliance so the power
-      -- stroke stays attached near stall onset instead of the rigid-plate
-      -- 90° stall. The envelope is keyed to the COMMANDED stroke rate, not
-      -- the body roll: the bird actively rotates the wing on the recovery
-      -- stroke, and incidental roll-induced flow at the section is a
-      -- perturbation the loaded wing must RESIST — that resistance is the
-      -- roll-damping channel. (Keying the feather to the world stroke rate
-      -- made the wing shed the roll-induced inflow asymmetry and collapsed
-      -- measured roll damping ~4x, 0.083 -> 0.021 Nm/(rad/s).) The envelope
-      -- ramps smoothly across the stroke reversal so the implicit residual
-      -- stays continuous at strokeRate = 0.
-      feather = featherAngle (radius * strokeRate) chordVelocity
-      alpha = feather + atan2 (-normalVelocity) chordVelocity
+      -- the section frame. No phase-selected feathering or recovery assistance:
+      -- the same relative flow and polar act in either stroke direction.
+      alpha = atan2 (-normalVelocity) chordVelocity
       alphaEff = alpha - zeroLiftAngle camberPrev
       alphaDelta = alpha - stripPreviousAlpha old
       alphaRate = atan2 (sin alphaDelta) (cos alphaDelta) / dt

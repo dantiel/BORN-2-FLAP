@@ -339,32 +339,19 @@ main = do
     then pure () else fail "symmetry, passive dissipation and internal end-stop momentum must hold"
   if servoDriveTorque defaultServoSpec defaultBatterySpec 0 dt 40 0 j defaultServoState 1 == 0
     then pure () else fail "empty battery must supply no motor torque"
-  -- Active feathering: the recovery stroke aligns with its COMMANDED stroke
-  -- path (alpha = featherAngle(stroke) + flow angle). The body roll must NOT
-  -- enter the feather term — incidental roll-induced flow is left for the
-  -- loaded wing to resist, and that resistance is the roll-damping channel.
-  -- Assert the exact per-strip alpha decomposition across stroke AND roll
-  -- sweeps, so a roll-coupled feather (the measured ~4x roll-damping
-  -- collapse) fails here.
-  let dot (Vec3 a b c) (Vec3 d e f) = a*d + b*e + c*f
-      wingInput=VehicleInput dt (Vec3 8 0 0) zero 0 0 0 0 1000 (Vec3 0 0 1)
-      radiusOf i = wsShoulderM (wmWing kestrelModel) + wsSpanM (wmWing kestrelModel)
-                   * spanFraction (shapeStationsAt (wmWing kestrelModel) stripCount !! i)
-      decompose strokeR rollR =
-        [ let (_,chordAxis,_,normal,sectionVel,_) = resultFrame r
-              chordVel = dot chordAxis sectionVel
-              normalVel = dot normal sectionVel
-              expected = featherAngle (radiusOf i * strokeR) chordVel + atan2 (-normalVel) chordVel
-          in abs (stripPreviousAlpha (resultState r) - expected)
-        | (i,r) <- zip [0..] (wingLoadsWithStroke False 1 0 strokeR 0
-                     (wingInput {bodyRatesRadS=Vec3 rollR 0 0}) kestrelModel 0 initialStrips) ]
-      falling=wingInput {bodyVelocityMS=Vec3 8 0 (-1)}
+  -- If roll and hinge motion cancel in world space, the wing sees the same
+  -- air velocity (including compensation for translation of the high root).
+  let wingInput=VehicleInput dt (Vec3 8 0 0) zero 0 0 0 0 1000 (Vec3 0 0 1)
       sumForce=foldr (addVec . resultForce) zero
+      steady=sumForce (wingLoadsWithStroke False 1 0 0 0 wingInput kestrelModel 0 initialStrips)
+      counter=sumForce (wingLoadsWithStroke False 1 0 (-1) 0
+                 (wingInput {bodyRatesRadS=Vec3 1 0 0,bodyVelocityMS=Vec3 8 wingRootHeight 0}) kestrelModel 0 initialStrips)
+      falling=wingInput {bodyVelocityMS=Vec3 8 0 (-1)}
       before=sumForce (wingLoadsWithStroke True 1 0 (-1e-8) (-0.1) falling kestrelModel 0 initialStrips)
       after=sumForce (wingLoadsWithStroke True 1 0 1e-8 (-0.1) falling kestrelModel 0 initialStrips)
-  if all (< 1e-9) [e | strokeR <- [0, 0.4, -0.4], rollR <- [-1, 0, 1], e <- decompose strokeR rollR]
+  if magnitude (addVec steady (scaleVec (-1) counter)) < 1e-8
      && magnitude (addVec before (scaleVec (-1) after)) < 1e-6
-    then pure () else fail "feather alpha must be keyed to the commanded stroke (roll-free) and reversal loads must stay continuous"
+    then pure () else fail "world-stationary wing flow and continuous implicit reversal loads must hold"
   let loadedStrip = emptyStrip { stripSpringLoad = 1 }
       strip moment = StripResult loadedStrip (Vec3 0 0 1) moment (Vec3 0 0 1) 0 0 0 (zeroVec,zeroVec,zeroVec,zeroVec,zeroVec,zeroVec)
       leftTorque = hingeTorque (-1) [strip (Vec3 (-2) 90 0)]
@@ -877,31 +864,23 @@ main = do
       flatModel=kestrelModel {wmWing=flatWing}
       flatState=replicate stripCount emptyStrip
       dotV a b=x a*x b+y a*y b+z a*z b
-      checkPassive (angle,rate,incidence,vzAir) =
+      checkAero (angle,rate,incidence,vzAir) =
         let input=flow {bodyVelocityMS=Vec3 8 0 vzAir, groundClearanceM=1000}
             loads=wingLoadsWithStroke True 1 angle rate rate input flatModel incidence flatState
-        in all (\ (i,r) ->
+            mirror=wingLoadsWithStroke True 1 (-angle) (-rate) (-rate)
+                      (input {bodyVelocityMS=Vec3 8 0 (-vzAir)}) flatModel (-incidence) flatState
+            checkStrip (i,r) =
               let f=(fromIntegral i+0.5)/fromIntegral stripCount
                   radius=wsShoulderM flatWing+wsSpanM flatWing*f
                   chord=shapeChord flatWing f
                   c=Vec3 (cos incidence) (-sin incidence*sin angle) (sin incidence*cos angle)
                   p=addVec (Vec3 0 (radius*cos angle) (radius*sin angle)) (scaleVec (-0.25*chord) c)
                   velocity=addVec (bodyVelocityMS input) (crossVec (Vec3 rate 0 0) p)
-              in dotV (resultForce r) velocity <= 1e-8)
-            (zip [0::Int ..] loads)
-      -- Phase-selected feathering deliberately breaks up/down stroke
-      -- symmetry (upstroke sheds load at negative alpha), so exact inverted-
-      -- geometry reflection holds only where the feather channel is
-      -- quiescent: zero stroke rate (glide / held dihedral).
-      checkReflect (angle,incidence,vzAir) =
-        let input=flow {bodyVelocityMS=Vec3 8 0 vzAir, groundClearanceM=1000}
-            loads=wingLoadsWithStroke True 1 angle 0 0 input flatModel incidence flatState
-            mirror=wingLoadsWithStroke True 1 (-angle) 0 0
-                      (input {bodyVelocityMS=Vec3 8 0 (-vzAir)}) flatModel (-incidence) flatState
+              in dotV (resultForce r) velocity <= 1e-8
             f=summed loads; g=summed mirror
-        in magnitude (addVec f (Vec3 (-x g) (-y g) (z g))) < 1e-7
-  if all checkPassive [(a,r,i,v) | a<-[-0.6,0,0.6],r<-[-8,0,8],i<-[-0.25,0,0.25],v<-[-2,0,2]]
-     && all checkReflect [(a,i,v) | a<-[-0.6,0,0.6],i<-[-0.25,0,0.25],v<-[-2,0,2]]
+        in all checkStrip (zip [0::Int ..] loads)
+           && magnitude (addVec f (Vec3 (-x g) (-y g) (z g))) < 1e-7
+  if all checkAero [(a,r,i,v) | a<-[-0.6,0,0.6],r<-[-8,0,8],i<-[-0.25,0,0.25],v<-[-2,0,2]]
     then pure () else fail "surface forces must dissipate relative-flow energy and reflect for inverted geometry"
   -- A banked section in the correspondingly rotated apparent wind must
   -- produce the rotated force, including its lateral component. This checks
@@ -1062,20 +1041,14 @@ main = do
   if all (\r -> all (\target -> torqueAt r target*r <= stallLimit*speedLimit/4+1e-9) [-80,0,80])
          (map (*speedLimit) [-2,-1,-0.75,-0.5,0,0.5,0.75,1,2])
     then pure () else fail "servo mechanical power must respect torque-speed envelope"
-  -- Left/right wing reflection with unsteady stall/structural history.
-  -- Phase-selected feathering makes the up/down stroke deliberately
-  -- asymmetric (that asymmetry IS flapping propulsion), so an upside-down
-  -- (XY) mirror of a stroking wing is not a symmetry. The mirror that must
-  -- hold exactly is the XZ mirror: the bird's two wings stroking in phase
-  -- exchange only the lateral force sign. Stall, LEV and structural history
-  -- evolve mirrored and must stay mirrored at every step.
   let mirroredStep (left,right,err) i =
         let t=fromIntegral i/240; a=0.4*cos (4*pi*t); rate= -1.6*pi*sin (4*pi*t)
             v=flow {bodyVelocityMS=Vec3 6 0 (-0.5),groundClearanceM=1000}
             (ls,ln)=stepCoupledWing True 1 a rate rate 0 v flatModel 0.1 left
-            (rs,rn)=stepCoupledWing True (-1) a rate rate 0 v flatModel 0.1 right
+            (rs,rn)=stepCoupledWing True 1 (-a) (-rate) (-rate) 0
+                      (v {bodyVelocityMS=Vec3 6 0 0.5}) flatModel (-0.1) right
             f=summed ls; g=summed rs
-        in (ln,rn,max err (magnitude (addVec f (Vec3 (-x g) (y g) (-z g)))))
+        in (ln,rn,max err (magnitude (addVec f (Vec3 (-x g) (-y g) (z g)))))
       (_,_,reflectionError)=foldl mirroredStep (flatState,flatState,0) [1..480::Int]
   if reflectionError < 1e-7 then pure ()
     else fail ("unsteady stall and structural history break inverted reflection: "++show reflectionError)
