@@ -62,6 +62,32 @@ FORCEINLINE ETuningField FromKey(const FString& KeyString)
     return ETuningField::Count;
 }
 
+// Control-authority fields are GLOBAL (app settings → CONTROL SETTINGS), not
+// bird-specific: they are excluded from per-model persistence, from the flight
+// profiles, and from the flight desk's FIRMWARE panel.
+FORCEINLINE bool IsControlField(ETuningField Field)
+{
+    return Field == ETuningField::AileronScale || Field == ETuningField::ElevatorScale ||
+           Field == ETuningField::YawScale || Field == ETuningField::AileronSkewMix ||
+           Field == ETuningField::AileronSkewRateMix || Field == ETuningField::ElevatorFerocityMix;
+}
+
+// Actuator + pack fields shown on the flight desk's SERVO & BATTERY panel.
+FORCEINLINE bool IsServoBatteryField(ETuningField Field)
+{
+    return Field == ETuningField::ServoSpeed || Field == ETuningField::StallTorque ||
+           Field == ETuningField::Backdrive || Field == ETuningField::BatteryVoltage ||
+           Field == ETuningField::BatteryResistance || Field == ETuningField::BatteryCapacity ||
+           Field == ETuningField::BatteryCRating || Field == ETuningField::BatteryBurstCRating;
+}
+
+// Mount geometry belongs to the bird's body (BIRD panel), not the firmware.
+FORCEINLINE bool IsMountField(ETuningField Field)
+{
+    return Field == ETuningField::FlapCentre || Field == ETuningField::VerticalMountAngle ||
+           Field == ETuningField::LeftWingCamberBias || Field == ETuningField::RightWingCamberBias;
+}
+
 struct FRow
 {
     ETuningField Field;
@@ -146,11 +172,12 @@ FORCEINLINE const FRow& Row(ETuningField Field)
 FORCEINLINE B2F_TuningConfig DefaultTuningForModel(int32 Model)
 {
     B2F_TuningConfig T{};
-    // Shared reference defaults (VOTIK PTK 7465 servo, 3S 1.3 Ah 30C/60C pack).
-    T.servo_no_load_speed_deg_s = 750;
+    // Shared reference defaults (VOTIK PTK 7465 Plus servo, 2S 8.4 V full-charge
+    // 1.3 Ah 30C/60C pack — the HV servo is driven at its 8.4 V rating).
+    T.servo_no_load_speed_deg_s = 857;
     T.servo_stall_torque_nm = 1.332;
     T.servo_backdrive_deg_s_nm = 20;
-    T.battery_voltage = 11.1;
+    T.battery_voltage = 8.4;
     T.battery_resistance_ohm = 0.08;
     T.battery_capacity_ah = 1.3;
     T.battery_c_rating = 30;
@@ -163,7 +190,13 @@ FORCEINLINE B2F_TuningConfig DefaultTuningForModel(int32 Model)
     T.elevator_scale = 55;
     T.flap_centre_deg = 0;
     T.body_mass_kg = 0.050;
-    T.vertical_mount_angle_deg = 0;
+    // Positive mount incidence (nose-up about the span axis) puts the INBOARD
+    // wing at a positive effective alpha in level flight, where its large area
+    // actually produces lift and the stroke's amplitude differential drives a
+    // real thrust asymmetry. At 0 the inner half of the wing flies at negative
+    // alphaEff during the climb phase of the body bob and the downstroke lift
+    // collapses (see YawProbe RUDDER scenarios).
+    T.vertical_mount_angle_deg = 6;
     T.return_ferocity = 50;
     T.yaw_scale = 100;
     T.stroke_skew_percent = 0;
@@ -178,9 +211,8 @@ FORCEINLINE B2F_TuningConfig DefaultTuningForModel(int32 Model)
 
     switch (Model)
     {
-    case 0:  // RAVENCROW — big night hunter: stronger servo, heavier, more pitch authority.
+    case 0:  // RAVENCROW — big night hunter: stronger servo, heavier.
         T.servo_stall_torque_nm = 1.8;
-        T.elevator_scale = 65;
         T.body_mass_kg = 0.086;
         break;
     case 1:  // PROTOTYPE — training workhorse: gentle stroke, light.
@@ -213,6 +245,84 @@ FORCEINLINE float DefaultCgOffsetForModel(int32 Model)
 {
     (void)Model;
     return 0.f;   // neutral CG for every silhouette by default
+}
+
+// ── Flight profiles ────────────────────────────────────────────────────────
+// Four semantic flight characters (CRUISE / THERMAL / AEROBATIC / CALM). A
+// profile overrides the per-model factory defaults for the flight-character
+// knobs (CG, cadence, ferocity, glide trim, battery endurance) but NEVER the
+// servo (speed / stall torque / backdrive) or the servo's operating voltage —
+// so the actuator is invariant across profiles, and the battery voltage stays
+// tied to the selected servo (8.4 V for the PTK 7465 Plus). Control authority
+// (aileron/elevator/yaw scales) is global CONTROL SETTINGS state, not a
+// per-profile knob, so profiles leave it untouched as well.
+//
+// These live here (not in MenuSettings) so both the menu and the in-level
+// flight desk share one source of truth.
+
+constexpr int32 FlightProfileCount = 4;
+
+FORCEINLINE const TCHAR* FlightProfileLabel(int32 Profile)
+{
+    switch (Profile)
+    {
+    case 0: return TEXT("CRUISE");
+    case 1: return TEXT("THERMAL");
+    case 2: return TEXT("AEROBATIC");
+    case 3: return TEXT("CALM");
+    default: return TEXT("CRUISE");
+    }
+}
+
+// INI key stored per model so each silhouette remembers its own profile.
+FORCEINLINE const TCHAR* FlightProfileKey()
+{
+    return TEXT("FlightProfile");
+}
+
+struct FProfilePreset
+{
+    float CgOffsetMm;
+    float FlapBaseFreqDhz;
+    float StrokeFerocity;
+    float ReturnFerocity;
+    float GlideAngleDeg;
+    float FlapCentreDeg;
+    float BatteryCapacityAh;
+    float BatteryCRating;
+    float BatteryBurstCRating;
+};
+
+FORCEINLINE FProfilePreset ProfilePreset(int32 Profile)
+{
+    switch (Profile)
+    {
+    case 1:  // THERMAL — slow soar: forward CG, low cadence, gentle glide.
+        return { -15.f, 26.f, 42.f, 45.f,  2.f,  2.f, 1.8f, 30.f, 60.f };
+    case 2:  // AEROBATIC — fast + aggressive: aft CG, high cadence/ferocity.
+        return {  12.f, 40.f, 65.f, 60.f, -6.f, 0.f, 1.3f, 45.f, 90.f };
+    case 3:  // CALM — gentle beginner: forward CG, soft stroke.
+        return { -20.f, 24.f, 40.f, 45.f,  1.f,  3.f, 1.3f, 30.f, 60.f };
+    default: // CRUISE — balanced reference.
+        return {   0.f, 32.f, 50.f, 50.f, -4.f, 0.f, 1.3f, 30.f, 60.f };
+    }
+}
+
+// Apply a profile's flight-character defaults on top of a model's factory
+// tuning. Servo speed / torque / backdrive, battery voltage AND control
+// authority are left untouched (servo + control rates are global invariants).
+FORCEINLINE void ApplyFlightProfile(B2F_TuningConfig& T, float& CgOffsetMm, int32 Profile)
+{
+    const FProfilePreset P = ProfilePreset(Profile);
+    T.flap_base_freq_dhz = P.FlapBaseFreqDhz;
+    T.stroke_ferocity = P.StrokeFerocity;
+    T.return_ferocity = P.ReturnFerocity;
+    T.glide_angle_deg = P.GlideAngleDeg;
+    T.flap_centre_deg = P.FlapCentreDeg;
+    T.battery_capacity_ah = P.BatteryCapacityAh;
+    T.battery_c_rating = P.BatteryCRating;
+    T.battery_burst_c_rating = P.BatteryBurstCRating;
+    CgOffsetMm = P.CgOffsetMm;
 }
 
 }  // namespace born2flap::tuning

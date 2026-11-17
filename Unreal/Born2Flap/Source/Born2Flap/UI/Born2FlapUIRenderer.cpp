@@ -41,6 +41,7 @@
 #include "UObject/UObjectGlobals.h"
 #include "UI/Born2FlapWindArrow.h"
 #include "UI/Born2FlapStick.h"
+#include "UI/Born2FlapSparkline.h"
 #include "Framework/Application/SlateApplication.h"
 
 using namespace born2flap::ui;
@@ -897,6 +898,7 @@ UWidget* UBorn2FlapUIRenderer::CreateInstance(const std::string& Type)
     if (Type == "SizeBox")       return NewObject<USizeBox>(this);
     if (Type == "WindArrow")     return NewObject<UBorn2FlapWindArrow>(this);
     if (Type == "Stick")         return NewObject<UBorn2FlapStick>(this);
+    if (Type == "Sparkline")     return NewObject<UBorn2FlapSparkline>(this);
 
     UE_LOG(LogTemp, Warning, TEXT("Born2FlapUIRenderer: unknown widget type '%s'"), *T);
     return NewObject<UBorder>(this);
@@ -2175,6 +2177,20 @@ void UBorn2FlapUIRenderer::ApplyPrimitiveProps(UWidget* W, const FProps& Props)
         if (Props.count("size")) St->SetStickSize(SizeOrNum(Props.at("size"), 160.0));
         if (!ToneOf(Props).IsEmpty())
             St->SetColor(theme::Tone(ToneOf(Props), theme::INFO()));
+    }
+    else if (UBorn2FlapSparkline* Spk = Cast<UBorn2FlapSparkline>(W))
+    {
+        if (Props.count("values"))
+        {
+            TArray<float> Vals;
+            const FValue& V = Props.at("values");
+            if (V.kind == FValue::Kind::Array)
+                for (const FValue& E : V.arr) Vals.Add((float)E.AsNumber());
+            Spk->SetValues(Vals);
+        }
+        if (Props.count("size")) Spk->SetSize(FVector2D(SizeOrNum(Props.at("size"), 320.0), 72.0));
+        if (!ToneOf(Props).IsEmpty())
+            Spk->SetColor(theme::Tone(ToneOf(Props), theme::INFO()));
     }
     else if (USizeBox* SB = Cast<USizeBox>(W))
     {

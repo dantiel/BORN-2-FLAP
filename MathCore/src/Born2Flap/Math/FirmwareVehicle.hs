@@ -29,10 +29,10 @@ import Born2Flap.Math.Firmware
 import Born2Flap.Math.Servo
 import Born2Flap.Math.RollDynamics (solveImplicitSystemCached)
 import Born2Flap.Math.SpatialDynamics (spatialSystem, tailFluidInertia, multiply)
-import Born2Flap.Math.Model (WingModel(..), withWingCamberBias)
+import Born2Flap.Math.Model (WingModel(..))
 import Born2Flap.Math.Airframe (airframeMasses, tailRootX, tailOutline, tailSamples)
 import Born2Flap.Math.Planform
-  ( shapeFlapInertia, referenceWingMassKg, shapeChord, shapeAspectRatio, WingShape(..) )
+  ( referenceWingMassKg, shapeAspectRatio, WingShape(..) )
 import Born2Flap.Math.Simulation
 import Born2Flap.Math.Waveform (OscillatorState(..), limiarFromFerocities)
 import Born2Flap.Math.PhaseEnvelope
@@ -216,11 +216,6 @@ components (Vec3 a b c) = [a,b,c]
 clamp :: Ord a => a -> a -> a -> a
 clamp low high = max low . min high
 
--- Flat-plate added-air inertia. This is an inertial term, never weight
--- support or a multiplier selected by a flight mode.
-addedAirGain :: Double
-addedAirGain = 1.0
-
 -- Both positive stroke coordinates raise the wing. The left hinge axis is -X.
 -- Elastic deformation changes the surface geometry. It cannot discount the
 -- external moment transmitted to the hinge; a dynamic spring would need its
@@ -286,7 +281,7 @@ advanceFirmwareVehicle totalMass hostInertia coupled rc params servo battery mod
           -- (∝ ρ·chord²). Shared by the servo (rate acceleration) and the
           -- inertial body recoil (Newton's 3rd law).
           wingMass = referenceWingMassKg
-          wingInertia = shapeFlapInertia wingMass (airDensity * addedAirGain) (wmWing model)
+          wingInertia = wmFlapInertiaWet model
           originVelocity rates = addVec bodyVel (crossVec (addVec bodyRates (scaleVec (-1) rates)) cg)
           (mix, nextFw) = computeServoMixer coupled rc params (fvFirmware state) dt
           -- Real vertical mount angle: a direct wing incidence (nose-up +) about
@@ -294,7 +289,7 @@ advanceFirmwareVehicle totalMass hostInertia coupled rc params servo battery mod
           -- the flap-stroke-centre (dihedral) trim that shifts the stroke centre.
           mountIncidence = radians (fwVerticalMountIncidenceDeg params)
 
-          dryWingInertia = shapeFlapInertia wingMass 0 (wmWing model)
+          dryWingInertia = wmFlapInertiaDry model
           -- Relative hinge coordinates require full locked inertia on the body
           -- diagonal: E = Ib*p^2/2 + Iw*((l-p)^2+(r+p)^2)/2 (plus rotor energy).
           -- Off-diagonal recoil terms do not replace the wing diagonal terms.
@@ -341,9 +336,9 @@ advanceFirmwareVehicle totalMass hostInertia coupled rc params servo battery mod
           -- the wings' own tilted aerodynamic forces.
           (camberBiasL,camberBiasR)=fvWingCamberBias state
           leftSystem = prepareWingSystem (mixIsFlapping mix) (-1) angleL (y oldRates) input
-            (withWingCamberBias camberBiasL model) mountIncidence (fvLeftStrips state)
+            model mountIncidence camberBiasL (fvLeftStrips state)
           rightSystem = prepareWingSystem (mixIsFlapping mix) 1 angleR (z oldRates) input
-            (withWingCamberBias camberBiasR model) mountIncidence (fvRightStrips state)
+            model mountIncidence camberBiasR (fvRightStrips state)
           (vbL,vtL) = wingInitialRates leftSystem
           (vbR,vtR) = wingInitialRates rightSystem
           initial = [x oldRates,y oldRates,z oldRates,vbL,vtL,vbR,vtR,y bodyRates,z bodyRates,0,0,0]

@@ -11,6 +11,7 @@
 #include "UI/Born2FlapRadio.h"
 #include "Flight/Born2FlapFlightPawn.h"
 #include "Flight/Born2FlapTuning.h"
+#include "Flight/Born2FlapServo.h"
 #include "Avatar/Born2FlapAvatar.h"
 #include "DLC/Born2FlapDLCSubsystem.h"
 #include "Rendering/Born2FlapGraphics.h"
@@ -166,24 +167,9 @@ void SendUpdate(UBorn2FlapUIRenderer* R, const TArray<int32>& Path, FProps Props
     R->ApplyOps(MoveTemp(Ops));
 }
 
-// Servos tested for flapping (dantiel.github.io/OrniFlight servo-efficiency
-// table). Speed = 60 / s-per-60°; torque = kg·cm × 0.0980665 → N·m, then × 1.8
-// servo-power fidelity — the solver under-models a servo's effective authority,
-// so stall torque carries the ×1.8 to match measured flap authority. Backdrive
-// is not published on the table, so presets keep the simulator default (20).
-// A preset stores its nominal-voltage row (PTK 7465 Plus: 857°/s @ 7.4 V); the
-// full voltage curve incl. 8.4 V (983.6°/s) lives in MathCore Servo.hs.
-struct FServoPreset { const TCHAR* Name; float SpeedDegS; float StallTorqueNm; float Backdrive; float Voltage; };
-static const FServoPreset ServoPresets[] = {
-    { TEXT("Blue Arrow AF D43S-6.0-MG"), 1500.f, 0.31f, 20.f, 6.0f },
-    { TEXT("VOTIK PTK 7465 / 7465W MG"),   667.f, 1.01f, 20.f, 8.4f },
-    { TEXT("VOTIK PTK 7465 Plus"),         857.f, 1.32f, 20.f, 7.4f },
-    { TEXT("Blue Arrow D0576HT-MG-HV"),   1000.f, 0.74f, 20.f, 7.4f },
-    { TEXT("Inservos D0474HT-MG-HV"),      750.f, 0.63f, 20.f, 7.4f },
-    { TEXT("KST MR320"),                   750.f, 0.97f, 20.f, 7.4f },
-    { TEXT("SAVOX SV-1270TG"),             545.f, 6.17f, 20.f, 7.4f },
-};
-constexpr int32 ServoPresetCount = (int32)(sizeof(ServoPresets) / sizeof(ServoPresets[0]));
+// The servo-desk data (catalog + power curve + apply) lives in
+// Flight/Born2FlapServo.h — shared with the in-level editor and the
+// Brain-authored UMGHAML tuning editor via BuildBrainTelemetry.
 
 // Open worlds: shown one at a time in the chooser. Each carries a short fictional
 // vignette so the player can read about the place before flying there.
@@ -797,10 +783,13 @@ void ABorn2FlapMenu::BuildFlightDesk(std::vector<FNode>& Out)
 
     auto Push = [&](FNode Node_, int32 Page) { RowPage.push_back(Page); Rows.push_back(std::move(Node_)); };
 
-    // Sub-tabs: CRAFT / BIRD / SERVO / FLIGHT.
+    // Sub-tabs: BIRD / SERVO & BATTERY / FIRMWARE — the actuator and its pack
+    // share one panel, and the firmware knobs live behind their own extra
+    // panel, so neither has to be scrolled past. Control authority lives in
+    // SETTINGS → CONTROL SETTINGS (global, shared by every silhouette).
     FValue Pages; Pages.kind = FValue::Kind::Array;
-    for (const char* Page : { "CRAFT", "BIRD", "SERVO", "FLIGHT" }) Pages.arr.push_back(S(Page));
-    Push(Nd("Segment", P({ {"options", Pages}, {"value", N(SettingsPage)}, {"action", S("settings.page")}, {"tooltip", S("Choose the aircraft, tune the bird, configure the servo and battery, or trim the flight.")} })), -1);
+    for (const char* Page : { "BIRD", "SERVO & BATTERY", "FIRMWARE" }) Pages.arr.push_back(S(Page));
+    Push(Nd("Segment", P({ {"options", Pages}, {"value", N(SettingsPage)}, {"action", S("settings.page")}, {"tooltip", S("Choose and tune the bird, configure the servo and its pack, or reach the firmware knobs.")} })), -1);
 
     // A tuning row grouped into one of the desk's tabs.
     auto PushTuning = [&](ETuningField Field, int32 Page)
@@ -818,7 +807,7 @@ void ABorn2FlapMenu::BuildFlightDesk(std::vector<FNode>& Out)
         Push(Nd("Slider", std::move(Props)), Page);
     };
 
-    // ---- CRAFT (0): choose the silhouette (a dropdown, so none are cut off) ----
+    // ---- BIRD (0): choose the silhouette (a dropdown, so none are cut off) ----
     Push(Nd("TextBlock", P({ {"text", S("CHOOSE YOUR SILHOUETTE")}, {"tone", S("accent")}, {"size", S("l")} })), 0);
     {
         FValue Silhouettes; Silhouettes.kind = FValue::Kind::Array;
@@ -839,6 +828,20 @@ void ABorn2FlapMenu::BuildFlightDesk(std::vector<FNode>& Out)
         {"size", S("s")},
         {"wrap", B(true)}
     })), 0);
+
+    // ---- CRAFT (0): flight profile — four characters, servo invariant ----
+    Push(Nd("TextBlock", P({ {"text", S("FLIGHT PROFILE")}, {"tone", S("accent")}, {"size", S("l")} })), 0);
+    {
+        FValue ProfileOpts; ProfileOpts.kind = FValue::Kind::Array;
+        for (int32 P = 0; P < born2flap::tuning::FlightProfileCount; ++P)
+            ProfileOpts.arr.push_back(S(born2flap::tuning::FlightProfileLabel(P)));
+        Push(Nd("Segment", P({
+            {"options", std::move(ProfileOpts)},
+            {"value", N(Settings.FlightProfile)},
+            {"action", S("flight.profile")},
+            {"tooltip", S("CRUISE = balanced · THERMAL = slow soaring · AEROBATIC = fast + aggressive · CALM = gentle. Sets CG, cadence, ferocity, authority and glide — the servo stays the same in every profile.")}
+        })), 0);
+    }
 
     // ---- CRAFT (0): pilot avatar — on/off toggle + which person ----
     Push(Nd("TextBlock", P({ {"text", S("CHOOSE YOUR PILOT")}, {"tone", S("accent")}, {"size", S("l")} })), 0);
@@ -863,8 +866,8 @@ void ABorn2FlapMenu::BuildFlightDesk(std::vector<FNode>& Out)
         })), 0);
     }
 
-    // ---- BIRD (1): physical body properties ----
-    Push(Nd("TextBlock", P({ {"text", S("BODY")}, {"tone", S("accent")}, {"size", S("l")} })), 1);
+    // ---- BIRD (0): physical body properties ----
+    Push(Nd("TextBlock", P({ {"text", S("BODY")}, {"tone", S("accent")}, {"size", S("l")} })), 0);
     {
         FProps Props;
         Props["action"] = S("bird.weight");
@@ -875,7 +878,7 @@ void ABorn2FlapMenu::BuildFlightDesk(std::vector<FNode>& Out)
         Props["max"] = N(2000);
         Props["step"] = N(5);
         Props["unit"] = S("g");
-        Push(Nd("Slider", std::move(Props)), 1);
+        Push(Nd("Slider", std::move(Props)), 0);
     }
     {
         const float CgRange = CgRangeCm();
@@ -888,7 +891,7 @@ void ABorn2FlapMenu::BuildFlightDesk(std::vector<FNode>& Out)
         Props["max"] = N(CgRange);
         Props["step"] = N(0.1);
         Props["unit"] = S("cm");
-        Push(Nd("Slider", std::move(Props)), 1);
+        Push(Nd("Slider", std::move(Props)), 0);
     }
     {
         FProps Props;
@@ -897,22 +900,22 @@ void ABorn2FlapMenu::BuildFlightDesk(std::vector<FNode>& Out)
         Props["on"] = S("ON  /  click to decouple");
         Props["off"] = S("OFF  /  click to couple");
         Props["value"] = B(Settings.bCoupledThrottle);
-        Push(Nd("Toggle", std::move(Props)), 1);
+        Push(Nd("Toggle", std::move(Props)), 0);
     }
-    Push(Nd("TextBlock", P({ {"text", S("MOUNT")}, {"tone", S("accent")}, {"size", S("l")} })), 1);
-    PushTuning(ETuningField::FlapCentre, 1);
-    PushTuning(ETuningField::VerticalMountAngle, 1);
-    PushTuning(ETuningField::LeftWingCamberBias, 1);
-    PushTuning(ETuningField::RightWingCamberBias, 1);
+    Push(Nd("TextBlock", P({ {"text", S("MOUNT")}, {"tone", S("accent")}, {"size", S("l")} })), 0);
+    PushTuning(ETuningField::FlapCentre, 0);
+    PushTuning(ETuningField::VerticalMountAngle, 0);
+    PushTuning(ETuningField::LeftWingCamberBias, 0);
+    PushTuning(ETuningField::RightWingCamberBias, 0);
 
-    // ---- SERVO & POWER (2) ----
-    Push(Nd("TextBlock", P({ {"text", S("SERVO")}, {"tone", S("accent")}, {"size", S("l")} })), 2);
+    // ---- SERVO & POWER (1) ----
+    Push(Nd("TextBlock", P({ {"text", S("SERVO")}, {"tone", S("accent")}, {"size", S("l")} })), 1);
     // Servo preset: load speed/torque/voltage defaults from a servo tested for
     // flapping. The selected preset stays highlighted until any servo slider is
     // edited by hand, which flips the readout to CUSTOM.
     {
         FValue ServoOptions; ServoOptions.kind = FValue::Kind::Array;
-        for (const FServoPreset& Sp : ServoPresets) ServoOptions.arr.push_back(S(FString(Sp.Name)));
+        for (const born2flap::servo::FServoPreset& Sp : born2flap::servo::Presets) ServoOptions.arr.push_back(S(FString(Sp.Name)));
         ServoSelectPath = RowPath((int32)Rows.size());
         Push(Nd("Dropdown", P({
             {"label", S("SERVO PRESET  /  load tested defaults")},
@@ -920,50 +923,82 @@ void ABorn2FlapMenu::BuildFlightDesk(std::vector<FNode>& Out)
             {"value", N(ServoPresetIndex)},
             {"action", S("servo.preset")},
             {"tooltip", S("Load speed, stall torque and voltage defaults from a servo tested for flapping (dantiel.github.io/OrniFlight). Editing any servo slider afterwards marks it CUSTOM.")}
-        })), 2);
+        })), 1);
         ServoStatusPath = RowPath((int32)Rows.size());
-        const FString StatusText = (ServoPresetIndex >= 0 && ServoPresetIndex < ServoPresetCount)
-            ? FString(TEXT("SERVO:  ")) + ServoPresets[ServoPresetIndex].Name
+        const FString StatusText = (ServoPresetIndex >= 0 && ServoPresetIndex < born2flap::servo::PresetCount)
+            ? FString(TEXT("SERVO:  ")) + born2flap::servo::Presets[ServoPresetIndex].Name
             : TEXT("SERVO:  CUSTOM  /  manual");
         Push(Nd("TextBlock", P({
             {"text", S(StatusText)},
             {"tone", S(ServoPresetIndex >= 0 ? "good" : "dim")},
             {"size", S("s")}
-        })), 2);
+        })), 1);
     }
-    PushTuning(ETuningField::ServoSpeed, 2);
-    PushTuning(ETuningField::StallTorque, 2);
-    PushTuning(ETuningField::Backdrive, 2);
-    Push(Nd("TextBlock", P({ {"text", S("BATTERY")}, {"tone", S("accent")}, {"size", S("l")} })), 2);
-    PushTuning(ETuningField::BatteryVoltage, 2);
-    PushTuning(ETuningField::BatteryResistance, 2);
-    PushTuning(ETuningField::BatteryCapacity, 2);
-    PushTuning(ETuningField::BatteryCRating, 2);
-    PushTuning(ETuningField::BatteryBurstCRating, 2);
+    if (ServoPresetIndex >= 0 && ServoPresetIndex < born2flap::servo::PresetCount)
+    {
+        const born2flap::servo::FServoPreset& Sp = born2flap::servo::Presets[ServoPresetIndex];
+        Push(Nd("TextBlock", P({
+            {"text", S(FString::Printf(TEXT("OPERATING RANGE  %.1f–%.1f V   ·   rated %.1f V   ·   %.2f N·m stall   ·   %.0f°/s"), Sp.MinVoltage, Sp.MaxVoltage, Sp.Voltage, Sp.StallTorqueNm, Sp.SpeedDegS))},
+            {"tone", S("dim")}, {"size", S("xs")}, {"wrap", B(true)}
+        })), 1);
+        Push(Nd("TextBlock", P({ {"text", S("POWER vs VOLTAGE — degradation curve (rated = 1.0)")}, {"tone", S("dim")}, {"size", S("xs")} })), 1);
+        FValue Curve; Curve.kind = FValue::Kind::Array;
+        TArray<float> Series;
+        born2flap::servo::DegradationCurve(Sp, Series, 13);
+        for (const float Pv : Series) Curve.arr.push_back(N(Pv));
+        Push(Nd("Sparkline", P({
+            {"values", std::move(Curve)},
+            {"size", N(300.0f)},
+            {"tone", S("accent")}
+        })), 1);
+    }
+    PushTuning(ETuningField::ServoSpeed, 1);
+    PushTuning(ETuningField::StallTorque, 1);
+    PushTuning(ETuningField::Backdrive, 1);
 
-    // ---- FLIGHT (3): stroke, trim, control authority, assist ----
-    Push(Nd("TextBlock", P({ {"text", S("STROKE")}, {"tone", S("accent")}, {"size", S("l")} })), 3);
-    PushTuning(ETuningField::FlapBaseFreq, 3);
-    PushTuning(ETuningField::StrokeFerocity, 3);
-    PushTuning(ETuningField::ReturnFerocity, 3);
-    PushTuning(ETuningField::StrokeSkew, 3);
-    PushTuning(ETuningField::ReturnSkew, 3);
-    PushTuning(ETuningField::ShapeMix, 3);
-    PushTuning(ETuningField::ThrottleThrustShapeMix, 3);
-    PushTuning(ETuningField::ThrottleThrustExpo, 3);
-    PushTuning(ETuningField::ThrottleSkewRateMix, 3);
-    Push(Nd("TextBlock", P({ {"text", S("TRIM")}, {"tone", S("accent")}, {"size", S("l")} })), 3);
-    PushTuning(ETuningField::TailElevatorAngle, 3);
-    PushTuning(ETuningField::GlideAngle, 3);
-    Push(Nd("TextBlock", P({ {"text", S("CONTROL AUTHORITY")}, {"tone", S("accent")}, {"size", S("l")} })), 3);
-    PushTuning(ETuningField::AileronScale, 3);
-    PushTuning(ETuningField::ElevatorScale, 3);
-    PushTuning(ETuningField::YawScale, 3);
-    PushTuning(ETuningField::AileronSkewMix, 3);
-    PushTuning(ETuningField::AileronSkewRateMix, 3);
-    PushTuning(ETuningField::ElevatorFerocityMix, 3);
-    Push(Nd("TextBlock", P({ {"text", S("ASSIST")}, {"tone", S("accent")}, {"size", S("l")} })), 3);
-    Push(Nd("TextBlock", P({ {"text", S(FString(TEXT("0 = OFF (only glitch guards)   ·   1 = VERY LOW (acro)   ·   2 = NORMAL")))}, {"tone", S("dim")}, {"size", S("xs")}, {"wrap", B(true)} })), 3);
+    // ---- BATTERY (1): the pack — same panel as the servo, separate from the
+    // firmware flight knobs. ----
+    Push(Nd("TextBlock", P({ {"text", S("BATTERY")}, {"tone", S("accent")}, {"size", S("l")} })), 1);
+    {
+        const float MaxV = (ServoPresetIndex >= 0 && ServoPresetIndex < born2flap::servo::PresetCount)
+            ? born2flap::servo::Presets[ServoPresetIndex].MaxVoltage : 8.4f;
+        const bool bOvervolt = TuningValue(ETuningField::BatteryVoltage) > MaxV + 0.01f;
+        FString BatNote = TEXT("The pack feeds the servo directly — raising its voltage above the servo's rating over-drives the actuator.");
+        if (bOvervolt)
+        {
+            if (ServoPresetIndex >= 0 && ServoPresetIndex < born2flap::servo::PresetCount)
+                BatNote = FString::Printf(TEXT("⚠ OVER-VOLTAGE  ·  %.1f V pack over-drives the %s (max %.1f V) — the actuator runs faster and hotter than rated."),
+                    TuningValue(ETuningField::BatteryVoltage), born2flap::servo::Presets[ServoPresetIndex].Name, MaxV);
+            else
+                BatNote = FString::Printf(TEXT("⚠ OVER-VOLTAGE  ·  %.1f V pack over-drives the servo — every listed servo is rated at most 8.4 V."),
+                    TuningValue(ETuningField::BatteryVoltage));
+        }
+        Push(Nd("TextBlock", P({ {"text", S(BatNote)}, {"tone", S(bOvervolt ? FString(TEXT("warn")) : FString(TEXT("dim")))}, {"size", S("xs")}, {"wrap", B(true)} })), 1);
+    }
+    PushTuning(ETuningField::BatteryVoltage, 1);
+    PushTuning(ETuningField::BatteryResistance, 1);
+    PushTuning(ETuningField::BatteryCapacity, 1);
+    PushTuning(ETuningField::BatteryCRating, 1);
+    PushTuning(ETuningField::BatteryBurstCRating, 1);
+
+    // ---- FIRMWARE (2): stroke, trim and assist — the extra panel beside
+    // SERVO & BATTERY. Control authority lives in SETTINGS → CONTROL SETTINGS
+    // (global, shared by every silhouette). ----
+    Push(Nd("TextBlock", P({ {"text", S("STROKE")}, {"tone", S("accent")}, {"size", S("l")} })), 2);
+    PushTuning(ETuningField::FlapBaseFreq, 2);
+    PushTuning(ETuningField::StrokeFerocity, 2);
+    PushTuning(ETuningField::ReturnFerocity, 2);
+    PushTuning(ETuningField::StrokeSkew, 2);
+    PushTuning(ETuningField::ReturnSkew, 2);
+    PushTuning(ETuningField::ShapeMix, 2);
+    PushTuning(ETuningField::ThrottleThrustShapeMix, 2);
+    PushTuning(ETuningField::ThrottleThrustExpo, 2);
+    PushTuning(ETuningField::ThrottleSkewRateMix, 2);
+    Push(Nd("TextBlock", P({ {"text", S("TRIM")}, {"tone", S("accent")}, {"size", S("l")} })), 2);
+    PushTuning(ETuningField::TailElevatorAngle, 2);
+    PushTuning(ETuningField::GlideAngle, 2);
+    Push(Nd("TextBlock", P({ {"text", S("ASSIST")}, {"tone", S("accent")}, {"size", S("l")} })), 2);
+    Push(Nd("TextBlock", P({ {"text", S(FString(TEXT("0 = OFF (only glitch guards)   ·   1 = VERY LOW (acro)   ·   2 = NORMAL")))}, {"tone", S("dim")}, {"size", S("xs")}, {"wrap", B(true)} })), 2);
     {
         FProps Props;
         Props["action"] = S("flight.safety");
@@ -973,7 +1008,7 @@ void ABorn2FlapMenu::BuildFlightDesk(std::vector<FNode>& Out)
         Props["min"] = N(0);
         Props["max"] = N(2);
         Props["step"] = N(1);
-        Push(Nd("Slider", std::move(Props)), 3);
+        Push(Nd("Slider", std::move(Props)), 2);
     }
 
     // Show only the rows belonging to the active sub-tab.
@@ -1670,7 +1705,7 @@ void ABorn2FlapMenu::OnAction(const FString& Action, float Value, const FString&
     if (Action == TEXT("menu.settings"))     { NavPage = 1; Build(); return; }
     if (Action == TEXT("menu.preferences"))  { NavPage = 2; PrefsPage = 0; Build(); return; }
     if (Action == TEXT("prefs.page"))        { PrefsPage = FMath::Clamp(FMath::RoundToInt(Value), 0, 2); Build(); return; }
-    if (Action == TEXT("settings.page"))     { SettingsPage = FMath::Clamp(FMath::RoundToInt(Value), 0, 3); Build(); return; }
+    if (Action == TEXT("settings.page"))     { SettingsPage = FMath::Clamp(FMath::RoundToInt(Value), 0, 2); Build(); return; }
     // GRAPHICS / RENDERER quality — persisted + applied live (LOW = software fallback).
     if (Action == TEXT("graphics.quality"))
     {
@@ -1927,9 +1962,22 @@ void ABorn2FlapMenu::OnAction(const FString& Action, float Value, const FString&
     if (Action == TEXT("bird.model"))
     {
         Settings.BirdModel = FMath::Clamp(FMath::RoundToInt(Value), 0, 5);
+        // Load this silhouette's saved tuning + flight profile so the desk
+        // reflects the newly selected craft, not the previous model's edits.
+        born2flap::MenuSettingsLoadModelProfile(Settings, Settings.BirdModel);
         Settings.CgOffsetMm = FMath::Clamp(Settings.CgOffsetMm, -CgRangeMm(), CgRangeMm());
-        if (Bird.IsValid()) Bird->SelectBirdModel(Settings.BirdModel);
+        ApplySettingsToBird();
         Build();   // CG slider min/max scale with the new craft's length
+        return;
+    }
+    if (Action == TEXT("flight.profile"))
+    {
+        Settings.FlightProfile = FMath::Clamp(FMath::RoundToInt(Value), 0, born2flap::tuning::FlightProfileCount - 1);
+        born2flap::tuning::ApplyFlightProfile(Settings.Tuning, Settings.CgOffsetMm, Settings.FlightProfile);
+        Settings.CgOffsetMm = FMath::Clamp(Settings.CgOffsetMm, -CgRangeMm(), CgRangeMm());
+        PersistSettings();
+        ApplySettingsToBird();
+        Build();
         return;
     }
     if (Action == TEXT("avatar.enabled"))
@@ -2047,8 +2095,8 @@ void ABorn2FlapMenu::OnAction(const FString& Action, float Value, const FString&
     if (Action == TEXT("bird.cg")) { Settings.CgOffsetMm = FMath::Clamp(Value * 10.f, -CgRangeMm(), CgRangeMm()); if (Bird.IsValid()) Bird->SetCgOffsetMm(Settings.CgOffsetMm); return; }   // slider is in cm
     if (Action == TEXT("servo.preset"))
     {
-        const int32 Idx = FMath::Clamp(FMath::RoundToInt(Value), 0, ServoPresetCount - 1);
-        const FServoPreset& Sp = ServoPresets[Idx];
+        const int32 Idx = FMath::Clamp(FMath::RoundToInt(Value), 0, born2flap::servo::PresetCount - 1);
+        const born2flap::servo::FServoPreset& Sp = born2flap::servo::Presets[Idx];
         SetTuningValue(ETuningField::ServoSpeed, Sp.SpeedDegS);
         SetTuningValue(ETuningField::StallTorque, Sp.StallTorqueNm);
         SetTuningValue(ETuningField::Backdrive, Sp.Backdrive);
@@ -2093,6 +2141,8 @@ void ABorn2FlapMenu::OnAction(const FString& Action, float Value, const FString&
         if (Field == ETuningField::ServoSpeed || Field == ETuningField::StallTorque ||
             Field == ETuningField::Backdrive || Field == ETuningField::BatteryVoltage)
             MarkServoCustom();
+        if (Field == ETuningField::BatteryVoltage)
+            Build();   // refresh the live over-voltage warning on the BATTERY desk
         return;
     }
 

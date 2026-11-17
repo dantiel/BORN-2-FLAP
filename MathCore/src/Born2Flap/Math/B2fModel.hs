@@ -28,7 +28,7 @@ module Born2Flap.Math.B2fModel
   ) where
 
 import Born2Flap.Math.Json
-import Born2Flap.Math.Model (WingModel(..))
+import Born2Flap.Math.Model (WingModel(..), mkWingModel)
 import Born2Flap.Math.Planform (WingShape(..), ShapeStation(..))
 import Born2Flap.Math.Section (SectionProfile(..))
 import Born2Flap.Math.Structure
@@ -157,7 +157,7 @@ decodeWingModel value = do
   mass <- expectNumber "mass_kg" =<< reqField "mass_kg" fields
   wing <- decodeWing =<< reqField "wing" fields
   spars <- decodeSpars =<< reqField "spars" fields
-  Right (WingModel name wing spars mass)
+  Right (mkWingModel name wing spars mass)
 
 decodeWing :: JValue -> Either String WingShape
 decodeWing value = do

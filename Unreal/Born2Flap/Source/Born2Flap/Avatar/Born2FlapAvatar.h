@@ -28,6 +28,12 @@ public:
     static int32 GetPersonCount() { return 10; }
     static FString GetPersonName(int32 Index);
 
+    // Footstep player (procedural): the pawn's FootstepVolume preference rides
+    // through here to the per-stride synth.
+    void SetFootstepVolume(float Volume);
+    float GetGaitPhase() const { return GaitPhase; }
+    float GetGroundSpeed() const { return LocalForwardSpeed; }
+
     void SetPlacement(const FVector& WorldFeet, float WorldYaw);
     // Movement relative to the avatar's facing direction: +X = forward (walk),
     // +Y = strafe right, in cm/s. Drives gait selection and cadence matching.
@@ -37,6 +43,10 @@ public:
 
     void BeginThrow();
     bool IsThrowing() const { return bThrowing; }
+    // Wind-up phase (SPACE held): raise the bird to the throw's cocked position
+    // and hold it there; BeginThrow() then completes the throw on release.
+    void BeginThrowWindup();
+    bool IsThrowWindup() const { return bThrowWindup; }
     // Gaze pitch at the throw aim (degrees, up positive). Drives the wind-up
     // lean so the throw is articulated in height as well as direction.
     void SetThrowAimPitch(float PitchDeg);
@@ -52,6 +62,10 @@ public:
     // One-line diagnostic: current clip, playback position and hand/spine bone
     // world locations. Used by the throw test to capture the real pose curve.
     FString DebugThrowState() const;
+    // Halt time of the throw clip (seconds from clip start): the first moment
+    // the carrying hand reaches its highest point — the cocked position the
+    // SPACE-hold wind-up freezes at. -1 until the throw clip is analysed.
+    float GetThrowHaltTime() const { return ThrowHaltTime; }
 
     DECLARE_DELEGATE(FOnThrowRelease);
     FOnThrowRelease OnThrowRelease;
@@ -68,6 +82,9 @@ private:
     float ComputeThrowLean() const;
     void SetBoneRotation(int32 BoneIndex, const FRotator& Rot);
     void UpdateCarrySocket();
+    // Scrub the throw clip once and measure the carrying hand's height curve to
+    // find the wind-up halt (the first moment the bird is lifted high).
+    void ComputeThrowHalt();
 
     UPROPERTY() USceneComponent* Root = nullptr;
     UPROPERTY() USkeletalMeshComponent* Body = nullptr;
@@ -84,7 +101,8 @@ private:
     UPROPERTY() UAnimSequence* AnimStand = nullptr;     // relaxed idle stance
     UPROPERTY() UAnimSequence* AnimStrafe = nullptr;    // sideways gait
     UPROPERTY() UAnimSequence* AnimWalkBack = nullptr;  // backward gait
-    UAnimSequence* CurrentAnim = nullptr;
+    UAnimSequence* CurrentAnim = nullptr;               // active clip alias
+    UPROPERTY() class UBorn2FlapFootsteps* Footsteps = nullptr;
 
     int32 BoneHips = INDEX_NONE, BoneSpine = INDEX_NONE, BoneHead = INDEX_NONE;
     int32 BoneLArm = INDEX_NONE, BoneLForeArm = INDEX_NONE, BoneLHand = INDEX_NONE;
@@ -112,9 +130,16 @@ private:
     float MeshScale = 1.f;
     bool bCarrying = false;
     bool bFirstPerson = false;
+    // Hold the bird in the right hand by default; a left-handed option will
+    // flip this (and mirror the wing-outward orientation) later.
+    bool bCarryLeftHand = false;
     bool bThrowing = false;
+    bool bThrowWindup = false;
     float ThrowTime = 0.f;
     bool bReleaseFired = false;
+    // Measured halt of the throw clip (seconds). -1 = not yet measured.
+    float ThrowHaltTime = -1.f;
+    bool bThrowHaltComputed = false;
     float ThrowAimPitch = 0.f;
     bool bCatching = false;
     float CatchTime = 0.f;

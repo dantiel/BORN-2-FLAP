@@ -6,18 +6,19 @@ import Data.List (foldl')
 import Born2Flap.Math.Types ( Vec3(..) )
 import Born2Flap.Math.Vehicle
   ( addVec, crossVec, scaleVec, magnitude, zeroVec
-  , VehicleOutput(..) )
+  , VehicleOutput(..), StripState(..) )
 import Born2Flap.Math.Firmware
   ( PilotInput(..), pilotToRc, defaultFirmwareParams, FirmwareParams(..)
   , FlightProfile(..) )
 import qualified Born2Flap.Math.Firmware as FW
 import Born2Flap.Math.Servo
   ( ServoSpec(..), BatterySpec(..), servoFromNominal, defaultBatterySpec )
-import Born2Flap.Math.Model ( kestrelModel )
+import Born2Flap.Math.Model ( kestrelModel, WingModel(..) )
+import Born2Flap.Math.Planform ( spanChord, wsSpanM )
 import Born2Flap.Math.FirmwareVehicle
   ( FirmwareVehicleState(..), defaultFirmwareVehicleState
   , stepFirmwareVehicleWithMassInertia, TailField(..) )
-import Born2Flap.Math.Servo ( servoAngleDeg )
+import Born2Flap.Math.Servo ( servoAngleDeg, servoRateDegPerSec )
 import Born2Flap.Math.Airframe ( airframeInertia )
 
 -- Minimal quaternion (w,x,y,z) for the host-side integrator.
@@ -74,7 +75,10 @@ dt = 1.0 / 240.0
 
 -- | The live game's Kestrel tuning profile (Born2FlapTuning.h model 2).
 gameParams :: FirmwareParams
-gameParams =
+gameParams = gameParamsMount 0
+
+gameParamsMount :: Double -> FirmwareParams
+gameParamsMount mountDeg =
   let base = defaultFirmwareParams
       prof = (fwProfile base)
         { profTailElevatorAngleDeg = -2.3
@@ -88,7 +92,7 @@ gameParams =
         , profReturnSkew = 0
         }
   in base { fwServoSpeedMs = 80, fwFlapBaseFreqDh = 32, fwFlapCentreDeg = 0
-          , fwVerticalMountIncidenceDeg = 0, fwProfile = prof }
+          , fwVerticalMountIncidenceDeg = mountDeg, fwProfile = prof }
 
 gameServo :: ServoSpec
 gameServo = servoFromNominal "kestrel-game" 750 1.332 20
@@ -102,21 +106,21 @@ gameBattery = defaultBatterySpec
   , batteryBurstCRating = 60
   }
 
-stepSim :: Double -> PilotInput -> Vec3 -> Sim -> (Sim, VehicleOutput)
-stepSim step pilot wind sim =
+stepSim :: Double -> Double -> FirmwareParams -> PilotInput -> Vec3 -> Sim -> (Sim, VehicleOutput)
+stepSim step ixRoll params pilot wind sim =
   let bodyUp = quatInvRot (sQuat sim) (Vec3 0 0 1)
       vAir = addVec (sVGround sim) (scaleVec (-1) wind)
       vAirB = quatInvRot (sQuat sim) vAir   -- body-frame, like the bridge
       rc = pilotToRc pilot
       (out, st') = stepFirmwareVehicleWithMassInertia
-        massKg rollInertia True rc gameParams gameServo
+        massKg ixRoll True rc params gameServo
         gameBattery kestrelModel step vAirB (sOmega sim) 1000 bodyUp (sFv sim)
       fB = totalForceN out
       mB = totalMomentNm out
       fW = quatRot (sQuat sim) fB
       vG' = addVec (sVGround sim)
               (scaleVec step (addVec (scaleVec (1/massKg) fW) (Vec3 0 0 (-9.81))))
-      mOver = Vec3 (x mB / ixD) (y mB / iyD) (z mB / izD)
+      mOver = Vec3 (x mB / ixRoll) (y mB / iyD) (z mB / izD)
       omega' = addVec (sOmega sim) (scaleVec step mOver)
       q' = stepQuat (sQuat sim) omega' step
   in ( Sim { sQuat = q', sVGround = vG', sOmega = omega', sFv = st', sT = sT sim + step }
@@ -202,8 +206,12 @@ runScenario label wind seconds =
 
 runScenarioAt :: String -> Vec3 -> Double -> Double
               -> [(Double, Double, Double, Double, Double)] -> IO ()
-runScenarioAt label wind seconds step script = do
-  putStrLn $ "\n=== " ++ label ++ " (wind " ++ show wind ++ ", dt=" ++ f3 step ++ ") ==="
+runScenarioAt = runScenarioAtRoll rollInertia gameParams
+
+runScenarioAtRoll :: Double -> FirmwareParams -> String -> Vec3 -> Double -> Double
+                  -> [(Double, Double, Double, Double, Double)] -> IO ()
+runScenarioAtRoll ixRoll params label wind seconds step script = do
+  putStrLn $ "\n=== " ++ label ++ " (wind " ++ show wind ++ ", dt=" ++ f3 step ++ ", ix=" ++ show ixRoll ++ ") ==="
   let sim0 = Sim (Quat 1 0 0 0) (Vec3 8 0 0.3) zeroVec
         (defaultFirmwareVehicleState { fvMassFrame = Just (0, iyD, izD) }) 0
       nSteps = round (seconds / step) :: Int
@@ -211,7 +219,7 @@ runScenarioAt label wind seconds step script = do
       loop n sim | n <= 0 = pure ()
                  | otherwise = do
         let t = sT sim
-            (sim', out) = stepSim step (pilotAt script t) wind sim
+            (sim', out) = stepSim step ixRoll params (pilotAt script t) wind sim
             bodyUp = quatInvRot (sQuat sim') (Vec3 0 0 1)
             bankDeg = asin (max (-1) (min 1 (y bodyUp))) * 180 / pi
             worldRates = quatRot (sQuat sim') (sOmega sim')
@@ -240,6 +248,40 @@ runScenarioAt label wind seconds step script = do
                ++ " flags=" ++ show (outputFlags out)
                ++ " M=" ++ fmtVec (totalMomentNm out)
                ++ " ext=" ++ fmtVec (fvExternalForce (sFv sim'))
+               ++ " wingL=" ++ fmtVec (foldl' addVec zeroVec
+                     [addVec (addVec (stripLift s) (stripDrag s)) (stripPressure s) | s <- fvLeftStrips (sFv sim')])
+               ++ " wingR=" ++ fmtVec (foldl' addVec zeroVec
+                     [addVec (addVec (stripLift s) (stripDrag s)) (stripPressure s) | s <- fvRightStrips (sFv sim')])
+               ++ " wingMz=" ++ f3 (sum [z (stripMoment s) | s <- fvLeftStrips (sFv sim')]
+                                   + sum [z (stripMoment s) | s <- fvRightStrips (sFv sim')])
+               ++ " twist=" ++ f3 (stripTwistAero (last (fvLeftStrips (sFv sim')))*180/pi)
+                     ++ "/" ++ f3 (stripTwistAero (last (fvRightStrips (sFv sim')))*180/pi)
+               ++ " sepAvg=" ++ f3 (sum [stripSeparation s | s <- fvLeftStrips (sFv sim')] / 16)
+                     ++ " levAvg=" ++ f3 (sum [stripLevStrength s | s <- fvLeftStrips (sFv sim')] / 16)
+                     ++ " alpha=" ++ f3 (stripPreviousAlpha (last (fvLeftStrips (sFv sim')))*180/pi)
+               ++ " airSpd=" ++ f3 (magnitude (stripAirVelocity (last (fvLeftStrips (sFv sim')))))
+                     ++ " nVel=" ++ f3 (let s = last (fvLeftStrips (sFv sim')) in
+                                         x (stripAirVelocity s) * x (stripNormal s)
+                                         + y (stripAirVelocity s) * y (stripNormal s)
+                                         + z (stripAirVelocity s) * z (stripNormal s))
+                     ++ " camber=" ++ f3 (stripCamber (last (fvLeftStrips (sFv sim'))))
+               ++ " clEff=" ++ f3 (let s = last (fvLeftStrips (sFv sim'))
+                                       stations = wmStations kestrelModel
+                                       chord = spanChord (stations !! 15)
+                                       dr = wsSpanM (wmWing kestrelModel) / 16
+                                       q = 0.5 * 1.05 * (magnitude (stripAirVelocity s))^2
+                                   in magnitude (stripLift s) / max 1e-9 (q * chord * dr))
+               ++ " alphas=" ++ concat [f3 (stripPreviousAlpha (fvLeftStrips (sFv sim') !! i)*180/pi) ++ "," | i <- [0,4,8,12,15]]
+               ++ " clSpan=" ++ concat [f3 (let s = fvLeftStrips (sFv sim') !! i; stations = wmStations kestrelModel; chord = spanChord (stations !! i); dr = wsSpanM (wmWing kestrelModel) / 16; q = 0.5 * 1.05 * (magnitude (stripAirVelocity s))^2
+                                         in magnitude (stripLift s) / max 1e-9 (q * chord * dr)) ++ "," | i <- [0,4,8,12,15]]
+               ++ " dbg=" ++ concat [f3 (y (stripWindDelta (fvLeftStrips (sFv sim') !! i))*180/pi) ++ "," | i <- [0,4,8,12,15]]
+               ++ " bendRate=" ++ f3 (stripBendRateMS (last (fvLeftStrips (sFv sim'))))
+                     ++ " bendM=" ++ f3 (stripBendM (last (fvLeftStrips (sFv sim'))))
+               ++ " liftZ=" ++ f3 (sum [z (stripLift s) | s <- fvLeftStrips (sFv sim')])
+                     ++ " dragZ=" ++ f3 (sum [z (stripDrag s) | s <- fvLeftStrips (sFv sim')])
+                     ++ " presZ=" ++ f3 (sum [z (stripPressure s) | s <- fvLeftStrips (sFv sim')])
+               ++ " srvRate=" ++ f3 (servoRateDegPerSec (fvServoLeft (sFv sim')))
+                     ++ "/" ++ f3 (servoRateDegPerSec (fvServoRight (sFv sim')))
                ++ " tail=" ++ fmtVec (foldl' addVec zeroVec
                      (map tailFieldForce (fvTailFields (sFv sim'))))
                ++ " tailV=" ++ fmtVec (case fvTailFields (sFv sim') of
@@ -255,6 +297,14 @@ main = do
   putStrLn ("airframeInertia (ix,iy,iz) = " ++ show (ixD, iyD, izD))
   runScenario "AILERON-NO-WIND" zeroVec 16
   runScenario "AILERON-CROSSWIND +Y 3m/s" (Vec3 0 3 0) 16
+  runScenarioAtRoll 0.00074484 gameParams "RUDDER-IX-1X" zeroVec 10 dt phasesRudder
+  runScenarioAtRoll 0.00148968 gameParams "RUDDER-IX-2X" zeroVec 10 dt phasesRudder
+  runScenarioAtRoll 0.00297936 gameParams "RUDDER-IX-4X" zeroVec 10 dt phasesRudder
+  runScenarioAtRoll 0.00074484 (gameParamsMount 6) "RUDDER-MOUNT-6" zeroVec 10 dt phasesRudder
+  runScenarioAtRoll 0.00074484 (gameParamsMount 10) "RUDDER-MOUNT-10" zeroVec 10 dt phasesRudder
+  runScenarioAtRoll 0.00148968 (gameParamsMount 6) "RUDDER-MOUNT-6-IX2" zeroVec 10 dt phasesRudder
+  runScenarioAtRoll 0.00074484 (gameParamsMount 6) "AILERON-MOUNT-6" zeroVec 16 dt phasesAileron
+  runScenarioAtRoll 0.00074484 (gameParamsMount 6) "FLAP-NEUTRAL-MOUNT-6" zeroVec 16 dt phasesNeutralFlap
   runScenarioAt "RUDDER-NO-WIND" zeroVec 16 dt phasesRudder
   runScenarioAt "GLIDE-YAW-STICK" zeroVec 12 dt phasesGlideYaw
   runScenarioAt "GLIDE-ROLL-STICK" zeroVec 12 dt phasesGlideRoll

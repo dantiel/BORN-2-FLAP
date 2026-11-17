@@ -213,15 +213,14 @@ def main():
         print('DELETED_%s' % base)
 
     for base, fbx in CHARACTERS:
-        # Mesh + skeleton were imported on the first pass; reuse them and only
-        # (re)import the clips (fast) unless the mesh is missing.
-        skeleton = _load_existing_skeleton(base)
-        if skeleton is None:
-            src = _CHAR_DIR / fbx
-            if not src.exists():
-                u.log_error('import_avatar_fbx: missing %s' % src)
-                continue
-            skeleton = _import_mesh(base, base, src)
+        # Always reimport from scratch: a stray GLB-imported mesh at the
+        # expected path would otherwise be reused (wrong skeleton root).
+        _delete_folder('/Game/Actor/' + base)
+        src = _CHAR_DIR / fbx
+        if not src.exists():
+            u.log_error('import_avatar_fbx: missing %s' % src)
+            continue
+        skeleton = _import_mesh(base, base, src)
         if skeleton is None:
             u.log_error('import_avatar_fbx: %s has no skeleton' % base)
             continue

@@ -45,6 +45,9 @@ module Born2Flap.Math.Structure
     -- * Cantilever beam integration
   , integrateFlapBeam
   , integrateTwist
+    -- * Rate-independent wing elasticity table
+  , WingElasticTable(..)
+  , mkWingElasticTable
     -- * Relaxation
   , relaxDeflection
   , softSaturate
@@ -59,6 +62,7 @@ module Born2Flap.Math.Structure
   ) where
 
 import Data.Maybe (listToMaybe)
+import Data.List (zipWith4)
 
 -- | Implicit midpoint integration of m*q'' + c*q' + k*q = load.
 -- At zero damping it conserves the quadratic elastic/kinetic energy; positive
@@ -283,6 +287,69 @@ handStructure inv = StructureProfile
   , stTauBend = 0.07
   , stTauTwist = 0.07
   }
+
+-- | Modal damping ratio for the wing's bending/torsion elastic coordinates.
+-- 0.08 = glassfibre-like (absorbing, damped recoil); 0.02 = carbon-like
+-- (fast, energetic snap-back with more overshoot and ring).
+structuralDampingRatio :: Double
+structuralDampingRatio = 0.02
+
+-- | Rate-independent wing elasticity: mode shapes, generalized masses,
+-- stiffnesses and damping for one wing at a fixed strip count. Precomputed
+-- once per 'Born2Flap.Math.Model.WingModel'; the per-step solver reads only
+-- this table. The former per-step beam/twist integration (re-sorting and
+-- re-interpolating the outline per physics step) dominated the frame cost.
+data WingElasticTable = WingElasticTable
+  { etDr          :: !Double     -- ^ strip width [m]
+  , etBendShape   :: ![Double]   -- ^ normalized flap-bend mode shape (root→tip)
+  , etSlopeShape  :: ![Double]   -- ^ normalized bend-slope mode shape
+  , etTwistShape  :: ![Double]   -- ^ normalized torsion mode shape
+  , etWeights     :: ![Double]   -- ^ strip area fraction (sums to 1)
+  , etBendK       :: !Double     -- ^ generalized bend stiffness [N/m]
+  , etTwistK      :: !Double     -- ^ generalized twist stiffness [Nm/rad]
+  , etBendMass    :: !Double     -- ^ generalized bend mass [kg]
+  , etTwistMass   :: !Double     -- ^ generalized twist inertia [kg·m²]
+  , etCrossMass   :: !Double     -- ^ bend/twist inertial coupling
+  , etCb          :: !Double     -- ^ bend modal damping coefficient
+  , etCt          :: !Double     -- ^ twist modal damping coefficient
+  } deriving stock (Eq, Show)
+
+-- | Build the elasticity table from the spar inventory and the resampled
+-- strip chords. @refMass@ is the reference wing mass [kg], @rho@ the air
+-- density [kg/m³] (added-air entrainment), @spanM@ the half-span [m] and
+-- @n@ the strip count.
+mkWingElasticTable
+  :: SparInventory -> Double -> Double -> [Double] -> Double -> Int
+  -> WingElasticTable
+mkWingElasticTable inv refMass rho chords spanM n =
+  let dr = spanM / fromIntegral n
+      fracs = [ (fromIntegral i + 0.5) / fromIntegral n | i <- [0 .. n - 1] ]
+      areas = map (* dr) chords
+      weights = map (/ max 1e-12 (sum areas)) areas
+      bendStiffness = map (sparBendEISpanwise inv) fracs
+      twistStiffness = map (sparTwistGJSpanwise inv) fracs
+      (unitBend, unitSlope) = integrateFlapBeam weights bendStiffness dr
+      unitTwist = integrateTwist weights twistStiffness dr
+      bendCompliance = max 1e-12 (last unitBend)
+      twistCompliance = max 1e-12 (last unitTwist)
+      bendShape = map (/ bendCompliance) unitBend
+      slopeShape = map (/ bendCompliance) unitSlope
+      twistShape = map (/ twistCompliance) unitTwist
+      dotList a b = sum (zipWith (*) a b)
+      bendK = dotList weights bendShape / bendCompliance
+      twistK = dotList weights twistShape / twistCompliance
+      masses = map (* refMass) weights
+      airMasses = map (\c -> rho * pi * c * c * dr / 4) chords
+      totalMasses = zipWith (+) masses airMasses
+      bendMass = dotList totalMasses (map (\x -> x * x) bendShape)
+      crossMass = sum (zipWith4 (\m c b t -> -m * c * b * t / 2) totalMasses chords bendShape twistShape)
+      pitchInertias = zipWith3 (\m a c -> m * c * c / 3 + a * c * c / 4 + rho * pi * c ** 4 * dr / 128)
+        masses airMasses chords
+      twistMass = dotList pitchInertias (map (\x -> x * x) twistShape)
+      cb = 2 * structuralDampingRatio * sqrt (bendMass * bendK)
+      ct = 2 * structuralDampingRatio * sqrt (twistMass * twistK)
+  in WingElasticTable dr bendShape slopeShape twistShape weights bendK twistK
+       bendMass twistMass crossMass cb ct
 
 -- | Cantilever (clamped root) out-of-plane bending under a distributed load.
 -- Given per-station vertical forces @fz@ (root → tip, [N]) and bending

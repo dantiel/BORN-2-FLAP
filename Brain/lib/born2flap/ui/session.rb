@@ -38,12 +38,24 @@ module Born2Flap
             else
               apply(action, 0)
             end
-          when 'preferences.page' then @state[:preferences_page] = value.to_i.clamp(0, 2)
+          when 'preferences.page'
+            # 0 GENERAL / 1 AUDIO / 2 CONTROL / 3 KEY BINDINGS. Forwarded to C++
+            # (PrefsPage) so the page survives panel close; the session state
+            # mirrors it for the immediate visual update.
+            @state[:preferences_page] = value.to_i.clamp(0, 3)
+            apply('preferences.page', value)
           # Tab 3 is the SCENARIOS tab — it exists only when the current world
           # has scenarios (C++ clamps per world), so the session must at least
           # admit it or the tab snaps back to LAUNCH POINT.
           when 'menu.page' then @state[:menu_page] = value.to_i.clamp(0, 3)
-          when 'settings.page' then @state[:settings_page] = value.to_i.clamp(0, 4)
+          when 'settings.page'
+            # 0 CRAFT / 1 BIRD / 2 SERVO / 3 BATTERY / 4 FIRMWARE. Forwarded to
+            # C++ (SettingsPage) so the desk restores the same tab next open;
+            # the session state mirrors it for the immediate visual update.
+            # (This used to clamp at 4 and swallow the event — SERVO/BATTERY/
+            # FIRMWARE snaps were broken: clicking those tabs rendered SERVO.)
+            @state[:settings_page] = value.to_i.clamp(0, 4)
+            apply('settings.page', value)
           when 'servo.preset'
             presets = [[1500,0.17,6.0],[667,0.56,8.4],[750,0.74,7.4],[1000,0.41,7.4],[750,0.35,7.4],[750,0.54,7.4],[545,3.43,7.4]]
             speed, torque, voltage = presets.fetch(value.to_i.clamp(0,presets.size-1))

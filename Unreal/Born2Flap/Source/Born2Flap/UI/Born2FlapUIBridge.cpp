@@ -88,6 +88,15 @@ void ABorn2FlapUIBridge::BeginPlay()
     if (!BrainCommand.IsEmpty())
         SpawnBrain();
 
+    // The Brain is REQUIRED — the game only runs Brain-attached. If the Ruby
+    // process failed to launch (missing ruby, missing script) this must be
+    // visible immediately: the native C++ UI fallback is DEPRECATED.
+    if (!IsBrainActive())
+    {
+        UE_LOG(LogTemp, Error,
+            TEXT("Born2FlapUIBridge: Ruby Brain NOT running — the game must run with the Brain attached! Native C++ UI fallback is DEPRECATED and will be removed."));
+    }
+
     OpenSource();
 }
 
@@ -200,10 +209,11 @@ void ABorn2FlapUIBridge::SpawnBrain()
     else
     {
 #if PLATFORM_WINDOWS
-        UE_LOG(LogTemp, Warning,
-            TEXT("Born2FlapUIBridge: failed to launch '%s' (is Ruby installed and on PATH?)"), *Command);
+        UE_LOG(LogTemp, Error,
+            TEXT("Born2FlapUIBridge: failed to launch Brain '%s' (is Ruby installed and on PATH?). The game must run with the Brain attached — native UI fallback is DEPRECATED."), *Command);
 #else
-        UE_LOG(LogTemp, Warning, TEXT("Born2FlapUIBridge: failed to launch '%s'"), *Command);
+        UE_LOG(LogTemp, Error,
+            TEXT("Born2FlapUIBridge: failed to launch Brain '%s'. The game must run with the Brain attached — native UI fallback is DEPRECATED."), *Command);
 #endif
     }
 }

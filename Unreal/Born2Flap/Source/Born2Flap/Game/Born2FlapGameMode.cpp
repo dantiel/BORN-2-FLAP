@@ -5,6 +5,7 @@
 #include "Game/Born2FlapHUD.h"
 #include "Flight/Born2FlapFlightPawn.h"
 #include "Flight/Born2FlapTuning.h"
+#include "Flight/Born2FlapServo.h"
 #include "Components/DirectionalLightComponent.h"
 #include "Components/SkyLightComponent.h"
 #include "Components/SkyAtmosphereComponent.h"
@@ -28,12 +29,10 @@
 #include "World/Born2FlapNeonVoid.h"
 #include "World/Born2FlapYunsha.h"
 #include "UI/Born2FlapUIBridge.h"
-#include "UI/Born2FlapFlightHUD.h"
 #include "UI/Born2FlapRadio.h"
 #include "UI/Born2FlapI18n.h"
 #include "UI/Born2FlapSplash.h"
 #include "UI/Born2FlapLoading.h"
-#include "UI/Born2FlapMenu.h"
 #include "UI/Born2FlapUiTheme.h"
 #include "Avatar/Born2FlapAvatar.h"
 #include "Racing/Born2FlapRacing.h"
@@ -187,17 +186,24 @@ public:
             bF10Pressed = true;
             return true;  // consume: the menu closes on this key, nothing else sees it
         }
+        if (InKeyEvent.GetKey() == born2flap::keybinds::Get(TEXT("RadioMute")))
+        {
+            bRadioMutePressed = true;
+            return true;  // consume: the radio mutes on this key, nothing else sees it
+        }
         return false;
     }
 
     bool ConsumeF10() { const bool v = bF10Pressed; bF10Pressed = false; return v; }
+    bool ConsumeRadioMute() { const bool v = bRadioMutePressed; bRadioMutePressed = false; return v; }
 
 private:
     bool bF10Pressed = false;
+    bool bRadioMutePressed = false;
 };
 }  // namespace
 
-// Open-world catalog for the Brain-authored menu (mirrors ABorn2FlapMenu's
+// Open-world catalog for the Brain-authored menu (worlds + conditions +
 // Worlds[]). `Id` is the level key, `Title`/`Story` the card copy.
 namespace
 {
@@ -503,64 +509,70 @@ void ABorn2FlapGameMode::BeginPlay()
     }
 
     // Menu world-select state (for the Brain-authored menu; the native
-    // ABorn2FlapMenu keeps its own copy when the Brain is offline).
+    // The Brain is the single menu surface).
     for (int32 I = 0; I < MenuWorldCount; ++I)
         MenuLevelConditions.Add(MenuWorlds[I].Id, Born2FlapWeather::Load(MenuWorlds[I].Id));
 
-    // Ruby Brain bridge: when the Brain process launches, it becomes the single
-    // UMG host and native panels stay dormant (fallback when Ruby is absent).
+    // Ruby Brain bridge — BRAIN-REQUIRED: the Brain is the single UMG host and
+    // must always be attached. The native panels below are DEPRECATED fallbacks
+    // that only exist for the brief window while the Brain process launches.
     {
         FActorSpawnParameters BrainParams;
         BrainParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
         BrainBridge = GetWorld()->SpawnActor<ABorn2FlapUIBridge>(FVector::ZeroVector, FRotator::ZeroRotator, BrainParams);
     }
     const bool bBrain = IsBrainActive();
+    if (!bBrain)
+    {
+        // BRAIN-REQUIRED: the UI is ALWAYS authored by the Ruby Brain. There is
+        // deliberately no native menu/cockpit fallback — the only safety net is
+        // the minimal engine console (~ key, Development builds): `quit`,
+        // `open <map>`, `fps`, `stat unit` etc. Surface the situation loudly.
+        UE_LOG(LogTemp, Error,
+            TEXT("Born2FlapGameMode: Ruby Brain NOT attached — the game only runs Brain-attached! Minimal fallback: press ~ (engine console) for recovery commands (quit / open <map>)."));
+        if (APlayerController* PC = GetWorld()->GetFirstPlayerController())
+            PC->ConsoleCommand(TEXT("log LogTemp Error"), false);
+        if (GEngine)
+            GEngine->AddOnScreenDebugMessage(uint64(0xB2F0FF), 30.f, FColor::Red,
+                TEXT("BRAIN OFFLINE — the UI is Ruby-authored and cannot render. Press ~ for the minimal recovery console (quit / open <map>)."));
+    }
 
     // No in-app startup splash — the only pre-UI splash is the native Windows
     // splash (Content/Splash/Splash.png, WindowsApplication.ShowSplash) shown
     // while the engine boots before the main window appears. SplashElapsed stays
     // at its -1 default, so the menu opens on the very first Tick.
-    // Menu mode is the home screen: nothing to build behind it. Return now —
-    // the first real level only loads when the player clicks FLY. No bird,
-    // radio, weather or world geometry here.
+    UWorld *World = GetWorld();
+    // Unified radio: one station drives the frontend menu and every level
+    // alike. The playlist is data-driven (Config/DefaultGame.ini): LevelName
+    // "Menu" serves the main menu, each level its own entry. In menu mode the
+    // station keeps playing behind the level-select screen — only the in-level
+    // F10 menu ducks it.
+    {
+        RadioStation = NewObject<UBorn2FlapRadioStation>(this);
+        const FString RadioLevel = bMenuMode ? TEXT("Menu") : GetLevelId();
+        RadioStation->Initialize(World, RadioLevel);
+        // The radio face is authored by the Ruby Brain from telemetry.
+    }
+    // Menu mode is the home screen: nothing else to build behind it. Return
+    // now — the first real level only loads when the player clicks FLY. No
+    // bird, weather or world geometry here.
     if (bMenuMode)
         return;
-    UWorld *World = GetWorld();
     World->GetWorldSettings()->bForceNoPrecomputedLighting = true;
     // World assembly is synchronous here (inside LoadMap, before the loader
     // drops), so report the phases as they happen — the loading screen reads
     // this shared state every frame and shows it in place of the bare bar.
     Born2Flap::Loading::Report(0.10f, TEXT("ASSEMBLING WORLD"));
-    // The glass cockpit is authored natively in C++ (ABorn2FlapFlightHUD) only
-    // when the Ruby Brain is offline; otherwise the Brain authors it from
-    // BuildBrainTelemetry() and this actor stays dormant.
-    if (!bBrain)
-    {
-        FActorSpawnParameters CockpitParams;
-        CockpitParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-        World->SpawnActor<ABorn2FlapFlightHUD>(FVector::ZeroVector, FRotator::ZeroRotator, CockpitParams);
-    }
+    // The cockpit is authored EXCLUSIVELY by the Ruby Brain (BuildBrainTelemetry
+    // → cockpit.umghaml). There is no native HUD fallback: when the Brain is
+    // missing, ShowBrainOfflineNotice() (BeginPlay) already surfaced the error
+    // and the minimal engine console stays available for recovery commands.
     // Racing mode: replay-spirit recorder + manager. Records every round and
     // re-flies the past rounds as shadow doppelgängers (disabled in flight tests).
     {
         FActorSpawnParameters RacingParams;
         RacingParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
         if(!bHarvestWatch)World->SpawnActor<ABorn2FlapRacingManager>(FVector::ZeroVector, FRotator::ZeroRotator, RacingParams);
-    }
-    // Unified radio: one station + one semantic HUD drive every level. The
-    // playlist is data-driven per level (Config/DefaultGame.ini).
-    {
-        RadioStation = NewObject<UBorn2FlapRadioStation>(this);
-        const FString RadioLevel = GetLevelId();
-        RadioStation->Initialize(World, RadioLevel);
-        if (!bBrain && RadioStation->HasTrack())
-        {
-            FActorSpawnParameters RadioParams;
-            RadioParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-            RadioHUD = World->SpawnActor<ABorn2FlapRadioHUD>(FVector::ZeroVector, FRotator::ZeroRotator, RadioParams);
-            if (RadioHUD)
-                RadioHUD->SetStation(RadioStation);
-        }
     }
     FActorSpawnParameters Params;
     Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
@@ -948,7 +960,7 @@ void ABorn2FlapGameMode::Tick(float DeltaSeconds)
     {
         if(UGameplayStatics::ParseOption(OptionsString,TEXT("Weather")).IsEmpty())
         {
-            if(!MenuWidget) ShowMainMenu(true);
+            ShowMainMenu(true);
         }
         else if(GetWorld()->GetTimeSeconds()>3.f) FPlatformMisc::RequestExit(false);
     }
@@ -985,13 +997,13 @@ void ABorn2FlapGameMode::Tick(float DeltaSeconds)
     // has faded (or straight away on a splash-less boot) on a plain boot with no
     // explicit level. Decoupled from the splash so -nosplash/-unattended never
     // also skip the menu and drop the player straight into a map.
-    if (!bSkipMenu && !bMenuOpen && SplashElapsed < 0.f && !MenuWidget)
+    if (!bSkipMenu && !bMenuOpen && SplashElapsed < 0.f)
         ShowMainMenu(false);
 
     // F10 re-opens the menu from inside a level. In GameOnly input mode the key
     // is reported reliably by the PlayerController (the menu, once open, switches
     // to UIOnly and its pre-processor takes over for the close).
-    if (!bMenuOpen && bSkipMenu && !MenuWidget)
+    if (!bMenuOpen && bSkipMenu)
     {
         if (APlayerController* PC = UGameplayStatics::GetPlayerController(this, 0))
         {
@@ -1002,25 +1014,25 @@ void ABorn2FlapGameMode::Tick(float DeltaSeconds)
                         Bird->ClosePoiOverlay();
                 ShowMainMenu(true);
             }
-            // The RC settings key opens the same fullscreen menu, landing on
-            // SETTINGS → CONTROL SETTINGS (the RC transmitter panel now lives
-            // inside the menu). Guarded so the Brain-authored path keeps its own.
-            if (!IsBrainActive() && PC->WasInputKeyJustPressed(born2flap::keybinds::Get(TEXT("ToggleRc"))))
-            {
-                MenuNavPage = 2;
-                MenuSettingsPage = 0;
-                MenuPrefsPage = 0;
-                ShowMainMenu(true);
-            }
+            // ToggleRc routes through the Brain's own action handling; there is
+            // no native RC menu path.
         }
     }
     else if (bMenuOpen)
     {
         if (const auto Proc = StaticCastSharedPtr<FMenuKeyInputProcessor>(MenuKeyProcessor))
-            if (Proc->ConsumeF10()) {
+        {
+            if (Proc->ConsumeF10())
+            {
                 if(IsBrainActive()) BrainBridge->HandleAction(TEXT("ui.back"),0,TEXT(""));
                 else CloseMainMenu();
             }
+            // M (radio mute) is captured by the pre-processor while the menu is
+            // open — the UIOnly input mode routes keys away from PlayerInput,
+            // so the WasInputKeyJustPressed block above cannot see it here.
+            if (Proc->ConsumeRadioMute() && RadioStation)
+                RadioStation->ToggleMute();
+        }
     }
     if(bCoastLevel && FParse::Param(FCommandLine::Get(),TEXT("B2FCoastTest")))
     {
@@ -1253,7 +1265,7 @@ void ABorn2FlapGameMode::Tick(float DeltaSeconds)
 
 void ABorn2FlapGameMode::ShowMainMenu(bool bInLevel)
 {
-    if (MenuWidget || (IsBrainActive() && bMenuOpen))
+    if (bMenuOpen)
         return;
     bMenuOpen = true;
     bMenuInLevel = bInLevel;
@@ -1267,10 +1279,12 @@ void ABorn2FlapGameMode::ShowMainMenu(bool bInLevel)
             if (LevelId == MenuWorlds[I].Id) { MenuWorldIndex = I; break; }
         MenuWorldStage = 1;
     }
-    if (RadioStation)
+    // Only the in-level F10 menu ducks the station — the frontend menu radio
+    // keeps playing behind the level-select screen.
+    if (RadioStation && bInLevel)
         RadioStation->SetPaused(true);
 
-    // The menu is modal: the game stops receiving input (UIOnly) and the cursor
+    // The menu is modal:
     // is freed so its buttons are clickable. The opaque full-bleed backdrop
     // covers the world; no SetPause, so the GameMode keeps ticking and Escape
     // can be handled by the pre-processor.
@@ -1283,28 +1297,17 @@ void ABorn2FlapGameMode::ShowMainMenu(bool bInLevel)
         PC->FlushPressedKeys();
     }
 
-    // Brain path: the menu is authored by the Ruby Brain from telemetry; there
-    // is no native actor to spawn (MenuWidget stays null).
-    if (IsBrainActive())
-        return;
-
-    FActorSpawnParameters Params;
-    Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-    MenuWidget = GetWorld()->SpawnActor<ABorn2FlapMenu>(FVector::ZeroVector, FRotator::ZeroRotator, Params);
-    if (MenuWidget)
-    {
-        MenuWidget->SetInLevel(bInLevel);
-        // Re-open on the last view the player had open. Only in-level — the
-        // home screen has no live bird, so FLIGHT DESK is unreachable there.
-        MenuWidget->RestoreView(bInLevel ? MenuNavPage : 0, bInLevel ? MenuSettingsPage : 0, bInLevel ? MenuPrefsPage : 0);
-    }
+    // The menu is authored EXCLUSIVELY by the Ruby Brain from telemetry — no
+    // native actor exists to spawn. If the Brain is missing, BeginPlay already
+    // surfaced the error and the minimal engine console remains available.
 }
 
 void ABorn2FlapGameMode::CloseMainMenu()
 {
-    if (!MenuWidget && !bMenuOpen)
+    if (!bMenuOpen)
         return;
     bMenuOpen = false;
+    const bool bWasInLevelMenu = bMenuInLevel;
     bMenuInLevel = false;
     bBrainPrefsOpen = false;
     // Brain path: the menu's RC page may have opened the transmitter panel
@@ -1316,21 +1319,10 @@ void ABorn2FlapGameMode::CloseMainMenu()
         FBorn2FlapRcController* Rc = Bird ? Bird->GetRcControllerMutable() : BrainRc.Get();
         if (Rc) Rc->ClosePanel();
     }
-    if (RadioStation)
+    if (RadioStation && bWasInLevelMenu)
         RadioStation->SetPaused(false);
 
-    // Detach the UMG window now (Destroy() only schedules GC — the window would
-    // otherwise linger until the next collection). In the Brain path MenuWidget
-    // is already null (the Ruby Brain hides the menu from the telemetry flag).
-    if (MenuWidget)
-    {
-        MenuNavPage = MenuWidget->GetNavPage();
-        MenuSettingsPage = MenuWidget->GetSettingsPage();
-        MenuPrefsPage = MenuWidget->GetPrefsPage();
-        MenuWidget->Close();
-        MenuWidget->Destroy();
-        MenuWidget = nullptr;
-    }
+    // The Ruby Brain hides the menu from the telemetry flag on its next tick.
 
     if (APlayerController* PC = UGameplayStatics::GetPlayerController(this, 0))
     {
@@ -1423,6 +1415,18 @@ void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, c
                 born2flap::MenuSettingsLoadModelProfile(S,NewModel);  // load (or default) the new model
             }
         }
+        else if(Action==TEXT("profile.select")) {
+            // Flight character (CRUISE/THERMAL/AEROBATIC/CALM). Re-applies the
+            // profile's CG/cadence/ferocity/glide/battery defaults on top of the
+            // model's tuning — the servo stays invariant (see ApplyFlightProfile).
+            S.FlightProfile=FMath::Clamp(FMath::RoundToInt(Value),0,born2flap::tuning::FlightProfileCount-1);
+            born2flap::tuning::ApplyFlightProfile(S.Tuning,S.CgOffsetMm,S.FlightProfile);
+        }
+        else if(Action==TEXT("servo.preset")) {
+            // Load a tested servo's speed/torque/backdrive + rated pack voltage.
+            BrainServoPreset=FMath::Clamp(FMath::RoundToInt(Value),0,born2flap::servo::PresetCount-1);
+            born2flap::servo::ApplyPreset(S.Tuning,BrainServoPreset);
+        }
         else if(Action==TEXT("tuning.reset")) born2flap::MenuSettingsResetTuningForModel(S,S.BirdModel);
         else if(Action==TEXT("bird.weight")) S.BodyMassKg=FMath::Clamp(Value,.01f,2.f);
         else if(Action==TEXT("bird.cg")) S.CgOffsetMm=FMath::Clamp(Value,-100.f,100.f);
@@ -1438,10 +1442,16 @@ void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, c
         else if(Action==TEXT("replay.spirits")) S.bReplaySpirits=Value>.5f;
         else if(Action==TEXT("trick.toasts")) S.bShowTrickToasts=Value>.5f;
         else if(Action==TEXT("audio.wingbeat")) S.WingbeatVolume=FMath::Clamp(Value,0.f,4.f);
+        else if(Action==TEXT("audio.footsteps")) S.FootstepVolume=FMath::Clamp(Value,0.f,1.f);
         else {
             const bool Display=Action.StartsWith(TEXT("tuning.display."));
             const auto Field=born2flap::tuning::FromKey(Display?Action.Mid(15):Action);
-            if(Field!=ETuningField::Count) born2flap::MenuSettingsSetTuning(S,Field,Display?born2flap::tuning::FromDisplayValue(Field,Value):Value);
+            if(Field!=ETuningField::Count) {
+                born2flap::MenuSettingsSetTuning(S,Field,Display?born2flap::tuning::FromDisplayValue(Field,Value):Value);
+                // Hand-editing a servo/battery knob flips the desk to CUSTOM.
+                if(Field==ETuningField::ServoSpeed||Field==ETuningField::StallTorque||Field==ETuningField::Backdrive||Field==ETuningField::BatteryVoltage)
+                    BrainServoPreset=-1;
+            }
             else Changed=false;
         }
         if(Changed) { born2flap::MenuSettingsSave(S); return; }
@@ -1617,10 +1627,10 @@ void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, c
             MenuPage = FMath::Clamp(FMath::RoundToInt(Value), 0, MaxPage);
             return;
         }
+    if (Action == TEXT("settings.page")) { SettingsPage=FMath::Clamp(FMath::RoundToInt(Value),0,6); return; }
     if (Action == TEXT("settings.page")) { SettingsPage=FMath::Clamp(FMath::RoundToInt(Value),0,4); return; }
     if (Action == TEXT("rc.page")) { RcPage=FMath::Clamp(FMath::RoundToInt(Value),0,2); return; }
-    if (Action == TEXT("preferences.page")) { PrefsPage=FMath::Clamp(FMath::RoundToInt(Value),0,2); return; }
-    if (Action == TEXT("preferences.close")) { bBrainPrefsOpen=false; return; }
+    if (Action == TEXT("preferences.page")) { PrefsPage=FMath::Clamp(FMath::RoundToInt(Value),0,3); return; }
     if (Action == TEXT("settings.close") || Action == TEXT("editor.close"))
     {
         if (ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
@@ -1769,9 +1779,44 @@ void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, c
         if(auto* Bird=Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this,0))) Bird->SetWingbeatVolume(Value);
         return;
     }
-    if (Action == TEXT("camera.freelook.invert"))
+    if (Action == TEXT("audio.wingbeat"))
     {
-        if(auto* Bird=Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this,0))) Bird->SetFreeLookInvert(Value>.5f);
+        if(auto* Bird=Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this,0))) Bird->SetWingbeatVolume(Value);
+        return;
+    }
+    if (Action == TEXT("audio.footsteps"))
+    {
+        if(auto* Bird=Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this,0))) Bird->SetFootstepVolume(Value);
+        return;
+    }
+    // Flight profile (CRAFT tab): re-apply the character defaults on top of the
+    // live pawn's tuning — servo stays invariant (see ApplyFlightProfile).
+    if (Action == TEXT("profile.select"))
+    {
+        auto* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0));
+        if (Bird)
+        {
+            born2flap::MenuSettingsFromPawn(Bird, BrainPreferences);   // re-sync live edits
+            BrainPreferences.FlightProfile = FMath::Clamp(FMath::RoundToInt(Value), 0, born2flap::tuning::FlightProfileCount - 1);
+            born2flap::tuning::ApplyFlightProfile(BrainPreferences.Tuning, BrainPreferences.CgOffsetMm, BrainPreferences.FlightProfile);
+            born2flap::MenuSettingsToPawn(BrainPreferences, Bird);
+            born2flap::MenuSettingsSave(BrainPreferences);
+        }
+        return;
+    }
+    // Servo preset (SERVO tab): load tested speed/torque/backdrive + rated
+    // pack voltage onto the live pawn.
+    if (Action == TEXT("servo.preset"))
+    {
+        auto* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0));
+        if (Bird)
+        {
+            born2flap::MenuSettingsFromPawn(Bird, BrainPreferences);   // re-sync live edits
+            BrainServoPreset = FMath::Clamp(FMath::RoundToInt(Value), 0, born2flap::servo::PresetCount - 1);
+            born2flap::servo::ApplyPreset(BrainPreferences.Tuning, BrainServoPreset);
+            born2flap::MenuSettingsToPawn(BrainPreferences, Bird);
+            born2flap::MenuSettingsSave(BrainPreferences);
+        }
         return;
     }
     // TUNING tab (12 firmware knobs).
@@ -1780,6 +1825,10 @@ void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, c
     {
         if (ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
             Bird->SetTuning(Field, Value);
+        // Hand-editing a servo/battery knob flips the desk to CUSTOM.
+        if (Field == ETuningField::ServoSpeed || Field == ETuningField::StallTorque ||
+            Field == ETuningField::Backdrive || Field == ETuningField::BatteryVoltage)
+            BrainServoPreset = -1;
         return;
     }
         // In-level the menu is the loaded world's parameter desk: APPLY commits
@@ -2073,7 +2122,47 @@ FString ABorn2FlapGameMode::BuildBrainTelemetry() const
             Knobs.Add(MakeShared<FJsonValueObject>(K));
         }
         Root->SetArrayField(TEXT("tuning_fields"),Knobs);
+        // Flight profile (CRAFT tab selector) — the profile character is menu
+        // state, not a tuning knob, so it rides beside the tuning fields.
+        Root->SetNumberField(TEXT("profile"), Settings.FlightProfile);
+        // Servo desk (SERVO/BATTERY tabs): the preset catalog + the current
+        // selection with its power-degradation series. The Brain lays the desk
+        // out; this is the data backend (born2flap::servo::Presets).
+        {
+            TArray<TSharedPtr<FJsonValue>> ServoArr;
+            for (int32 I = 0; I < born2flap::servo::PresetCount; ++I)
+            {
+                const born2flap::servo::FServoPreset& Sp = born2flap::servo::Presets[I];
+                auto O = MakeShared<FJsonObject>();
+                O->SetStringField(TEXT("name"), Sp.Name);
+                O->SetNumberField(TEXT("speed"), Sp.SpeedDegS);
+                O->SetNumberField(TEXT("torque"), Sp.StallTorqueNm);
+                O->SetNumberField(TEXT("backdrive"), Sp.Backdrive);
+                O->SetNumberField(TEXT("voltage"), Sp.Voltage);
+                O->SetNumberField(TEXT("min_voltage"), Sp.MinVoltage);
+                O->SetNumberField(TEXT("max_voltage"), Sp.MaxVoltage);
+                ServoArr.Add(MakeShared<FJsonValueObject>(O));
+            }
+            Root->SetArrayField(TEXT("servo_presets"), ServoArr);
+            Root->SetNumberField(TEXT("servo_preset"), BrainServoPreset);
+            const bool bHasPreset = BrainServoPreset >= 0 && BrainServoPreset < born2flap::servo::PresetCount;
+            const born2flap::servo::FServoPreset& Sp = bHasPreset
+                ? born2flap::servo::Presets[BrainServoPreset] : born2flap::servo::Presets[0];
+            TArray<TSharedPtr<FJsonValue>> CurveArr;
+            if (bHasPreset)
+            {
+                TArray<float> Series;
+                born2flap::servo::DegradationCurve(Sp, Series, 13);
+                for (const float Pv : Series) CurveArr.Add(MakeShared<FJsonValueNumber>((double)Pv));
+            }
+            Root->SetArrayField(TEXT("servo_curve"), CurveArr);
+            Root->SetNumberField(TEXT("servo_min_voltage"), Sp.MinVoltage);
+            Root->SetNumberField(TEXT("servo_max_voltage"), bHasPreset ? Sp.MaxVoltage : 8.4f);
+            Root->SetNumberField(TEXT("servo_rated_voltage"), Sp.Voltage);
+            Root->SetStringField(TEXT("servo_name"), bHasPreset ? FString(Sp.Name) : TEXT(""));
+        }
         Root->SetNumberField(TEXT("wingbeat_volume"),Settings.WingbeatVolume);
+        Root->SetNumberField(TEXT("footstep_volume"),Settings.FootstepVolume);
         Root->SetBoolField(TEXT("freelook_invert"),Settings.bFreeLookInvert);
         // Display + pilot avatar (Brain "General Settings" page).
         Root->SetNumberField(TEXT("display_mode"), Settings.WindowMode);

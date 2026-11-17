@@ -43,6 +43,10 @@ module Born2Flap.Math.Planform
   , referenceWingMassKg
   , shapeFlapInertia
   , shapeStationsAt
+    -- * Solver-wide constants (shared with Model/Structure tables)
+  , stripCount
+  , airDensity
+  , addedAirGain
   ) where
 
 import Data.List (sortOn)
@@ -86,6 +90,21 @@ data SpanStation = SpanStation
   , spanSection  :: !SectionProfile  -- ^ camber / reflex / membrane material
   , spanStructure :: !StructureProfile  -- ^ bending / torsion / damping material
   } deriving stock (Eq, Show)
+
+-- | Solver strip resolution: both wings are sampled into this many spanwise
+-- stations. Fixed at module level so every consumer (elasticity table, solver,
+-- FFI telemetry) shares one source of truth.
+stripCount :: Int
+stripCount = 16
+
+-- | Reference sea-level air density [kg/m³] used by the aerodynamic solvers.
+airDensity :: Double
+airDensity = 1.05
+
+-- | Flat-plate added-air inertia gain. An inertial term, never weight support
+-- or a multiplier selected by a flight mode.
+addedAirGain :: Double
+addedAirGain = 1.0
 
 -- | Reference kestrel ornithopter: 550 mm half-span (1.10 m full span) — 222 mm
 -- inner spar + 32 mm servo arm to the elbow, 310 mm outer LE spar to the tip,

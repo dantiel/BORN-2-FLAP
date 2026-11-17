@@ -1,22 +1,31 @@
 """Rebuild the bird feathers OPAQUE (no transparency, no dither) with a
-backlit-only "church-window" glow.
+backlit-only "church-window" glow plus a thin-paper underside own-light.
 
   M_FalconWing    -> kestrel membrane wing (T_KestrelWingTop, greyed underside)
   M_KestrelTail    -> kestrel fanned tail (T_KestrelTail, same paint both sides)
   M_WingMembrane  -> ravencrow/prototype wing (vertex-colour base)
 
 The feathers are fully opaque: detail stays legible and the lit side reflects
-normally (roughness 0.65, two-sided, default lit). The only light-through
-effect is an additive emissive that fires ONLY when the sun is behind the
-membrane (backlit), tinted by the paint colour.
+normally (roughness 0.65, two-sided, default lit). Two additive emissive terms
+carry the light through the membrane:
 
-  transmission = saturate(-dot(CameraVectorWS, AtmosphericLightVector))
+1. Church-window backlit (all three materials): fires ONLY when the sun is
+   behind the membrane, tinted by the paint colour.
 
-AtmosphericLightVector points TOWARD the sun (surface -> sun; the renderer
-fills ResolvedView.AtmosphereLightDirection with -SunLight->Proxy->
-GetDirection(), the reverse of the light's travel direction). CameraVectorWS
-points toward the camera, so -dot(...) is positive only when light and camera
-sit on opposite sides of the membrane.
+     transmission = saturate(-dot(CameraVectorWS, AtmosphericLightVector))
+
+   AtmosphericLightVector points TOWARD the sun (surface -> sun; the renderer
+   fills ResolvedView.AtmosphereLightDirection with -SunLight->Proxy->
+   GetDirection(), the reverse of the light's travel direction). CameraVectorWS
+   points toward the camera, so -dot(...) is positive only when light and camera
+   sit on opposite sides of the membrane.
+
+2. Thin-paper underside own-light (M_FalconWing only): the kestrel's underside
+   membrane always glows softly with its own light, like thin paper letting
+   the sun through — the aether-turtle technique (albedo * Glow -> emissive,
+   see import_turtle_textures.py) gated to the back face via
+   saturate(-TwoSidedSign). Independent of camera/sun geometry, so the
+   underside never reads black.
 
 Run once via the editor commandlet (close any running game/editor first):
 
@@ -58,8 +67,24 @@ def wire_vertex(vertex, dst, pin):
         assert lib.connect_material_expressions(vertex, "RGB", dst, pin), "vertex colour connect failed"
 
 
+def brighten(m, tint):
+    """tint * 1.5 + 0.2: the emissive-only brightened paint colour, so the
+    glow reads clearly even against a blazing sun (base colour untouched)."""
+    boost = node(m, "Constant", r=1.5)
+    tint_boost = node(m, "Multiply")
+    if not lib.connect_material_expressions(tint, "", tint_boost, "A"):
+        assert lib.connect_material_expressions(tint, "RGB", tint_boost, "A"), "tint connect failed"
+    wire(boost, tint_boost, "B")
+
+    floor = node(m, "Constant", r=0.2)
+    tint_bright = node(m, "Add")
+    wire(tint_boost, tint_bright, "A")
+    wire(floor, tint_bright, "B")
+    return tint_bright
+
+
 def add_backlit_glow(m, tint, glow_name="WingGlow", glow_value=12.0):
-    """Emissive = brightened tint * WingGlow * transmission.
+    """Returns the emissive node: brightened tint * WingGlow * transmission.
 
     transmission = saturate(-dot(CameraVectorWS, AtmosphericLightVector)).
 
@@ -95,23 +120,40 @@ def add_backlit_glow(m, tint, glow_name="WingGlow", glow_value=12.0):
     wire(glow, scaled, "A")
     wire(sat, scaled, "B")
 
-    # Brighten the tint for the emissive only, so the glow reads clearly even
-    # against a blazing sun (the base colour is untouched).
-    boost = node(m, "Constant", r=1.5)
-    tint_boost = node(m, "Multiply")
-    if not lib.connect_material_expressions(tint, "", tint_boost, "A"):
-        assert lib.connect_material_expressions(tint, "RGB", tint_boost, "A"), "tint connect failed"
-    wire(boost, tint_boost, "B")
+    emissive = node(m, "Multiply")
+    wire(brighten(m, tint), emissive, "A")
+    wire(scaled, emissive, "B")
+    return emissive
 
-    floor = node(m, "Constant", r=0.2)
-    tint_bright = node(m, "Add")
-    wire(tint_boost, tint_bright, "A")
-    wire(floor, tint_bright, "B")
+
+def add_underside_glow(m, tint, glow_name="UndersideGlow", glow_value=2.0):
+    """Returns the emissive node: brightened tint * UndersideGlow * back-face mask.
+
+    Thin-paper own light (the aether-turtle technique: albedo * Glow -> emissive,
+    see import_turtle_textures.py) gated to the back face only. The underside
+    membrane always glows softly with its own light, as if the sun shines
+    through it from above — independent of camera/sun geometry, so it never
+    reads black. mask = saturate(-TwoSidedSign): 1 on the back face, 0 on the
+    front face (the lit side keeps only the backlit church-window term).
+    """
+    sign = node(m, "TwoSidedSign")
+    neg_one = node(m, "Constant", r=-1.0)
+    sneg = node(m, "Multiply")
+    wire(sign, sneg, "A")
+    wire(neg_one, sneg, "B")
+
+    mask = node(m, "Saturate")
+    wire(sneg, mask, "")
+
+    glow = node(m, "ScalarParameter", parameter_name=glow_name, default_value=glow_value)
+    scaled = node(m, "Multiply")
+    wire(glow, scaled, "A")
+    wire(mask, scaled, "B")
 
     emissive = node(m, "Multiply")
-    wire(tint_bright, emissive, "A")
+    wire(brighten(m, tint), emissive, "A")
     wire(scaled, emissive, "B")
-    output(emissive, "EMISSIVE_COLOR")
+    return emissive
 
 
 def build_tail():
@@ -134,7 +176,7 @@ def build_tail():
     rough = node(m, "Constant", r=0.65)
     output(rough, "ROUGHNESS")
 
-    add_backlit_glow(m, paint, glow_name="TailGlow")
+    output(add_backlit_glow(m, paint, glow_name="TailGlow"), "EMISSIVE_COLOR")
 
     lib.recompile_material(m)
     assert ela.save_asset(path), "TAIL_KESTREL: failed to save " + path
@@ -189,7 +231,14 @@ def build_falcon():
     rough = node(m, "Constant", r=0.65)
     output(rough, "ROUGHNESS")
 
-    add_backlit_glow(m, paint)
+    # Emissive = church-window backlit (both sides) + thin-paper own-light
+    # (back face only), so the kestrel underside never reads black.
+    backlit = add_backlit_glow(m, paint)
+    underside = add_underside_glow(m, paint)
+    total = node(m, "Add")
+    wire(backlit, total, "A")
+    wire(underside, total, "B")
+    output(total, "EMISSIVE_COLOR")
 
     lib.recompile_material(m)
     assert ela.save_asset(path), "WING_FALCON: failed to save " + path
@@ -223,7 +272,7 @@ def build_membrane():
     rough = node(m, "Constant", r=0.65)
     output(rough, "ROUGHNESS")
 
-    add_backlit_glow(m, base)
+    output(add_backlit_glow(m, base), "EMISSIVE_COLOR")
 
     lib.recompile_material(m)
     assert ela.save_asset(path), "WING_MEMBRANE: failed to save " + path

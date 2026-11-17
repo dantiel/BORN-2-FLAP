@@ -22,28 +22,51 @@ module Born2Flap.Math.Model
   , turtleModel
   , kestrelLightModel
   , withWingCamberBias
+  , mkWingModel
   ) where
 
 import Born2Flap.Math.Planform
-  ( WingShape(..), ShapeStation(..), defaultBirdWing, scaleWing
-  , shapeTwistRad, shapeSection, shapeStructure )
+  ( WingShape(..), ShapeStation(..), SpanStation(..), defaultBirdWing, scaleWing
+  , shapeTwistRad, shapeSection, shapeStructure, shapeStationsAt
+  , stripCount, airDensity, addedAirGain, referenceWingMassKg, shapeFlapInertia )
 import Born2Flap.Math.Section (SectionProfile(..))
 import Born2Flap.Math.Structure
-  ( Spar(..), SparKind(..), SparInventory(..), kestrelSpars )
+  ( Spar(..), SparKind(..), SparInventory(..), kestrelSpars
+  , WingElasticTable, mkWingElasticTable )
 
 data WingModel = WingModel
-  { wmName   :: !String        -- ^ human-readable model identifier
-  , wmWing   :: !WingShape     -- ^ outline: span, shoulder, stations (with per-station section/structure)
-  , wmSpars  :: !SparInventory -- ^ carbon-rod inventory driving spanwise EI/GJ
-  , wmMassKg :: !Double        -- ^ dry mass of the whole bird [kg] (Chaos body mass + airframe inertia)
+  { wmName     :: !String            -- ^ human-readable model identifier
+  , wmWing     :: !WingShape         -- ^ outline: span, shoulder, stations (with per-station section/structure)
+  , wmSpars    :: !SparInventory     -- ^ carbon-rod inventory driving spanwise EI/GJ
+  , wmMassKg   :: !Double            -- ^ dry mass of the whole bird [kg] (Chaos body mass + airframe inertia)
+  , wmStations :: ![SpanStation]     -- ^ resampled solver stations at strip midpoints
+  , wmElastic  :: !WingElasticTable  -- ^ precomputed beam/twist modes, masses, stiffness
+  , wmFlapInertiaWet :: !Double      -- ^ flap-hinge inertia incl. entrained air [kg·m²]
+  , wmFlapInertiaDry :: !Double      -- ^ flap-hinge inertia, structure only [kg·m²]
   } deriving stock (Eq, Show)
+
+-- | Build a 'WingModel' and precompute its rate-independent solver tables
+-- (strip geometry + wing elasticity). The per-step solver reads ONLY these
+-- tables: recomputing the planform interpolation and beam integration per
+-- physics step (the old path re-sorted the outline per strip per trial
+-- velocity) was the dominant frame cost.
+mkWingModel :: String -> WingShape -> SparInventory -> Double -> WingModel
+mkWingModel name wing spars mass =
+  let stations = shapeStationsAt wing stripCount
+      chords = map spanChord stations
+      elastic = mkWingElasticTable spars referenceWingMassKg airDensity
+        chords (wsSpanM wing) stripCount
+      flapWet = shapeFlapInertia referenceWingMassKg (airDensity * addedAirGain) wing
+      flapDry = shapeFlapInertia referenceWingMassKg 0 wing
+  in WingModel name wing spars mass stations elastic flapWet flapDry
 
 -- | Small built-in airfoil camber adjustment, expressed as a fraction of
 -- chord. This changes the same section camber used for zero-lift angle,
 -- quarter-chord pitching moment, membrane shape and rendered geometry.
 -- Preserve the attached root and blend into the free membrane over 16% span.
 withWingCamberBias :: Double -> WingModel -> WingModel
-withWingCamberBias requested model = model {wmWing=wing {wsStations=map adjust (wsStations wing)}}
+withWingCamberBias requested model =
+  mkWingModel (wmName model) (wing {wsStations=map adjust (wsStations wing)}) (wmSpars model) (wmMassKg model)
   where
     wing=wmWing model
     bias=max (-0.01) (min 0.01 requested)
@@ -57,15 +80,17 @@ withWingCamberBias requested model = model {wmWing=wing {wsStations=map adjust (
 -- 2.0 mm inner → 1.6 mm outer LE mainspar + diagonal/mid-chord brace box.
 -- PTK 7465 (or 7465 Plus) servo.
 kestrelModel :: WingModel
-kestrelModel = WingModel "kestrel" kestrelMembraneWing flightSpars 0.050
+kestrelModel = mkWingModel "kestrel" kestrelMembraneWing flightSpars 0.050
   where
     -- Effective skin/brace calibration (not measured carbon material values).
     -- Increase load-dependent bending without lengthening the carbon rods.
-    -- User-requested torsional scale 4.2: 14.3% more static compliance than
-    -- 4.8. This is a design setting, not a measured carbon material constant;
-    -- greater washout can reduce lift as well as redirect pressure forces.
-    -- Bending siBendScale stays 3.6.
-    flightSpars = kestrelSpars { siBendScale = 3.6, siTwistScale = 4.2 }
+    -- User-requested torsional spring (recoil) scale 16.8: 4x stiffer than
+    -- the old 4.2. Stiffening holds the downstroke airfoil posture under
+    -- load (pronation -2.3deg vs -6.3deg at cruise): downstroke thrust ~+60%,
+    -- small-wing drag brake removed in differential-amplitude flapping.
+    -- Upper sweet-spot bound per TwistBoostAudit; beyond ~25 the elastic
+    -- twist (and thus the visible recoil) vanishes. siBendScale stays 3.6.
+    flightSpars = kestrelSpars { siBendScale = 3.6, siTwistScale = 16.8 }
 
 -- Matches the current native KestrelMeshScale and KestrelScale. Shoulder
 -- placement is (3, +/-1, 2) cm; it is not scaled by the renderer.
@@ -124,7 +149,7 @@ ravenServoArmAngleDeg = ravenServoMountAngleDeg
 -- 1.2×, written out with specific diameters/lengths so any rod can be edited
 -- independently). Mass scales ~s³ (structural similarity): 50 g × 1.2³.
 ravenModel :: WingModel
-ravenModel = WingModel "raven" ravenWing ravenSpars 0.086
+ravenModel = mkWingModel "raven" ravenWing ravenSpars 0.086
   where
     ravenWing = (scaleWing 1.2 defaultBirdWing)
       { wsMountAngleDeg = ravenServoMountAngleDeg
@@ -134,12 +159,12 @@ ravenModel = WingModel "raven" ravenWing ravenSpars 0.086
 -- | Prototype (training arena): 0.495 m half-span (0.99 m full span), the
 -- kestrel outline scaled 0.9×, with its own 0.9× spar list. Mass 50 g × 0.9³.
 prototypeModel :: WingModel
-prototypeModel = WingModel "prototype" (scaleWing 0.9 defaultBirdWing) prototypeSpars 0.036
+prototypeModel = mkWingModel "prototype" (scaleWing 0.9 defaultBirdWing) prototypeSpars 0.036
 
 -- | Neon turtle (void level): reuses the kestrel outline; the void disables
 -- gravity and uses dense-medium drag, so its mass is only a placeholder.
 turtleModel :: WingModel
-turtleModel = WingModel "turtle" defaultBirdWing kestrelSpars 0.050
+turtleModel = mkWingModel "turtle" defaultBirdWing kestrelSpars 0.050
 
 -- | Light kestrel sub-variant: the SAME outline as the reference kestrel but
 -- half the dry mass (25 g) and every carbon rod thinned by @0.5^(1/4) ≈ 0.841@.
@@ -150,7 +175,7 @@ turtleModel = WingModel "turtle" defaultBirdWing kestrelSpars 0.050
 -- D43S-6.0-MG), whose higher no-load speed earns a faster flap at the lighter
 -- bird's natural cadence.
 kestrelLightModel :: WingModel
-kestrelLightModel = WingModel "kestrel-light" kestrelMembraneWing kestrelLightSpars 0.025
+kestrelLightModel = mkWingModel "kestrel-light" kestrelMembraneWing kestrelLightSpars 0.025
 
 -- | Rod-diameter scale that halves stiffness: EI, GJ ∝ d⁴ ⇒ half stiffness at
 -- Ø × 0.5^(1/4).

@@ -77,7 +77,7 @@ bool FBorn2FlapMathBridge::Load()
         FlightConfig.servo_no_load_speed_deg_s = 857;
         FlightConfig.servo_stall_torque_nm = 0.735;
         FlightConfig.servo_backdrive_deg_s_nm = 20;
-        FlightConfig.battery_voltage = 7.4;
+        FlightConfig.battery_voltage = 8.4;
         FlightConfig.battery_resistance_ohm = .08;
         FlightConfig.battery_capacity_ah = 1.3;
         Context = ::b2f_math_create_firmware_vehicle(&FlightConfig);
@@ -105,6 +105,14 @@ bool FBorn2FlapMathBridge::Load()
     static void* ProcessLibraryHandle = nullptr;
     if (!ProcessLibraryHandle)
     {
+#if PLATFORM_WINDOWS
+        // The Haskell RTS reads GHCRTS when it initialises (first FFI call
+        // through the freshly loaded DLL). A 32 MB nursery absorbs the solver's
+        // high short-lived allocation rate (~3 GB/s): ~11% of step time is
+        // minor-GC work at the default 1 MB nursery. The DLL is linked with
+        // -rtsopts so this environment variable takes effect.
+        FPlatformMisc::SetEnvironmentVar(TEXT("GHCRTS"), TEXT("-A32m"));
+#endif
         ProcessLibraryHandle = FPlatformProcess::GetDllHandle(*LibraryPath);
     }
     LibraryHandle = ProcessLibraryHandle;
@@ -184,7 +192,7 @@ bool FBorn2FlapMathBridge::Load()
     FlightConfig.servo_no_load_speed_deg_s = 857;
     FlightConfig.servo_stall_torque_nm = 0.735;
     FlightConfig.servo_backdrive_deg_s_nm = 20;
-    FlightConfig.battery_voltage = 7.4;
+    FlightConfig.battery_voltage = 8.4;
     FlightConfig.battery_resistance_ohm = .08;
     FlightConfig.battery_capacity_ah = 1.3;
     Context = CreateFirmwareVehicle(&FlightConfig);

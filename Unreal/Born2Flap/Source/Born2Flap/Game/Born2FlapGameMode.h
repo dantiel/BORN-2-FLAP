@@ -8,9 +8,7 @@
 #include "Born2FlapGameMode.generated.h"
 
 class UBorn2FlapRadioStation;
-class ABorn2FlapRadioHUD;
 class ABorn2FlapSplash;
-class ABorn2FlapMenu;
 class ABorn2FlapUIBridge;
 class AStaticMeshActor;
 class UMaterialInstanceDynamic;
@@ -74,8 +72,8 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     // single UMG host: native panels (cockpit/menu/poi/radio/splash) stay
     // dormant and the Brain authors them from BuildBrainTelemetry().
     bool IsBrainActive() const;
-    // Route a semantic component action (button/slider/select) from the Brain's
-    // renderer into game logic. Mirrors ABorn2FlapMenu::OnAction + the POI
+    // Handle a semantic action emitted by the Brain-authored UMG tree (the
+    // renderer into game logic). Includes the POI
     // overlay handler so the Ruby path and the native path share one behaviour.
     void HandleBrainAction(const FString& Action, float Value, const FString& Text);
     // Route an imperative command (the Ruby Brain's outbound channel) into game
@@ -85,7 +83,7 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     // Full JSON telemetry for the Brain: panel visibility + menu catalog + POI
     // list + radio + RC + splash + flight readouts (single source of truth).
     FString BuildBrainTelemetry() const;
-    // Menu world-select state (mirrors ABorn2FlapMenu so the Brain can author it).
+    // Menu world-select state (authored by the Brain).
     int32 GetMenuWorldIndex() const { return MenuWorldIndex; }
     const TMap<FString, FBorn2FlapConditions>& GetMenuLevelConditions() const { return MenuLevelConditions; }
 
@@ -130,26 +128,26 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     int32 CoastCaptureStage=0;
     UPROPERTY(Transient)
     TObjectPtr<UBorn2FlapRadioStation> RadioStation;
-    UPROPERTY(Transient)
-    TObjectPtr<ABorn2FlapRadioHUD> RadioHUD;
 
     // Ruby Brain bridge — when active it is the single UMG host (native panels
     // are suppressed and the Brain authors the full dashboard).
     UPROPERTY(Transient)
     TObjectPtr<ABorn2FlapUIBridge> BrainBridge;
 
-    // Menu world-select state (mirrors ABorn2FlapMenu for the Brain path).
+    // Menu world-select state (authored by the Brain).
     int32 MenuWorldIndex = 0;
     int32 MenuPage = 0;
     int32 SettingsPage = 0;
     int32 PrefsPage = 0;
     int32 RcPage = 0;
-    // Native-menu view persistence: F10 re-opens on the page (and FLIGHT DESK
-    // sub-tab) the player last had open. The menu actor is destroyed on close,
-    // so its NavPage / SettingsPage survive here across open/close.
+    // Servo-desk UI state for the Brain-authored tuning editor: the selected
+    // servo preset (born2flap::servo::Presets index) or -1 = CUSTOM/manual.
+    // Runtime-only; editing any servo/battery knob by hand flips it back to -1.
+    int32 BrainServoPreset = -1;
+    // Menu view persistence: F10 re-opens on the page (and FLIGHT DESK
+    // sub-tab) the player last had open. The Brain-authored tree is rebuilt
+    // on close, so NavPage / SettingsPage survive here across open/close.
     int32 MenuNavPage = 0;
-    int32 MenuSettingsPage = 0;
-    int32 MenuPrefsPage = 0;
         TMap<FString, FBorn2FlapConditions> MenuLevelConditions;
         TMap<FString, int32> MenuSelectedPoi;
         // Open-worlds flow: 0 = all-maps picker, 1 = selected world's overview
@@ -165,11 +163,10 @@ class BORN2FLAP_API ABorn2FlapGameMode : public AGameModeBase
     float SplashElapsed = -1.f;
 
 
-    // Main menu / level selector, opened once the splash fades on a plain boot
-    // (no ?Level=, no ?SkipMenu=1). Selecting a level re-opens with SkipMenu.
-    // F10 re-opens it from inside a level (bSkipMenu true, menu closed).
-    UPROPERTY(Transient)
-    TObjectPtr<ABorn2FlapMenu> MenuWidget;
+    // Main menu / level selector state, opened once the splash fades on a
+    // plain boot (no ?Level=, no ?SkipMenu=1). Selecting a level re-opens with
+    // SkipMenu. F10 re-opens it from inside a level. The visible surface is
+    // ALWAYS authored by the Ruby Brain (UMGHAML); there is no native menu.
     bool bSkipMenu = false;
     bool bMenuOpen = false;
     // APP SETTINGS subview (Brain path): opened from the menu without closing

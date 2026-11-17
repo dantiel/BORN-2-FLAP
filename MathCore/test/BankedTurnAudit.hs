@@ -41,8 +41,8 @@ main=do
            fvServoRight=ServoState(common-relative) 0,fvLeftStrips=left,fvRightStrips=right,fvMassFrame=Just(0,iy,iz)}
         (o,next)=stepFirmwareVehicleWithMassInertia 0.05 ix True pilot params defaultServoSpec defaultBatterySpec kestrelModel dt flow zeroVec 1000 up initial
         tail=kestrelTailLoads incidence flow zeroVec
-        lsys=prepareWingSystem False (-1) ql 0 inp kestrelModel 0 left
-        rsys=prepareWingSystem False 1 qr 0 inp kestrelModel 0 right
+        lsys=prepareWingSystem False (-1) ql 0 inp kestrelModel 0 0 left
+        rsys=prepareWingSystem False 1 qr 0 inp kestrelModel 0 0 right
         lr=wingTrialMotion lsys zeroVec zeroVec 0 0 (wingInitialRates lsys)
         rr=wingTrialMotion rsys zeroVec zeroVec 0 0 (wingInitialRates rsys)
         dr=wsSpanM(wmWing kestrelModel)/fromIntegral stripCount

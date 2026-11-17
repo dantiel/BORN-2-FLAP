@@ -1,5 +1,11 @@
 #pragma once
-// Born2FlapFlightHUD.h — the glass cockpit: the native driver of the semantic
+// ============================================================================
+// DEPRECATED — native C++ glass cockpit. The Ruby Brain (UMGHAML, Brain/lib/
+// born2flap/ui/views/flight_hud) is the single cockpit author; this actor
+// exists only for the no-Brain error state and will be removed. Do not add
+// features here — port new UI to UMGHAML and keep C++ as backend only.
+// ============================================================================
+// Born2FlapFlightHUD.h ??? the glass cockpit: the native driver of the semantic
 // flight HUD (the "magnum opus" UI).
 //
 // Where the Ruby Brain *authors* screens (UMGHAML → reconciler → wire), this

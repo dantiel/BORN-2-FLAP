@@ -140,18 +140,40 @@ FString MenuSettingsModelTuningSection(int32 Model)
     return FString::Printf(TEXT("Tuning.Model%d"), FMath::Clamp(Model, 0, 5));
 }
 
+namespace
+{
+// Control authority (aileron/elevator/yaw scales + mixes) is GLOBAL state
+// owned by app settings → CONTROL SETTINGS — shared by every silhouette, so
+// per-model loads/resets must never clobber it.
+void PreserveControlFields(const B2F_TuningConfig& Src, B2F_TuningConfig& Dst)
+{
+    Dst.aileron_scale = Src.aileron_scale;
+    Dst.elevator_scale = Src.elevator_scale;
+    Dst.yaw_scale = Src.yaw_scale;
+    Dst.aileron_skew_mix_percent = Src.aileron_skew_mix_percent;
+    Dst.aileron_skew_rate_mix_percent = Src.aileron_skew_rate_mix_percent;
+    Dst.elevator_ferocity_mix_percent = Src.elevator_ferocity_mix_percent;
+}
+}
+
 void MenuSettingsResetTuningForModel(FMenuSettings& S, int32 Model)
 {
+    const B2F_TuningConfig ControlBackup = S.Tuning;
     S.LeftWingCamberBiasPercent = S.RightWingCamberBiasPercent = 0.25f;
     S.Tuning = born2flap::tuning::DefaultTuningForModel(Model);
     S.BodyMassKg = born2flap::tuning::DefaultBodyMassForModel(Model);
     S.CgOffsetMm = born2flap::tuning::DefaultCgOffsetForModel(Model);
+    born2flap::tuning::ApplyFlightProfile(S.Tuning, S.CgOffsetMm, S.FlightProfile);
+    PreserveControlFields(ControlBackup, S.Tuning);
 }
 
 void MenuSettingsLoadModelProfile(FMenuSettings& S, int32 Model)
 {
     if (Model < 0 || Model > 5)
         return;
+    // Control authority is global (CONTROL SETTINGS) — preserved across the
+    // per-model load so a silhouette can never shadow the shared rates.
+    const B2F_TuningConfig ControlBackup = S.Tuning;
     S.LeftWingCamberBiasPercent = S.RightWingCamberBiasPercent = 0.25f;
     const FString Path = PreferencesPath();
     FConfigFile Config;
@@ -163,6 +185,8 @@ void MenuSettingsLoadModelProfile(FMenuSettings& S, int32 Model)
         for (uint8 I = 0; I < uint8(ETuningField::Count); ++I)
         {
             const ETuningField Field = ETuningField(I);
+            if (born2flap::tuning::IsControlField(Field))
+                continue;
             float Value = MenuSettingsGetTuning(S, Field);
             Config.GetFloat(*Section, born2flap::tuning::Key(Field), Value);
             MenuSettingsSetTuning(S, Field, Value);
@@ -173,13 +197,18 @@ void MenuSettingsLoadModelProfile(FMenuSettings& S, int32 Model)
         float ModelCg = S.CgOffsetMm;
         Config.GetFloat(*Section, TEXT("CgOffsetMm"), ModelCg);
         S.CgOffsetMm = FMath::IsFinite(ModelCg) ? FMath::Clamp(ModelCg, -300.f, 300.f) : S.CgOffsetMm;
+        int32 Profile = S.FlightProfile;
+        Config.GetInt(*Section, born2flap::tuning::FlightProfileKey(), Profile);
+        S.FlightProfile = FMath::Clamp(Profile, 0, born2flap::tuning::FlightProfileCount - 1);
     }
     else
     {
         S.Tuning = born2flap::tuning::DefaultTuningForModel(Model);
         S.BodyMassKg = born2flap::tuning::DefaultBodyMassForModel(Model);
         S.CgOffsetMm = born2flap::tuning::DefaultCgOffsetForModel(Model);
+        born2flap::tuning::ApplyFlightProfile(S.Tuning, S.CgOffsetMm, S.FlightProfile);
     }
+    PreserveControlFields(ControlBackup, S.Tuning);
 }
 
 void MenuSettingsLoad(FMenuSettings& Out)
@@ -225,6 +254,9 @@ void MenuSettingsLoad(FMenuSettings& Out)
     float Wing = Out.WingbeatVolume;
     Config.GetFloat(TEXT("Audio"), TEXT("WingbeatVolume"), Wing);
     Out.WingbeatVolume = FMath::IsFinite(Wing) ? FMath::Clamp(Wing, 0.f, 4.f) : 1.f;
+    float Steps = Out.FootstepVolume;
+    Config.GetFloat(TEXT("Audio"), TEXT("FootstepVolume"), Steps);
+    Out.FootstepVolume = FMath::IsFinite(Steps) ? FMath::Clamp(Steps, 0.f, 1.f) : 1.f;
 
     double SpeedMod = Out.SpeedModifier;
     Config.GetDouble(TEXT("Controls"), TEXT("SpeedModifier"), SpeedMod);
@@ -240,6 +272,8 @@ void MenuSettingsLoad(FMenuSettings& Out)
     for (uint8 I = 0; I < uint8(ETuningField::Count); ++I)
     {
         const ETuningField Field = ETuningField(I);
+        if (born2flap::tuning::IsControlField(Field))
+            continue;
         float Value = MenuSettingsGetTuning(Out, Field);
         Config.GetFloat(TEXT("Tuning"), born2flap::tuning::Key(Field), Value);
         MenuSettingsSetTuning(Out, Field, Value);
@@ -260,6 +294,8 @@ void MenuSettingsLoad(FMenuSettings& Out)
             for (uint8 I = 0; I < uint8(ETuningField::Count); ++I)
             {
                 const ETuningField Field = ETuningField(I);
+                if (born2flap::tuning::IsControlField(Field))
+                    continue;
                 float Value = MenuSettingsGetTuning(Out, Field);
                 Config.GetFloat(*Section, born2flap::tuning::Key(Field), Value);
                 MenuSettingsSetTuning(Out, Field, Value);
@@ -270,6 +306,9 @@ void MenuSettingsLoad(FMenuSettings& Out)
             float ModelCg = Out.CgOffsetMm;
             Config.GetFloat(*Section, TEXT("CgOffsetMm"), ModelCg);
             Out.CgOffsetMm = FMath::IsFinite(ModelCg) ? FMath::Clamp(ModelCg, -300.f, 300.f) : Out.CgOffsetMm;
+            int32 Profile = Out.FlightProfile;
+            Config.GetInt(*Section, born2flap::tuning::FlightProfileKey(), Profile);
+            Out.FlightProfile = FMath::Clamp(Profile, 0, born2flap::tuning::FlightProfileCount - 1);
         }
         else
         {
@@ -277,7 +316,20 @@ void MenuSettingsLoad(FMenuSettings& Out)
             Out.LeftWingCamberBiasPercent = Out.RightWingCamberBiasPercent = 0.25f;
             Out.BodyMassKg = born2flap::tuning::DefaultBodyMassForModel(Out.BirdModel);
             Out.CgOffsetMm = born2flap::tuning::DefaultCgOffsetForModel(Out.BirdModel);
+            born2flap::tuning::ApplyFlightProfile(Out.Tuning, Out.CgOffsetMm, Out.FlightProfile);
         }
+    }
+
+    // Control authority is global (app settings → CONTROL SETTINGS): loaded
+    // AFTER the per-model overlay so no silhouette's section can shadow it.
+    for (uint8 I = 0; I < uint8(ETuningField::Count); ++I)
+    {
+        const ETuningField Field = ETuningField(I);
+        if (!born2flap::tuning::IsControlField(Field))
+            continue;
+        float Value = MenuSettingsGetTuning(Out, Field);
+        Config.GetFloat(TEXT("Controls"), born2flap::tuning::Key(Field), Value);
+        MenuSettingsSetTuning(Out, Field, Value);
     }
 
     bool AvatarEnabled = Out.bAvatarEnabled;
@@ -330,13 +382,23 @@ void MenuSettingsSave(const FMenuSettings& In)
     Config.SetBool(TEXT("Flight"), TEXT("TrickToasts"), In.bShowTrickToasts);
     Config.SetFloat(TEXT("Flight"), TEXT("Safety"), In.FlightSafety);
     Config.SetFloat(TEXT("Audio"), TEXT("WingbeatVolume"), In.WingbeatVolume);
+    Config.SetFloat(TEXT("Audio"), TEXT("FootstepVolume"), In.FootstepVolume);
     Config.SetDouble(TEXT("Controls"), TEXT("SpeedModifier"), In.SpeedModifier);
     for (int32 Axis = 0; Axis < 3; ++Axis)
         Config.SetDouble(TEXT("Mouse"), *FString::Printf(TEXT("Gain%d"), Axis), In.MouseGains[Axis]);
     for (uint8 I = 0; I < uint8(ETuningField::Count); ++I)
     {
         const ETuningField Field = ETuningField(I);
+        if (born2flap::tuning::IsControlField(Field))
+            continue;
         Config.SetFloat(TEXT("Tuning"), born2flap::tuning::Key(Field), MenuSettingsGetTuning(In, Field));
+    }
+    // Control authority persists globally — shared by every silhouette.
+    for (uint8 I = 0; I < uint8(ETuningField::Count); ++I)
+    {
+        const ETuningField Field = ETuningField(I);
+        if (born2flap::tuning::IsControlField(Field))
+            Config.SetFloat(TEXT("Controls"), born2flap::tuning::Key(Field), MenuSettingsGetTuning(In, Field));
     }
     if (In.BirdModel >= 0 && In.BirdModel <= 5)
     {
@@ -344,10 +406,13 @@ void MenuSettingsSave(const FMenuSettings& In)
         for (uint8 I = 0; I < uint8(ETuningField::Count); ++I)
         {
             const ETuningField Field = ETuningField(I);
+            if (born2flap::tuning::IsControlField(Field))
+                continue;
             Config.SetFloat(*Section, born2flap::tuning::Key(Field), MenuSettingsGetTuning(In, Field));
         }
         Config.SetFloat(*Section, TEXT("BodyMassKg"), In.BodyMassKg);
         Config.SetFloat(*Section, TEXT("CgOffsetMm"), In.CgOffsetMm);
+        Config.SetInt64(*Section, born2flap::tuning::FlightProfileKey(), In.FlightProfile);
     }
     if (In.BirdModel >= 0 && In.BirdModel <= 5)
         Config.SetInt64(TEXT("Flight"), TEXT("BirdModel"), In.BirdModel);
@@ -388,6 +453,7 @@ void MenuSettingsFromPawn(const ABorn2FlapFlightPawn* Pawn, FMenuSettings& Out)
     Out.bShowTrickToasts = Pawn->GetTrickToastsEnabled();
     Out.FlightSafety = Pawn->GetFlightSafety();
     Out.WingbeatVolume = Pawn->GetWingbeatVolume();
+    Out.FootstepVolume = Pawn->GetFootstepVolume();
 }
 
 void MenuSettingsToPawn(const FMenuSettings& In, ABorn2FlapFlightPawn* Pawn)
@@ -420,6 +486,7 @@ void MenuSettingsToPawn(const FMenuSettings& In, ABorn2FlapFlightPawn* Pawn)
     Pawn->SetTrickToastsEnabled(In.bShowTrickToasts);
     Pawn->SetFlightSafety(In.FlightSafety);
     Pawn->SetWingbeatVolume(In.WingbeatVolume);
+    Pawn->SetFootstepVolume(In.FootstepVolume);
 }
 
 void ApplyDisplaySettings(const FMenuSettings& Settings)

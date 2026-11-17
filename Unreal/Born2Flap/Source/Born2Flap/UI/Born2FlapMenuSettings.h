@@ -25,13 +25,14 @@ struct FMenuSettings
     FMenuSettings()
     {
         // Defaults mirror ABorn2FlapFlightPawn's constructor (reference kestrel:
-        // VOTIK PTK 7465 Plus servo, 3S 1.3 Ah, 30C/60C pack). Loading from
-        // FlightPreferences.ini overrides these; they only matter when a key is
-        // absent (fresh install), so the menu never shows zeroed tuning.
-        Tuning.servo_no_load_speed_deg_s = 750;
+        // VOTIK PTK 7465 Plus servo, 2S 8.4 V full-charge, 1.3 Ah, 30C/60C).
+        // Loading from FlightPreferences.ini overrides these; they only matter
+        // when a key is absent (fresh install), so the menu never shows zeroed
+        // tuning.
+        Tuning.servo_no_load_speed_deg_s = 857;
         Tuning.servo_stall_torque_nm = 1.332;
         Tuning.servo_backdrive_deg_s_nm = 20;
-        Tuning.battery_voltage = 11.1;
+        Tuning.battery_voltage = 8.4;
         Tuning.battery_resistance_ohm = 0.08;
         Tuning.battery_capacity_ah = 1.3;
         Tuning.battery_c_rating = 30;
@@ -58,6 +59,11 @@ struct FMenuSettings
     }
     // -1 = never explicitly chosen → the level's default bird applies.
     int32 BirdModel = -1;
+    // Flight profile for the current model (0 CRUISE / 1 THERMAL / 2 AEROBATIC
+    // / 3 CALM). Persisted per model so each silhouette remembers its own
+    // character. Selecting a profile re-applies its flight-character defaults
+    // (CG, cadence, ferocity, authority, glide, battery) but never the servo.
+    int32 FlightProfile = 0;
     // On-foot pilot avatar: Enabled toggles the whole on-foot pilot; AvatarPerson
     // selects which rigged human (0 = Soldier, 1 = Scout).
     bool bAvatarEnabled = true;
@@ -83,6 +89,9 @@ struct FMenuSettings
     bool bShowTrickToasts = true;
     float FlightSafety = 1.f;
     float WingbeatVolume = 1.f;
+    // On-foot pilot footsteps volume (0..1). Applied to the avatar's procedural
+    // footstep player; independent of the wingbeat/servo voice.
+    float FootstepVolume = 1.f;
     // UI language code ("en", "de", ...) — matches the locale JSON filenames.
     FString Language = TEXT("en");
     // Global UI scale (mobile "UI scale" setting). 1.0 = design-token default;
@@ -123,7 +132,7 @@ void MenuSettingsLoadModelProfile(FMenuSettings& S, int32 Model);
 FString MenuSettingsModelTuningSection(int32 Model);
 
 // Apply the persisted window mode + resolution to the engine's
-// UGameUserSettings. Shared by the native menu (ABorn2FlapMenu) and the
+// UGameUserSettings. Shared by the Brain-authored menu and the
 // Brain-authored menu (Born2FlapGameMode), so both paths honour the same
 // [Display] store.
 void ApplyDisplaySettings(const FMenuSettings& Settings);

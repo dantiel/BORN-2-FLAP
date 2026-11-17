@@ -70,15 +70,11 @@ protected:
     UPROPERTY(Transient)
     TObjectPtr<UMaterialParameterCollectionInstance> MPCInstance;
 
-    // Native UE5 Water ocean (AWaterBodyOcean + Single Layer Water + Gerstner
-    // spectrum) is the real water. It needs a ground height to read depth from;
-    // Shiomori has no Landscape, so SpawnNativeOcean registers the procedural
-    // Seabed mesh as a UWaterTerrainComponent and clamps the r.Water.*FallbackDepth
-    // CVars to the ~2.5 m bay depth — otherwise the plugin falls back to 3000 cm
-    // and renders opaque deep-navy ("black"). Even with the fallback clamped, the
-    // native Single Layer Water still reads the bay as deep and paints a dark slab
-    // under the translucent grid ("black floor"), so the translucent Gerstner
-    // M_Water grid is the single visible surface again.
+    // Native UE5 Water ocean (AWaterBodyOcean + Single Layer Water). DISABLED:
+    // on Shiomori (no Landscape, only procedural meshes) the spawned ocean
+    // rendered invisible in the game build and its engine-foam band rendered
+    // black, so the legacy translucent Gerstner grid is the visible surface.
+    // The spawn path stays for a future heightfield-based re-enable.
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Water")
     bool bUseNativeOcean = false;
 
@@ -90,5 +86,13 @@ protected:
     UPROPERTY(Transient)
     TObjectPtr<UGerstnerWaterWaves> OceanWaves;
 
+    // Dynamic instance of MI_OceanNative (engine Water_Material_Ocean with the
+    // ocean-foam switch enabled). Wind drives absorption/foam/roughness live.
+    UPROPERTY(Transient)
+    TObjectPtr<UMaterialInstanceDynamic> OceanMID;
+
+    void PushOceanVisuals(); // wind-driven ocean MID updates
+
+    float WindUpdateAccum = 0.0f;
     float TimeSeconds = 0.0f;
 };

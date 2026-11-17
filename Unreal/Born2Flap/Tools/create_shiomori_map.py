@@ -386,6 +386,7 @@ def make_water_mpc():
         ('SwellSpeed', 530.0), ('SeaState', 2.2), ('FoamAmount', 1.0),
         ('StormAmount', 0.0), ('ShoreBreakIntensity', 1.0), ('WaveTime', 0.0),
         ('QualityLevel', 2.0), ('WaterLOD', 0.0),
+        ('SunMirror', 0.6),
     ]
     params = []
     existing = {str(p.get_editor_property('parameter_name')): p for p in mpc.get_editor_property('scalar_parameters')}
@@ -472,6 +473,11 @@ def water_material(name, color, rough=0.08, specular=0.6, shore_color=(0.03, 0.2
     t3 = node(m, 'AppendVector'); wire(t2, t3, 'A'); wire(z0, t3, 'B')
     add = node(m, 'Add'); wire(sc, add, 'A'); wire(t3, add, 'B')
     nz = node(m, 'Noise', levels=3, output_min=0.0, output_max=1.0); wire(add, nz, '')
+    # Live sky-mirror grade: the water director writes SunMirror from the
+    # level's weather sunlight every frame (cloudy -> dim sheen, full sun ->
+    # hard mirror). The fresnel sky term below reads it, so the ocean surface
+    # follows the brightness of the sky.
+    sun = node(m, 'CollectionParameter', collection=mpc, parameter_name='SunMirror')
     # Base colour: Beer-Lambert depth absorption + Fresnel sky + surf/crest foam.
     # Tuned for the shallow lagoon (floor -300 cm): near shore the turquoise is
     # bright and sand shows through; at 3 m it settles into a rich teal rather
@@ -484,31 +490,70 @@ def water_material(name, color, rough=0.08, specular=0.6, shore_color=(0.03, 0.2
   float3 deep=float3(%.6g,%.6g,%.6g);
   // Soft Beer-Lambert: /900 keeps the lagoon luminous instead of dropping to a
   // dark abyss by ~3 m. Bright teal, never near-black.
-  float3 water=deep+(shallow-deep)*exp(-d/900.0);
-  float3 sky=float3(0.55,0.75,0.95);
+  float3 water=deep+(shallow-deep)*exp(-d/650.0);
+  float3 sky=float3(0.42,0.66,1.22)*lerp(0.95,1.55,Sun);
   // Schlick water fresnel (F0=0.04): mirrors the sky at grazing angles and keeps
-  // a bright sheen straight down, instead of the old pow(Fresnel,.75)*1.15 hack
-  // that only reflected near the horizon and left the bay see-through.
-  float refl=saturate(0.04+0.96*Fresnel);
+  // a visible sheen straight down (floor 0.15 instead of 0.05 — the old floor
+  // let the water read as a black slab from above). Sun grades the mirror
+  // (SunMirror from the weather sunlight), so the ocean follows the sky's
+  // brightness: dim soft sheen under cloud, bright hard mirror in full sun.
+  float refl=saturate(0.15+(1.35+0.75*Sun)*Fresnel);
   float3 col=lerp(water, sky, refl);
   float surf=smoothstep(26.0,6.0,d)*Foam;
   return lerp(col, float3(0.96,0.97,0.96), saturate(surf));''' % (
         shore_color[0], shore_color[1], shore_color[2], color[0], color[1], color[2]),
-        {'SceneDepth': sd, 'PixelDepth': pd, 'Fresnel': fn, 'P': p, 'T': t, 'Foam': nz})
+        {'SceneDepth': sd, 'PixelDepth': pd, 'Fresnel': fn, 'P': p, 'T': t, 'Foam': nz, 'Sun': sun})
     output(bc, 'BASE_COLOR')
+    # Sky-mirror emissive core: the fresnel sky reflection and a teal body glow
+    # are EMITTED (unlit, independent of the sun), so wave slopes and troughs can
+    # never shade to black — the old 16%-of-lit-colour floor was far too dim
+    # (~0.01..0.07) and the hard black wave faces survived every colour tweak.
+    # Steep faces now mirror the sky even where the sun cannot reach them; in
+    # full sun the lit diffuse adds sparkle on top of this glow.
+    # The shoreline FOAM rides the same emissive floor: the surf term used to
+    # live only in the lit base colour, so wherever the sun could not reach the
+    # foam band it shaded back down to dark teal — "the foam is black". The foam
+    # is now self-luminous white (the same white as the lit foam, ~1.1 for a
+    # gentle HDR pop), so it can never render black.
+    em = custom(m, '''float d=max(SceneDepth-PixelDepth,0.0);
+  float3 water=float3(%.6g,%.6g,%.6g);
+  float3 sky=float3(0.42,0.66,1.22)*lerp(0.95,1.55,Sun);
+  float refl=saturate(0.15+(1.35+0.75*Sun)*Fresnel);
+  // Body glow floor: water*0.95 (was *0.38) — the water is SELF-LUMINOUS teal,
+  // never a dark slab; the sky mirror adds the reflective part on top.
+  float3 body=lerp(water*0.95, sky*1.30, refl);
+  float surf=smoothstep(26.0,6.0,d)*Foam;
+  return lerp(body, float3(1.10,1.10,1.06), saturate(surf));''' % (
+        color[0], color[1], color[2]),
+        {'SceneDepth': sd, 'PixelDepth': pd, 'Fresnel': fn, 'Sun': sun, 'Foam': nz})
+    output(em, 'EMISSIVE_COLOR')
     output(node(m, 'Constant', r=rough), 'ROUGHNESS')
     output(node(m, 'Constant', r=specular), 'SPECULAR')
+    # The shoreline foam must ALSO drive opacity: the foam band lives where the
+    # water column is thinnest (0-26 cm), so the old depth-only opacity
+    # (1-exp(-d/110)) was ~0.05..0.21 there — the emissive white foam got
+    # multiplied to near-invisibility and the waterline read as a dark band
+    # ("the foam is black"). Aerated surf is opaque: let the foam term saturate
+    # the opacity to a solid white band, same Foam noise as the colour terms.
     op = custom(m, '''float d=max(SceneDepth-PixelDepth,0.0);
-return 1.0-exp(-d/55.0);''', {'SceneDepth': sd, 'PixelDepth': pd}, 1)
+float surf=smoothstep(26.0,6.0,d)*Foam;
+// Depth opacity with a 0.45 floor: the old 1-exp(-d/110) went ~0.05 at the
+// thin shoreline and ~0.3 in the mid lagoon, so the dark seabed read straight
+// through the "transparent" water and the whole bay went near-black. The floor
+// keeps the water reading as water; the foam term still saturates the band.
+return saturate(max(0.45+0.55*(1.0-exp(-d/110.0)), surf*0.95));''',
+                {'SceneDepth': sd, 'PixelDepth': pd, 'Foam': nz}, 1)
     output(op, 'OPACITY')
     # Travelling normal: long swell, chop, and fine glitter ripple.
     n = custom(m, '''float2 q=P.xy*0.004;
- float2 n=float2(sin(q.x*0.7+q.y*1.1+T*0.9),cos(q.y*1.3-q.x*0.4-T*0.7))*0.55;
- n+=float2(sin(q.x*2.6+q.y*3.1-T*1.6),cos(q.y*2.9-q.x*2.3+T*1.4))*0.26;
+  float2 n=float2(sin(q.x*0.7+q.y*1.1+T*1.0),cos(q.y*1.3-q.x*0.4-T*0.8))*0.62;
+  n+=float2(sin(q.x*2.6+q.y*3.1-T*1.8),cos(q.y*2.9-q.x*2.3+T*1.5))*0.30;
  float2 r=P.xy*0.03;
- n+=float2(sin(r.x*1.7+r.y*1.1+T*3.4),cos(r.y*2.1-r.x*0.8-T*3.0))*0.10;
+ n+=float2(sin(r.x*1.7+r.y*1.1+T*3.8),cos(r.y*2.1-r.x*0.8-T*3.3))*0.14;
  float2 s=P.xy*0.12;
- n+=float2(sin(s.x*2.3+s.y*1.7-T*6.0),cos(s.y*2.9-s.x*1.3+T*5.0))*0.05;
+ n+=float2(sin(s.x*2.3+s.y*1.7-T*6.5),cos(s.y*2.9-s.x*1.3+T*5.4))*0.07;
+ float2 f=P.xy*0.5;
+ n+=float2(sin(f.x*3.1+f.y*2.3-T*9.0),cos(f.y*3.7-f.x*2.1+T*8.0))*0.03;
  return normalize(float3(n,1.0));''', {'P': p, 'T': t})
     if waves is not None:
         uv = node(m, 'TextureCoordinate')
@@ -546,7 +591,7 @@ return 1.0-exp(-d/55.0);''', {'SceneDepth': sd, 'PixelDepth': pd}, 1)
         // Horizontal Gerstner displacement Q*A*sin(theta) — Q=0.5 steepens each
         // crest into a leaning peak. Amplitude, not A*K (the A*K form is ~2 cm
         // and invisible; Q*A is ~12 cm and visibly sharpens the swells).
-        float s=A*0.5*sin(K*(P.x*cos(ang)+P.y*sin(ang))-Om*WT+phase[j]);
+        float s=A*0.72*sin(K*(P.x*cos(ang)+P.y*sin(ang))-Om*WT+phase[j]);
         Qx-=cos(ang)*s; Qy-=sin(ang)*s;
     }
     Qx*=shore; Qy*=shore; H*=shore;
@@ -573,7 +618,7 @@ return 1.0-exp(-d/55.0);''', {'SceneDepth': sd, 'PixelDepth': pd}, 1)
         dHdx-=cos(ang)*s; dHdy-=sin(ang)*s;
     }
     dHdx*=shore; dHdy*=shore;
-    return normalize(float3(-dHdx*0.8,-dHdy*0.8,1.0));''',
+    return normalize(float3(-dHdx*1.05,-dHdy*1.05,1.0));''',
         wave_inputs, 3)
     wave_normal = custom(m, 'return normalize(A + float3(B.xy*0.30,0.0));',
                          {'A': gerst_normal, 'B': n}, 3)
@@ -1090,8 +1135,8 @@ mats['Headland'] = (coastal_terrain_material(
     'Headland', (sand_d, sand_n, sand_r), (grass_d, grass_n, grass_r),
     (basalt_d, basalt_n, basalt_r), scale_cm=240.0)
     if grass_d and grass_n and grass_r else mats['Earth'])
-mats['Water'] = water_material('Water', (0.07, 0.42, 0.48), rough=0.02, specular=1.0,
-                             shore_color=(0.12, 0.52, 0.48), waves=wave_n)
+mats['Water'] = water_material('Water', (0.06, 0.30, 0.55), rough=0.02, specular=1.0,
+                             shore_color=(0.10, 0.42, 0.58), waves=wave_n)
 mats['Foam'] = pbr_material('Foam', color=(0.9, 0.94, 0.93), rough=0.35, specular=0.3)
 
 # Translucent foam with soft, noisy edges.

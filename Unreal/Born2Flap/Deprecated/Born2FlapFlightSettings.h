@@ -1,5 +1,12 @@
 #pragma once
-// Born2FlapFlightSettings.h — the semantic "flight desk" settings panel.
+// ============================================================================
+// DEPRECATED — native C++ flight desk / tuning panel. The Ruby Brain (UMGHAML,
+// Brain/lib/born2flap/ui/views/tuning_editor) is the single flight-desk
+// author; this actor exists only for the no-Brain error state and will be
+// removed. Do not add features here — port new UI to UMGHAML and keep C++ as
+// backend only (born2flap::servo, telemetry, action routing).
+// ============================================================================
+// Born2FlapFlightSettings.h ??? the semantic "flight desk" settings panel.
 //
 // Replaces the old raw-Slate SFlightSettings with the react-native-umg view
 // framework (UBorn2FlapUIRenderer + semantic components). The tree is authored

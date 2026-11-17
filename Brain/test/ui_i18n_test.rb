@@ -33,7 +33,9 @@ module Born2Flap
 
     def test_cockpit_renders_localized_labels
       hud = UI::Views::FlightHud.render(:cockpit, lang: "de")
-      assert_equal "BORN 2 FLAP", hud.find(:banner)[:text]
+      # The cockpit's first banner is the wind word (brand lives in the menu),
+      # and it must localize with the rest of the cockpit.
+      assert_equal "RUHIG", hud.find(:banner)[:text]
       assert_equal "HÖHE", hud.find(:stat)[:label]
 
       hud_ja = UI::Views::FlightHud.render(:cockpit, lang: "ja")
@@ -44,7 +46,8 @@ module Born2Flap
       ed = UI::Views::TuningEditor.render(:editor, lang: "fr")
       titles = ed.each.to_a.select { |n| n.type == :section }.map { |n| n[:title] }
       assert_includes titles, "SILHOUETTE"
-      assert_includes titles, "BATTERIE"
+      assert_includes titles, "BATTERIE"          # hangar.battery section (BATTERY page)
+      assert_includes titles, "SERVO & PUISSANCE" # hangar.servo section (SERVO page)
     end
   end
 end

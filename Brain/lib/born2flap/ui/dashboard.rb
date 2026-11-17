@@ -46,6 +46,10 @@ module Born2Flap
         if MENU_SCREENS.include?(screen.to_sym)
           children << Node.new(:image, {texture: "/Game/Splash/born2flap-splash-new.born2flap-splash-new"})
           children << menu_frame(telemetry)
+          # The frontend radio: the same corner face as in-flight, driven by the
+          # same radio_* telemetry — the main-menu station plays behind the
+          # level-select screen and M toggles its mute.
+          children << Views::Radio.render(:panel, telemetry) if telemetry[:radio_visible] != false
         else
           menu_open = telemetry[:menu] ? true : false
           if menu_open

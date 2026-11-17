@@ -18,6 +18,7 @@ namespace Born2FlapWater
     const FName WaveTime              = FName(TEXT("WaveTime"));
     const FName QualityLevel          = FName(TEXT("QualityLevel"));
     const FName WaterLOD              = FName(TEXT("WaterLOD"));
+    const FName SunMirror             = FName(TEXT("SunMirror"));
 }
 
 float FOceanParameters::SampleWaveHeight(const FVector2D& P, float Time) const

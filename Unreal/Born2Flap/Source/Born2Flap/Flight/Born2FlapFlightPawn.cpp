@@ -30,7 +30,6 @@
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
 #include "UI/Born2FlapI18n.h"
-#include "UI/Born2FlapFlightSettings.h"
 #include "UI/Born2FlapLoading.h"
 #include "PhysicalMaterials/PhysicalMaterial.h"
 #include "PhysicsEngine/PhysicsSettings.h"
@@ -170,6 +169,12 @@ ABorn2FlapFlightPawn::ABorn2FlapFlightPawn()
     WaterSplashFX->SetAutoActivate(false);
     WaterSplashFX->SetCollisionEnabled(ECollisionEnabled::NoCollision);
     WaterSplashFX->SetCastShadow(false);
+    WaterDroplets = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("WaterDroplets"));
+    WaterDroplets->SetupAttachment(Body);
+    WaterDroplets->SetAbsolute(true, true, true);
+    WaterDroplets->SetMobility(EComponentMobility::Movable);
+    WaterDroplets->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    WaterDroplets->SetCastShadow(false);
     // Negative X scale flips the sphere's winding so the camera (which sits at
     // the sphere's centre, i.e. INSIDE it) sees FRONT faces even if the
     // additive material's two-sided flag is not honoured in the translucency
@@ -183,12 +188,13 @@ ABorn2FlapFlightPawn::ABorn2FlapFlightPawn()
     }
     AutoPossessPlayer = EAutoReceiveInput::Player0;
     // Default hangar tuning = the reference kestrel hardware (VOTIK PTK 7465
-    // Plus flap servo, 3S 1.3 Ah) plus the simulator's controller base.
-    // LoadFlightPreferences may override these before the first ApplyTuning.
+    // Plus flap servo driven at its 8.4 V HV rating, 2S full-charge pack) plus
+    // the simulator's controller base. LoadFlightPreferences may override these
+    // before the first ApplyTuning.
     Tuning.servo_no_load_speed_deg_s = 857;
     Tuning.servo_stall_torque_nm = 0.735f;
     Tuning.servo_backdrive_deg_s_nm = 20;
-    Tuning.battery_voltage = 7.4;
+    Tuning.battery_voltage = 8.4;
     Tuning.battery_resistance_ohm = 0.08;
     Tuning.battery_capacity_ah = 1.3;
     Tuning.battery_c_rating = 30;
@@ -532,6 +538,15 @@ void ABorn2FlapFlightPawn::BeginPlay()
                 Wing->SetPaintTexture(Membrane);
     }
     LoadFlightPreferences();
+    // Dev/test override so the throw-animation test can sweep the roster
+    // without touching the saved settings (0 = John ... 9 = Alex). Applied
+    // AFTER LoadFlightPreferences, which restores the saved person.
+    if (bThrowAnimTest)
+    {
+        int32 AvatarOverride = -1;
+        if (FParse::Value(FCommandLine::Get(), TEXT("B2FAvatar="), AvatarOverride))
+            AvatarPerson = FMath::Clamp(AvatarOverride, 0, ABorn2FlapAvatar::GetPersonCount() - 1);
+    }
     if (!bFlightTest && !bDesktopInputTest)
         SpawnAvatar();
     if(const auto* Mode=Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode());Mode && Mode->IsHarvestWatch())
@@ -606,6 +621,23 @@ void ABorn2FlapFlightPawn::BeginPlay()
             WaterSplashFX->SetAsset(System);
         else
             WaterSplashFX->SetVisibility(false);
+    }
+    if (WaterDroplets)
+    {
+        if (UStaticMesh* Plane = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Plane.Plane")))
+        {
+            WaterDroplets->SetStaticMesh(Plane);
+            if (UMaterialInterface* DropMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Weather/M_SurfDroplet")))
+            {
+                WaterDroplets->SetMaterial(0, DropMat);
+                constexpr int32 DropCount = 128;
+                WaterDropletPool.SetNum(DropCount);
+                for (int32 I = 0; I < DropCount; ++I)
+                    WaterDroplets->AddInstance(FTransform(FQuat::Identity, FVector::ZeroVector, FVector::ZeroVector));
+            }
+            else
+                WaterDroplets->SetVisibility(false);
+        }
     }
     // Points of interest: the GameMode populated them during its own BeginPlay
     // (before the pawn spawned). Fall back to the origin if none arrived.
@@ -694,6 +726,7 @@ void ABorn2FlapFlightPawn::ResetFlight(bool bSafety)
         ApplyTuning();
     }
     bFlying = bReturning = false;
+    bWaterborne = false;
     const double SavedSpeedModifier = Desktop.speedModifier;
     Desktop = {};
     Desktop.speedModifier = SavedSpeedModifier;
@@ -816,6 +849,10 @@ void ABorn2FlapFlightPawn::EmitWaterSplash(const FVector& WorldPos, float Streng
             FTransform(FQuat::Identity, WorldPos, FVector(0.05f, 0.05f, 1.f)), true, false, false);
         WaterRipples->MarkRenderStateDirty();
     }
+    // Droplet burst: billboarded M_SurfDroplet sprites thrown ballistically —
+    // the water mirror of the sand-burst particle simulation (the ISM path of
+    // the sand system, always visible on every quality tier).
+    EmitWaterDroplets(WorldPos, Strength);
     // Mist burst: brief NS_SurfSpray activation at the contact point; the
     // countdown in UpdateWaterRipples deactivates it once the burst is thrown.
     if (WaterSplashFX && WaterSplashFX->GetAsset())
@@ -825,6 +862,74 @@ void ABorn2FlapFlightPawn::EmitWaterSplash(const FVector& WorldPos, float Streng
         WaterSplashTimeLeft = 0.4f;
     }
 }
+void ABorn2FlapFlightPawn::EmitWaterDroplets(const FVector& WorldPos, float Strength)
+{
+    if (!WaterDroplets || WaterDropletPool.Num() == 0)
+        return;
+    Strength = FMath::Clamp(Strength, 0.05f, 1.0f);
+    const int32 Count = FMath::Clamp(FMath::RoundToInt(Strength * 40.0f), 8, 40);
+    FRandomStream R(int32(FMath::Rand()) ^ int32(FPlatformTime::Cycles()));
+    for (int32 I = 0; I < Count; ++I)
+    {
+        const int32 Idx = (WaterDropletCursor + I) % WaterDropletPool.Num();
+        FWaterDropletState& D = WaterDropletPool[Idx];
+        const double A = R.FRandRange(0.0, 2.0 * PI);
+        const double Rad = R.FRandRange(0.0, 160.0 * Strength);
+        D.Pos = WorldPos + FVector(FMath::Cos(A) * Rad, FMath::Sin(A) * Rad, R.FRandRange(0.0, 12.0));
+        // Fast outward-upward cone: hard droplets, gravity pulls them back down.
+        const double Eject = 180.0 + R.FRandRange(0.0, 320.0) * Strength;   // cm/s outward
+        D.Vel = FVector(FMath::Cos(A) * Eject, FMath::Sin(A) * Eject, R.FRandRange(220.0, 520.0) * Strength);
+        D.Scale = R.FRandRange(0.06f, 0.16f);
+        D.LifeMax = D.Life = R.FRandRange(0.45f, 1.1f);
+    }
+    WaterDropletCursor = (WaterDropletCursor + Count) % WaterDropletPool.Num();
+}
+void ABorn2FlapFlightPawn::UpdateWaterDroplets(float DeltaSeconds)
+{
+    if (!WaterDroplets || WaterDropletPool.Num() == 0)
+        return;
+    FVector Cam = FVector::ZeroVector;
+    if (const APlayerCameraManager* PCM = UGameplayStatics::GetPlayerCameraManager(this, 0))
+        Cam = PCM->GetCameraLocation();
+    for (int32 I = 0; I < WaterDropletPool.Num(); ++I)
+    {
+        FWaterDropletState& D = WaterDropletPool[I];
+        if (D.Life <= 0.f)
+        {
+            WaterDroplets->UpdateInstanceTransform(I, FTransform(FRotator::ZeroRotator,
+                Cam + FVector(0, 0, -50000.0), FVector::ZeroVector), true, false, false);
+            continue;
+        }
+        D.Vel.Z -= 980.0 * DeltaSeconds;
+        D.Pos += D.Vel * DeltaSeconds;
+        D.Life -= DeltaSeconds;
+        const float Fade = FMath::Clamp(D.Life / FMath::Max(D.LifeMax, 0.001f), 0.0f, 1.0f);
+        FVector Dir = Cam - D.Pos;
+        if (Dir.IsNearlyZero()) Dir = FVector::ForwardVector;
+        Dir.Normalize();
+        const FRotator Rot = FRotationMatrix::MakeFromZ(Dir).Rotator();
+        WaterDroplets->UpdateInstanceTransform(I,
+            FTransform(Rot, D.Pos, FVector(D.Scale * Fade)), true, false, false);
+    }
+    WaterDroplets->MarkRenderStateDirty();
+}
+void ABorn2FlapFlightPawn::EnterWaterborne()
+{
+    if (bWaterborne)
+        return;
+    bWaterborne = true;
+    bFlying = false;
+    WaterborneTime = 0.f;
+    WaterSinkDepth = -12.f;
+    WaterSplashAccum = 0.f;
+    const FVector P = Body ? Body->GetComponentLocation() : GetActorLocation();
+    float WaterZ = (float)P.Z;
+    if (const AShiomoriWaterDirector* Water = AShiomoriWaterDirector::Get(GetWorld()))
+        WaterZ = Water->GetWaterHeightAt((float)P.X, (float)P.Y);
+    // One hard splashdown burst at the body, then the sinking trail.
+    EmitWaterSplash(FVector((float)P.X, (float)P.Y, WaterZ + 4.f), 1.f);
+    UE_LOG(LogTemp, Display, TEXT("Waterborne: splashdown — control locked, sinking; press R to reset"));
+}
 void ABorn2FlapFlightPawn::UpdateWaterRipples(float DeltaSeconds)
 {
     if (WaterSplashFX && WaterSplashFX->IsActive())
@@ -833,20 +938,22 @@ void ABorn2FlapFlightPawn::UpdateWaterRipples(float DeltaSeconds)
         if (WaterSplashTimeLeft <= 0.f)
             WaterSplashFX->Deactivate();
     }
-    if (!WaterRipples || WaterRipplePos.Num() == 0)
-        return;
-    for (int32 I = 0; I < WaterRipplePos.Num(); ++I)
+    if (WaterRipples && WaterRipplePos.Num() > 0)
     {
-        if (WaterRippleAge[I] >= 1.f)
-            continue; // parked ring: zero scale, invisible
-        WaterRippleAge[I] = FMath::Min(1.f, WaterRippleAge[I] + DeltaSeconds / 0.9f);
-        const float Age = WaterRippleAge[I];
-        // Grow from a point, then shrink back out — an expanding, fading circle.
-        const float Scale = (0.05f + 1.1f * Age) * (1.f - Age);
-        WaterRipples->UpdateInstanceTransform(I,
-            FTransform(FQuat::Identity, WaterRipplePos[I], FVector(Scale, Scale, 1.f)), true, false, false);
+        for (int32 I = 0; I < WaterRipplePos.Num(); ++I)
+        {
+            if (WaterRippleAge[I] >= 1.f)
+                continue; // parked ring: zero scale, invisible
+            WaterRippleAge[I] = FMath::Min(1.f, WaterRippleAge[I] + DeltaSeconds / 0.9f);
+            const float Age = WaterRippleAge[I];
+            // Grow from a point, then shrink back out — an expanding, fading circle.
+            const float Scale = (0.05f + 1.1f * Age) * (1.f - Age);
+            WaterRipples->UpdateInstanceTransform(I,
+                FTransform(FQuat::Identity, WaterRipplePos[I], FVector(Scale, Scale, 1.f)), true, false, false);
+        }
+        WaterRipples->MarkRenderStateDirty();
     }
-    WaterRipples->MarkRenderStateDirty();
+    UpdateWaterDroplets(DeltaSeconds);
 }
 void ABorn2FlapFlightPawn::SweepWingColliders(float Dt)
 {
@@ -906,6 +1013,14 @@ void ABorn2FlapFlightPawn::SweepWingColliders(float Dt)
             if (Depth > 2.f && Prev <= 2.f)
                 EmitWaterSplash(FVector(Tip.X, Tip.Y, WaterZ + 2.f), 1.f);
             Prev = Depth;
+            // Skimming collision: the surface pushes the submerged tip back up
+            // with a force proportional to how deep it is — light enough that
+            // a low pass can skim over the water instead of resetting.
+            if (Depth > 0.f)
+            {
+                Body->AddForceAtLocation(FVector::UpVector *
+                    (FMath::Min(Depth, 120.f) * 1.2f * Body->GetMass()), Tip);
+            }
         }
         const FVector Mid = (Root + Tip) * 0.5f;
         const FQuat   Rot = FRotationMatrix::MakeFromZ(Dir / Len).ToQuat();
@@ -996,7 +1111,7 @@ void ABorn2FlapFlightPawn::RequestHandLaunch()
     // OnThrowRelease is bound to LaunchFlight, which detaches and launches.
     // If the hold can't be set up (no socket, already held, not grounded) we
     // fall straight through to a normal direct launch — never dead-space.
-    if (Avatar && bCameraGrounded && !Avatar->IsThrowing() && HoldBird())
+    if (Avatar && bCameraGrounded && !Avatar->IsThrowing() && !Avatar->IsThrowWindup() && HoldBird())
     {
         AutoFramePilot();   // cut to the pilot so the throw is visible
         Avatar->BeginThrow();
@@ -1007,32 +1122,33 @@ void ABorn2FlapFlightPawn::RequestHandLaunch()
 
 void ABorn2FlapFlightPawn::GetThrowAim(float& OutYaw, float& OutPitch) const
 {
-    // The throw follows the pilot's gaze, which differs per camera focus:
-    //   - ground 1st: free-look offsets (GroundLook)
-    //   - pilot 3rd:  over-the-shoulder orbit offsets (ActorOrbit)
-    //   - bird views:  the chase orbit (the player's aim around the bird)
+    // The throw follows the pilot's gaze (the camera direction):
+    //   - ground 1st: tracking gaze + free-look (body + head when the follow
+    //     is off)
+    //   - pilot 3rd:  the over-the-shoulder orbit camera (which aims at the
+    //     bird while the follow is on)
+    //   - bird views: the chase orbit (the player's aim around the bird)
     if (bGroundView)
     {
-        OutYaw = float(GroundGaze.Yaw + GroundLookYaw);
-        OutPitch = float(GroundLookPitch);
+        OutYaw = float(bAutoFollowBird
+            ? GroundGaze.Yaw + GroundLookYaw
+            : PilotFacingYaw + GroundLookYaw);
+        OutPitch = float(bAutoFollowBird ? GroundGaze.Pitch + GroundLookPitch : GroundLookPitch);
     }
     else if (bThirdPersonActor)
     {
-        // Aim along the pilot's over-the-shoulder gaze — the same FaceYaw the
-        // camera and the avatar use. Mid-throw the bird sits in the pilot's
-        // hand, so re-anchoring to (anchor→bird) would chase the pilot's own
-        // hand; instead the base captured at pickup (ThrowBaseYaw / CarryBaseYaw)
-        // keeps the aim stable while MMB-drag (ActorOrbitYaw) rotates it
-        // horizontally and vertically (ActorOrbitPitch).
-        FVector ToBird = Body->GetComponentLocation() - GroundAnchor;
-        ToBird.Z = 0.f;
-        const float BaseYaw = bBirdHeld
-            ? ThrowBaseYaw
-            : bBirdCarried
-                ? CarryBaseYaw
-                : (ToBird.IsNearlyZero() ? float(GroundGaze.Yaw) : ToBird.Rotation().Yaw);
-        OutYaw = BaseYaw + ActorOrbitYaw;
-        OutPitch = float(ActorOrbitPitch);
+        if (bAutoFollowBird)
+        {
+            FVector Pos; FRotator Rot;
+            ComputePilotOrbit(Pos, Rot);
+            OutYaw = Rot.Yaw;
+            OutPitch = Rot.Pitch;
+        }
+        else
+        {
+            OutYaw = ActorOrbitYaw;
+            OutPitch = ActorOrbitPitch;
+        }
     }
     else
     {
@@ -1246,6 +1362,9 @@ void ABorn2FlapFlightPawn::StartThrowCharge()
         AutoFramePilot();   // cut to the pilot so the wind-up is visible
         bBirdCarried = false;
         Avatar->SetCarrying(false);
+        // Raise the hands to the throw's cocked position and hold the bird there
+        // while SPACE is held; the release completes the throw on SPACE up.
+        Avatar->BeginThrowWindup();
     }
 }
 
@@ -1426,10 +1545,19 @@ void ABorn2FlapFlightPawn::SpawnAvatar()
     if (!Avatar)
         return;
     Avatar->SetPerson(AvatarPerson);
+    Avatar->SetFootstepVolume(FootstepVolume);
     Avatar->OnThrowRelease.BindUObject(this, &ABorn2FlapFlightPawn::LaunchFlight);
     PrevAvatarFeet = GroundAnchor - FVector(0.f, 0.f, 180.f);
     Avatar->SetPlacement(PrevAvatarFeet, 0.f);
 }
+void ABorn2FlapFlightPawn::SetFootstepVolume(float Value)
+{
+    if (FMath::IsFinite(Value))
+        FootstepVolume = FMath::Clamp(Value, 0.f, 1.f);
+    if (Avatar)
+        Avatar->SetFootstepVolume(FootstepVolume);
+}
+
 void ABorn2FlapFlightPawn::SetAvatarEnabled(bool bEnabled)
 {
     bAvatarEnabled = bEnabled;
@@ -1475,26 +1603,37 @@ void ABorn2FlapFlightPawn::UpdateAvatarState(float Dt)
         PrevAvatarFeet = Feet;
         Avatar->SetLocalVelocity(FVector::ZeroVector);
         const float AimYaw = bGroundView
-            ? float(GroundGaze.Yaw + GroundLookYaw)
-            : ThrowBaseYaw + ActorOrbitYaw;
+            ? float(bAutoFollowBird ? GroundGaze.Yaw + GroundLookYaw : PilotFacingYaw + GroundLookYaw)
+            : (bWalkModeActive ? PilotFacingYaw : ThrowBaseYaw + ActorOrbitYaw);
         Avatar->SetPlacement(Feet, AimYaw);
         // Height articulation: pass the gaze pitch through so the throw arc
         // leans back (high lob) or forward (flat throw) with the aim.
-        const float AimPitch = bGroundView ? float(GroundLookPitch) : float(ActorOrbitPitch);
+        float AimPitch;
+        if (bGroundView)
+            AimPitch = float(bAutoFollowBird ? GroundGaze.Pitch + GroundLookPitch : GroundLookPitch);
+        else
+        {
+            FVector CamPos; FRotator CamRot;
+            ComputePilotOrbit(CamPos, CamRot);
+            AimPitch = CamRot.Pitch;
+        }
         Avatar->SetThrowAimPitch(AimPitch);
         Avatar->SetFirstPerson(bGroundView);
         return;
     }
 
-    // Face the bird while orbiting it, EXCEPT when carrying: the bird is in the
-    // pilot's hand, so facing the bird would chase the pilot's own hand (the old
-    // uncontrollable spin). While carrying, face the gaze instead — the carried
-    // bird turns with the pilot and its trajectory follows that gaze.
+    // While walking the pilot faces their own A/D-turned facing (and keeps it
+    // after the walk ends until the next landing). Otherwise they face the
+    // bird; when carrying, the bird is in the hand, so the facing captured at
+    // pickup is used — re-anchoring to the hand-held bird would chase the
+    // pilot's own hand and spin.
     float FaceYaw;
-    if (bBirdCarried)
+    if (bWalkModeActive || bPilotFacingValid)
     {
-        // Carried: face the gaze captured at pickup + MMB-drag orbit. Re-anchoring
-        // to the hand-held bird here would chase the pilot's own hand and spin.
+        FaceYaw = PilotFacingYaw;
+    }
+    else if (bBirdCarried)
+    {
         FaceYaw = CarryBaseYaw + ActorOrbitYaw;
     }
     else
@@ -1504,7 +1643,7 @@ void ABorn2FlapFlightPawn::UpdateAvatarState(float Dt)
         const float BaseFaceYaw = ToBird.IsNearlyZero()
             ? float(GroundGaze.Yaw)
             : ToBird.Rotation().Yaw;
-        FaceYaw = bThirdPersonActor ? BaseFaceYaw + ActorOrbitYaw : BaseFaceYaw;
+        FaceYaw = BaseFaceYaw;
     }
 
     // Decompose the world displacement into forward / strafe components in the
@@ -1583,6 +1722,8 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
     // shifts only the bird's ground-relative momentum (inertia), never its
     // turning; every part (strips, fan, body) flies in the same air.
     MathBridge->InjectWindPhaseNoise(bFlightTest ? 0.0 : FMath::Clamp(CurrentWind.Size()*.15+FMath::Abs(CurrentWind.Z)*.25,0.,4.)*Shelter);
+    if (bWaterborne)
+        Throttle = RollInput = PitchInput = YawInput = 0.f;
     B2F_PilotInput Pilot{};
     Pilot.throttle = Throttle;
     Pilot.roll = RollInput;
@@ -1688,7 +1829,7 @@ bool ABorn2FlapFlightPawn::StepMath(float DeltaSeconds)
                     const FVector Flow = V3(Patch.air_velocity_m_s), N = V3(Patch.normal);
                     const double Vn = FVector::DotProduct(Flow, N);
                     TailForce += Force;
-                    TailMoment += FVector::CrossProduct(V3(Patch.position_m) - CgBody, Force);
+                    TailMoment += V3(Patch.moment_nm) - FVector::CrossProduct(CgBody, Force);
                     TailFlow += Flow / 18.;
                     Alpha += FMath::RadiansToDegrees(FMath::Atan2(-Vn, (Flow - Vn * N).Size())) / 18.;
                 }
@@ -2010,6 +2151,7 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     float MouseX = 0, MouseY = 0, Wheel = 0;
     bool WDown = false, MuteMouseYaw = false, MuteMouseRoll = false, MmbDown = false;
     bool MmbPressed = false, MmbReleased = false;
+    bool RmbDown = false, RmbPressed = false, RmbReleased = false;
     bool ResetMouse = false;
     bool Launch = false, Reset = false;
     bool bThrowPressed = false, bThrowReleased = false;
@@ -2018,6 +2160,10 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         using namespace born2flap::keybinds;
         if (PC->WasInputKeyJustPressed(Get(TEXT("GroundView")))) ToggleGroundView();
         if (PC->WasInputKeyJustPressed(Get(TEXT("FpvView")))) ToggleFpvView();
+        // J resets the view orientation to the default follow framing; K toggles
+        // the pilot-centric auto-follow of the bird.
+        if (PC->WasInputKeyJustPressed(Get(TEXT("ResetView")))) ResetCameraView();
+        if (PC->WasInputKeyJustPressed(Get(TEXT("FollowToggle")))) ToggleAutoFollow();
         if (bFpvAirView)
         {
             if (PC->WasInputKeyJustPressed(Get(TEXT("FpvAngleDown")))) FpvCameraAngleDeg = FMath::Clamp(FpvCameraAngleDeg - 5.f, -45.f, 45.f);
@@ -2041,10 +2187,39 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         }
         Wheel = PC->GetInputAnalogKeyState(EKeys::MouseWheelAxis);
         MuteMouseYaw = PC->IsInputKeyDown(EKeys::LeftMouseButton);
-        MuteMouseRoll = PC->IsInputKeyDown(EKeys::RightMouseButton);
+        RmbDown = PC->IsInputKeyDown(EKeys::RightMouseButton);
+        MuteMouseRoll = RmbDown;
+        RmbPressed = PC->WasInputKeyJustPressed(EKeys::RightMouseButton);
+        RmbReleased = PC->WasInputKeyJustReleased(EKeys::RightMouseButton);
         ResetMouse = PC->WasInputKeyJustPressed(EKeys::LeftMouseButton) ||
-                      PC->WasInputKeyJustPressed(EKeys::RightMouseButton) ||
+                      RmbPressed ||
                       PC->WasInputKeyJustPressed(EKeys::SpaceBar);
+        // RMB temporary zoom+aim: hold to snap the camera to the bird and zoom
+        // in, release to restore the chosen view. FPV keeps RMB as the flight
+        // roll-mute only (there is no aim to snap to on the bird's own nose).
+        if (RmbPressed && !bRmbZoom && !bFpvAirView && !bMenuOpen &&
+            !IsFlightSettingsOpen() && !IsPoiOverlayOpen())
+        {
+            SaveViewSnapshot();
+            bRmbZoom = true;
+        }
+        else if (bRmbZoom && RmbReleased)
+        {
+            RestoreViewSnapshot();
+            bRmbZoom = false;
+        }
+        // Z/X rotate the camera in every mode (position-based keys — on German
+        // keyboards the physical Y/X keys; Unreal's Windows virtual keys are
+        // scan-position based, so no layout translation is needed).
+        const float CamRot = (PC->IsInputKeyDown(Get(TEXT("CameraRotRight"))) ? 1.f : 0.f) -
+                             (PC->IsInputKeyDown(Get(TEXT("CameraRotLeft"))) ? 1.f : 0.f);
+        if (!FMath::IsNearlyZero(CamRot) && !bMenuOpen && !bRmbZoom)
+        {
+            const float CamDelta = CamRot * 90.f * Dt;
+            if (bFpvAirView) FpvCameraYawDeg = FMath::Clamp(FpvCameraYawDeg + CamDelta, -120.f, 120.f);
+            else if (bGroundView || bThirdPersonActor) ApplyPilotOrbit(CamDelta, 0.f);
+            else ChaseOrbitYaw += CamDelta;
+        }
         if (RcController && RcController->IsPanelOpen())
         {
             MouseX = MouseY = Wheel = 0;
@@ -2152,16 +2327,17 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         if (PC->WasInputKeyJustPressed(Get(TEXT("ThrottleMode"))))
             ToggleThrottleMode();
     }
-    // Ground interaction: while the bird is grounded, holding the middle mouse
-    // button puts the player in walk/look mode. WASD/arrows move the ground
-    // observer (the future pilot) around the ornithopter and the mouse rotates
-    // the camera — orbiting the bird in chase view, free-looking in ground view.
-    // Releasing MMB returns to flight inputs, where W flaps the wings to creep
-    // the bird into position for the next throw.
+    // Ground interaction: holding the middle mouse button puts the player in
+    // walk/look mode. W/S + arrows walk the ground observer (the pilot), G/E
+    // strafe, A/D turn the pilot, and the mouse orbits the camera — around the
+    // PILOT in the pilot views (the pilot no longer turns with it), around the
+    // bird in chase view. Releasing MMB returns to flight inputs, where W flaps
+    // the wings to creep the bird into position for the next throw.
     // Walk/look mode also works in flight (cinematic ground-level shots while
     // the bird is still airborne). The bird is never carried along — it stays
     // put and only the pilot (ground observer) walks.
     const bool bGroundWalk = MmbDown && !bMenuOpen;
+    bWalkModeActive = bGroundWalk;
     if (bGroundWalk)
     {
         if (auto* PC = Cast<APlayerController>(GetController()))
@@ -2171,68 +2347,74 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
                 (PC->IsInputKeyDown(Get(TEXT("Throttle"))) ? 1.f : 0.f) - (PC->IsInputKeyDown(Get(TEXT("PitchDown"))) ? 1.f : 0.f) +
                 (PC->IsInputKeyDown(Get(TEXT("PitchUp"))) ? 1.f : 0.f) - (PC->IsInputKeyDown(Get(TEXT("PitchDownAlt"))) ? 1.f : 0.f),
                 -1.f, 1.f);
+            // Strafe lives on G/E (the arrows keep working as alternates);
+            // A/D now TURN the pilot instead of strafing.
             const float WalkStr = FMath::Clamp(
-                (PC->IsInputKeyDown(Get(TEXT("YawRight"))) ? 1.f : 0.f) - (PC->IsInputKeyDown(Get(TEXT("YawLeft"))) ? 1.f : 0.f) +
+                (PC->IsInputKeyDown(Get(TEXT("StrafeRight"))) ? 1.f : 0.f) - (PC->IsInputKeyDown(Get(TEXT("StrafeLeft"))) ? 1.f : 0.f) +
                 (PC->IsInputKeyDown(Get(TEXT("RollRight"))) ? 1.f : 0.f) - (PC->IsInputKeyDown(Get(TEXT("RollLeft"))) ? 1.f : 0.f),
                 -1.f, 1.f);
+            const float Turn = (PC->IsInputKeyDown(Get(TEXT("YawRight"))) ? 1.f : 0.f) -
+                               (PC->IsInputKeyDown(Get(TEXT("YawLeft"))) ? 1.f : 0.f);
             const float LookSens = 0.22f;   // degrees per raw mouse count
+            const float TurnRate = 240.f;   // degrees per second (A/D)
             // Walk vs run: holding Shift (sprint) roughly doubles the ground
             // observer's pace so the pilot can cover ground when scouting.
             const bool bRun = PC->IsInputKeyDown(EKeys::LeftShift) ||
                               PC->IsInputKeyDown(EKeys::RightShift);
             const float WalkSpeed = bRun ? 440.f : 220.f;  // cm/s
-            if (bGroundView)
+            // Seed the pilot's own facing on the first walk step: toward the
+            // bird (or the carry/throw base when the bird is in the hand).
+            if (!bPilotFacingValid)
             {
-                // Ground perspective: free-look (can turn away from the bird).
-                // The invert flag mirrors the existing chase-orbit convention so
-                // a single option can flip this free-look without touching flight.
-                const float Inv = bFreeLookInvert ? -1.f : 1.f;
-                GroundLookYaw -= Inv * MouseX * LookSens;
-                GroundLookPitch -= Inv * MouseY * LookSens;
-                // Allow looking straight up (~90°); 89° keeps a hair of margin so
-                // the yaw/pitch Euler basis never degenerates at exactly +90.
-                GroundLookPitch = FMath::Clamp(GroundLookPitch, -80.f, 89.f);
-                const float FwdYaw = float(GroundGaze.Yaw + GroundLookYaw);
-                FVector Dir = FRotator(0.f, FwdYaw, 0.f).Vector() * WalkFwd +
-                              FRotator(0.f, FwdYaw + 90.f, 0.f).Vector() * WalkStr;
-                if (!Dir.IsNearlyZero())
-                    MoveWalker(Dir.GetSafeNormal() * (WalkSpeed * Dt));
-            }
-            else if (bThirdPersonActor)
-            {
-                // Actor-follow: MMB-drag rotates the pilot (yaw) and tilts the
-                // lens up/down (pitch). The wheel only zooms (handled below), so
-                // it never rotates the pilot. The pilot walks relative to their
-                // own (rotated) facing.
-                ActorOrbitYaw -= MouseX * LookSens;
-                ActorOrbitPitch -= MouseY * LookSens;
-                ActorOrbitPitch = FMath::Clamp(ActorOrbitPitch, -80.f, 80.f);
                 FVector ToBird = Body->GetComponentLocation() - GroundAnchor;
                 ToBird.Z = 0.f;
-                const float BaseYaw = ToBird.IsNearlyZero() ? float(GroundGaze.Yaw) : ToBird.Rotation().Yaw;
-                const float FwdYaw = BaseYaw + ActorOrbitYaw;
-                FVector Dir = FRotator(0.f, FwdYaw, 0.f).Vector() * WalkFwd +
-                              FRotator(0.f, FwdYaw + 90.f, 0.f).Vector() * WalkStr;
+                PilotFacingYaw = bBirdCarried ? CarryBaseYaw
+                    : bBirdHeld ? ThrowBaseYaw
+                    : (ToBird.IsNearlyZero() ? float(GroundGaze.Yaw) : ToBird.Rotation().Yaw);
+                bPilotFacingValid = true;
+            }
+            if (!FMath::IsNearlyZero(Turn))
+                PilotFacingYaw += Turn * TurnRate * Dt;
+            // The pilot walks along their own facing, not the camera's.
+            if (!bFpvAirView)
+            {
+                const FVector Dir = FRotator(0.f, PilotFacingYaw, 0.f).Vector() * WalkFwd +
+                                    FRotator(0.f, PilotFacingYaw + 90.f, 0.f).Vector() * WalkStr;
                 if (!Dir.IsNearlyZero())
                     MoveWalker(Dir.GetSafeNormal() * (WalkSpeed * Dt));
             }
-            else if (!bFpvAirView)
+            // Mouse orbit — the camera turns around the pilot (pilot views) or
+            // around the bird (chase). Suppressed while RMB temporarily zooms.
+            if (!bRmbZoom)
             {
-                // Third-bird (chase) perspective: orbit the camera around the bird.
-                ChaseOrbitYaw -= MouseX * LookSens;
-                ChaseOrbitPitch -= MouseY * LookSens;
-                ChaseOrbitPitch = FMath::Clamp(ChaseOrbitPitch, -80.f, 10.f);
-                const float FwdYaw = float(Body->GetComponentRotation().Yaw + ChaseOrbitYaw);
-                FVector Dir = FRotator(0.f, FwdYaw, 0.f).Vector() * WalkFwd +
-                              FRotator(0.f, FwdYaw + 90.f, 0.f).Vector() * WalkStr;
-                if (!Dir.IsNearlyZero())
-                    MoveWalker(Dir.GetSafeNormal() * (WalkSpeed * Dt));
+                if (bGroundView)
+                {
+                    // Ground perspective: free-look (can turn away from the bird).
+                    // The invert flag mirrors the existing chase-orbit convention so
+                    // a single option can flip this free-look without touching flight.
+                    const float Inv = bFreeLookInvert ? -1.f : 1.f;
+                    ApplyPilotOrbit(-Inv * MouseX * LookSens, -Inv * MouseY * LookSens);
+                }
+                else if (bThirdPersonActor)
+                {
+                    // Actor-follow: MMB-drag orbits the camera around the pilot;
+                    // A/D turns the pilot underneath it.
+                    ApplyPilotOrbit(-MouseX * LookSens, -MouseY * LookSens);
+                }
+                else if (!bFpvAirView)
+                {
+                    // Third-bird (chase) perspective: orbit the camera around the bird.
+                    ChaseOrbitYaw -= MouseX * LookSens;
+                    ChaseOrbitPitch -= MouseY * LookSens;
+                    ChaseOrbitPitch = FMath::Clamp(ChaseOrbitPitch, -80.f, 10.f);
+                }
             }
             // Scroll-wheel zoom (MMB held). Ground view: lens zoom to keep a far
             // bird readable or inspect it up close. Chase view: dolly the spring
             // arm — zooming in far enough switches to the onboard FPV lens, and
-            // scrolling out leaves it again.
-            if (!FMath::IsNearlyZero(Wheel))
+            // scrolling out leaves it again. Suppressed while RMB temporarily
+            // zooms (the RMB hold owns the view until release).
+            if (!FMath::IsNearlyZero(Wheel) && !bRmbZoom)
             {
                 const float Scroll = FMath::Clamp(Wheel, -1.f, 1.f);
                 if (bGroundView)
@@ -2311,7 +2493,8 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         }
     }
     // A clean middle-mouse click (press + release with no drag/scroll) snaps the
-    // chase orbit + zoom back to their default follow position.
+    // chase orbit + zoom back to their default follow position (J does the same
+    // plus the FPV angle and the follow lock).
     if (MmbReleased && !bMmbOrbitDragged && !bMenuOpen)
     {
         ChaseOrbitYaw = 0.f; ChaseOrbitPitch = -12.f;
@@ -2319,9 +2502,11 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         GroundZoom = 1.f;
         GroundLookYaw = 0.f; GroundLookPitch = 0.f;
         ActorOrbitYaw = 0.f;
-        ActorOrbitPitch = -12.f;
+        ActorOrbitPitch = 0.f;
         ActorArmLength = 240.f;
         bActorZoomFirstPerson = false;
+        bAutoFollowBird = true;
+        bGroundGazeReady = false;
         if (bFpvAirView)
         {
             bFpvAirView = false;
@@ -2502,11 +2687,9 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
             {
                 if (FParse::Param(FCommandLine::Get(), TEXT("B2FCgSliderTest")))
                 {
-                    auto* Panel = GetWorld()->SpawnActor<ABorn2FlapFlightSettings>();
-                    Panel->Open(this);
-                    const bool UiPass = Panel->TestCgSlider();
-                    Panel->Close();
-                    Panel->Destroy();
+                    // The CG knob lives in the Brain-authored flight desk; the
+                    // action path (HandleBrainAction "bird.cg") is the only
+                    // surface — the deprecated native panel is gone.
                     bool BrainPass = true;
                     if (auto* Mode = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode()))
                         for (float Mm : {-50.f,0.f,50.f})
@@ -2515,9 +2698,9 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
                             BrainPass &= FMath::IsNearlyEqual(GetCgOffsetMm(), Mm, .001f);
                         }
                     else BrainPass = false;
-                    UE_LOG(LogTemp, Display, TEXT("CgActionTest %s native=%d brain=%d"),
-                        UiPass && BrainPass ? TEXT("PASS") : TEXT("FAIL"), UiPass, BrainPass);
-                    if (!UiPass || !BrainPass) FPlatformMisc::RequestExitWithStatus(false, 1);
+                    UE_LOG(LogTemp, Display, TEXT("CgActionTest %s brain=%d"),
+                        BrainPass ? TEXT("PASS") : TEXT("FAIL"), BrainPass);
+                    if (!BrainPass) FPlatformMisc::RequestExitWithStatus(false, 1);
                 }
                 ResetFlight();
                 double TestCg = 0;
@@ -2877,6 +3060,30 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     const FVector P = Body->GetComponentLocation(), V = Body->GetPhysicsLinearVelocity() / 100.0;
     const FVector Omega = Body->GetPhysicsAngularVelocityInRadians();
     const auto *Mode = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode());
+    if (bWaterborne)
+    {
+        // Waterlogged: floats at the surface for a beat, then the buoyancy
+        // equilibrium sinks ~9 cm/s — a slow, visible descent. Heavy drag kills
+        // leftover airspeed and levels the body. NO auto-reset: R recovers.
+        WaterborneTime += Dt;
+        float WaterZ = (float)P.Z;
+        if (const AShiomoriWaterDirector* Water = AShiomoriWaterDirector::Get(GetWorld()))
+            WaterZ = Water->GetWaterHeightAt((float)P.X, (float)P.Y);
+        const float Subm = WaterZ - (float)P.Z;
+        WaterSinkDepth = -12.f + FMath::Min(WaterborneTime * 9.f, 190.f);
+        Body->AddForce(FVector(0.f, 0.f, (Subm - WaterSinkDepth) * 26.f * Body->GetMass()));
+        Body->AddForce(-Body->GetPhysicsLinearVelocity() * 1.6f * Body->GetMass());
+        Body->AddTorqueInRadians(-Body->GetPhysicsAngularVelocityInRadians() * 9000.0);
+        if (Subm > 5.f)
+        {
+            WaterSplashAccum += Dt;
+            if (WaterSplashAccum > 0.45f)
+            {
+                WaterSplashAccum = 0.f;
+                EmitWaterSplash(FVector((float)P.X, (float)P.Y, WaterZ + 2.f), 0.35f);
+            }
+        }
+    }
     if(Mode && Mode->IsCoastLevel() && P.Y>-3000 && P.X>90000)
     {
         if(P.X>96000)
@@ -2897,7 +3104,7 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
     const double CeilZ = bVoid ? 15000.0 : 300000.0;
     const double BoundR = bVoid ? 40000.0 : 480000.0;
     if (!Finite(P) || !Finite(V) || !Finite(Omega) || bSpeedReset ||
-        (P.Z < FloorZ && !bTerrainWait) || P.Z > CeilZ || P.Size2D() > BoundR)
+        (P.Z < FloorZ && !bTerrainWait && !bWaterborne) || P.Z > CeilZ || P.Size2D() > BoundR)
     {
         UE_LOG(LogTemp, Warning, TEXT("FlightSafetyReset pos=%s vel=%s omega=%s"), *P.ToString(), *V.ToString(),
                *Omega.ToString());
@@ -2905,11 +3112,11 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         return;
     }
     if (Mode && Mode->IsWater(P.X, P.Y) &&
-        P.Z < Mode->WaterHeight() + 10)
+        P.Z < Mode->WaterHeight() + 10 && !bWaterborne)
     {
-        UE_LOG(LogTemp, Display, TEXT("FlightWaterLanding: returning to the clearing"));
-        ResetFlight();
-        return;
+        // Splashdown: no instant reset. The bird settles on the surface,
+        // control locks and it slowly sinks until the player presses R.
+        EnterWaterborne();
     }
     if (GetAltitude() < .3f && GetSpeed() < 1.f)
     {

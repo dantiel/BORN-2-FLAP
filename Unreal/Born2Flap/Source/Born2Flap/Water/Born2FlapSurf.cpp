@@ -123,8 +123,14 @@ void ABorn2FlapSurf::Tick(float Dt)
         const double Shore=Born2FlapSurf::Shore(X);
         const double Growth=(1-FMath::SmoothStep(3400.,6100.,Front));
         const double Collapse=FMath::SmoothStep(-250.,950.,Front);
-        // Undulating crest: waves travel along the shore and rise/fall in time.
-        const double H=(100+25*FMath::Sin(X*.0011+Wave)+18*FMath::Sin(X*.0023+Time*.8+Wave*2.1)
+        // Aperiodic crest field: incommensurate product-sines (no regular
+        // along-shore hump spacing) so the surf reads as churning white water
+        // instead of repeating vertical "ribs"; the field drifts down-shore.
+        const double CrestNoise=
+            0.55*FMath::Sin(X*.0063+Wave*2.4+Time*.4)*FMath::Sin(X*.0117-Wave*1.7+Time*.6)
+          + 0.30*FMath::Sin(X*.0171+Wave*.9-Time*.5)*FMath::Sin(X*.0297+Wave*3.3+Time*.8)
+          + 0.15*FMath::Sin(X*.039+Wave*4.1+Time*1.1)*FMath::Sin(X*.071-Wave*2.2-Time*1.3);
+        const double H=(100+34*CrestNoise
             +6*FoamTurb(X,Shore+Front,Time,Wave*3.7))*Growth*Collapse*Strength;
         const double Curl=(1-FMath::SmoothStep(1600.,3000.,Front))*Collapse;
         // Broad rounded fade at the strip ends — organic, not square-cut.
@@ -150,21 +156,34 @@ void ABorn2FlapSurf::Tick(float Dt)
                     Z=FMath::Lerp(H*(1-Q),H-95*(1-FMath::Cos(Q*PI*1.4)),Curl);
                 }
                 Z=FMath::Max(-20.,Z)-50;
+                const double Boil=FoamTurb(X,Shore+Front,Time,Wave*3.7+5.1);
                 Foam=FMath::SmoothStep(.35,.72,V)*(1-FMath::SmoothStep(1800.,3600.,Front));
+                // Boiling brightness: the R channel drives the material's
+                // white emissive level, so the curl shimmers as it churns.
+                Foam*=0.8+0.2*Boil;
                 // Opaque at the foam lip, fading into the water at the base.
-                Alpha=EdgeFade*Growth*Collapse*FMath::SmoothStep(0.,.15,V)*.94;
+                // The 0.30 floor keeps the curl sheet always visible so the
+                // surf can never read as a black gap in the water.
+                Alpha=EdgeFade*Growth*Collapse*(0.30+0.70*FMath::SmoothStep(0.,.12,V))*.94;
+                Alpha*=0.72+0.28*Boil;
             }
             else
             {
                 // White water spreads behind the falling lip, then drains back
                 // as rounded, rippling lobes — not a flat rectangle.
                 Y=Front-160+V*1500;
+                const double Boil=FoamTurb(X,Shore+Y,Time,Wave*3.7);
                 const double Ground=GM ? GM->GroundHeight(X,Shore+Y) : -60.;
-                Z=FMath::Max(-43.,Ground+3)+12*FoamTurb(X,Shore+Y,Time,Wave*3.7);
-                Foam=1;
-                const double Lobe=.55+.45*FMath::Sin(X*.0016+Time*1.1+Wave*2.3);
+                Z=FMath::Max(-43.,Ground+3)+12*Boil;
+                Foam=0.8+0.2*Boil;
+                const double Lobe=.62+.38*FMath::Sin(X*.0079+Wave*2.1+Time*.9)
+                    *FMath::Sin(X*.0137-Wave*1.3-Time*.7);
+                // UE_DOUBLE_PI (not the float PI macro): float-PI makes Sin(PI*V)
+                // negative at V=1 (J=NY), and Pow(negative, 0.55) = NaN — a full
+                // NaN vertex-colour row that poisons the wash edge with NaN pixels.
                 Alpha=EdgeFade*Lobe*(1-FMath::SmoothStep(1100.,3200.,Front))*FMath::SmoothStep(-550.,100.,Front)
-                    *FMath::Pow(FMath::Sin(PI*V),.55)*.9;
+                    *FMath::Pow(FMath::Sin(UE_DOUBLE_PI*V),.55)*.9;
+                Alpha*=0.75+0.25*Boil;
             }
             // Follow the same displaced liquid surface as the ocean shader.
             // Single Layer Water writes depth, so foam must actually lie above
@@ -176,7 +195,11 @@ void ABorn2FlapSurf::Tick(float Dt)
             Vertices.Add(FVector(X,Shore+Y,Z));
             Normals.Add(FVector::ZeroVector);
             UV.Add(FVector2D(X*.003,V));
-            Colors.Add(FLinearColor(Foam,Kind==1 ? 1.f : 0.f,0,Alpha));
+            // R = Alpha: the material's VertexColor pin is float3 (alpha is not
+            // exposed), so the tuned alpha field (edge fade, growth, collapse,
+            // boil) rides in R and drives BOTH opacity and the subtle brightness
+            // churn. The material reads nothing else.
+            Colors.Add(FLinearColor(Alpha,Kind==1 ? 1.f : 0.f,0,Alpha));
         }
     }
     if(!bCreated)
@@ -217,6 +240,36 @@ void ABorn2FlapSurf::Tick(float Dt)
     if(!bCreated) Mesh->CreateMeshSection_LinearColor(0,Vertices,Triangles,Normals,UV,Colors,{},false);
     else Mesh->UpdateMeshSection_LinearColor(0,Vertices,Normals,UV,Colors,{});
     bCreated=true;
+    // TEMP diagnostic: surface geometry + material state, throttled to 3 s.
+    static int32 SurfDbg=0;
+    if(++SurfDbg%90==0)
+    {
+        double Peak=-1e9, Low=1e9, MinX=1e9, MaxX=-1e9, MinY=1e9, MaxY=-1e9, MaxR=-1.;
+        int NanV=0, NanC=0, NanKind0=0, NanKind1=0, NanWave[3]={0,0,0};
+        const int Stride=(NX+1)*(NY+1);
+        for(int i=0;i<Vertices.Num();++i)
+        {
+            const FVector& V=Vertices[i];
+            if(!FMath::IsFinite(V.X)||!FMath::IsFinite(V.Y)||!FMath::IsFinite(V.Z)){ ++NanV; }
+            if(V.X<MinX)MinX=V.X; if(V.X>MaxX)MaxX=V.X;
+            if(V.Y<MinY)MinY=V.Y; if(V.Y>MaxY)MaxY=V.Y;
+            if(FMath::IsFinite(V.Z)){ if(V.Z>Peak)Peak=V.Z; if(V.Z<Low)Low=V.Z; }
+            const FLinearColor& C=Colors[i];
+            if(FMath::IsFinite(C.R)){ if(C.R>MaxR)MaxR=C.R; }
+            else { ++NanC; const int K=(i/Stride)%2; const int W=(i/(2*Stride))%3;
+                if(K==0)++NanKind0; else ++NanKind1; ++NanWave[W]; }
+        }
+        const FRotator CR=Camera->GetCameraRotation();
+        UE_LOG(LogTemp,Warning,TEXT("SURFDBG created=%d verts=%d peakZ=%.1f lowZ=%.1f cam=(%.0f,%.0f,%.1f) yaw=%.0f pitch=%.0f box=(%.0f,%.0f)-(%.0f,%.0f) nanV=%d nanC=%d maxR=%.2f registered=%d proxy=%d hidden=%d secs=%d boundsC=(%.0f,%.0f,%.0f) boundsR=%.0f actor=(%.0f,%.0f,%.0f) mat=%s"),
+            bCreated?1:0, Vertices.Num(), Peak, Low, Cam.X, Cam.Y, Cam.Z, CR.Yaw, CR.Pitch,
+            MinX, MinY, MaxX, MaxY,
+            NanV, NanC, MaxR,
+            Mesh->IsRegistered()?1:0, Mesh->GetSceneProxy()!=nullptr, Mesh->bHiddenInGame?1:0,
+            Mesh->GetNumSections(),
+            Mesh->Bounds.Origin.X, Mesh->Bounds.Origin.Y, Mesh->Bounds.Origin.Z, Mesh->Bounds.SphereRadius,
+            GetActorLocation().X, GetActorLocation().Y, GetActorLocation().Z,
+            Mesh->GetMaterial(0) ? *Mesh->GetMaterial(0)->GetPathName() : TEXT("null"));
+    }
 }
 bool ABorn2FlapSurf::ValidateGeometry() const
 {

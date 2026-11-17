@@ -10,6 +10,7 @@
 #include "Flight/Born2FlapFlightPawn.h"
 #include "Avatar/Born2FlapAvatar.h"
 #include "Flight/Born2FlapTuning.h"
+#include "Flight/Born2FlapServo.h"
 #include "GameFramework/PlayerController.h"
 #include "Components/InputComponent.h"
 #include "Components/PrimitiveComponent.h"
@@ -80,24 +81,9 @@ void SendUpdate(UBorn2FlapUIRenderer* R, const TArray<int32>& Path, FProps Props
     R->ApplyOps(MoveTemp(Ops));
 }
 
-// Servos tested for flapping (dantiel.github.io/OrniFlight servo-efficiency
-// table). Speed = 60 / s-per-60°; torque = kg·cm × 0.0980665 → N·m, then × 1.8
-// servo-power fidelity — the solver under-models a servo's effective authority,
-// so stall torque carries the ×1.8 to match measured flap authority. Backdrive
-// is not published on the table, so presets keep the simulator default (20).
-// A preset stores its nominal-voltage row (PTK 7465 Plus: 857°/s @ 7.4 V); the
-// full voltage curve incl. 8.4 V (983.6°/s) lives in MathCore Servo.hs.
-struct FServoPreset { const TCHAR* Name; float SpeedDegS; float StallTorqueNm; float Backdrive; float Voltage; };
-static const FServoPreset ServoPresets[] = {
-    { TEXT("Blue Arrow AF D43S-6.0-MG"), 1500.f, 0.31f, 20.f, 6.0f },
-    { TEXT("VOTIK PTK 7465 / 7465W MG"),   667.f, 1.01f, 20.f, 8.4f },
-    { TEXT("VOTIK PTK 7465 Plus"),         857.f, 1.32f, 20.f, 7.4f },
-    { TEXT("Blue Arrow D0576HT-MG-HV"),   1000.f, 0.74f, 20.f, 7.4f },
-    { TEXT("Inservos D0474HT-MG-HV"),      750.f, 0.63f, 20.f, 7.4f },
-    { TEXT("KST MR320"),                   750.f, 0.97f, 20.f, 7.4f },
-    { TEXT("SAVOX SV-1270TG"),             545.f, 6.17f, 20.f, 7.4f },
-};
-constexpr int32 ServoPresetCount = (int32)(sizeof(ServoPresets) / sizeof(ServoPresets[0]));
+// The servo-desk data (catalog + power curve + apply) lives in
+// Flight/Born2FlapServo.h — shared with the main menu and the
+// Brain-authored UMGHAML tuning editor via BuildBrainTelemetry.
 
 }  // namespace
 
@@ -365,7 +351,7 @@ void ABorn2FlapFlightSettings::BuildTree()
     // edited by hand, which flips the readout to CUSTOM.
     {
         FValue ServoOptions; ServoOptions.kind = FValue::Kind::Array;
-        for (const FServoPreset& Sp : ServoPresets) ServoOptions.arr.push_back(Sv(FString(Sp.Name)));
+        for (const born2flap::servo::FServoPreset& Sp : born2flap::servo::Presets) ServoOptions.arr.push_back(Sv(FString(Sp.Name)));
         ServoSelectPath = RowPath((int32)Rows.size());
         Rows.push_back(Nd("Select", P({
             {"label", S("SERVO PRESET  /  load tested defaults")},
@@ -375,8 +361,8 @@ void ABorn2FlapFlightSettings::BuildTree()
             {"tooltip", S("Load speed, stall torque and voltage defaults from a servo tested for flapping (dantiel.github.io/OrniFlight). Editing any servo slider afterwards marks it CUSTOM.")}
         })));
         ServoStatusPath = RowPath((int32)Rows.size());
-        const FString StatusText = (ServoPresetIndex >= 0 && ServoPresetIndex < ServoPresetCount)
-            ? FString(TEXT("SERVO:  ")) + ServoPresets[ServoPresetIndex].Name
+        const FString StatusText = (ServoPresetIndex >= 0 && ServoPresetIndex < born2flap::servo::PresetCount)
+            ? FString(TEXT("SERVO:  ")) + born2flap::servo::Presets[ServoPresetIndex].Name
             : TEXT("SERVO:  CUSTOM  /  manual");
         Rows.push_back(Nd("TextBlock", P({
             {"text", Sv(StatusText)},
@@ -603,8 +589,8 @@ void ABorn2FlapFlightSettings::HandleAction(const FString& Action, float Value, 
 
     if (Action == TEXT("servo.preset"))
     {
-        const int32 Idx = FMath::Clamp(FMath::RoundToInt(Value), 0, ServoPresetCount - 1);
-        const FServoPreset& Sp = ServoPresets[Idx];
+        const int32 Idx = FMath::Clamp(FMath::RoundToInt(Value), 0, born2flap::servo::PresetCount - 1);
+        const born2flap::servo::FServoPreset& Sp = born2flap::servo::Presets[Idx];
         Bird->SetTuning(ETuningField::ServoSpeed, Sp.SpeedDegS);
         Bird->SetTuning(ETuningField::StallTorque, Sp.StallTorqueNm);
         Bird->SetTuning(ETuningField::Backdrive, Sp.Backdrive);

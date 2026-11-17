@@ -6,8 +6,6 @@
 #include "Racing/Born2FlapRacing.h"
 #include "Kismet/GameplayStatics.h"
 #include "Framework/Application/SlateApplication.h"
-#include "UI/Born2FlapFlightSettings.h"
-#include "UI/Born2FlapPoiOverlay.h"
 #include "Engine/Engine.h"
 #include "Engine/GameViewportClient.h"
 #include "Engine/World.h"
@@ -71,6 +69,8 @@ void ABorn2FlapFlightPawn::LoadFlightPreferences()
     FlightSafety=FMath::IsFinite(FlightSafety) ? FMath::Clamp(FlightSafety,0.f,2.f) : 1.f;
     Config.GetFloat(TEXT("Audio"),TEXT("WingbeatVolume"),WingbeatVolume);
     WingbeatVolume=FMath::IsFinite(WingbeatVolume) ? FMath::Clamp(WingbeatVolume,0.f,4.f) : 1.f;
+    Config.GetFloat(TEXT("Audio"),TEXT("FootstepVolume"),FootstepVolume);
+    FootstepVolume=FMath::IsFinite(FootstepVolume) ? FMath::Clamp(FootstepVolume,0.f,1.f) : 1.f;
     double SpeedMod = Desktop.speedModifier;
     Config.GetDouble(TEXT("Controls"),TEXT("SpeedModifier"),SpeedMod);
     Desktop.speedModifier = FMath::IsFinite(SpeedMod) ? FMath::Clamp(SpeedMod,0.0,1.0) : 0.5;
@@ -83,8 +83,20 @@ void ABorn2FlapFlightPawn::LoadFlightPreferences()
     for(uint8 I=0;I<uint8(ETuningField::Count);++I)
     {
         const ETuningField Field=ETuningField(I);
+        if (born2flap::tuning::IsControlField(Field)) continue;
         float Value=GetTuning(Field);
         Config.GetFloat(TEXT("Tuning"),born2flap::tuning::Key(Field),Value);
+        SetTuning(Field,Value);
+    }
+    // Control authority is global (app settings → CONTROL SETTINGS) — shared
+    // by every silhouette, so it lives under [Controls], not the per-model
+    // tuning.
+    for(uint8 I=0;I<uint8(ETuningField::Count);++I)
+    {
+        const ETuningField Field=ETuningField(I);
+        if (!born2flap::tuning::IsControlField(Field)) continue;
+        float Value=GetTuning(Field);
+        Config.GetFloat(TEXT("Controls"),born2flap::tuning::Key(Field),Value);
         SetTuning(Field,Value);
     }
     // Bird silhouette: only an explicit menu choice persists; -1 means "use the
@@ -99,7 +111,9 @@ void ABorn2FlapFlightPawn::SaveTuningPreference(ETuningField Field)
     const FString Path = PreferencesPath();
     FConfigFile Config; Config.Read(Path); Config.bCanSaveAllSections = true;
     IFileManager::Get().MakeDirectory(*FPaths::GetPath(Path), true);
-    Config.SetFloat(TEXT("Tuning"), born2flap::tuning::Key(Field), GetTuning(Field));
+    // Control authority persists globally, not under [Tuning].
+    const TCHAR* Section = born2flap::tuning::IsControlField(Field) ? TEXT("Controls") : TEXT("Tuning");
+    Config.SetFloat(Section, born2flap::tuning::Key(Field), GetTuning(Field));
     Config.Write(Path);
 }
 
@@ -126,13 +140,21 @@ void ABorn2FlapFlightPawn::SaveFlightPreferences()
     Config.SetBool(TEXT("Flight"),TEXT("TrickToasts"),bShowTrickToasts);
     Config.SetFloat(TEXT("Flight"),TEXT("Safety"),FlightSafety);
     Config.SetFloat(TEXT("Audio"),TEXT("WingbeatVolume"),WingbeatVolume);
+    Config.SetFloat(TEXT("Audio"),TEXT("FootstepVolume"),FootstepVolume);
     Config.SetDouble(TEXT("Controls"),TEXT("SpeedModifier"),Desktop.speedModifier);
     for(int32 Axis=0;Axis<3;++Axis)
         Config.SetDouble(TEXT("Mouse"),*FString::Printf(TEXT("Gain%d"),Axis),MouseGains[Axis]);
     for(uint8 I=0;I<uint8(ETuningField::Count);++I)
     {
         const ETuningField Field=ETuningField(I);
+        if (born2flap::tuning::IsControlField(Field)) continue;
         Config.SetFloat(TEXT("Tuning"),born2flap::tuning::Key(Field),GetTuning(Field));
+    }
+    for(uint8 I=0;I<uint8(ETuningField::Count);++I)
+    {
+        const ETuningField Field=ETuningField(I);
+        if (born2flap::tuning::IsControlField(Field))
+            Config.SetFloat(TEXT("Controls"),born2flap::tuning::Key(Field),GetTuning(Field));
     }
     Config.Write(Path);
 }
@@ -143,7 +165,7 @@ void ABorn2FlapFlightPawn::SetMouseGain(int32 Axis,float Gain)
 }
 void ABorn2FlapFlightPawn::OpenFlightSettings()
 {
-    if(SettingsPanel.IsValid() || !GEngine || !GEngine->GameViewport) return;
+    if(bBrainSettingsOpen || !GEngine || !GEngine->GameViewport) return;
     auto* PC=Cast<APlayerController>(GetController());
     if(!PC || (RcController && RcController->IsPanelOpen())) return;
     Desktop.mouseRoll=Desktop.mousePitch=Desktop.mouseYaw=0;
@@ -164,28 +186,14 @@ void ABorn2FlapFlightPawn::OpenFlightSettings()
         }
     }
 
-    // The panel is the semantic view-framework actor (react-native-umg), not
-    // the old raw-Slate SFlightSettings. It renders through UBorn2FlapUIRenderer
-    // and routes interactive controls back via OnComponentAction.
-    FActorSpawnParameters Params;
-    Params.Owner=this;
-    Params.SpawnCollisionHandlingOverride=ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-    ABorn2FlapFlightSettings* Panel=GetWorld()->SpawnActor<ABorn2FlapFlightSettings>(
-        FVector::ZeroVector,FRotator::ZeroRotator,Params);
-    if(!Panel) return;
-    Panel->Open(this);
-    SettingsPanel=Panel;
-
-    // No SetPause here: the FlightPawn freezes the simulation while the panel
-    // is open (it early-returns in Tick). UIOnly hands the mouse fully to the
-    // UMG tree so buttons, sliders and the scroll box are clickable/scrollable;
-    // F8/Esc are captured by the Slate input pre-processor (FPanelKeyInputProcessor),
-    // so closing stays reliable even though UIOnly routes keys away from PlayerInput.
-    PC->bShowMouseCursor=true;
-    FInputModeUIOnly Mode;
-    Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
-    PC->SetInputMode(Mode);
-    PC->FlushPressedKeys();
+    // BRAIN-REQUIRED: the F8 flight desk is authored by the Ruby Brain — there
+    // is no native panel to spawn. If the Brain is missing, surface the error
+    // and leave the minimal engine console as the only fallback surface.
+    UE_LOG(LogTemp, Error,
+        TEXT("OpenFlightSettings: Ruby Brain NOT attached — the flight desk cannot render. Press ~ for the minimal recovery console."));
+    if (GEngine)
+        GEngine->AddOnScreenDebugMessage(uint64(0xB2F0F8), 10.f, FColor::Red,
+            TEXT("BRAIN OFFLINE — F8 flight desk unavailable. Press ~ for the minimal recovery console."));
 }
 void ABorn2FlapFlightPawn::CloseFlightSettings()
 {
@@ -197,21 +205,15 @@ void ABorn2FlapFlightPawn::CloseFlightSettings()
         { PC->bShowMouseCursor = false; PC->SetInputMode(FInputModeGameOnly()); PC->FlushPressedKeys(); }
         return;
     }
-    if(!SettingsPanel.IsValid()) return;
+    if(!bBrainSettingsOpen) return;
     SaveFlightPreferences();
-    if(SettingsPanel.IsValid())
-    {
-        SettingsPanel->Close(); // detach the window now — Destroy() only schedules GC
-        SettingsPanel->Destroy();
-    }
-    SettingsPanel.Reset();
     if(auto* PC=Cast<APlayerController>(GetController()))
     { PC->bShowMouseCursor=false; PC->SetInputMode(FInputModeGameOnly()); PC->FlushPressedKeys(); }
     Desktop.mouseRoll=Desktop.mousePitch=Desktop.mouseYaw=0;
 }
 void ABorn2FlapFlightPawn::OpenPoiOverlay()
 {
-    if(PoiOverlay.IsValid() || !GEngine || !GEngine->GameViewport) return;
+    if(bBrainPoiOpen || !GEngine || !GEngine->GameViewport) return;
     auto* PC=Cast<APlayerController>(GetController());
     if(!PC) return;
     Desktop.mouseRoll=Desktop.mousePitch=Desktop.mouseYaw=0;
@@ -232,19 +234,11 @@ void ABorn2FlapFlightPawn::OpenPoiOverlay()
         }
     }
 
-    FActorSpawnParameters Params;
-    Params.Owner=this;
-    Params.SpawnCollisionHandlingOverride=ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-    ABorn2FlapPoiOverlay* Overlay=GetWorld()->SpawnActor<ABorn2FlapPoiOverlay>(
-        FVector::ZeroVector,FRotator::ZeroRotator,Params);
-    if(!Overlay) return;
-    Overlay->Open(this);
-    PoiOverlay=Overlay;
-    PC->bShowMouseCursor=true;
-    FInputModeUIOnly Mode;
-    Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
-    PC->SetInputMode(Mode);
-    PC->FlushPressedKeys();
+    // BRAIN-REQUIRED: the POI overlay is authored by the Ruby Brain — there is
+    // no native overlay actor to spawn. The minimal engine console stays the
+    // only fallback surface when the Brain is missing.
+    UE_LOG(LogTemp, Error,
+        TEXT("OpenPoiOverlay: Ruby Brain NOT attached — the POI overlay cannot render. Press ~ for the minimal recovery console."));
 }
 void ABorn2FlapFlightPawn::ClosePoiOverlay()
 {
@@ -255,13 +249,6 @@ void ABorn2FlapFlightPawn::ClosePoiOverlay()
         { PC->bShowMouseCursor = false; PC->SetInputMode(FInputModeGameOnly()); PC->FlushPressedKeys(); }
         return;
     }
-    if(!PoiOverlay.IsValid()) return;
-    if(PoiOverlay.IsValid())
-    {
-        PoiOverlay->Close();
-        PoiOverlay->Destroy();
-    }
-    PoiOverlay.Reset();
     if(auto* PC=Cast<APlayerController>(GetController()))
     { PC->bShowMouseCursor=false; PC->SetInputMode(FInputModeGameOnly()); PC->FlushPressedKeys(); }
     Desktop.mouseRoll=Desktop.mousePitch=Desktop.mouseYaw=0;

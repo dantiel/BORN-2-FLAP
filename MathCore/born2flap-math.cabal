@@ -125,6 +125,13 @@ executable born2flap-diffroll-probe
   default-language: GHC2021
   ghc-options: -O1
 
+executable born2flap-yaw-cycle-probe
+  main-is: YawCycleProbe.hs
+  hs-source-dirs: test
+  build-depends: base >=4.17 && <5, born2flap-math
+  default-language: GHC2021
+  ghc-options: -O1
+
 executable born2flap-aero-roll-probe
   main-is: AerodynamicRollProbe.hs
   hs-source-dirs: test
@@ -141,6 +148,20 @@ executable born2flap-wing-air-audit
 
 executable born2flap-tail-coupling-audit
   main-is: TailCouplingAudit.hs
+  hs-source-dirs: test
+  build-depends: base >=4.17 && <5, born2flap-math
+  default-language: GHC2021
+  ghc-options: -O1
+
+executable born2flap-tail-roll-audit
+  main-is: TailRollAudit.hs
+  hs-source-dirs: test
+  build-depends: base >=4.17 && <5, born2flap-math
+  default-language: GHC2021
+  ghc-options: -O1
+
+executable born2flap-twist-boost-audit
+  main-is: TwistBoostAudit.hs
   hs-source-dirs: test
   build-depends: base >=4.17 && <5, born2flap-math
   default-language: GHC2021

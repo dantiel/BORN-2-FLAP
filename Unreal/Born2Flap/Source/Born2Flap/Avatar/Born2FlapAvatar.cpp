@@ -1,9 +1,11 @@
 #include "Avatar/Born2FlapAvatar.h"
+#include "Avatar/Born2FlapFootsteps.h"
 #include "Components/SceneComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimSequence.h"
+#include "Animation/AnimSingleNodeInstance.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 
@@ -47,20 +49,49 @@ struct FB2FAvatarPersonDef
     const TCHAR* Mesh;   // skeletal mesh asset name inside the folder
     const TCHAR* Clip;   // animation clip name prefix (== Mesh for the humans)
     const TCHAR* Extra;  // optional second body mesh (X-Bot's Section1), or nullptr
+    // Standing height this person is normalised to (cm). Per-character so a
+    // young/short pilot does not tower and a burly one does not shrink: the
+    // uniform 180 cm target made some look oversized and others undersized.
+    float HeightCm;
+    // Optional per-slot material overrides, in mesh slot order. The Mixamo
+    // FBX meshes import without usable textures (their FBX texture paths point
+    // at the export machine), so the PBR materials imported from the companion
+    // GLB are applied here. nullptr = keep the mesh's own material for that slot.
+    const TCHAR* MaterialOverrides[4];
 };
 const TArray<FB2FAvatarPersonDef>& AvatarPersons()
 {
     static const TArray<FB2FAvatarPersonDef> Persons = {
-        { TEXT("John"),     TEXT("/Game/Actor/SK_Founder"),  TEXT("SK_Founder"),  TEXT("SK_Founder"),  nullptr },
-        { TEXT("Erika"),    TEXT("/Game/Actor/SK_Erika"),    TEXT("SK_Erika"),    TEXT("SK_Erika"),    nullptr },
-        { TEXT("Amy"),      TEXT("/Game/Actor/SK_Amy"),      TEXT("SK_Amy"),      TEXT("SK_Amy"),      nullptr },
-        { TEXT("Michelle"), TEXT("/Game/Actor/SK_Michelle"), TEXT("SK_Michelle"), TEXT("SK_Michelle"), nullptr },
-        { TEXT("Sophie"),   TEXT("/Game/Actor/SK_Sophie"),   TEXT("SK_Sophie"),   TEXT("SK_Sophie"),   nullptr },
-        { TEXT("Kate"),     TEXT("/Game/Actor/SK_Kate"),     TEXT("SK_Kate"),     TEXT("SK_Kate"),     nullptr },
-        { TEXT("James"),    TEXT("/Game/Actor/SK_James"),    TEXT("SK_James"),    TEXT("SK_James"),    nullptr },
-        { TEXT("Adam"),     TEXT("/Game/Actor/SK_Adam"),     TEXT("SK_Adam"),     TEXT("SK_Adam"),     nullptr },
-        { TEXT("Brian"),    TEXT("/Game/Actor/SK_Brian"),    TEXT("SK_Brian"),    TEXT("SK_Brian"),    nullptr },
-        { TEXT("Alex"),     TEXT("/Game/Actor/SK_Alex"),     TEXT("SK_Alex"),     TEXT("SK_Alex"),     nullptr },
+        { TEXT("John"),     TEXT("/Game/Actor/SK_Founder"),  TEXT("SK_Founder"),  TEXT("SK_Founder"),  nullptr, 182.f,
+          { nullptr, nullptr, nullptr, nullptr } },
+        { TEXT("Erika"),    TEXT("/Game/Actor/SK_Erika"),    TEXT("SK_Erika"),    TEXT("SK_Erika"),    nullptr, 170.f,
+          { TEXT("/Game/Actor/SK_Erika/Materials/EyeSpec_MAT.EyeSpec_MAT"),
+            TEXT("/Game/Actor/SK_Erika/Materials/Akai_MAT.Akai_MAT"),
+            TEXT("/Game/Actor/SK_Erika/Materials/eyelash_MAT.eyelash_MAT"),
+            TEXT("/Game/Actor/SK_Erika/Materials/Body_MAT.Body_MAT") } },
+        { TEXT("Amy"),      TEXT("/Game/Actor/SK_Amy"),      TEXT("SK_Amy"),      TEXT("SK_Amy"),      nullptr, 158.f,
+          { TEXT("/Game/Actor/SK_Amy/Materials/Ch46_body.Ch46_body"), nullptr, nullptr, nullptr } },
+        { TEXT("Michelle"), TEXT("/Game/Actor/SK_Michelle"), TEXT("SK_Michelle"), TEXT("SK_Michelle"), nullptr, 168.f,
+          { TEXT("/Game/Actor/SK_Michelle/Materials/Ch03_Body.Ch03_Body"), nullptr, nullptr, nullptr } },
+        { TEXT("Sophie"),   TEXT("/Game/Actor/SK_Sophie"),   TEXT("SK_Sophie"),   TEXT("SK_Sophie"),   nullptr, 172.f,
+          { TEXT("/Game/Actor/SK_Sophie/Materials/Ch02_body.Ch02_body"),
+            TEXT("/Game/Actor/SK_Sophie/Materials/Ch02_hair.Ch02_hair"), nullptr, nullptr } },
+        { TEXT("Kate"),     TEXT("/Game/Actor/SK_Kate"),     TEXT("SK_Kate"),     TEXT("SK_Kate"),     nullptr, 168.f,
+          { TEXT("/Game/Actor/SK_Kate/Materials/Ch21_body.Ch21_body"),
+            TEXT("/Game/Actor/SK_Kate/Materials/Ch21_hair.Ch21_hair"), nullptr, nullptr } },
+        { TEXT("James"),    TEXT("/Game/Actor/SK_James"),    TEXT("SK_James"),    TEXT("SK_James"),    nullptr, 186.f,
+          { TEXT("/Game/Actor/SK_James/Materials/Ch06_body.Ch06_body"),
+            TEXT("/Game/Actor/SK_James/Materials/Ch06_eyelashes.Ch06_eyelashes"),
+            TEXT("/Game/Actor/SK_James/Materials/Ch06_body1.Ch06_body1"), nullptr } },
+        { TEXT("Adam"),     TEXT("/Game/Actor/SK_Adam"),     TEXT("SK_Adam"),     TEXT("SK_Adam"),     nullptr, 183.f,
+          { TEXT("/Game/Actor/SK_Adam/Materials/Ch08_body.Ch08_body"),
+            TEXT("/Game/Actor/SK_Adam/Materials/Ch08_body1.Ch08_body1"),
+            TEXT("/Game/Actor/SK_Adam/Materials/Ch08_hair.Ch08_hair"), nullptr } },
+        { TEXT("Brian"),    TEXT("/Game/Actor/SK_Brian"),    TEXT("SK_Brian"),    TEXT("SK_Brian"),    nullptr, 178.f,
+          { TEXT("/Game/Actor/SK_Brian/Materials/Ch01_body.Ch01_body"),
+            TEXT("/Game/Actor/SK_Brian/Materials/Ch01_hair.Ch01_hair"), nullptr, nullptr } },
+        { TEXT("Alex"),     TEXT("/Game/Actor/SK_Alex"),     TEXT("SK_Alex"),     TEXT("SK_Alex"),     nullptr, 176.f,
+          { TEXT("/Game/Actor/SK_Alex/Materials/Ch18_Body.Ch18_Body"), nullptr, nullptr, nullptr } },
     };
     return Persons;
 }
@@ -112,6 +143,21 @@ void ABorn2FlapAvatar::BeginPlay()
     Super::BeginPlay();
     LoadPerson(PersonIndex);
     SetFirstPerson(false);
+
+    // Procedural footfalls: one player per avatar, volume set by the pawn's
+    // FootstepVolume preference (0..1). Pure synth — no footstep asset exists.
+    Footsteps = NewObject<UBorn2FlapFootsteps>(this);
+    if (Footsteps)
+    {
+        Footsteps->RegisterComponent();
+        Footsteps->SetVolume(1.f);
+    }
+}
+
+void ABorn2FlapAvatar::SetFootstepVolume(float Volume)
+{
+    if (Footsteps)
+        Footsteps->SetVolume(Volume);
 }
 
 void ABorn2FlapAvatar::LoadPerson(int32 Index)
@@ -121,6 +167,10 @@ void ABorn2FlapAvatar::LoadPerson(int32 Index)
     if (Index == PersonIndex && Body->GetSkeletalMeshAsset())
         return;
     PersonIndex = Index;
+    // A different person has a different throw clip (possibly a different
+    // length/curve): the hand-apex halt must be re-measured for the new clip.
+    ThrowHaltTime = -1.f;
+    bThrowHaltComputed = false;
     const FB2FAvatarPersonDef& P = Persons[Index];
     const FString Folder = FString(P.Base) + TEXT("/SkeletalMeshes/");
 
@@ -135,7 +185,21 @@ void ABorn2FlapAvatar::LoadPerson(int32 Index)
     }
     Body->SetSkeletalMesh(Mesh);
 
+    // Apply the per-person PBR material overrides (imported from the companion
+    // GLB; the FBX meshes themselves ship without usable textures). Kept
+    // BEFORE the OriginalMaterials cache below so ApplySkin restores these.
+    for (int32 MatIdx = 0; MatIdx < 4 && P.MaterialOverrides[MatIdx]; ++MatIdx)
+    {
+        if (MatIdx >= Body->GetNumMaterials())
+            break;
+        UMaterialInterface* Mat = LoadObject<UMaterialInterface>(nullptr, P.MaterialOverrides[MatIdx]);
+        if (Mat)
+            Body->SetMaterial(MatIdx, Mat);
+    }
+
+    // mixamorig skeleton. Drive the second section from the leader so both
     // X-Bot is imported as two body sections (Section0 + Section1) sharing one
+    // mixamorig skeleton. Drive the second section from the leader so both
     // mixamorig skeleton. Drive the second section from the leader so both
     // halves play the identical clip without a second animation graph.
     if (BodyExtra)
@@ -178,13 +242,15 @@ void ABorn2FlapAvatar::LoadPerson(int32 Index)
         CurrentAnim = nullptr;
     }
 
-    // Normalise to a ~180 cm human and rest the feet on the ground. The skeleton
-    // root is the hips, so lift the mesh until the foot bone reaches the root.
+    // Normalise to the person's own standing height and rest the feet on the
+    // ground. The skeleton root is the hips, so lift the mesh until the foot
+    // bone reaches the root.
     if (Body->GetSkeletalMeshAsset())
     {
         const FBoxSphereBounds B = Body->CalcBounds(Body->GetComponentTransform());
         const float HeightLocal = B.BoxExtent.Z * 2.f;
-        MeshScale = HeightLocal > 1.f ? TargetHeightCm / HeightLocal : 1.f;
+        const float WantCm = P.HeightCm > 1.f ? P.HeightCm : TargetHeightCm;
+        MeshScale = HeightLocal > 1.f ? WantCm / HeightLocal : 1.f;
         Body->SetRelativeScale3D(FVector(MeshScale));
         if (BoneLFoot != INDEX_NONE)
         {
@@ -236,7 +302,7 @@ void ABorn2FlapAvatar::Tick(float DeltaSeconds)
     // strafe gait (the avatar orbits the bird), backward motion walks backward.
     UAnimSequence* Target = nullptr;
     float NativeSpeed = 1.f;
-    if (bThrowing)
+    if (bThrowing || bThrowWindup)
     {
         Target = AnimThrow;
     }
@@ -273,7 +339,7 @@ void ABorn2FlapAvatar::Tick(float DeltaSeconds)
     {
         CurrentAnim = Target;
         Body->SetAnimation(Target);
-        if (!bThrowing && !bCatching)
+        if (!bThrowing && !bCatching && !bThrowWindup)
         {
             Body->Play(true);
         }
@@ -290,16 +356,33 @@ void ABorn2FlapAvatar::Tick(float DeltaSeconds)
 
     // Match limb cadence to the actual ground speed so the feet don't slide.
     // (The baked clips play too slowly at native rate for the pawn's pace.)
-    if (Target && !bThrowing && !bCatching && bMoving)
+    if (Target && !bThrowing && !bCatching && !bThrowWindup && bMoving)
         Body->SetPlayRate(FMath::Clamp(Speed / NativeSpeed, PlayRateMin, PlayRateMax));
-    else if (!bThrowing && !bCatching)
+    else if (!bThrowing && !bCatching && !bThrowWindup)
         Body->SetPlayRate(1.f);
 
-    // One-shot throw bookkeeping: release at 30% of the clip, auto-return to idle/walk.
+    // Throw wind-up (SPACE held): drive the throw clip up to the halt — the
+    // first moment the carrying hand reaches its highest point (the cocked
+    // position) — and hold there. The bird rides the raised hand.
+    if (bThrowWindup)
+    {
+        const float ThrowDur = AnimThrow ? AnimThrow->GetPlayLength() : ThrowDuration;
+        const float WindupTarget = ThrowHaltTime >= 0.f ? ThrowHaltTime : ThrowDur * ThrowReleaseFraction;
+        ThrowTime = FMath::Min(ThrowTime + DeltaSeconds, WindupTarget);
+        if (AnimThrow)
+            Body->SetPosition(ThrowTime, false);
+    }
+
+    // Throw release (SPACE released): complete the clip from wherever the wind-up
+    // reached. A long hold is already at the release frame (bird leaves next
+    // tick); a quick tap finishes the remaining wind-up first. Auto-return to
+    // idle/walk when the clip ends.
     if (bThrowing)
     {
-        ThrowTime += DeltaSeconds;
         const float ThrowDur = AnimThrow ? AnimThrow->GetPlayLength() : ThrowDuration;
+        ThrowTime += DeltaSeconds;
+        if (AnimThrow)
+            Body->SetPosition(ThrowTime, false);
         if (!bReleaseFired && ThrowTime >= ThrowDur * ThrowReleaseFraction)
         {
             bReleaseFired = true;
@@ -480,14 +563,116 @@ void ABorn2FlapAvatar::BeginThrow()
     // A new throw interrupts an unfinished catch pose.
     bCatching = false;
     CatchTime = 0.f;
+    // Complete the throw from wherever the wind-up left the clock: a long hold
+    // is already at the cocked position (the bird leaves on the next tick), a
+    // quick tap finishes the remaining wind-up first.
+    bThrowWindup = false;
     bThrowing = true;
+    bReleaseFired = false;
+}
+
+void ABorn2FlapAvatar::BeginThrowWindup()
+{
+    if (bThrowWindup || bThrowing)
+        return;
+    // Interrupt an unfinished catch pose; a new wind-up always starts from idle.
+    bCatching = false;
+    CatchTime = 0.f;
+    bThrowWindup = true;
     ThrowTime = 0.f;
     bReleaseFired = false;
+    // Measure the throw clip's hand-apex once (per person) so the wind-up can
+    // halt at the first moment the bird is lifted high instead of the release
+    // frame.
+    if (!bThrowHaltComputed)
+        ComputeThrowHalt();
+}
+
+void ABorn2FlapAvatar::ComputeThrowHalt()
+{
+    ThrowHaltTime = -1.f;
+    bThrowHaltComputed = true;
+    if (!AnimThrow || !Body || Body->GetNumBones() == 0)
+        return;
+    const float Dur = AnimThrow->GetPlayLength();
+    if (Dur <= 0.f)
+        return;
+
+    // Save the live playback state so the scrub below is invisible.
+    UAnimSequence* PrevAnim = CurrentAnim;
+    const float PrevPos = Body->GetPosition();
+    const float PrevRate = Body->GetPlayRate();
+    const bool bPrevPlaying = Body->IsPlaying();
+
+    const int32 HandBone = bCarryLeftHand ? BoneLHand : BoneRHand;
+    float RaiseCm = 0.f;
+    if (HandBone != INDEX_NONE)
+    {
+        Body->SetAnimation(AnimThrow);
+        Body->SetPosition(0.f, false);
+        Body->Play(false);
+
+        // Scrub the raise phase only (first 60% of the clip) so a higher
+        // follow-through after the release can never hijack the halt.
+        const int32 Samples = 60;
+        const int32 N = FMath::Max(1, FMath::FloorToInt(Samples * 0.6f));
+        float StartZ = 0.f;
+        float MaxZ = -FLT_MAX;
+        TArray<float> Heights;
+        Heights.SetNumUninitialized(N + 1);
+        for (int32 i = 0; i <= N; ++i)
+        {
+            Body->SetPosition(Dur * i / float(Samples), false);
+            Body->RefreshBoneTransforms();
+            const TArray<FTransform>& CS = Body->GetComponentSpaceTransforms();
+            const float Z = CS.IsValidIndex(HandBone) ? float(CS[HandBone].GetLocation().Z) : 0.f;
+            Heights[i] = Z;
+            if (i == 0)
+                StartZ = Z;
+            MaxZ = FMath::Max(MaxZ, Z);
+        }
+        RaiseCm = MaxZ - StartZ;
+        if (RaiseCm > 3.f)
+        {
+            // First moment the hand reaches 98% of its raise = the cocked top.
+            const float Thresh = StartZ + RaiseCm * 0.98f;
+            for (int32 i = 0; i <= N; ++i)
+            {
+                if (Heights[i] >= Thresh)
+                {
+                    ThrowHaltTime = Dur * i / float(Samples);
+                    break;
+                }
+            }
+        }
+    }
+
+    // Restore the live clip/position — the scrub must be invisible.
+    if (PrevAnim)
+    {
+        Body->SetAnimation(PrevAnim);
+        Body->SetPosition(PrevPos, false);
+        Body->SetPlayRate(PrevRate);
+        if (UAnimSingleNodeInstance* Instance = Body->GetSingleNodeInstance())
+            Instance->SetPlaying(bPrevPlaying);
+    }
+
+    // Never halt after the authored release: the hand must still have room to
+    // sweep forward and release the bird on SPACE up. Degenerate (flat) clips
+    // fall back to a hold just before the release frame.
+    const float ReleaseAt = Dur * ThrowReleaseFraction;
+    if (ThrowHaltTime < 0.f)
+        ThrowHaltTime = ReleaseAt * 0.7f;
+    else
+        ThrowHaltTime = FMath::Min(ThrowHaltTime, ReleaseAt);
+
+    UE_LOG(LogTemp, Display, TEXT("ThrowHalt %s dur=%.2fs halt=%.3fs (%.0f%%) raise=%.1fcm"),
+        *AnimThrow->GetName(), Dur, ThrowHaltTime, 100.f * ThrowHaltTime / Dur, RaiseCm);
 }
 
 void ABorn2FlapAvatar::BeginCatch()
 {
-    if (bCatching || bThrowing)
+    if (bCatching || bThrowing || bThrowWindup)
         return;
     bCatching = true;
     CatchTime = 0.f;
@@ -555,7 +740,7 @@ void ABorn2FlapAvatar::PoseBody(bool bMoving, float Dt)
 
 float ABorn2FlapAvatar::ComputeThrowLean() const
 {
-    if (!bThrowing)
+    if (!bThrowing && !bThrowWindup)
         return 0.f;
     const float ThrowDur = AnimThrow ? AnimThrow->GetPlayLength() : ThrowDuration;
     const float T = ThrowDur > 0.f ? FMath::Clamp(ThrowTime / ThrowDur, 0.f, 1.f) : 1.f;
@@ -617,17 +802,21 @@ void ABorn2FlapAvatar::UpdateCarrySocket()
 {
     if (!CarrySocket || !Body)
         return;
-    FVector Mid = Body->GetComponentLocation();
-    if (BoneLHand != INDEX_NONE && BoneRHand != INDEX_NONE)
-    {
-        Mid = (Body->GetBoneLocation(Body->GetBoneName(BoneLHand), EBoneSpaces::WorldSpace) +
-               Body->GetBoneLocation(Body->GetBoneName(BoneRHand), EBoneSpaces::WorldSpace)) * 0.5f;
-    }
-    CarrySocket->SetRelativeLocation(Body->GetComponentTransform().InverseTransformPosition(Mid));
+    // The bird is held in ONE hand — the right by default (a left-handed option
+    // will flip this) — not the midpoint between both, so it tracks the actual
+    // carrying hand through the walk/run/catch/throw motion.
+    const int32 HandBone = bCarryLeftHand ? BoneLHand : BoneRHand;
+    FVector Hand = Body->GetComponentLocation();
+    if (HandBone != INDEX_NONE)
+        Hand = Body->GetBoneLocation(Body->GetBoneName(HandBone), EBoneSpaces::WorldSpace);
+    CarrySocket->SetRelativeLocation(Body->GetComponentTransform().InverseTransformPosition(Hand));
     // The skeleton's forward axis is not necessarily +X (the Founder rig faces
     // +Y), and the socket would inherit that offset from the mesh — a bird
     // attached with zero relative rotation would sit sideways in the hand.
-    // Counter-rotate by the detected offset so the held/carried bird always
-    // faces the avatar's actual facing.
-    CarrySocket->SetRelativeRotation(FRotator(0.f, ForwardYawOffset, 0.f));
+    // Counter-rotate by the detected offset so the bird's nose points along the
+    // avatar's facing, then roll it so the overside of the wings (dorsal +Z)
+    // faces OUTWARD from the pilot — to the right for the right hand, mirrored
+    // for the left.
+    const float OutwardRoll = bCarryLeftHand ? -90.f : 90.f;
+    CarrySocket->SetRelativeRotation(FRotator(0.f, ForwardYawOffset, OutwardRoll));
 }

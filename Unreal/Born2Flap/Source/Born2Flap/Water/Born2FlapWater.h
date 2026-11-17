@@ -65,6 +65,13 @@ struct FOceanParameters
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ocean", meta = (ClampMin = "0.0"))
     float ShoreBreakIntensity = 1.0f;
 
+    // Sky-mirror brightness grade (0.55..1.3). Driven each frame from the live
+    // weather sunlight so the ocean follows the sky: dim soft sheen under cloud,
+    // bright hard mirror in full sun. Read by the water material's fresnel sky
+    // term via MPC_WaterGlobal.SunMirror.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ocean", meta = (ClampMin = "0.0", ClampMax = "2.0"))
+    float SunMirror = 0.6f;
+
     // --- Derived helpers ---------------------------------------------------
     float SeaStateScale() const { return FMath::Lerp(0.35f, 1.6f, SeaState / 6.0f); }
     FVector2D WaveDirection() const { return DirectionVector(PrimaryWaveDirection); }
@@ -117,4 +124,5 @@ namespace Born2FlapWater
     extern BORN2FLAP_API const FName WaveTime;
     extern BORN2FLAP_API const FName QualityLevel;
     extern BORN2FLAP_API const FName WaterLOD;
+    extern BORN2FLAP_API const FName SunMirror;
 }

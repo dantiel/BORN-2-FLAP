@@ -116,8 +116,17 @@ private:
     float CrossfadeElapsed = 0.0f;
 };
 
-// The in-game face: builds the semantic "radio" panel on the new UI system and
-// re-drives it each tick from the station (track name + volume + play state).
+// ============================================================================
+// DEPRECATED — native C++ radio HUD actor only. The Ruby Brain (UMGHAML,
+// Brain/lib/born2flap/ui/views/radio) is the single radio-face author; this
+// actor exists only for the no-Brain error state and will be removed.
+// (UBorn2FlapRadioStation above stays: it is the audio backend the Brain
+// telemetry reads from.)
+// ============================================================================
+// DEPRECATED (dormant): the radio face is authored by the Ruby Brain
+// (radio.umghaml) from telemetry. This actor is no longer spawned by the
+// GameMode and stays only for reference; UBorn2FlapRadioStation above is the
+// live playback backend.
 UCLASS()
 class BORN2FLAP_API ABorn2FlapRadioHUD : public AActor
 {

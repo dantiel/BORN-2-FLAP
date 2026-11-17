@@ -1,5 +1,11 @@
 #pragma once
-// Born2FlapMenu.h — the post-splash menu, laid out full-screen: a persistent
+// ============================================================================
+// DEPRECATED — native C++ menu widget. The Ruby Brain (UMGHAML, Brain/lib/
+// born2flap/ui/views/menu) is the single menu author; this actor exists only
+// for the no-Brain error state and will be removed. Do not add features here —
+// port new UI to UMGHAML and keep C++ as backend only.
+// ============================================================================
+// Born2FlapMenu.h ??? the post-splash menu, laid out full-screen: a persistent
 // left navigation rail plus a single content pane with two pages.
 //
 // Shown after the startup splash fades. It drives the same semantic

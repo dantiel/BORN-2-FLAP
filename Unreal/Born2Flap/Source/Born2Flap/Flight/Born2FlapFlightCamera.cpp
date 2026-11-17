@@ -18,6 +18,9 @@ void ABorn2FlapFlightPawn::RememberLanding(FVector Position)
 {
     LastLanding=Position;
     bPilotWalked=false;
+    // A fresh landing re-faces the pilot toward the bird (and the next walk
+    // re-seeds PilotFacingYaw from that).
+    bPilotFacingValid=false;
     const FVector Behind=FRotator(0,Body->GetComponentRotation().Yaw,0).Vector();
     GroundAnchor=Position-Behind*160;
     const auto* Mode=Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode());
@@ -186,9 +189,21 @@ void ABorn2FlapFlightPawn::CalcCamera(float Dt,FMinimalViewInfo& Out)
         // still re-aims via GroundLookYaw/Pitch during the throw wind-up.
         if(!bBirdHeld && !bBirdCarried)
         {
-            const FRotator Aim=(BirdPosition-GroundAnchor).Rotation();
-            GroundGaze=bGroundGazeReady ? FMath::RInterpTo(GroundGaze,Aim,Dt,18.f) : Aim;
-            bGroundGazeReady=true;
+            if(bAutoFollowBird)
+            {
+                const FRotator Aim=(BirdPosition-GroundAnchor).Rotation();
+                GroundGaze=bGroundGazeReady ? FMath::RInterpTo(GroundGaze,Aim,Dt,18.f) : Aim;
+                bGroundGazeReady=true;
+            }
+            else if(!bGroundGazeReady)
+            {
+                // Follow was disabled before the gaze ever seeded: seed it from
+                // the current aim so the frozen base is sane.
+                GroundGaze=(BirdPosition-GroundAnchor).Rotation();
+                bGroundGazeReady=true;
+            }
+            // Follow off: the gaze is frozen and the GroundLook offsets are
+            // body-relative — an effectively free first-person camera.
         }
         else if(!bGroundGazeReady)
         {
@@ -201,10 +216,22 @@ void ABorn2FlapFlightPawn::CalcCamera(float Dt,FMinimalViewInfo& Out)
         auto Noise=[this](float Rate,float Seed) { return FMath::PerlinNoise1D(float(CameraTime)*Rate+Seed); };
         const FVector Drift(Noise(.8f,31)*1.1,Noise(.6f,93)*1.1,Noise(1.3f,17)*.5);
         const FRotator Tremor(Noise(2.2f,51)*.22,Noise(1.8f,12)*.28,Noise(.7f,85)*.15);
-        const FRotator Gaze=GroundGaze+FRotator(GroundLookPitch,GroundLookYaw,0);
+        // Follow ON: tracking gaze + free-look offsets. Follow OFF: the view
+        // rides the pilot's own facing + head offsets (A/D turns the pilot).
+        FRotator Gaze = bAutoFollowBird
+            ? GroundGaze + FRotator(GroundLookPitch,GroundLookYaw,0)
+            : FRotator(GroundLookPitch, PilotFacingYaw + GroundLookYaw, 0);
+        float Zoom = GroundZoom;
+        if(bRmbZoom)
+        {
+            // RMB held: temporarily aim straight at the bird and zoom the lens;
+            // the snapshot restores the chosen view on release.
+            Gaze = (BirdPosition-GroundAnchor).Rotation();
+            Zoom = 0.45f;
+        }
         GroundCamera->SetWorldLocationAndRotation(GroundAnchor+Drift,Gaze+Tremor);
         const float Distance=FVector::Distance(BirdPosition,GroundAnchor);
-        const float Fov=FMath::Clamp(75.f/(1.f+Distance/5000.f),28.f,75.f) * GroundZoom;
+        const float Fov=FMath::Clamp(75.f/(1.f+Distance/5000.f),28.f,75.f) * Zoom;
         GroundCamera->SetFieldOfView(FMath::FInterpTo(GroundCamera->FieldOfView,FMath::Clamp(Fov,6.f,120.f),Dt,2.f));
         GroundCamera->GetCameraView(Dt,Out);
     }
@@ -212,33 +239,32 @@ void ABorn2FlapFlightPawn::CalcCamera(float Dt,FMinimalViewInfo& Out)
     {
         // Mounted to the rigid body: all real banking and pitching reaches the lens.
         FpvCamera->SetRelativeLocation(FVector(76,0,14+(LeftFlap+RightFlap)*.006));
-        // Fixed camera angle (FpvCameraAngleDeg) tilts the whole lens; the small
-        // flap-coupled terms are only a subtle hand-held wobble on top.
-        FpvCamera->SetRelativeRotation(FRotator(FpvCameraAngleDeg + (LeftFlap+RightFlap)*.004, 0, (LeftFlap-RightFlap)*.005));
+        // Fixed camera angle (FpvCameraAngleDeg) tilts the whole lens; the Z/X
+        // head-turn yaw pans it sideways; the small flap-coupled terms are only
+        // a subtle hand-held wobble on top.
+        FpvCamera->SetRelativeRotation(FRotator(FpvCameraAngleDeg + (LeftFlap+RightFlap)*.004, FpvCameraYawDeg, (LeftFlap-RightFlap)*.005));
         FpvCamera->GetCameraView(Dt,Out);
     }
     else if(bThirdPersonActor)
     {
-        // Third-person follow of the on-foot pilot: an over-the-shoulder rig
-        // behind the avatar. MMB-drag rotates the pilot (ActorOrbitYaw) and tilts
-        // the lens up/down (ActorOrbitPitch); the wheel dollies the arm length
-        // (ActorArmLength, zoom — close enough switches to first person).
-        FVector ToBird = Body->GetComponentLocation() - GroundAnchor;
-        ToBird.Z = 0.f;
-        // While carrying, the bird is in the pilot's hand so the anchor→bird
-        // direction is degenerate; anchor the over-the-shoulder rig to the facing
-        // captured at pickup instead, so MMB-drag keeps rotating the pilot.
-        const float BaseYaw = bBirdHeld
-            ? ThrowBaseYaw
-            : bBirdCarried
-                ? CarryBaseYaw
-                : (ToBird.IsNearlyZero() ? float(GroundGaze.Yaw) : ToBird.Rotation().Yaw);
-        const float FaceYaw = BaseYaw + ActorOrbitYaw;
-        const FVector Fwd = FRotator(0.f, FaceYaw, 0.f).Vector();
-        const FVector CamPos = GroundAnchor - Fwd * ActorArmLength + FVector(0.f, 0.f, 70.f);
-        // Look along the pilot's gaze, tilted by the orbit pitch (up/down look).
-        const FRotator Look = FRotator(FMath::Clamp(ActorOrbitPitch, -80.f, 80.f), FaceYaw, 0.f);
-        ActorCamera->SetWorldLocationAndRotation(CamPos, Look);
+        if(bRmbZoom)
+        {
+            // RMB held: snap the rig behind the pilot toward the bird and dolly
+            // in — the temporary zoom+aim, restored on release.
+            const FVector BirdPos = Body->GetComponentLocation();
+            const float AimYaw = float((BirdPos - GroundAnchor).Rotation().Yaw);
+            const FVector CamPos = GroundAnchor - FRotator(0.f, AimYaw, 0.f).Vector() * 100.f + FVector(0.f, 0.f, 70.f);
+            FRotator Look = (BirdPos - CamPos).Rotation();
+            Look.Pitch = FMath::Clamp(Look.Pitch, -80.f, 80.f);
+            Look.Roll = 0.f;
+            ActorCamera->SetWorldLocationAndRotation(CamPos, Look);
+        }
+        else
+        {
+            FVector CamPos; FRotator Look;
+            ComputePilotOrbit(CamPos, Look);
+            ActorCamera->SetWorldLocationAndRotation(CamPos, Look);
+        }
         ActorCamera->GetCameraView(Dt, Out);
     }
     else
@@ -253,11 +279,170 @@ void ABorn2FlapFlightPawn::CalcCamera(float Dt,FMinimalViewInfo& Out)
             // length, so orbiting/zooming with MMB stays put after release (the
             // defaults 0/-12/480 are exactly the neutral follow). A clean MMB
             // click resets those values back to default in the pawn's Tick.
+            // RMB held temporarily dollies in toward the bird (temporary zoom).
             CameraBoom->SetRelativeRotation(FRotator(ChaseOrbitPitch,ChaseOrbitYaw,0));
-            CameraBoom->TargetArmLength = ChaseArmLength;
+            CameraBoom->TargetArmLength = bRmbZoom ? 150.f : ChaseArmLength;
         }
         Camera->GetCameraView(Dt,Out);
     }
+}
+
+void ABorn2FlapFlightPawn::ComputePilotOrbit(FVector& OutPos, FRotator& OutRot) const
+{
+    // Over-the-shoulder rig behind the pilot. Follow ON: the camera yaw rides
+    // the pilot→bird base plus the orbit offset, and the pitch aims at the
+    // bird (up/down tracking) plus the pitch offset. Follow OFF: the orbit
+    // offsets are the absolute camera yaw/pitch. While carrying the base is
+    // the pilot's own facing — the bird sits in the hand, so the anchor→bird
+    // direction is degenerate.
+    FVector ToBird = Body->GetComponentLocation() - GroundAnchor;
+    ToBird.Z = 0.f;
+    const float BaseYaw = bBirdHeld
+        ? ThrowBaseYaw
+        : bBirdCarried
+            ? (bPilotFacingValid ? PilotFacingYaw : CarryBaseYaw)
+            : (ToBird.IsNearlyZero() ? float(GroundGaze.Yaw) : ToBird.Rotation().Yaw);
+    const FVector CamBase = GroundAnchor + FVector(0.f, 0.f, 70.f);
+    const float CamYaw = bAutoFollowBird ? BaseYaw + ActorOrbitYaw : ActorOrbitYaw;
+    const FVector CamPos = CamBase - FRotator(0.f, CamYaw, 0.f).Vector() * ActorArmLength;
+    float Pitch;
+    if (bAutoFollowBird)
+        Pitch = float((Body->GetComponentLocation() - CamPos).Rotation().Pitch) + ActorOrbitPitch;
+    else
+        Pitch = ActorOrbitPitch;
+    OutPos = CamPos;
+    OutRot = FRotator(FMath::Clamp(Pitch, -80.f, 80.f), CamYaw, 0.f);
+}
+
+bool ABorn2FlapFlightPawn::IsBirdOutOfView(const FRotator& CamRotation, const FVector& CamPosition) const
+{
+    const FVector ToBird = (Body->GetComponentLocation() - CamPosition).GetSafeNormal();
+    if (ToBird.IsNearlyZero())
+        return false;
+    // 60° cone: once the bird leaves this comfortable view wedge while the
+    // camera is being rotated, the auto-follow releases (the smart switch-off).
+    return FVector::DotProduct(CamRotation.Vector(), ToBird) < 0.5f;
+}
+
+void ABorn2FlapFlightPawn::ApplyPilotOrbit(float DeltaYaw, float DeltaPitch)
+{
+    if (bGroundView)
+    {
+        GroundLookYaw += DeltaYaw;
+        GroundLookPitch = FMath::Clamp(GroundLookPitch + DeltaPitch, -80.f, 89.f);
+        if (bAutoFollowBird && !bBirdHeld && !bBirdCarried)
+        {
+            const float CamYaw = float(GroundGaze.Yaw + GroundLookYaw);
+            const float CamPitch = float(GroundGaze.Pitch + GroundLookPitch);
+            if (IsBirdOutOfView(FRotator(CamPitch, CamYaw, 0.f), GroundAnchor))
+            {
+                // Smart release: stop tracking, keep the camera where it is —
+                // expressed body-relative so A/D keeps swinging the view.
+                bAutoFollowBird = false;
+                GroundLookYaw = CamYaw - PilotFacingYaw;
+                GroundLookPitch = CamPitch;
+            }
+        }
+    }
+    else if (bThirdPersonActor)
+    {
+        if (bAutoFollowBird)
+        {
+            ActorOrbitYaw += DeltaYaw;
+            ActorOrbitPitch = FMath::Clamp(ActorOrbitPitch + DeltaPitch, -160.f, 160.f);
+            FVector Pos; FRotator Rot;
+            ComputePilotOrbit(Pos, Rot);
+            if (IsBirdOutOfView(Rot, Pos))
+            {
+                // Smart release: convert the offsets to the current absolute
+                // pose so the camera does not jump.
+                bAutoFollowBird = false;
+                ActorOrbitYaw = Rot.Yaw;
+                ActorOrbitPitch = Rot.Pitch;
+            }
+        }
+        else
+        {
+            ActorOrbitYaw += DeltaYaw;
+            ActorOrbitPitch = FMath::Clamp(ActorOrbitPitch + DeltaPitch, -80.f, 80.f);
+        }
+    }
+}
+
+void ABorn2FlapFlightPawn::ToggleAutoFollow()
+{
+    if (bAutoFollowBird)
+    {
+        // Freeze the camera exactly where it is and stop tracking.
+        if (bThirdPersonActor)
+        {
+            FVector Pos; FRotator Rot;
+            ComputePilotOrbit(Pos, Rot);
+            ActorOrbitYaw = Rot.Yaw;
+            ActorOrbitPitch = Rot.Pitch;
+        }
+        else if (bGroundView)
+        {
+            const float CamYaw = float(GroundGaze.Yaw + GroundLookYaw);
+            const float CamPitch = float(GroundGaze.Pitch + GroundLookPitch);
+            GroundLookYaw = CamYaw - PilotFacingYaw;
+            GroundLookPitch = CamPitch;
+        }
+        bAutoFollowBird = false;
+    }
+    else
+    {
+        bAutoFollowBird = true;
+        GroundLookYaw = 0.f; GroundLookPitch = 0.f;
+        ActorOrbitYaw = 0.f; ActorOrbitPitch = 0.f;
+        bGroundGazeReady = false;   // re-seed the gaze at the bird
+    }
+    if (auto* PC = Cast<APlayerController>(GetController()); PC && PC->PlayerCameraManager)
+        PC->PlayerCameraManager->SetGameCameraCutThisFrame();
+}
+
+void ABorn2FlapFlightPawn::ResetCameraView()
+{
+    ChaseOrbitYaw = 0.f; ChaseOrbitPitch = -12.f; ChaseArmLength = 480.f;
+    GroundZoom = 1.f; GroundLookYaw = 0.f; GroundLookPitch = 0.f;
+    ActorOrbitYaw = 0.f; ActorOrbitPitch = 0.f; ActorArmLength = 240.f;
+    FpvCameraAngleDeg = 0.f; FpvCameraYawDeg = 0.f;
+    bActorZoomFirstPerson = false;
+    bRmbZoom = false;
+    bAutoFollowBird = true;
+    bGroundGazeReady = false;
+    if (auto* PC = Cast<APlayerController>(GetController()); PC && PC->PlayerCameraManager)
+        PC->PlayerCameraManager->SetGameCameraCutThisFrame();
+}
+
+void ABorn2FlapFlightPawn::SaveViewSnapshot()
+{
+    RmbViewSnapshot.ChaseOrbitYaw = ChaseOrbitYaw;
+    RmbViewSnapshot.ChaseOrbitPitch = ChaseOrbitPitch;
+    RmbViewSnapshot.ChaseArmLength = ChaseArmLength;
+    RmbViewSnapshot.GroundZoom = GroundZoom;
+    RmbViewSnapshot.GroundLookYaw = GroundLookYaw;
+    RmbViewSnapshot.GroundLookPitch = GroundLookPitch;
+    RmbViewSnapshot.ActorOrbitYaw = ActorOrbitYaw;
+    RmbViewSnapshot.ActorOrbitPitch = ActorOrbitPitch;
+    RmbViewSnapshot.ActorArmLength = ActorArmLength;
+    RmbViewSnapshot.bAutoFollowBird = bAutoFollowBird;
+    RmbViewSnapshot.bActorZoomFirstPerson = bActorZoomFirstPerson;
+}
+
+void ABorn2FlapFlightPawn::RestoreViewSnapshot()
+{
+    ChaseOrbitYaw = RmbViewSnapshot.ChaseOrbitYaw;
+    ChaseOrbitPitch = RmbViewSnapshot.ChaseOrbitPitch;
+    ChaseArmLength = RmbViewSnapshot.ChaseArmLength;
+    GroundZoom = RmbViewSnapshot.GroundZoom;
+    GroundLookYaw = RmbViewSnapshot.GroundLookYaw;
+    GroundLookPitch = RmbViewSnapshot.GroundLookPitch;
+    ActorOrbitYaw = RmbViewSnapshot.ActorOrbitYaw;
+    ActorOrbitPitch = RmbViewSnapshot.ActorOrbitPitch;
+    ActorArmLength = RmbViewSnapshot.ActorArmLength;
+    bAutoFollowBird = RmbViewSnapshot.bAutoFollowBird;
+    bActorZoomFirstPerson = RmbViewSnapshot.bActorZoomFirstPerson;
 }
 
 bool ABorn2FlapFlightPawn::CheckFlightCameras()

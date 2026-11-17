@@ -14,21 +14,8 @@
 #include "Misc/Parse.h"
 #include "Racing/Born2FlapRacing.h"
 #include "Kismet/GameplayStatics.h"
-#include "UI/Born2FlapFlightHUD.h"
 #include "UI/Born2FlapI18n.h"
 #include "Rendering/Born2FlapGraphics.h"
-
-namespace
-{
-// The brand logo shared with the main-menu sidebar (Born2FlapMenu.cpp), drawn in
-// place of the old "BORN 2 FLAP" text so the imperative overlay matches the menu.
-UTexture2D* BrandLogo()
-{
-    static TStrongObjectPtr<UTexture2D> Logo(
-        LoadObject<UTexture2D>(nullptr, TEXT("/Game/Splash/born2flap-logo.born2flap-logo")));
-    return Logo.Get();
-}
-}  // namespace
 
 void ABorn2FlapHUD::BeginPlay()
 {
@@ -105,86 +92,18 @@ void ABorn2FlapHUD::DrawHUD()
     const auto* Controller = Bird->GetRcController();
     if (Controller && Controller->IsPanelOpen()) { DrawRcPanel(*Controller); return; }
     if (FParse::Param(FCommandLine::Get(), TEXT("B2FRavenCapture"))) return;
-    // When the semantic glass cockpit (ABorn2FlapFlightHUD) is alive, it owns
-    // the brand + telemetry readouts — the imperative canvas keeps only the
-    // functional bits (RC panel, channels, radio, key hints, camera label).
-    const bool bSemanticHUD = (bool)TActorIterator<ABorn2FlapFlightHUD>(GetWorld());
+    // The brand + telemetry readouts belong to the Ruby Brain (cockpit.umghaml);
+    // the imperative canvas keeps only the functional bits (RC panel, channels,
+    // race line, key hints, camera label).
     if (auto *Mode = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode()); Mode && Mode->IsNatureLevel())
     {
         const auto *Rc = Bird->GetRcController();
         if (Rc && Rc->IsPanelOpen()) { DrawRcPanel(*Rc); return; }
         if (FParse::Param(FCommandLine::Get(), TEXT("B2FRavenCapture"))) return;
-        const FLinearColor Ivory(.93,.91,.81), Muted(.68,.74,.70), Amber(.88,.63,.31), Ink(.014,.028,.025,.72);
-        const float W = Canvas->SizeX, H = Canvas->SizeY;
-        if (!bSemanticHUD)
-        {
-            DrawRect(Amber,32,35,3,63);
-            DrawText(Mode->IsCoastLevel()?TEXT("B O R N  2  F L A P   /   S E A  B R E E Z E"):TEXT("B O R N  2  F L A P   /   A U T U M N"),Muted,47,33,GEngine->GetSmallFont(),.9);
-            DrawText(Mode->IsCoastLevel()?TEXT("SHIOMORI BAY"):TEXT("RAVENSTONEFIELD"),Ivory,45,51,GEngine->GetLargeFont(),1.15);
-            const FVector P=Bird->GetActorLocation();
-            DrawText(Mode->IsCoastLevel()?TEXT("TIDEWALK / BASALT COVE"):ABorn2FlapValley::PlaceName(P.X,P.Y),Amber,47,85,GEngine->GetSmallFont(),.95);
-            DrawRect(Ink,32,H-120,425,83);
-            // Readouts split into bright digits + quiet units (and a quiet
-            // sign where a value can go negative) so the line never jitters.
-            auto Readout = [&](const FString& Num, const FString& Unit, float Xr, float Yr)
-            {
-                DrawText(Num, Ivory, Xr, Yr, GEngine->GetMediumFont(), .9f);
-                DrawText(Unit, Muted, Xr + 44.f, Yr + 3.f, GEngine->GetSmallFont(), .72f);
-            };
-            Readout(FString::Printf(TEXT("%.0f"), Bird->GetAltitude()), TEXT("m"), 48, H-109);
-            Readout(FString::Printf(TEXT("%.1f"), Bird->GetSpeed()), TEXT("m/s"), 148, H-109);
-            Readout(FString::Printf(TEXT("%.0f"), Bird->GetBattery()*100), TEXT("%"), 248, H-109);
-            DrawText(Bird->GetFlightStatus(),Muted,48,H-79,GEngine->GetSmallFont(),.9);
-            DrawText(TEXT("SPACE launch  W / CTRL+W / SHIFT+W  WHEEL fine"),Ivory,48,H-55,GEngine->GetSmallFont(),.85);
-        }
-        // The radio is rendered by the semantic ABorn2FlapRadioHUD (new UI
-        // system), not the imperative canvas.
         if (bShowChannels) DrawChannels(*Bird);
         return;
     }
-    const FLinearColor Cream(.94f, .94f, .84f), Gold(1, .66f, .2f), Muted(.55f, .76f, .76f), Amber(.88f, .63f, .31f);
-    if (!bSemanticHUD)
-    {
-        DrawRect(FLinearColor(.015f, .035f, .045f, .82f), 20, 20, 445, 250);
-        if (UTexture2D* Logo = BrandLogo())
-        {
-            Canvas->DrawTile(Logo, 38, 20, 260, 80, 0, 0, Logo->GetSizeX(), Logo->GetSizeY());
-        }
-        DrawText(TEXT("RC STICKS  /  AERODYNAMIC FLIGHT"), Gold, 40, 108, GEngine->GetSmallFont(), 1.1f);
-        DrawText(Bird->GetFlightStatus(), Cream, 40, 136, GEngine->GetSmallFont(), 1.05f);
-        // Bright digits, quiet units — and the climb sign gets its own soft
-        // amber glyph so a descending "-" reads at a glance.
-        auto Stat2 = [&](const FString& Label, float Xl, float Xv, const FString& Num, const FString& Unit, float Yr,
-                         const FLinearColor& ValueColour)
-        {
-            DrawText(Label, Muted, Xl, Yr, GEngine->GetSmallFont(), 1.f);
-            DrawText(Num, ValueColour, Xv, Yr, GEngine->GetMediumFont(), 1.f);
-            DrawText(Unit, Muted, Xv + 44.f, Yr + 3.f, GEngine->GetSmallFont(), .72f);
-        };
-        Stat2(TEXT("HEIGHT"), 40, 118, FString::Printf(TEXT("%.0f"), Bird->GetAltitude()), TEXT("m"), 166, Cream);
-        Stat2(TEXT("SPEED"), 205, 278, FString::Printf(TEXT("%.1f"), Bird->GetSpeed()), TEXT("m/s"), 166, Cream);
-        {
-            const float Climb = Bird->GetClimbRate();
-            const FString Sign = Climb < -0.05f ? TEXT("-") : (Climb > 0.05f ? TEXT("+") : TEXT(" "));
-            DrawText(TEXT("CLIMB"), Muted, 40, 199, GEngine->GetSmallFont(), 1.f);
-            DrawText(Sign, Amber, 118, 199, GEngine->GetMediumFont(), 1.f);
-            DrawText(FString::Printf(TEXT("%.1f"), FMath::Abs(Climb)), Cream, 130, 199, GEngine->GetMediumFont(), 1.f);
-            DrawText(TEXT("m/s"), Muted, 174, 202, GEngine->GetSmallFont(), .72f);
-        }
-        Stat2(TEXT("EFFORT"), 205, 278, FString::Printf(TEXT("%.0f"), Bird->GetEffort() * 100), TEXT("%"), 199, Cream);
-        Stat2(TEXT("BATTERY"), 330, 405, FString::Printf(TEXT("%.0f"), Bird->GetBattery() * 100), TEXT("%"), 199, Cream);
-        const FVector Sticks = Bird->GetRcSticks();
-        const FVector2D Wings = Bird->GetWingAngles();
-        DrawText(FString::Printf(TEXT("RC  YAW %+.2f    ROLL %+.2f    PITCH %+.2f"), Sticks.Z, Sticks.X, Sticks.Y), Gold,
-                 40, 227, GEngine->GetSmallFont(), 1.f);
-        DrawText(FString::Printf(TEXT("WINGS  L %+.1f deg    R %+.1f deg"), Wings.X, Wings.Y), Muted, 40, 255,
-                 GEngine->GetSmallFont(), 1.f);
-        // Commanded cadence (throttle + mouse wheel), the setpoint the pilot
-        // actually controls — distinct from the measured servo rate so the
-        // mouse-wheel flap-frequency setting has direct on-screen feedback.
-        DrawText(FString::Printf(TEXT("FLAP %4.1f Hz"), Bird->GetFlapHz()), Gold, 330, 255,
-                 GEngine->GetSmallFont(), 1.f);
-    }
+    const FLinearColor Cream(.94f, .94f, .84f), Gold(1, .66f, .2f), Muted(.55f, .76f, .76f);
     if (auto *Mode = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode()))
     {
         FString RaceLine;

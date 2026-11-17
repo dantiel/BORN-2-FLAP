@@ -46,7 +46,85 @@ params=[]
 existing={str(p.get_editor_property('parameter_name')):p for p in mpc.get_editor_property('scalar_parameters')}
 for name in ['Wetness','SnowCoverage','RainAmount','MistAmount']:
     p=existing.get(name,u.CollectionScalarParameter());p.set_editor_property('parameter_name',name);p.set_editor_property('default_value',0);params.append(p)
-mpc.set_editor_property('scalar_parameters',params);ela.save_loaded_asset(mpc)
+mpc.set_editor_property('scalar_parameters',params)
+if not ela.save_loaded_asset(mpc):
+    u.log_warning('MPC_Weather save failed — locked by another editor instance')
+
+def repair_breaking_surf():
+    """Bulletproof unlit rebuild of M_BreakingSurf — v7. v6's stock foam texture
+    sampled so dark that the lace term was ~0 across the strip and the churn
+    floor alone read as a faint grey wash over black water. v7 boosts the
+    texture signal (3.4x speckle gain, denser blend), raises the emissive floor
+    to 0.95 so the strip is WHITE even between foam puffs, and lifts the opacity
+    floor (0.55*churn + 1.05*foam) so the band reads as solid white water at
+    the crest. Samples from WORLD POSITION, twice (2.3x scale, different pan),
+    blended with vertex-colour churn + contrast Power. Engine-standard
+    expressions only — no Custom HLSL."""
+    m=material('M_BreakingSurf')
+    m.set_editor_property('disable_depth_test',False)
+    m.set_editor_property('translucency_pass',u.MaterialTranslucencyPass.MTP_BEFORE_DOF)
+    m.set_editor_property('blend_mode',u.BlendMode.BLEND_TRANSLUCENT)
+    m.set_editor_property('shading_model',u.MaterialShadingModel.MSM_UNLIT)
+    vc=node(m,'VertexColor')
+    # UE 5.8: the VertexColor node's pin is float3 (alpha is NOT exposed) — mask
+    # strictly to R (see v5 notes for the full component-mask gotcha).
+    r=node(m,'ComponentMask',r=True,g=False,b=False,a=False)
+    connect(vc,r,'')
+    foamtex=u.load_asset('/Water/Textures/Foam/T_WaterFlow_01_Foam_Tiled')
+    assert foamtex, '/Water/Textures/Foam/T_WaterFlow_01_Foam_Tiled missing (Water plugin disabled?)'
+    def param(name,default):
+        n=node(m,'ScalarParameter',default_value=default)
+        n.set_editor_property('parameter_name',name)
+        return n
+    def sat(n):
+        s=node(m,'Saturate');connect(n,s,'');return s
+    scale=param('FoamScale',0.0045)
+    speed=param('FoamSpeed',0.030)
+    dens=param('FoamDensity',0.92)
+    contr=param('FoamContrast',1.45)
+    wp=node(m,'WorldPosition')
+    rg=node(m,'ComponentMask',r=True,g=True,b=False,a=False);connect(wp,rg,'')
+    t=node(m,'Time')
+    # Sample A: world-space tile, slow cross-shore pan.
+    a=node(m,'Multiply');connect(rg,a,'A');connect(scale,a,'B')
+    ta=node(m,'Multiply');connect(t,ta,'A');connect(speed,ta,'B')
+    z0=node(m,'Constant',r=0.0)
+    panA=node(m,'AppendVector');connect(z0,panA,'A');connect(ta,panA,'B')
+    uva=node(m,'Add');connect(a,uva,'A');connect(panA,uva,'B')
+    sa=node(m,'TextureSample',texture=foamtex);connect(uva,sa,'UVs')
+    # Sample B: 2.3x scale, along-shore pan + UV offset — breaks the tiling.
+    b=node(m,'Multiply',const_b=2.3);connect(a,b,'A')
+    tb=node(m,'Multiply',const_b=1.6);connect(ta,tb,'A')
+    off=node(m,'Constant',r=0.33)
+    panB=node(m,'AppendVector');connect(tb,panB,'A');connect(off,panB,'B')
+    uvb=node(m,'Add');connect(b,uvb,'A');connect(panB,uvb,'B')
+    sb=node(m,'TextureSample',texture=foamtex);connect(uvb,sb,'UVs')
+    # Speckle lace: A*B brightened, contrast-boosted, blended with the churn.
+    spk=node(m,'Multiply',const_b=3.4);connect(sa,spk,'A');connect(sb,spk,'B')
+    lace=sat(spk)
+    lerp=node(m,'LinearInterpolate');connect(r,lerp,'A');connect(lace,lerp,'B');connect(dens,lerp,'Alpha')
+    pw=node(m,'Power');connect(lerp,pw,'Base');connect(contr,pw,'Exp')
+    foam=sat(pw)
+    # Emissive: bright white foam with a high floor so the wash never greys out.
+    lv=node(m,'Multiply',const_b=0.70);connect(foam,lv,'A')
+    lfloor=node(m,'Constant',r=0.95)
+    level=node(m,'Add');connect(lfloor,level,'A');connect(lv,level,'B')
+    white=node(m,'Constant3Vector',constant=u.LinearColor(1.,1.,1.,1.))
+    col=node(m,'Multiply');connect(white,col,'A');connect(level,col,'B')
+    output(col,'EMISSIVE_COLOR')
+    # Opacity: churn floor + dense foam — opaque white water at the crest.
+    opA=node(m,'Multiply',const_b=0.55);connect(r,opA,'A')
+    opB=node(m,'Multiply',const_b=1.05);connect(foam,opB,'A')
+    op=node(m,'Add');connect(opA,op,'A');connect(opB,op,'B')
+    output(sat(op),'OPACITY')
+    lib.recompile_material(m)
+    if not ela.save_loaded_asset(m):
+        u.log_warning('M_BreakingSurf save failed — locked by another editor instance')
+
+# Run the surf rebuild FIRST: it is the highest-value asset here and its save
+# must not be aborted by a package locked by an open editor session in the
+# surface-wrap loop below (which now tolerates per-material save failures).
+repair_breaking_surf()
 
 # Wrap existing material outputs, preserving textures and normal detail.
 # Description markers make re-running this additive migration idempotent.
@@ -75,136 +153,9 @@ for folder in ['/Game/Ravenstonefield/Materials','/Game/Shiomori/Materials','/Ga
             connect(original,layer,'Base',out)
             layer.set_editor_property('desc','B2F Weather Surface v1')
             output(layer,prop)
-        lib.recompile_material(m);assert ela.save_loaded_asset(m);count+=1
-
-# Breaking-surf foam, v2 "volumetric-cloud" shading. The v1 recipe (a single
-# static Noise + constant roughness) rendered as a flat, glossy plastic sheet:
-# its smooth specular and coherent geometry undulation read as shoreline-
-# orthogonal "ribs". Real surf foam is a turbulent 3D field of bubbles — light
-# scatters through it (sub-surface tint), it boils over time, and its surface
-# glints with fine detail. We reproduce that the same way volumetric clouds do:
-# a domain-warped, time-animated FBM "density" field (three offset warp probes
-# -> float3 warp -> a 4-octave density Noise), then light it — warm sunlit tops,
-# aqua light-transmitted bases, a Fresnel rim on the breaking lip, a density-
-# gradient detail normal for bubble sparkle, and density-modulated opacity so
-# the foam's edges churn instead of cutting hard.
-m=material('M_BreakingSurf')
-m.set_editor_property('disable_depth_test',False)
-m.set_editor_property('translucency_pass',u.MaterialTranslucencyPass.MTP_BEFORE_DOF)
-m.set_editor_property('blend_mode',u.BlendMode.BLEND_TRANSLUCENT)
-m.set_editor_property('shading_model',u.MaterialShadingModel.MSM_DEFAULT_LIT)
-vc=node(m,'VertexColor');pos=node(m,'WorldPosition');time=node(m,'Time')
-geomN=node(m,'VertexNormalWS');fres=node(m,'Fresnel')
-
-# Domain-warped, time-animated density field (the volumetric-cloud FBM).
-base=node(m,'Multiply',const_b=.012);connect(pos,base,'A')
-tx=node(m,'Multiply',const_b=.20);connect(time,tx,'A')
-ty=node(m,'Multiply',const_b=.12);connect(time,ty,'A')
-z0=node(m,'Constant',r=0.)
-txy=node(m,'AppendVector');connect(tx,txy,'A');connect(z0,txy,'B')
-tvec=node(m,'AppendVector');connect(txy,tvec,'A');connect(ty,tvec,'B')
-p0=node(m,'Add');connect(base,p0,'A');connect(tvec,p0,'B')
-half=node(m,'Constant',r=.5)
-offA=node(m,'Constant3Vector',constant=u.LinearColor(0.,0.,0.,0.))
-offB=node(m,'Constant3Vector',constant=u.LinearColor(37.1,17.2,0.,0.))
-offC=node(m,'Constant3Vector',constant=u.LinearColor(0.,11.3,91.7,0.))
-pa=node(m,'Add');connect(p0,pa,'A');connect(offA,pa,'B')
-pb=node(m,'Add');connect(p0,pb,'A');connect(offB,pb,'B')
-pc=node(m,'Add');connect(p0,pc,'A');connect(offC,pc,'B')
-wa=node(m,'Noise',levels=1,output_min=0.,output_max=1.);connect(pa,wa,'')
-wb=node(m,'Noise',levels=1,output_min=0.,output_max=1.);connect(pb,wb,'')
-wc=node(m,'Noise',levels=1,output_min=0.,output_max=1.);connect(pc,wc,'')
-sa=node(m,'Subtract');connect(wa,sa,'A');connect(half,sa,'B')
-sb=node(m,'Subtract');connect(wb,sb,'A');connect(half,sb,'B')
-sc=node(m,'Subtract');connect(wc,sc,'A');connect(half,sc,'B')
-ma=node(m,'Multiply',const_b=1.2);connect(sa,ma,'A')
-mb=node(m,'Multiply',const_b=1.2);connect(sb,mb,'A')
-mc=node(m,'Multiply',const_b=1.2);connect(sc,mc,'A')
-wxy=node(m,'AppendVector');connect(ma,wxy,'A');connect(mb,wxy,'B')
-wvec=node(m,'AppendVector');connect(wxy,wvec,'A');connect(mc,wvec,'B')
-pw=node(m,'Add');connect(p0,pw,'A');connect(wvec,pw,'B')
-dens=node(m,'Noise',levels=4,output_min=0.,output_max=1.);connect(pw,dens,'')
-ex=node(m,'Constant3Vector',constant=u.LinearColor(.25,0.,0.,0.))
-ey=node(m,'Constant3Vector',constant=u.LinearColor(0.,.25,0.,0.))
-px=node(m,'Add');connect(pw,px,'A');connect(ex,px,'B')
-py=node(m,'Add');connect(pw,py,'A');connect(ey,py,'B')
-dxn=node(m,'Noise',levels=4,output_min=0.,output_max=1.);connect(px,dxn,'')
-dyn=node(m,'Noise',levels=4,output_min=0.,output_max=1.);connect(py,dyn,'')
-
-# Base colour: sub-surface foam — warm sunlit top, aqua transmitted base, and a
-# Fresnel rim glow on the breaking lip. Density brightens (more bubbles scatter).
-color=custom(m,
-    'float3 lit=float3(0.97,0.98,0.97);'
-    'float3 sss=float3(0.62,0.86,0.83);'
-    'float3 col=lerp(sss,lit,Dens);'
-    'col=lerp(col,float3(1.0,1.0,1.0),Fres*0.55);'
-    'col*=0.92+0.08*(1.0-VCol.g);'
-    'return col;',
-    {'Dens':dens,'Fres':fres,'VCol':vc},3)
-output(color,'BASE_COLOR')
-# Dense foam is rough (bubbles scatter); thin film is glossier.
-output(custom(m,'return 0.22+0.50*Dens;',{'Dens':dens}),'ROUGHNESS')
-# Density-gradient detail normal: high-frequency bubble glint that breaks the
-# smooth specular "plastic" mirror (and the rib banding it produced).
-normal=custom(m,
-    'float3 dn=normalize(float3(-(DX-D0)*0.7,-(DY-D0)*0.7,1.0));'
-    'return normalize(GeomN+dn*0.55);',
-    {'GeomN':geomN,'D0':dens,'DX':dxn,'DY':dyn},3)
-output(normal,'NORMAL')
-# The VertexColor node's output pin is MCT_Float3 (alpha masked) — read the full
-# RGBA from Parameters.VertexColor. vc stays connected to BASE_COLOR so the
-# engine flags bUsesVertexColor and interpolates RGBA. Density churns the foam's
-# edge so it boils like a cloud silhouette instead of a hard cut.
-opacity=custom(m,'return saturate(Parameters.VertexColor.a*(0.55+0.90*Dens));',{'Dens':dens})
-output(opacity,'OPACITY');lib.recompile_material(m);assert ela.save_loaded_asset(m)
-
-m=material('M_RainSplash');m.set_editor_property('blend_mode',u.BlendMode.BLEND_TRANSLUCENT)
-m.set_editor_property('shading_model',u.MaterialShadingModel.MSM_UNLIT)
-m.set_editor_property('used_with_instanced_static_meshes',True)
-uv=node(m,'TextureCoordinate');c=node(m,'Constant3Vector',constant=u.LinearColor(.3,.4,.44,1))
-eye=node(m,'EyeAdaptation');light=node(m,'Divide');connect(c,light,'A');connect(eye,light,'B');output(light,'EMISSIVE_COLOR')
-ring=custom(m,'float r=length(UV-.5)*2; return smoothstep(.52,.72,r)*(1-smoothstep(.8,1.,r))*.48;',{'UV':uv})
-output(ring,'OPACITY');lib.recompile_material(m);assert ela.save_loaded_asset(m)
-
-# Surf droplet: a small, bright, fast-falloff water droplet sprite for the Niagara
-# breaking-surf spray (NS_SurfSpray). The engine DefaultSpriteMaterial is a soft,
-# wide radial gradient — at Niagara's 50 cm default sprite size it reads as a soft
-# blob / heat shimmer, not a projectile. This is unlit translucent with a tight
-# pow(1-r) core so it renders as a hard, weighty droplet. bUsedWithNiagaraSprites
-# is required or the sprite renderer ignores the material.
-m=material('M_SurfDroplet');m.set_editor_property('blend_mode',u.BlendMode.BLEND_TRANSLUCENT)
-m.set_editor_property('shading_model',u.MaterialShadingModel.MSM_UNLIT)
-m.set_editor_property('used_with_niagara_sprites',True)
-m.set_editor_property('used_with_particle_sprites',True)
-m.set_editor_property('two_sided',False)
-uv=node(m,'TextureCoordinate')
-col=custom(m,'float2 c=UV-.5; float r=length(c)*2.; float d=pow(saturate(1.-r),2.5); return float3(.95,.99,1.05)*d;',{'UV':uv},3)
-output(col,'EMISSIVE_COLOR')
-op=custom(m,'float2 c=UV-.5; float r=length(c)*2.; return pow(saturate(1.-r),2.5);',{'UV':uv})
-output(op,'OPACITY');lib.recompile_material(m);assert ela.save_loaded_asset(m)
-
-# Morning ground mist: soft white feathered sprite for NS_MorningMist. Opacity is
-# gated by the MPC MistAmount (day-time + season) so every bank fades in/out as one.
-# Unlit + pow(1-r)^3 edge so it reads as air, not hard droplet discs.
-m=material('M_MorningMist');m.set_editor_property('blend_mode',u.BlendMode.BLEND_TRANSLUCENT)
-m.set_editor_property('shading_model',u.MaterialShadingModel.MSM_UNLIT)
-m.set_editor_property('used_with_niagara_sprites',True)
-m.set_editor_property('used_with_particle_sprites',True)
-m.set_editor_property('two_sided',False)
-uv=node(m,'TextureCoordinate')
-mist=node(m,'CollectionParameter',collection=mpc,parameter_name='MistAmount')
-col=custom(m,'float2 c=UV-.5; float r=length(c)*2.; float soft=pow(saturate(1.-r),3.); return float3(.84,.88,.92)*soft;',{'UV':uv},3)
-output(col,'EMISSIVE_COLOR')
-op=custom(m,'float2 c=UV-.5; float r=length(c)*2.; float soft=pow(saturate(1.-r),3.); return soft*Mist;',{'UV':uv,'Mist':mist})
-output(op,'OPACITY');lib.recompile_material(m);assert ela.save_loaded_asset(m)
-
-source=Path(__file__).resolve().parents[1]/'Saved/GeneratedSoundscape'
-for wav in sorted(source.glob('*.wav')):
-    task=u.AssetImportTask();task.set_editor_property('filename',str(wav));task.set_editor_property('destination_path','/Game/Weather/Audio')
-    task.set_editor_property('automated',True);task.set_editor_property('replace_existing',True);task.set_editor_property('save',True)
-    assets.import_asset_tasks([task])
-    sound=u.load_asset('/Game/Weather/Audio/'+wav.stem);assert isinstance(sound,u.SoundWave)
-    sound.set_editor_property('looping',wav.stem in ['CoastalWind','ForestWind','MeadowWind','Surf','Rain'])
-    sound.set_editor_property('virtualization_mode',u.VirtualizationMode.PLAY_WHEN_SILENT)
-    assert ela.save_loaded_asset(sound)
-u.log('WEATHER_EXPERIENCE_ASSETS_READY surfaces='+str(count))
+        lib.recompile_material(m)
+        if not ela.save_loaded_asset(m):
+            u.log_warning('WEATHER_SURFACE_SAVE_FAILED %s (locked by another editor? left unchanged)' % path)
+        else:
+            count+=1
+u.log('WEATHER_ASSETS_READY wrapped=%d' % count)

@@ -20,8 +20,6 @@ class USpringArmComponent;
 class UCameraComponent;
 class UBorn2FlapAudioSynth;
 class ABorn2FlapAvatar;
-class ABorn2FlapFlightSettings;
-class ABorn2FlapPoiOverlay;
 class ABorn2FlapWindLeaves;
 class IInputProcessor;
 // Live-tuning surface the hangar edits: servo, battery and the exposed
@@ -86,6 +84,8 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     // of the aero-audio synth so the flap can cut through wind/surf/music.
     float GetWingbeatVolume() const { return WingbeatVolume; }
     void SetWingbeatVolume(float Value) { if(FMath::IsFinite(Value)) WingbeatVolume=FMath::Clamp(Value,0.f,4.f); }
+    float GetFootstepVolume() const { return FootstepVolume; }
+    void SetFootstepVolume(float Value);   // propagates to the avatar's footstep player
     // Replay shadow-doppelgängers: show past rounds flying alongside (default on).
     bool GetReplaySpiritsEnabled() const { return bReplaySpirits; }
     void SetReplaySpiritsEnabled(bool bOn);
@@ -100,7 +100,7 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     double GetLastWingTouchTime() const { return LastWingTouchTime; }
     void OpenFlightSettings();
     void CloseFlightSettings();
-    bool IsFlightSettingsOpen() const { return SettingsPanel.IsValid() || bBrainSettingsOpen; }
+    bool IsFlightSettingsOpen() const { return bBrainSettingsOpen; }
     // Touch hook: the HUD "THROW" overlay button hand-launches a grounded bird.
     // Safe to call while airborne — LaunchFlight() no-ops unless perched/grounded.
     void RequestHandLaunch();
@@ -221,7 +221,7 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     // F8 "points of interest" overlay (lightweight in-flight teleport selector).
     void OpenPoiOverlay();
     void ClosePoiOverlay();
-    bool IsPoiOverlayOpen() const { return PoiOverlay.IsValid() || bBrainPoiOpen; }
+    bool IsPoiOverlayOpen() const { return bBrainPoiOpen; }
 
   private:
     UPROPERTY(VisibleAnywhere) TObjectPtr<UBoxComponent> Body;
@@ -267,6 +267,23 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     UPROPERTY() TObjectPtr<UNiagaraComponent> WaterSplashFX;
     float WaterSplashTimeLeft = 0.f;
     TMap<UBorn2FlapWingMesh*, float> WingWaterDepthPrev;
+    // Splash droplet pool: billboarded plane sprites with M_SurfDroplet — the
+    // water mirror of the sand-burst simulation (ballistic grains, gravity,
+    // fade-out). Fired on every wing-touch and on the splashdown.
+    struct FWaterDropletState
+    {
+        FVector Pos = FVector::ZeroVector, Vel = FVector::ZeroVector;
+        float Life = 0.f, LifeMax = 1.f, Scale = 1.f;
+    };
+    UPROPERTY() TObjectPtr<UInstancedStaticMeshComponent> WaterDroplets;
+    TArray<FWaterDropletState> WaterDropletPool;
+    int32 WaterDropletCursor = 0;
+    // Waterborne: a full splashdown on the ocean. Control locks, the bird bobs
+    // at the surface and then slowly sinks; no auto-reset — R recovers.
+    bool bWaterborne = false;
+    float WaterborneTime = 0.f;
+    float WaterSinkDepth = 0.f;
+    float WaterSplashAccum = 0.f;
     UPROPERTY(VisibleAnywhere) TObjectPtr<UBorn2FlapAudioSynth> AudioSynth;
     UPROPERTY() TObjectPtr<UCameraComponent> GroundCamera;
     UPROPERTY() TObjectPtr<UCameraComponent> FpvCamera;
@@ -345,13 +362,56 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     // camera from its auto-aim so the pilot can look away from the bird.
     float ChaseOrbitYaw = 0.f, ChaseOrbitPitch = -12.f;
     float GroundLookYaw = 0.f, GroundLookPitch = 0.f;
-    // In the actor-follow (3rd person pilot) view MMB-drag rotates the pilot
-    // (yaw) and tilts the over-the-shoulder lens up/down (pitch). The wheel only
-    // dollies the arm (zoom) — close enough switches to first person, scrolling
-    // out returns to third. Default 0 = face the bird as usual.
+    // In the actor-follow (3rd person pilot) view MMB-drag ORBITS the camera
+    // around the pilot (the pilot no longer rotates with it — A/D turns the
+    // pilot). While bAutoFollowBird is on, the offsets are relative to the
+    // aim at the bird (yaw AND pitch); when the follow is off they are the
+    // absolute orbit yaw/pitch. The wheel only dollies the arm (zoom) — close
+    // enough switches to first person, scrolling out returns to third.
     float ActorOrbitYaw = 0.f;
-    float ActorOrbitPitch = -12.f;
+    float ActorOrbitPitch = 0.f;
     float ActorArmLength = 240.f;
+    // Pilot-centric auto-follow: the default pilot camera tracks the bird in
+    // yaw AND pitch. K toggles it off (free camera), J resets it on, and
+    // rotating the camera so the bird leaves the view cone disables it
+    // automatically (the "smart" release).
+    bool bAutoFollowBird = true;
+    // The on-foot pilot's own facing, turned by A/D while walking. Kept
+    // separate from the camera so MMB orbits the camera around the pilot
+    // instead of reorienting the pilot. Invalidated on every landing so the
+    // pilot re-faces the bird; seeded on the first walk step.
+    float PilotFacingYaw = 0.f;
+    bool bPilotFacingValid = false;
+    // True while the walk/look mode (MMB held) is active this tick — mirrored
+    // for UpdateAvatarState so the avatar faces PilotFacingYaw while walking.
+    bool bWalkModeActive = false;
+    // RMB temporary zoom + aim: holding the right mouse button snaps the
+    // camera to the bird and zooms in; releasing restores the saved view.
+    struct FB2FViewSnapshot
+    {
+        float ChaseOrbitYaw = 0.f, ChaseOrbitPitch = -12.f, ChaseArmLength = 480.f;
+        float GroundZoom = 1.f, GroundLookYaw = 0.f, GroundLookPitch = 0.f;
+        float ActorOrbitYaw = 0.f, ActorOrbitPitch = 0.f, ActorArmLength = 240.f;
+        bool bAutoFollowBird = true;
+        bool bActorZoomFirstPerson = false;
+    };
+    FB2FViewSnapshot RmbViewSnapshot;
+    bool bRmbZoom = false;
+    // FPV head-turn yaw (Z/X keys). Volatile — J resets it, it is not persisted.
+    float FpvCameraYawDeg = 0.f;
+    void SaveViewSnapshot();
+    void RestoreViewSnapshot();
+    // J: restore the current view's orientation/zoom to its default follow.
+    void ResetCameraView();
+    // K: toggle the pilot-centric auto-follow of the bird.
+    void ToggleAutoFollow();
+    // Rotate the pilot-centric camera (ground free-look / actor orbit) by the
+    // given deltas, turning auto-follow off when the bird leaves the view.
+    void ApplyPilotOrbit(float DeltaYaw, float DeltaPitch);
+    // Over-the-shoulder pilot rig pose (position + look rotation) for the
+    // current orbit offsets / follow state.
+    void ComputePilotOrbit(FVector& OutPos, FRotator& OutRot) const;
+    bool IsBirdOutOfView(const FRotator& CamRotation, const FVector& CamPosition) const;
     // True when the actor's first-person was entered by wheel-zoom (so the next
     // wheel-out returns to third person instead of doing the ground lens zoom).
     bool bActorZoomFirstPerson = false;
@@ -408,6 +468,7 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     born2flap::DesktopInput Desktop;
     float ControlExpo=.65f;
     float WingbeatVolume=1.0f;   // wingbeat-only voice volume (0..4)
+    float FootstepVolume=1.0f;   // on-foot pilot footsteps volume (0..1)
     float FlightSafety=1.0f;  // 0 off · 1 very low (acro) · 2 normal
     bool bReplaySpirits = true;   // show replay shadow-doppelgängers
     bool bShowTrickToasts = true; // aerobatic reward toasts (settings-gated)
@@ -422,8 +483,6 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     float RightWingCamberBiasPercent = 0.25f;
     void ApplyTuning();
     void ApplyBodyMass();
-    TWeakObjectPtr<ABorn2FlapFlightSettings> SettingsPanel;
-    TWeakObjectPtr<ABorn2FlapPoiOverlay> PoiOverlay;
     // Brain (UMGHAML) path: when the Ruby Brain is the live authoring host the
     // native panel actors are not spawned — these flags stand in for their open
     // state so IsPoiOverlayOpen/IsFlightSettingsOpen still read correctly for
@@ -435,9 +494,13 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     // Fire a one-shot sand/dust burst through the wind-leaves system (landing,
     // wing-touch). Lazily caches the world actor on first use.
     void EmitSandBurst(const FVector& WorldPos, float Strength);
-    // Wingtip water contact: expanding ripple rings + a short Niagara mist burst.
+    // Wingtip water contact: expanding ripple rings + droplet burst + a short
+    // Niagara mist burst.
     void EmitWaterSplash(const FVector& WorldPos, float Strength);
     void UpdateWaterRipples(float DeltaSeconds);
+    void EmitWaterDroplets(const FVector& WorldPos, float Strength);
+    void UpdateWaterDroplets(float DeltaSeconds);
+    void EnterWaterborne();
     TWeakObjectPtr<ABorn2FlapWindLeaves> WindLeavesActor;
     TMap<UBorn2FlapWingMesh*, FVector> WingSweepPrev;
     double LastWingTouchTime = -1e30;
@@ -541,8 +604,9 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     bool bThrowAnimTest = false;
     double ThrowAnimTestTime = 0;
     void CheckThrowAnimTest(float DeltaSeconds);
-    bool bSawHeld = false, bSawThrowing = false;
+    bool bSawHeld = false, bSawThrowing = false, bSawWindup = false;
     FVector ThrowAnimStartPos = FVector::ZeroVector;
+    FVector WindupStartPos = FVector::ZeroVector;
     double ThrowAnimStartTime = 0;
     float MaxHandTravel = 0.f, ReleaseDelay = -1.f, ThrowEndTime = -1.f;
     TSet<FName> SeenAnimNames;

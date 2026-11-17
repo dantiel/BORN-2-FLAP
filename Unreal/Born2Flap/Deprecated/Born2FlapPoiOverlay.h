@@ -1,5 +1,10 @@
 #pragma once
-// Born2FlapPoiOverlay.h — the lightweight F8 "points of interest" overlay.
+// ============================================================================
+// DEPRECATED — native C++ POI overlay. The Ruby Brain (UMGHAML, Brain/lib/
+// born2flap/ui/views/poi) is the single POI author; this actor exists only
+// for the no-Brain error state and will be removed. Do not add features here.
+// ============================================================================
+// Born2FlapPoiOverlay.h ??? the lightweight F8 "points of interest" overlay.
 //
 // Lists the current level's points of interest (already populated by the
 // GameMode and copied onto the FlightPawn at spawn) as a small centred card.

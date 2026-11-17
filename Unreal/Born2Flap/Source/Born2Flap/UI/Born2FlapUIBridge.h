@@ -13,9 +13,16 @@
 // band. The framing itself is the dependency-free Born2FlapTransport.h
 // contract, proven headlessly by Tools/umg_transport_test.cpp.
 //
-// Configure via command line:
-//   -B2FUIFile=/path/frames.ndjson     (required: the frame source to tail)
-//   -B2FUIBrain="ruby bin/transport_demo /path/frames.ndjson"  (optional)
+// BRAIN-REQUIRED: the game must always run with the Ruby Brain attached —
+// the Brain is the single UI host (UMGHAML authoring). The native C++ UI
+// actors (Born2FlapMenu, Born2FlapFlightHUD, Born2FlapFlightSettings,
+// Born2FlapPoiOverlay, Born2FlapRadioHUD) are DEPRECATED fallbacks kept only
+// as a safety net while the Brain process is being launched.
+//
+// Configure via command line (the Brain command defaults to the staged /
+// repo script bin/umghaml_brain, so these are dev overrides only):
+//   -B2FUIFile=/path/frames.ndjson     (override: the frame source to tail)
+//   -B2FUIBrain="ruby bin/transport_demo /path/frames.ndjson"  (override)
 // Or set the matching UPROPERTYs in the editor / spawned instance.
 
 #include "CoreMinimal.h"
@@ -51,8 +58,10 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "UI Bridge")
     FString TelemetryPath;
 
-    // True once the Ruby Brain process has been launched (i.e. the UMGHAML
-    // authoring path is live; the native C++ cockpit should stay dormant).
+    // True once the Ruby Brain process has been launched. The UMGHAML
+    // authoring path is then the single UI host. When this is false the
+    // game is running WITHOUT its Brain — an error state; the native C++
+    // cockpit fallback (DEPRECATED) is the only thing keeping UI alive.
     bool IsBrainActive() const { return BrainProcess.IsValid(); }
 
     // Semantic component action from the Brain-authored renderer (a button /

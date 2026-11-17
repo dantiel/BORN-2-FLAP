@@ -9,6 +9,7 @@
 #include "Scalability.h"
 #include "Kismet/GameplayStatics.h"
 #include "Game/Born2FlapGameMode.h"
+#include "World/Born2FlapWeather.h"
 #include "Components/MeshComponent.h"
 #include "Materials/MaterialInterface.h"
 #include "WaterBodyOceanActor.h"
@@ -20,6 +21,7 @@
 #include "Engine/StaticMeshActor.h"
 #include "Components/StaticMeshComponent.h"
 #include "Materials/Material.h"
+#include "Materials/MaterialInstanceDynamic.h"
 
 AShiomoriWaterDirector::AShiomoriWaterDirector()
 {
@@ -124,12 +126,20 @@ void AShiomoriWaterDirector::SpawnNativeOcean()
     // it — never let the ocean's collision box trap or block the bird.
     OceanBody->SetActorEnableCollision(false);
 
-    // Plugin default Single Layer Water surface (real refraction + absorption).
-    if (UMaterial* OceanMat = LoadObject<UMaterial>(nullptr,
-        TEXT("/Water/Materials/WaterSurface/Water_Material_Ocean.Water_Material_Ocean")))
+    // Single Layer Water surface: prefer our MIC (ocean-foam switch enabled,
+    // bright shallow-water tuning), fall back to the plugin default material.
+    UMaterialInterface* OceanMat = LoadObject<UMaterialInterface>(nullptr,
+        TEXT("/Game/Shiomori/Materials/MI_OceanNative.MI_OceanNative"));
+    if (!OceanMat)
     {
+        OceanMat = LoadObject<UMaterialInterface>(nullptr,
+            TEXT("/Water/Materials/WaterSurface/Water_Material_Ocean.Water_Material_Ocean"));
+    }
+    if (OceanMat)
+    {
+        OceanMID = UMaterialInstanceDynamic::Create(OceanMat, this);
         if (UWaterBodyComponent* Body = OceanBody->GetWaterBodyComponent())
-            Body->SetWaterMaterial(OceanMat);
+            Body->SetWaterMaterial(OceanMID);
     }
 
     // Gerstner spectrum configured from the authorable ocean parameters.
@@ -153,6 +163,7 @@ void AShiomoriWaterDirector::SpawnNativeOcean()
         OceanWaves->RecomputeWaves(true);
         OceanBody->SetWaterWaves(OceanWaves);
     }
+
 
     // Register the procedural seabed as terrain for the native Water system. The
     // Water Info Texture (which drives Single Layer Water depth + absorption)
@@ -211,6 +222,27 @@ void AShiomoriWaterDirector::ApplyParameters()
     MPCInstance->SetScalarParameterValue(FoamAmount,           Parameters.FoamAmount);
     MPCInstance->SetScalarParameterValue(StormAmount,          Parameters.StormAmount);
     MPCInstance->SetScalarParameterValue(ShoreBreakIntensity,  Parameters.ShoreBreakIntensity);
+    MPCInstance->SetScalarParameterValue(SunMirror,           Parameters.SunMirror);
+}
+
+void AShiomoriWaterDirector::PushOceanVisuals()
+{
+    if (!OceanMID)
+        return;
+    // Bright shallow-bay tuning for the SLW shading model. STRONG scattering
+    // guarantees luminous teal at any depth: the SLW output blends the scene
+    // through exp(-Absorption*depth) toward the scattering colour, so a rich
+    // scattering term means the water can never render as the near-black
+    // deep-ocean slab again — even if the absorption units are cm-based.
+    OceanMID->SetVectorParameterValue(TEXT("Water Albedo"), FLinearColor(0.03f, 0.20f, 0.26f, 1.0f));
+    OceanMID->SetVectorParameterValue(TEXT("Scattering"),   FLinearColor(0.05f, 0.22f, 0.28f, 1.0f));
+    OceanMID->SetVectorParameterValue(TEXT("Absorption"),   FLinearColor(0.0012f, 0.0028f, 0.0050f, 1.0f));
+    OceanMID->SetScalarParameterValue(TEXT("Water Roughness"), 0.05f);
+    OceanMID->SetScalarParameterValue(TEXT("Water Specular"), 1.0f);
+    OceanMID->SetScalarParameterValue(TEXT("Refraction"), 1.12f);
+    // Wind-driven ocean foam: more wind -> brighter, longer foam trails.
+    OceanMID->SetScalarParameterValue(TEXT("Foam Boost"),
+        FMath::Clamp(0.6f + Parameters.FoamAmount * 0.7f, 0.6f, 2.5f));
 }
 
 void AShiomoriWaterDirector::Tick(float DeltaSeconds)
@@ -223,20 +255,51 @@ void AShiomoriWaterDirector::Tick(float DeltaSeconds)
                 Parameters.WindSpeed=Wind.Size2D();
                 Parameters.WindDirection=FMath::RadiansToDegrees(FMath::Atan2(Wind.Y,Wind.X));
                 // The dominant swell weathervanes into the wind: long ocean waves turn
-                // slowly, so the big crest lines converge on the live wind direction
-                // over ~15 s while the material's streak field follows instantly. This
-                // is what makes the wind direction READ on the water surface.
+                // so the big crest lines converge on the live wind direction while the
+                // streak field follows instantly. This is what makes the wind READ on
+                // the water surface (outer ocean waves follow the wind). Fast enough
+                // that the open-sea swell visibly obeys a shifting wind.
                 const float SwellErr=FMath::UnwindDegrees(Parameters.WindDirection-Parameters.PrimaryWaveDirection);
-                Parameters.PrimaryWaveDirection+=SwellErr*FMath::Clamp(DeltaSeconds*0.07f,0.0f,1.0f);
+                Parameters.PrimaryWaveDirection+=SwellErr*FMath::Clamp(DeltaSeconds*0.45f,0.0f,1.0f);
                 // Swell size and sea state are wind-determined: a calm breeze leaves a
                 // long, low, glassy swell; a fresh wind stacks the waves up and roughens
-                // the chop. (SeaState is a 0..6 scale feeding the shared Gerstner amp.)
-                Parameters.SwellAmplitude=FMath::Clamp(28.f+Parameters.WindSpeed*3.2f,28.f,80.f);
-                Parameters.SeaState=FMath::Clamp(1.5f+Parameters.WindSpeed*.28f,1.5f,3.4f);
+                // the chop. Strong wind -> big wind sea (up to 1.9 m swell). v2: steeper
+                // wind response + higher sea-state ceiling — the surface reads clearly
+                // turbulent even in a moderate breeze (both the rendered Gerstner WPO and
+                // SampleWaveHeight read the same parameters, so they stay in lock-step).
+                Parameters.SwellAmplitude=FMath::Clamp(55.f+Parameters.WindSpeed*7.f,48.f,190.f);
+                Parameters.SeaState=FMath::Clamp(2.2f+Parameters.WindSpeed*.45f,2.2f,4.5f);
                 Parameters.ShoreBreakIntensity=.85f+Parameters.WindSpeed*.065f;
                 Parameters.FoamAmount=1.1f+Parameters.WindSpeed*.08f;
         Parameters.StormAmount=0.f; // these presets intentionally exclude storms
+        // The ocean mirror follows the live sky: sunlight grades the fresnel
+        // sheen (cloudy 0.55 .. full sun 1.3). The water material reads it via
+        // MPC_WaterGlobal.SunMirror every frame. Conditions.Weather is a profile
+        // KEY (FString); resolve it through the weather desk's profile table.
+        const FBorn2FlapWeather Wx=Born2FlapWeather::Profile(GM->GetConditions().Weather);
+        Parameters.SunMirror=FMath::Clamp(0.55f+Wx.Sunlight*0.75f,0.55f,1.3f);
         ApplyParameters();
+        PushOceanVisuals();
+    }
+
+    // Wind-driven native ocean waves: re-derive the Gerstner spectrum from the
+    // live wind every 0.5 s (direction = wind, amplitude = wind strength).
+    WindUpdateAccum += DeltaSeconds;
+    if (OceanWaves && WindUpdateAccum >= 0.5f)
+    {
+        WindUpdateAccum = 0.0f;
+        if (UGerstnerWaterWaveGeneratorSimple* Gen =
+            Cast<UGerstnerWaterWaveGeneratorSimple>(OceanWaves->GerstnerWaveGenerator))
+        {
+            Gen->WindAngleDeg = Parameters.PrimaryWaveDirection;
+            Gen->MaxAmplitude = Parameters.SwellAmplitude * 1.5f;
+            Gen->MinAmplitude = FMath::Max(0.5f, Parameters.SwellAmplitude * 0.04f);
+            Gen->MaxWavelength = Parameters.SwellLength;
+            Gen->MinWavelength = FMath::Max(1.0f, Parameters.SwellLength * 0.08f);
+            // Strong wind = aligned swell (narrow spread); calm = confused sea.
+            Gen->DirectionAngularSpreadDeg = FMath::Clamp(36.0f - Parameters.WindSpeed * 2.0f, 14.0f, 40.0f);
+            OceanWaves->RecomputeWaves(true);
+        }
     }
 
     if (!MPCInstance || !MPCInstance->GetCollection())

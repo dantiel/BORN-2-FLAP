@@ -7,12 +7,11 @@
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
 
-// -B2FThrowAnimTest: empirical proof of the throw-animation chain.
-// Simulates a grounded SPACE press + release, then measures whether the held
-// bird rides the pilot's animated hands through the wind-up (the bird is
-// attached to the CarrySocket, which UpdateCarrySocket repositions to the
-// hand midpoint of the CURRENT pose every avatar tick — so bird travel during
-// the throw IS hand travel). Verdict at t=6s.
+// -B2FThrowAnimTest: empirical proof of the split-phase throw-animation chain.
+// Simulates a grounded SPACE press + release, then verifies that (1) the held
+// bird rides the pilot's hand UP to the cocked position during the SPACE hold
+// (the wind-up — bird travel IS hand travel), and (2) releasing SPACE fires the
+// throw almost immediately because the hand is already cocked. Verdict at t=8s.
 void ABorn2FlapFlightPawn::CheckThrowAnimTest(float DeltaSeconds)
 {
     ThrowAnimTestTime += DeltaSeconds;
@@ -24,36 +23,52 @@ void ABorn2FlapFlightPawn::CheckThrowAnimTest(float DeltaSeconds)
 
     // Timeline: the bird spawns at ~68 cm and must fall + land + settle before
     // the ground charge works (bCameraGrounded flips at ~2.0s here). Press at
-    // 3.0s and release at 3.6s.
+    // 3.0s (wind-up begins) and release at 4.0s (throw completes). The 1.0s
+    // hold exceeds the wind-up (the hand-apex halt, ~25% of the throw clip),
+    // so the hand reaches the cocked position and holds there before the
+    // release.
     const double T = ThrowAnimTestTime;
     if (T >= 3.0 && T < 3.1) Key(EKeys::SpaceBar, true);
-    if (T >= 3.6 && T < 3.7) Key(EKeys::SpaceBar, false);
+    if (T >= 4.0 && T < 4.1) Key(EKeys::SpaceBar, false);
 
-    // Periodic state so the settle/press window is fully visible in the log.
+    // Periodic state so the settle/press/hold window is fully visible in the log.
     static int32 LastHeartbeat = -1;
     const int32 Hb = FMath::FloorToInt(T * 4.0);
     if (Hb != LastHeartbeat)
     {
         LastHeartbeat = Hb;
-        UE_LOG(LogTemp, Display, TEXT("ThrowAnimT t=%.2f flying=%d grounded=%d settle=%.2f alt=%.2f spd=%.2f held=%d throwing=%d %s"),
+        UE_LOG(LogTemp, Display, TEXT("ThrowAnimT t=%.2f flying=%d grounded=%d settle=%.2f alt=%.2f spd=%.2f held=%d windup=%d throwing=%d %s"),
                T, bFlying ? 1 : 0, bCameraGrounded ? 1 : 0, GroundSettleTime, GetAltitude(), GetSpeed(),
-               bBirdHeld ? 1 : 0, (Avatar && Avatar->IsThrowing()) ? 1 : 0,
+               bBirdHeld ? 1 : 0,
+               (Avatar && Avatar->IsThrowWindup()) ? 1 : 0,
+               (Avatar && Avatar->IsThrowing()) ? 1 : 0,
                *(Avatar ? Avatar->DebugThrowState() : TEXT("none")));
     }
 
-    const bool bHeldNow = bBirdHeld;
+    // Wind-up travel: while the bird is held and winding up, its travel IS the
+    // hand raising to the cocked position (the bird is attached to the carry
+    // socket, which UpdateCarrySocket repositions to the hand every tick).
+    const bool bWindupNow = Avatar && Avatar->IsThrowWindup();
+    if (bWindupNow)
+    {
+        if (!bSawWindup)
+        {
+            bSawWindup = true;
+            WindupStartPos = Body->GetComponentLocation();
+        }
+        MaxHandTravel = FMath::Max(MaxHandTravel, FVector::Dist(Body->GetComponentLocation(), WindupStartPos));
+        if (Avatar)
+            SeenAnimNames.Add(Avatar->GetCurrentAnimName());
+    }
+
     const bool bThrowingNow = Avatar && Avatar->IsThrowing();
-    if (bHeldNow) bSawHeld = true;
     if (bThrowingNow)
     {
         if (!bSawThrowing)
         {
             bSawThrowing = true;
-            ThrowAnimStartPos = Body->GetComponentLocation();
             ThrowAnimStartTime = T;
         }
-        const float Travel = FVector::Dist(Body->GetComponentLocation(), ThrowAnimStartPos);
-        MaxHandTravel = FMath::Max(MaxHandTravel, Travel);
         if (Avatar)
             SeenAnimNames.Add(Avatar->GetCurrentAnimName());
     }
@@ -67,15 +82,22 @@ void ABorn2FlapFlightPawn::CheckThrowAnimTest(float DeltaSeconds)
         ReleaseDelay = float(T - ThrowAnimStartTime);
     }
 
-    if (T >= 8.0)
+    const bool bHeldNow = bBirdHeld;
+    if (bHeldNow) bSawHeld = true;
+
+    if (T >= 9.0)
     {
-        const bool Pass = bSawHeld && bSawThrowing && MaxHandTravel > 15.f
-            && ReleaseDelay > 0.4f && ReleaseDelay < 1.05f && ThrowEndTime < 0.f;
+        // Split-phase throw: the wind-up raises the hand to the cocked top and
+        // halts there; releasing SPACE completes the throw with the remaining
+        // forward sweep (release frame minus halt, < 1 s for the baked clips).
+        const float Halt = Avatar ? Avatar->GetThrowHaltTime() : -1.f;
+        const bool Pass = bSawHeld && bSawWindup && bSawThrowing && MaxHandTravel > 15.f
+            && ReleaseDelay >= 0.f && ReleaseDelay < 1.2f && ThrowEndTime < 0.f && Halt > 0.f;
         FString Names;
         for (const FName& N : SeenAnimNames) Names += N.ToString() + TEXT(" ");
-        UE_LOG(LogTemp, Display, TEXT("ThrowAnimTest %s held=%d throwing=%d maxHandTravel=%.1fcm releaseDelay=%.2fs throwCutShort=%.2fs anims={%s} grounded=%d flying=%d"),
-               Pass ? TEXT("PASS") : TEXT("FAIL"), bSawHeld ? 1 : 0, bSawThrowing ? 1 : 0,
-               MaxHandTravel, ReleaseDelay, ThrowEndTime, *Names, bCameraGrounded ? 1 : 0, bFlying ? 1 : 0);
+        UE_LOG(LogTemp, Display, TEXT("ThrowAnimTest %s held=%d windup=%d throwing=%d maxHandTravel=%.1fcm releaseDelay=%.2fs throwCutShort=%.2fs halt=%.3fs anims={%s} grounded=%d flying=%d"),
+               Pass ? TEXT("PASS") : TEXT("FAIL"), bSawHeld ? 1 : 0, bSawWindup ? 1 : 0, bSawThrowing ? 1 : 0,
+               MaxHandTravel, ReleaseDelay, ThrowEndTime, Halt, *Names, bCameraGrounded ? 1 : 0, bFlying ? 1 : 0);
         FPlatformMisc::RequestExitWithStatus(false, Pass ? 0 : 1);
     }
 }
