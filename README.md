@@ -31,17 +31,12 @@ Konfigurationen aus dem OrniFlight Configurator sollen optional importiert werde
 ## Dokumentation
 
 - [Produktvision](docs/product-vision.md)
-- [Expansionspläne](docs/expansion-plans.md)
 - [Systemarchitektur](docs/architecture.md)
 - [Physikkonzept](docs/physics.md)
-- [Experimentelles Aerodynamikmodell](docs/experimental-aerodynamics.md)
-- [First-Flap-Prototyp](docs/first-flap-prototype.md)
 - [Configurator-Integration](docs/configurator-integration.md)
 - [PteraSoftware-Strategie](docs/pterasoftware.md)
 - [Ornithopter-Editor](docs/ornithopter-editor.md)
 - [Spielmodi und Training](docs/game-design.md)
-- [Implementierungsplan](docs/implementation-plan.md)
-- [Offene Entscheidungen](docs/open-questions.md)
 - [ADR: Sprach- und Laufzeitarchitektur](docs/decisions/0001-language-and-runtime-architecture.md)
 - [Windows-Entwicklungsumgebung](docs/windows-development.md)
 - [Waldtal und direkter RC-Senderanschluss](docs/natural-valley-and-rc.md)

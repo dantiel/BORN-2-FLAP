@@ -69,7 +69,12 @@ module Born2Flap
             wind_word: wind_word,
             status: locals[:status] || I18n.t("hud.ready", lang: locals[:lang]),
             reward_text: locals[:reward_text] || "",
-            reward_alpha: (locals[:reward_alpha] || 0.0).to_f
+            reward_alpha: (locals[:reward_alpha] || 0.0).to_f,
+            camera_label: locals[:camera_label] || "",
+            camera_toast_text: locals[:camera_toast_text] || "",
+            camera_toast_alpha: (locals[:camera_toast_alpha] || 0.0).to_f,
+            zoom_toast_text: locals[:zoom_toast_text] || "",
+            zoom_toast_alpha: (locals[:zoom_toast_alpha] || 0.0).to_f
           }
         end
       end

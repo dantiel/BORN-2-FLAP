@@ -59,6 +59,19 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     void RestoreAutoFrame();
     bool IsFpvAirView() const { return bFpvAirView; }
     FString GetCameraLabel() const;
+    // Corner-toast window for follow switches: the HUD shows "AUTO CAMERA" /
+    // "STATIC CAMERA" while the world time is below the end stamp (announced
+    // on K toggles, J resets and the smart view-cone release).
+    double GetFollowToastEnd() const { return FollowToastEnd; }
+    bool IsFollowToastAuto() const { return bFollowToastAuto; }
+    // Brain telemetry flavour of the toast: text + fade alpha (0 when silent).
+    FString GetCameraToastText() const;
+    float GetCameraToastAlpha() const;
+    // RMB-zoom amount corner toast: "ZOOM 4.5x" while its announce window is
+    // open (RMB press, wheel steps, MMB reset), empty when silent.
+    FString GetZoomToastText() const;
+    float GetZoomToastAlpha() const;
+    double GetZoomToastEnd() const { return ZoomToastEnd; }
     void SelectBirdModel(int32 Index);
     int32 GetBirdModel() const { return BirdModel; }
     int32 GetAvatarPerson() const { return AvatarPerson; }
@@ -125,6 +138,9 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     // Longer hold = stronger launch. Start/Finish drive the wind-up and release.
     void StartThrowCharge();
     void FinishThrowCharge();
+    // Re-anchors the throw aim to the captured view direction at charge start:
+    // the direction selection must begin exactly where the player is looking.
+    void AlignThrowAimToLook(const FRotator& Look);
     void GetThrowAim(float& OutYaw, float& OutPitch) const;
     FVector GetThrowOrigin() const;
     bool IsFlying() const { return bFlying; }
@@ -376,12 +392,21 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     // rotating the camera so the bird leaves the view cone disables it
     // automatically (the "smart" release).
     bool bAutoFollowBird = true;
+    // Corner toast announce window (world seconds) and the announced state.
+    double FollowToastEnd = 0.0;
+    bool bFollowToastAuto = true;
+    // RMB-zoom corner toast: announce window (world seconds) + rendered text.
+    double ZoomToastEnd = 0.0;
+    FString ZoomToastText;
     // The on-foot pilot's own facing, turned by A/D while walking. Kept
     // separate from the camera so MMB orbits the camera around the pilot
     // instead of reorienting the pilot. Invalidated on every landing so the
     // pilot re-faces the bird; seeded on the first walk step.
     float PilotFacingYaw = 0.f;
     bool bPilotFacingValid = false;
+    // Smoothed head-look pitch (degrees, up positive) fed to the avatar by the
+    // K-follow mode; decays to zero when the follow is off.
+    float AvatarHeadPitch = 0.f;
     // True while the walk/look mode (MMB held) is active this tick — mirrored
     // for UpdateAvatarState so the avatar faces PilotFacingYaw while walking.
     bool bWalkModeActive = false;
@@ -397,10 +422,16 @@ class BORN2FLAP_API ABorn2FlapFlightPawn : public APawn
     };
     FB2FViewSnapshot RmbViewSnapshot;
     bool bRmbZoom = false;
+    // RMB zoom lens factor: scroll-wheel adjustable in 2..10 while the RMB is
+    // held; a middle click resets it to RmbZoomDefault.
+    static constexpr float RmbZoomDefault = 4.f;
+    float RmbZoomFactor = RmbZoomDefault;
     // FPV head-turn yaw (Z/X keys). Volatile — J resets it, it is not persisted.
     float FpvCameraYawDeg = 0.f;
     void SaveViewSnapshot();
     void RestoreViewSnapshot();
+    // Open the RMB-zoom corner toast with the current lens factor (3 s window).
+    void AnnounceZoom();
     // J: restore the current view's orientation/zoom to its default follow.
     void ResetCameraView();
     // K: toggle the pilot-centric auto-follow of the bird.

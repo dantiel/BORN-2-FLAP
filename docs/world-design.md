@@ -86,9 +86,8 @@ world's *one sky*, heard through a speaker.
   sings the world, the wings sing the bird.
 
 **Current albums.** Ravenstonefield: **TURBORAVEN** (user-supplied field-radio
-track, see `ravenstonefield.md`). Shiomori Bay: the canonical three-haiku
-prompt (seaside analog toy piano, 16-bit peregrine, lonely trumpet — see
-`shiomori-bay.md` ## MUSIC), two generated versions so far; further songs are
+track, see `ravenstonefield.md`). Shiomori Bay: a canonical three-haiku prompt
+(kept in the internal docs), two generated versions so far; further songs are
 proposed and await approval.
 
 ---

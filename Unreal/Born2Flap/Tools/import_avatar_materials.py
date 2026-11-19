@@ -107,16 +107,34 @@ def _add_tex_sample(mat, tex, x, y, sampler_type):
     return expr
 
 
+def _material_has_textures(mat):
+    try:
+        for expr in mat.get_editor_property('expressions'):
+            if isinstance(expr, u.MaterialExpressionTextureSample) and expr.texture:
+                return True
+    except Exception:
+        pass
+    return False
+
+
 def _build_material(mat_name, entry, tex_dir, tex_assets):
     folder = tex_dir.rsplit('/', 1)[0] + '/Materials'
     mat_path = folder + '/' + mat_name
+    LIB.make_directory(folder)
+    mat = None
     if LIB.does_asset_exist(mat_path):
         existing = u.load_asset(mat_path)
-        if existing is not None and isinstance(existing, u.Material):
-            return existing
-    LIB.make_directory(folder)
-    factory = u.MaterialFactoryNew()
-    mat = TOOLS.create_asset(mat_name, folder, u.Material, factory)
+        if isinstance(existing, u.Material):
+            # A previous run that already wired the PBR textures keeps them
+            # (idempotent). Empty FBX placeholder stubs fall through and get
+            # their texture wiring added in place instead of being returned
+            # untextured — the "characters have no textures" bug.
+            if _material_has_textures(existing):
+                return existing
+            mat = existing
+    if mat is None:
+        factory = u.MaterialFactoryNew()
+        mat = TOOLS.create_asset(mat_name, folder, u.Material, factory)
     if mat is None:
         u.log_error('import_avatar_materials: create_asset failed for %s' % mat_name)
         return None
@@ -181,10 +199,14 @@ def main():
         # build materials
         materials = {}
         for mname, entry in plan.items():
-            mat = _build_material(mname, entry, tex_dir, tex_assets)
+            # GLB material names may carry ':' (UE path separator) — sanitize
+            # for the asset name but keep the raw key for slot matching.
+            san = mname.replace(':', '_')
+            mat = _build_material(san, entry, tex_dir, tex_assets)
             if mat is not None:
                 materials[mname] = mat
-                print('MAT_%s_%s=%s' % (name, mname, mat.get_path_name()))
+                materials[san] = mat
+                print('MAT_%s_%s=%s' % (name, san, mat.get_path_name()))
 
         # assign to mesh slots by name
         mesh_path = '/Game/Actor/%s/SkeletalMeshes/%s.%s' % (name, name, name)
@@ -196,22 +218,40 @@ def main():
         assigned = []
         for i, sm in enumerate(mats):
             slot = str(sm.get_editor_property('material_slot_name'))
-            mat = materials.get(slot) or materials.get(slot.casefold())
-            if mat is None and i < len(materials):
-                mat = list(materials.values())[i]  # order fallback
+            mat = materials.get(slot) or materials.get(slot.casefold()) \
+                or materials.get(slot.replace(':', '_'))
+            if mat is None:
+                # FBX import sanitises material names differently than the GLB
+                # ('eyes:eyes_lambert' -> 'eyes_lambert'): match by containment.
+                for k in materials:
+                    if slot and (slot in k or k in slot):
+                        mat = materials[k]
+                        break
+            if mat is None and i < len(set(materials.values())):
+                mat = list(dict.fromkeys(materials.values()))[i]  # order fallback
             if mat is not None:
                 try:
                     sm.set_editor_property('material_interface', mat)
+                    # Struct copies: write the mutated element back or the
+                    # assignment evaporates.
+                    mats[i] = sm
                     assigned.append('%s->%s' % (slot, mat.get_name()))
                 except Exception as e:
                     assigned.append('%s:ERR %s' % (slot, e))
             else:
                 assigned.append('%s:NO_MAT' % slot)
         mesh.set_editor_property('materials', mats)
-        LIB.save_asset(mesh_path)
+        # save_asset() skips packages the python API did not mark dirty —
+        # force the write or the assignment silently evaporates.
+        LIB.save_loaded_asset(mesh, only_if_is_dirty=False)
         print('SLOTS_%s=%s' % (name, assigned))
     print('MATERIALS_DONE')
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    finally:
+        # Match the other editor tools: run headless, then quit so the
+        # commandlet does not linger holding the DLL lock.
+        u.SystemLibrary.execute_console_command(None, 'quit')

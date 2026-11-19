@@ -725,8 +725,9 @@ kestrelTailLoads incidenceDeg velocity rates = map at tailSamples
           -- The compact fan has low aspect ratio in either flow direction.
           -- Use Helmbold's lifting-surface denominator, 2+sqrt(4+AR^2),
           -- instead of the higher-AR lifting-line approximation AR+2.
-          -- Preserve the existing section efficiency, without fitting a gain
-          -- to the desired handling. Compare against the independent AVL fan.
+          -- The fan is a single membrane over a few carbon spars (no feather
+          -- gaps, no holes) — treat it as the solid polygon it is: no
+          -- efficiency discount. Compare against the independent AVL fan.
           fanSlope = finiteWingLiftSlope aspect * (aspect+2)/(2+sqrt(4+aspect*aspect))
           cl = (1-separation)*max (-1.9) (min 1.9 (fanSlope*alpha))
           q = 0.5*airDensity*patchArea*speed*speed
@@ -747,8 +748,11 @@ kestrelTailLoads incidenceDeg velocity rates = map at tailSamples
 -- lift than a flat plate (its sides/top are curved, so the Kutta condition is
 -- soft) but it still weathervanes through the crossflow pressure term. Lift
 -- slope ≈0.45 is about half the flat plate, matching slender-body theory.
+-- ppCdInducedK is halved in step with the wing span-efficiency calibration:
+-- the rigid panels pay the same reduced cost-of-lift, so their aft-CP pitch
+-- restoring force is not fought by its own circulation drag either.
 bodyLiftPolar :: PanelPolar
-bodyLiftPolar = PanelPolar 0.45 0.034 0.10 2.5
+bodyLiftPolar = PanelPolar 0.45 0.034 0.05 2.5
 
 -- The aft-fuselage side panel (fixed geometry behind the CG). Its side force
 -- is kept small for the same reason as the fan's: the body must not act like

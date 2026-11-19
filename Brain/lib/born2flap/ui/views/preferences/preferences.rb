@@ -17,7 +17,24 @@ module Born2Flap
           }.merge(locals).merge(page: locals.fetch(:preferences_page,0))
           # Telemetry publishes expo as 0..1; the slider speaks 0..100 %.
           base[:control_expo] = base[:control_expo].to_f * 100
+          # Group the flat binding list by its C++ category so the KEY BINDINGS
+          # tab can fold each group independently (Section widgets).
+          base[:keybind_groups] = keybind_groups(base[:keybindings])
           base
+        end
+
+        private
+
+        # Collapse the flat binding list into ordered groups keyed by C++ category
+        # (FLIGHT / CAMERA / UI / DEBUG / AUDIO), preserving catalogue display order.
+        def keybind_groups(bindings)
+          groups = {}
+          Array(bindings).each do |binding|
+            category = binding[:category].to_s
+            category = 'BINDINGS' if category.empty?
+            (groups[category] ||= []) << binding
+          end
+          groups.map { |title, rows| { title: title, bindings: rows } }
         end
       end
     end

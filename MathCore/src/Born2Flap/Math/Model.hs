@@ -89,8 +89,19 @@ kestrelModel = mkWingModel "kestrel" kestrelMembraneWing flightSpars 0.050
     -- load (pronation -2.3deg vs -6.3deg at cruise): downstroke thrust ~+60%,
     -- small-wing drag brake removed in differential-amplitude flapping.
     -- Upper sweet-spot bound per TwistBoostAudit; beyond ~25 the elastic
-    -- twist (and thus the visible recoil) vanishes. siBendScale stays 3.6.
-    flightSpars = kestrelSpars { siBendScale = 3.6, siTwistScale = 16.8 }
+    -- twist (and thus the visible recoil) vanishes.
+    -- Bending: 3.6 -> 4.8 (+33% EI). The old 3.6 let the spars flex too much;
+    -- 4.8 is the stiffness scale only — the rods and geometry are unchanged.
+    -- Twist: 16.8 -> 8.4 -> 6.8 -> 5.44. The 4x spring was the right thrust
+    -- lever, but it suppressed the elastic washout to ~2 deg tip (6 m/s audit)
+    -- — the wing read as stiff in flight and on screen. 8.4 (2x the original
+    -- 4.2) restored ~3.8 deg of live washout; the stiffer carbon recoil spring
+    -- (glassfibre -> carbon) firmed the wings further, so twist is relaxed in
+    -- stages (6.8, then a further 20% to 5.44) for more elastic washout.
+    -- Bend 5.4 -> 4.8 is the stiffness scale only — the rods and geometry are
+    -- unchanged. Bend is intentionally stiffened 10% (4.8 -> 5.28) so the wing
+    -- flexes LESS, while twist gets MORE elastic washout.
+    flightSpars = kestrelSpars { siBendScale = 5.28, siTwistScale = 5.44 }
 
 -- Matches the current native KestrelMeshScale and KestrelScale. Shoulder
 -- placement is (3, +/-1, 2) cm; it is not scaled by the renderer.

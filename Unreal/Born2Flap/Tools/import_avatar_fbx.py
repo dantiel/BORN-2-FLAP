@@ -1,9 +1,11 @@
-"""Import the 8 modern Mixamo FBX pilots as SkeletalMeshes, then retarget the
+"""Import the modern Mixamo FBX pilots as SkeletalMeshes, then retarget the
 shared locomotion clips onto each character's own mixamorig skeleton.
 
-All 8 are 65-bone `mixamorig:` characters (covers_animation_rig=true) so the
-shared clip set retargets 1:1 with no undriven prop bones (the old fantasy
-roster had 67-99 bone rigs whose extra prop/hair bones froze in ref pose).
+The 8 modern humans are 65-bone `mixamorig:` characters; the 10 costume/fantasy
+additions (Heraklios, Alien, Ninja, Knight, Pumpkinhulk, Whiteclown, Goblin,
+Demon, Gas Mask, X-Bot) are 65-79 bone rigs whose extra bones are rigid props
+(armor, horns, headgear) — they stay in ref pose without visible artefacts.
+All carry covers_animation_rig=true, so the shared clip set retargets 1:1.
 
 Why FBX (not GLB): these come from the Mixamo library snapshot (FBX 7.7), already
 carrying the clean 65-bone `mixamorig:*` skeleton at cm scale.  UE imports them

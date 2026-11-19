@@ -22,10 +22,10 @@ public:
     void SetSkin(int32 Index);
     static int32 GetSkinCount() { return 4; }
 
-    // John (the founder), Erika, + eight modern Mixamo characters, each with
-    // its own mesh, skeleton and baked clip set.
+    // John (the founder), Erika, eight modern Mixamo characters, and Isis
+    // (Desert Queen) — each with its own mesh, skeleton and baked clip set.
     void SetPerson(int32 Index);
-    static int32 GetPersonCount() { return 10; }
+    static int32 GetPersonCount();
     static FString GetPersonName(int32 Index);
 
     // Footstep player (procedural): the pawn's FootstepVolume preference rides
@@ -33,6 +33,12 @@ public:
     void SetFootstepVolume(float Volume);
     float GetGaitPhase() const { return GaitPhase; }
     float GetGroundSpeed() const { return LocalForwardSpeed; }
+    // Per-person locomotion: movement speed (cm/s) and the authored clip speed
+    // the gait cadence is matched against. Different per character so each
+    // pilot walks/runs at their own pace — tall long-strided vs short quick —
+    // instead of one shared walk/run rate.
+    float GetWalkSpeedCm() const { return PersonWalkSpeed; }
+    float GetRunSpeedCm() const { return PersonRunSpeed; }
 
     void SetPlacement(const FVector& WorldFeet, float WorldYaw);
     // Movement relative to the avatar's facing direction: +X = forward (walk),
@@ -50,6 +56,14 @@ public:
     // Gaze pitch at the throw aim (degrees, up positive). Drives the wind-up
     // lean so the throw is articulated in height as well as direction.
     void SetThrowAimPitch(float PitchDeg);
+    // Follow-mode gaze pitch (degrees, up positive): the pilot watching the
+    // bird. Rendered as a head-only nod by UBorn2FlapAvatarAnimInstance (the
+    // body itself stays upright).
+    void SetHeadLookPitch(float PitchDeg);
+    // Strength of the charged throw (0..1), set live by the pawn while the
+    // wheel tunes the charge during the SPACE wind-up: the cock pose follows
+    // the charge, so more strength winds the arm back further.
+    void SetThrowCharge(float Charge01);
     // One-shot catch: the pilot's hands take the returning bird out of the air
     // (SK_FounderCatch), then return to idle. Played on a successful handcatch.
     void BeginCatch();
@@ -63,8 +77,9 @@ public:
     // world locations. Used by the throw test to capture the real pose curve.
     FString DebugThrowState() const;
     // Halt time of the throw clip (seconds from clip start): the first moment
-    // the carrying hand reaches its highest point — the cocked position the
-    // SPACE-hold wind-up freezes at. -1 until the throw clip is analysed.
+    // the carrying hand reaches its highest point — the boundary between the
+    // slow reach-back and the normal-speed throw. The SPACE-hold wind-up
+    // freezes at a fraction of it (the reach-back pose). -1 until analysed.
     float GetThrowHaltTime() const { return ThrowHaltTime; }
 
     DECLARE_DELEGATE(FOnThrowRelease);
@@ -81,14 +96,19 @@ private:
     void PoseThrow(float Dt);
     float ComputeThrowLean() const;
     void SetBoneRotation(int32 BoneIndex, const FRotator& Rot);
-    void UpdateCarrySocket();
+    void UpdateCarrySocket(float Dt);
     // Scrub the throw clip once and measure the carrying hand's height curve to
     // find the wind-up halt (the first moment the bird is lifted high).
     void ComputeThrowHalt();
+    // The reach-back hold: the wind-up stops at this fraction of the measured
+    // hand apex — early enough that the pose reads "cocked back", not
+    // "released". The apex itself stays the boundary between the slow
+    // reach-back and the normal-speed throw sweep.
+    float GetThrowCockTime(float ClipDuration) const;
 
     UPROPERTY() USceneComponent* Root = nullptr;
     UPROPERTY() USkeletalMeshComponent* Body = nullptr;
-    UPROPERTY() USkeletalMeshComponent* BodyExtra = nullptr;  // X-Bot second body section
+    UPROPERTY() USkeletalMeshComponent* BodyExtra = nullptr;  // second body section (leader-pose driven)
     UPROPERTY() USceneComponent* CarrySocket = nullptr;
 
     // Retargeted Mixamo locomotion clips (kept alive by UPROPERTY; a bare
@@ -128,6 +148,13 @@ private:
     float GaitPhase = 0.f;
     float GaitBlend = 0.f;
     float MeshScale = 1.f;
+    // Per-person locomotion tuning (set in LoadPerson): actual ground speed
+    // (cm/s) and the native speed each baked clip implies, so the play rate
+    // (rate = speed / native) matches cadence to the character's stride.
+    float PersonWalkSpeed = 220.f;
+    float PersonRunSpeed = 440.f;
+    float PersonWalkNative = 105.f;
+    float PersonRunNative = 200.f;
     bool bCarrying = false;
     bool bFirstPerson = false;
     // Hold the bird in the right hand by default; a left-handed option will
@@ -141,6 +168,11 @@ private:
     float ThrowHaltTime = -1.f;
     bool bThrowHaltComputed = false;
     float ThrowAimPitch = 0.f;
+    float HeadLookPitch = 0.f;
+    float ThrowCharge = 0.f;
+    // Bird roll in the carry socket: sideways (90 deg, dorsal side out) while
+    // carried; eased to horizontal while the throw gesture plays.
+    float CarryRoll = 0.f;
     bool bCatching = false;
     float CatchTime = 0.f;
     double WorldTime = 0.0;

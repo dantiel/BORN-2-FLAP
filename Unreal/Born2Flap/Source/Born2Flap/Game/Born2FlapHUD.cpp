@@ -92,9 +92,9 @@ void ABorn2FlapHUD::DrawHUD()
     const auto* Controller = Bird->GetRcController();
     if (Controller && Controller->IsPanelOpen()) { DrawRcPanel(*Controller); return; }
     if (FParse::Param(FCommandLine::Get(), TEXT("B2FRavenCapture"))) return;
-    // The brand + telemetry readouts belong to the Ruby Brain (cockpit.umghaml);
-    // the imperative canvas keeps only the functional bits (RC panel, channels,
-    // race line, key hints, camera label).
+    // The brand + telemetry + camera readouts (camera label, follow/zoom toasts)
+    // belong to the Ruby Brain (cockpit.umghaml); the imperative canvas keeps
+    // only the functional bits (RC panel, channels, race line, key hints).
     if (auto *Mode = Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode()); Mode && Mode->IsNatureLevel())
     {
         const auto *Rc = Bird->GetRcController();
@@ -136,12 +136,11 @@ void ABorn2FlapHUD::DrawHUD()
     DrawRect(FLinearColor(.015f, .035f, .045f, .82f), 20, Y, Canvas->SizeX - 40, 65);
     DrawText(TEXT("SPACE launch   W throttle   CTRL+W low   SHIFT+W full   WHEEL fine   MOUSE + ARROWS/A/D steering   R reset"),
              Cream, 38, Y + 12, GEngine->GetSmallFont(), 1.05f);
-    DrawText(TEXT("CLICK centres mouse   F6 bird/pilot   V 1st/3rd   F8 bird + controls   F2 channels   F3 RC   F4 level   F7 HUD   F9 input"),
+    DrawText(TEXT("CLICK centres mouse   F6 bird/pilot   V 1st/3rd   K follow   MMB walk/look   F8 bird + controls   F2 channels   F3 RC   F4 level   F7 HUD   F9 input"),
              Muted, 38, Y + 38, GEngine->GetSmallFont(), 1.f);
     if (Rc && Rc->IsPanelOpen())
         DrawRcPanel(*Rc);
-    DrawText(Bird->GetCameraLabel(), FLinearColor(.68f,.74f,.70f), 47, 110, GEngine->GetSmallFont(), .8f);
-        if (bShowChannels) DrawChannels(*Bird);
+    if (bShowChannels) DrawChannels(*Bird);
 }
 void ABorn2FlapHUD::DrawMouseIndicator(const ABorn2FlapFlightPawn& Bird)
 {

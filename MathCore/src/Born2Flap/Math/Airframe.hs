@@ -65,9 +65,12 @@ airframeInertia model total cgX = (ix,iy,iz)
   bodyZ= -2*wing*wingZ/body
   (len,width,height)=fuselageDimensions
   -- All inertias use the same centre of mass, including the vertical offset.
-  bx=body*(width*width+height*height)/20 + body*bodyZ*bodyZ
-  by=body*(len*len+height*height)/20 + body*((bodyX-cgX)^2+bodyZ*bodyZ)
-  bz=body*(len*len+width*width)/20 + body*(bodyX-cgX)^2
+  -- The /25 core factor models the mass as concentrated toward the spine
+  -- (battery/servo near the shoulder) rather than filling the 0.42 m feather
+  -- shell uniformly; a uniform box would be /12.
+  bx=body*(width*width+height*height)/25 + body*bodyZ*bodyZ
+  by=body*(len*len+height*height)/25 + body*((bodyX-cgX)^2+bodyZ*bodyZ)
+  bz=body*(len*len+width*width)/25 + body*(bodyX-cgX)^2
   ix=bx+2*sum [m*(r*r+wingZ*wingZ) | (m,_,r,_) <- wings]+sum [m*y*y | (m,_,y) <- ts]
   iy=by+2*sum [m*((x-cgX)^2+variance+wingZ*wingZ) | (m,x,_,variance) <- wings]+sum [m*(x-cgX)^2 | (m,x,_) <- ts]
   iz=bz+2*sum [m*((x-cgX)^2+variance+r*r) | (m,x,r,variance) <- wings]+sum [m*((x-cgX)^2+y*y) | (m,x,y) <- ts]

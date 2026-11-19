@@ -33,6 +33,7 @@
 #include "WorldPartitionMeshPartitionBuilder.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "UObject/Package.h"
+#include "UObject/UObjectIterator.h"
 
 #include "DynamicMesh/DynamicMesh3.h"
 #include "DynamicMesh/MeshNormals.h"
@@ -825,10 +826,29 @@ bool UBorn2FlapMeshPartition::SaveWorldExternalFirst(UWorld* InWorld, const FStr
 	TArray<UPackage*> ExternalPackages;
 	for (UPackage* ExternalPackage : InWorld->PersistentLevel->GetLoadedExternalObjectPackages())
 	{
-		if (FPackageName::IsValidLongPackageName(ExternalPackage->GetName(), false))
+		if (!ExternalPackage || !FPackageName::IsValidLongPackageName(ExternalPackage->GetName(), false))
 		{
-			ExternalPackages.Add(ExternalPackage);
+			continue;
 		}
+		// A destroyed authoring actor (StripAuthoringActors) is pending kill but
+		// its external package lingers in the loaded list; PromptForCheckoutAndSave
+		// then dereferences it and access-violates. Skip packages with no live actor.
+		bool bHasLiveActor = false;
+		ForEachObjectWithOuter(ExternalPackage, [&bHasLiveActor](UObject* Object)
+		{
+			if (const AActor* Actor = Cast<AActor>(Object))
+			{
+				if (IsValid(Actor))
+				{
+					bHasLiveActor = true;
+				}
+			}
+		});
+		if (!bHasLiveActor)
+		{
+			continue;
+		}
+		ExternalPackages.Add(ExternalPackage);
 	}
 	if (ExternalPackages.Num() > 0)
 	{
@@ -997,7 +1017,13 @@ int32 UBorn2FlapMeshPartition::LoadAllCompiledSections(UWorld* InWorld)
 	for (const auto& Pair : Container->GetActorsByGuid())
 	{
 		const FWorldPartitionActorDesc* Desc = Pair.Value ? Pair.Value->Get() : nullptr;
-		if (!Desc || !Desc->GetBaseClass().ToString().Contains(TEXT("CompiledSection")))
+		// Compiled-section descs are namespaced (UE::MeshPartition::ACompiledSection):
+		// GetBaseClass() resolves to an empty path for them, while GetDisplayClassName()
+		// returns "CompiledSection". Match on both so LoadAllCompiledSections actually
+		// finds them (the Nov 13 "invisible terrain" probe false-negative root cause).
+		if (!Desc
+			|| (!Desc->GetBaseClass().ToString().Contains(TEXT("CompiledSection"))
+				&& !Desc->GetDisplayClassName().ToString().Contains(TEXT("CompiledSection"))))
 		{
 			continue;
 		}

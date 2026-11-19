@@ -15,7 +15,10 @@ from pathlib import Path
 from PIL import Image
 
 DIR = Path(r'V:/BORN 2 FLAP/Unreal/Born2Flap/SourceAssets/Mixamo/Characters')
-NAMES = ['SK_Amy', 'SK_Michelle', 'SK_Sophie', 'SK_Kate', 'SK_James', 'SK_Adam', 'SK_Brian', 'SK_Alex']
+NAMES = ['SK_Amy', 'SK_Michelle', 'SK_Sophie', 'SK_Kate', 'SK_James', 'SK_Adam', 'SK_Brian', 'SK_Alex',
+         'SK_Heraklios', 'SK_Alien', 'SK_Ninja', 'SK_Knight',
+         'SK_Pumpkinhulk', 'SK_Whiteclown', 'SK_Goblin',
+         'SK_Demon', 'SK_GasMask', 'SK_XBot']
 
 
 def read_glb(path):

@@ -23,13 +23,21 @@ void ABorn2FlapFlightPawn::CheckThrowAnimTest(float DeltaSeconds)
 
     // Timeline: the bird spawns at ~68 cm and must fall + land + settle before
     // the ground charge works (bCameraGrounded flips at ~2.0s here). Press at
-    // 3.0s (wind-up begins) and release at 4.0s (throw completes). The 1.0s
-    // hold exceeds the wind-up (the hand-apex halt, ~25% of the throw clip),
-    // so the hand reaches the cocked position and holds there before the
-    // release.
+    // 3.0s (wind-up begins) and release at 4.0s (throw completes). The charge
+    // ramps to full strength during the hold, which deepens the reach-back:
+    // the cock pose follows the charge (35%-85% of the hand apex), so the
+    // strong throw winds the arm further back before the release finishes the
+    // reach-back at the slow rate and throws forth at normal speed from that
+    // more wound-up position.
     const double T = ThrowAnimTestTime;
     if (T >= 3.0 && T < 3.1) Key(EKeys::SpaceBar, true);
     if (T >= 4.0 && T < 4.1) Key(EKeys::SpaceBar, false);
+    // Ramp the throw strength during the hold, exactly as the wheel does (the
+    // wheel feeds ThrowCharge, which the charge block forwards to the avatar).
+    // Full charge by release so the wind-up follows the deep reach-back and
+    // the throw starts from that more wound-up position.
+    if (bThrowCharging && T < 4.0)
+        ThrowCharge = FMath::Min(1.f, ThrowCharge + DeltaSeconds * 1.5f);
 
     // Periodic state so the settle/press/hold window is fully visible in the log.
     static int32 LastHeartbeat = -1;

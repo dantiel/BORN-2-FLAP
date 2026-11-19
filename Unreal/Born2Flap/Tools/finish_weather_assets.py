@@ -105,9 +105,12 @@ def repair_breaking_surf():
     lerp=node(m,'LinearInterpolate');connect(r,lerp,'A');connect(lace,lerp,'B');connect(dens,lerp,'Alpha')
     pw=node(m,'Power');connect(lerp,pw,'Base');connect(contr,pw,'Exp')
     foam=sat(pw)
-    # Emissive: bright white foam with a high floor so the wash never greys out.
-    lv=node(m,'Multiply',const_b=0.70);connect(foam,lv,'A')
-    lfloor=node(m,'Constant',r=0.95)
+    # Emissive: bright white foam with a high HDR floor so the wash never greys
+    # out. The unlit emissive must match the lit scene's HDR brightness (~10^4
+    # above a ~1.0 floor): a 0.95 floor was crushed to black by the photometric
+    # auto-exposure (~2e-5 scale), so the floor lives in the thousands.
+    lv=node(m,'Multiply',const_b=3000.0);connect(foam,lv,'A')
+    lfloor=node(m,'Constant',r=6000.0)
     level=node(m,'Add');connect(lfloor,level,'A');connect(lv,level,'B')
     white=node(m,'Constant3Vector',constant=u.LinearColor(1.,1.,1.,1.))
     col=node(m,'Multiply');connect(white,col,'A');connect(level,col,'B')

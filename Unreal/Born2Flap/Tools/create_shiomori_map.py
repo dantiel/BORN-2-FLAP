@@ -457,6 +457,11 @@ def water_material(name, color, rough=0.08, specular=0.6, shore_color=(0.03, 0.2
     m.set_editor_property('translucency_pass', u.MaterialTranslucencyPass.MTP_BEFORE_DOF)
     m.set_editor_property('two_sided', True)
     m.set_editor_property('refraction_method', u.RefractionMode.RM_NONE)
+    # The travelling/Gerstner normals below are WORLD-space (built from P.xy and
+    # the analytic wave gradient) — the default tangent-space interpretation
+    # re-rotates them by the displaced wave slope, which flips NdotL on the
+    # lee faces of every swell and shades the wave ribs black. World-space.
+    m.set_editor_property('tangent_space_normal', False)
     # Screen-space refraction can displace foreground wings through the ocean.
     output(node(m, 'Constant', r=1.33), 'REFRACTION')
     p = node(m, 'WorldPosition')
@@ -519,11 +524,12 @@ def water_material(name, color, rough=0.08, specular=0.6, shore_color=(0.03, 0.2
   float3 water=float3(%.6g,%.6g,%.6g);
   float3 sky=float3(0.42,0.66,1.22)*lerp(0.95,1.55,Sun);
   float refl=saturate(0.15+(1.35+0.75*Sun)*Fresnel);
-  // Body glow floor: water*0.95 (was *0.38) — the water is SELF-LUMINOUS teal,
-  // never a dark slab; the sky mirror adds the reflective part on top.
-  float3 body=lerp(water*0.95, sky*1.30, refl);
+  // Body glow floor: water*2.4 — the water is SELF-LUMINOUS HDR teal that
+  // survives the EV-14 auto-exposure of a sunny scene (water*0.95 tonemapped
+  // down to near-black against sunlit land); the sky mirror rides on top.
+  float3 body=lerp(water*2.4, sky*1.35, refl);
   float surf=smoothstep(26.0,6.0,d)*Foam;
-  return lerp(body, float3(1.10,1.10,1.06), saturate(surf));''' % (
+  return lerp(body, float3(2.0,2.0,1.95), saturate(surf));''' % (
         color[0], color[1], color[2]),
         {'SceneDepth': sd, 'PixelDepth': pd, 'Fresnel': fn, 'Sun': sun, 'Foam': nz})
     output(em, 'EMISSIVE_COLOR')

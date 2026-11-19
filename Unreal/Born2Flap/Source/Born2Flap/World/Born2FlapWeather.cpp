@@ -100,17 +100,31 @@ void ABorn2FlapWeather::Apply()
     const float AmbientFill=3.2f+1.5f*LowSun;
     const float SoftAngle=FMath::Lerp(2.2f,4.2f,LowSun);
     bool bFogFound=false;
+    int32 SunCount=0;
     for(TActorIterator<AActor> It(GetWorld());It;++It)
     {
         TInlineComponentArray<UDirectionalLightComponent*> Suns(*It);
         for(auto* Sun:Suns)
         {
-            if(!Sun->bAtmosphereSunLight) continue;
+            if(!Sun->bAtmosphereSunLight)
+            {
+                // TEMP DIAGNOSTIC (black-water): the map's authored sun must
+                // carry the atmosphere flag, otherwise the weather silently
+                // skips it and the bay renders with the authored light.
+                UE_LOG(LogTemp, Warning, TEXT("WEATHERDBG sun-skip %s atm=%d int=%.1f"),
+                    *Sun->GetOwner()->GetName(), Sun->bAtmosphereSunLight ? 1 : 0,
+                    Sun->Intensity);
+                continue;
+            }
             Sun->SetMobility(EComponentMobility::Movable);
             Sun->SetWorldRotation(SunRotation);
             Sun->SetIntensity(D.Lux*W.Sunlight*Ssn.SunLux);
             Sun->SetLightColor(LightColor);
             Sun->SetLightSourceSoftAngle(SoftAngle);
+            ++SunCount;
+            UE_LOG(LogTemp, Warning, TEXT("WEATHERDBG sun-set %s rot=%s int=%.1f"),
+                *Sun->GetOwner()->GetName(), *SunRotation.ToString(),
+                D.Lux*W.Sunlight*Ssn.SunLux);
         }
         TInlineComponentArray<USkyLightComponent*> Skies(*It);
         for(auto* Sky:Skies)
@@ -163,18 +177,44 @@ void ABorn2FlapWeather::Apply()
     // caps blowout. Night uses the same scheme; its mood comes from the
     // light colours and sky, not from an exposure pin.
     S.bOverride_AutoExposureMinBrightness=S.bOverride_AutoExposureMaxBrightness=S.bOverride_AutoExposureBias=true;
-    S.AutoExposureBias=0;
-    // Bias the exposure histogram toward the ground: ignore the top 10% of
-    // brightness (sky, sun disc, clouds) and fold more dark pixels in, so a
-    // bright sky above a dark forest floor no longer drags the adaptation
-    // down into black shadows. The wide EV window still bounds the result.
+    // Bias the exposure histogram toward the ground: ignore the top 30% of
+    // brightness (sky, sun disc, clouds, sea-glitter) and measure the mid-tones
+    // (ground, bird, water body) so a bright sky above a dark lagoon no longer
+    // drags the adaptation down into black shadows. The wide EV window still
+    // bounds the result.
     S.bOverride_AutoExposureLowPercent=S.bOverride_AutoExposureHighPercent=true;
-    S.AutoExposureLowPercent=70.f;
-    S.AutoExposureHighPercent=90.f;
-    const float EVMin=EV-(D.Night?5.f:6.f);
-    const float EVMax=EV+(D.Night?1.f:2.f);
-    S.AutoExposureMinBrightness=Range && Range->GetInt() ? EVMin : FMath::Pow(2.f,EVMin);
-    S.AutoExposureMaxBrightness=Range && Range->GetInt() ? EVMax : FMath::Pow(2.f,EVMax);
+    S.AutoExposureLowPercent=40.f;
+    S.AutoExposureHighPercent=70.f;
+    if(D.Night)
+    {
+        // Night keeps the histogram (the dark sky no longer drags the
+        // adaptation) inside a wide window — moonlit moods still adapt.
+        S.AutoExposureBias=0.f;
+        const float EVMin=EV-5.f;
+        const float EVMax=EV+1.f;
+        S.AutoExposureMinBrightness=Range && Range->GetInt() ? EVMin : FMath::Pow(2.f,EVMin);
+        S.AutoExposureMaxBrightness=Range && Range->GetInt() ? EVMax : FMath::Pow(2.f,EVMax);
+    }
+    else
+    {
+        // THE SHIOMORI BAY LESSON (black water / black foam): the HDR sky and
+        // the bay's sea-glitter used to dominate the histogram band and drive
+        // the exposure down to a ~2e-5 scale — lit teal water read near-black
+        // and no material emissive floor (2.0-2.4 HDR) could lift it. The
+        // histogram band is now measured on the mid-tones (see LowPercent/
+        // HighPercent above), which keeps the adaptation on the ground/water
+        // instead of the sky. A small sun-scaled bias remains for noon's
+        // residual glitter, but the mid-tone band does the heavy lifting.
+        const float EVMin=EV-6.f;
+        const float EVMax=EV+0.5f;
+        S.AutoExposureMinBrightness=Range && Range->GetInt() ? EVMin : FMath::Pow(2.f,EVMin);
+        S.AutoExposureMaxBrightness=Range && Range->GetInt() ? EVMax : FMath::Pow(2.f,EVMax);
+        S.AutoExposureBias=0.75f*FMath::Clamp(SunElevation/30.f,0.f,1.f);
+    }
+    // TEMP DIAGNOSTIC (black-water): expose the adaptation window so the
+    // live game log reveals where the histogram actually lands.
+    UE_LOG(LogTemp, Warning, TEXT("WEATHERDBG exposure ev=%.2f night=%d bias=%.2f suns=%d"),
+        EV, D.Night ? 1 : 0, S.AutoExposureBias, SunCount);
     // Global ambient floor: multiply the Lumen GI contribution on every level
     // so direct sun shadowing never blacks out the ground under canopies.
     // Night keeps a smaller lift to preserve its mood within the exposure

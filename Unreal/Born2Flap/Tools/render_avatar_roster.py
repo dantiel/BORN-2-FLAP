@@ -25,6 +25,7 @@ PERSONS = [
     ('Adam', '/Game/Actor/SK_Adam/SkeletalMeshes/SK_Adam.SK_Adam'),
     ('Brian', '/Game/Actor/SK_Brian/SkeletalMeshes/SK_Brian.SK_Brian'),
     ('Alex', '/Game/Actor/SK_Alex/SkeletalMeshes/SK_Alex.SK_Alex'),
+    ('Isis', '/Game/Actor/SK_Isis/SkeletalMeshes/SK_Isis.SK_Isis'),
 ]
 
 world = u.EditorLoadingAndSavingUtils.load_map('/Game/Shiomori/Maps/SHIOMORI')
@@ -53,7 +54,8 @@ for i, (name, mesh_path) in enumerate(PERSONS):
     # BeginPlay; editor spawn skips LoadPerson so we replicate it in Python).
     try:
         cls = u.load_class(None, '/Script/Born2Flap.Born2FlapAvatar')
-        actor = actor_sub.spawn_actor_from_class(cls, u.Vector(i * 210.0 - 950.0, 0, 0), u.Rotator(0, 0, 0))
+        # Row centred on the camera target X=0; 170 cm spacing.
+        actor = actor_sub.spawn_actor_from_class(cls, u.Vector((i - (len(PERSONS) - 1) / 2.0) * 170.0, 0, 0), u.Rotator(0, 0, 0))
         comps = actor.get_components_by_class(u.SkeletalMeshComponent)
         comp = comps[0] if comps else None
         if comp is None:

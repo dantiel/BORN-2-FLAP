@@ -1350,6 +1350,13 @@ void ABorn2FlapFlightPawn::StartThrowCharge()
 {
     bThrowCharging = true;
     ThrowCharge = 0.f;
+    // The direction selection must begin exactly where the player is currently
+    // looking: capture the live view rotation before the wind-up cut re-frames
+    // the camera, then re-anchor the aim to it once the bird is in the hand.
+    FRotator StartLook = FRotator::ZeroRotator;
+    if (const APlayerController* PC = Cast<APlayerController>(GetController()))
+        if (PC->PlayerCameraManager)
+            StartLook = PC->PlayerCameraManager->GetCameraRotation();
     if (!Avatar)
         return;
     // Only pick up a grounded bird for the wind-up. A flying bird never enters
@@ -1365,6 +1372,7 @@ void ABorn2FlapFlightPawn::StartThrowCharge()
         // Raise the hands to the throw's cocked position and hold the bird there
         // while SPACE is held; the release completes the throw on SPACE up.
         Avatar->BeginThrowWindup();
+        AlignThrowAimToLook(StartLook);
     }
 }
 
@@ -1386,14 +1394,46 @@ void ABorn2FlapFlightPawn::FinishThrowCharge()
     LaunchFlight();
 }
 
+void ABorn2FlapFlightPawn::AlignThrowAimToLook(const FRotator& Look)
+{
+    // The wind-up cut just framed the over-the-shoulder rig (bThirdPersonActor);
+    // the camera and the throw aim share the same orbit offsets (GetThrowAim
+    // mirrors ComputePilotOrbit), so re-deriving the offsets from the captured
+    // view direction makes the selection start exactly where the player was
+    // looking — no snap to the avatar facing (follow ON, which HoldBird's
+    // zeroing would jump toward) or to world +X (follow OFF, where the orbit
+    // offsets ARE the absolute camera angles).
+    if (!bThirdPersonActor)
+        return;
+    if (!bAutoFollowBird)
+    {
+        ActorOrbitYaw   = float(Look.Yaw);
+        ActorOrbitPitch = float(Look.Pitch);
+        return;
+    }
+    ActorOrbitYaw = float(Look.Yaw - ThrowBaseYaw);
+    FVector CamPos; FRotator CamRot;
+    ComputePilotOrbit(CamPos, CamRot);   // CamYaw now == Look.Yaw
+    // Follow ON adds the aim-at-the-bird pitch to the orbit offset; subtract
+    // the (hand-held) bird's part so the camera pitch lands on the captured
+    // look. Mirror the camera's [-80,80] clamp for the stored offset.
+    ActorOrbitPitch = FMath::Clamp(
+        float(Look.Pitch - (Body->GetComponentLocation() - CamPos).Rotation().Pitch),
+        -80.f, 80.f);
+}
+
 // One source of truth for the charged throw's initial velocity: the preview arc
 // and the actual launch read the same numbers, so the drawn curve can never
 // diverge from where the bird is initially thrown.
 static FVector ThrowLaunchVelocity(float Charge, float Yaw, float Pitch)
 {
-    const float Speed    = 650.f + Charge * 450.f;
-    const float Vertical = (220.f + Charge * 150.f) + FMath::Clamp(Pitch, -20.f, 60.f) * 8.f;
-    return FRotator(0.f, Yaw, 0.f).Vector() * Speed + FVector(0.f, 0.f, Vertical);
+    // The aim pitch steers the WHOLE launch direction: looking up lobs, looking
+    // down dives, and the charge only scales the speed along that direction.
+    // The old separate upward bias (220 + charge*150) made every throw arc up,
+    // so aiming down could never actually throw down.
+    const float Speed = 650.f + Charge * 450.f;
+    const float P     = FMath::Clamp(Pitch, -80.f, 80.f);
+    return FRotator(P, Yaw, 0.f).Vector() * Speed;
 }
 
 void ABorn2FlapFlightPawn::DrawThrowPreview(float Charge, const FVector& Origin, float Yaw, float Pitch)
@@ -1445,8 +1485,8 @@ void ABorn2FlapFlightPawn::LaunchFlight()
     if (bFromPilot)
     {
         // Throw along the pilot's gaze (yaw + pitch), launched from clearly
-        // above the head — not waist height. Looking up throws higher, down
-        // flattens.
+        // above the head — not waist height. Looking up lobs, looking down
+        // dives: the aim pitch steers the whole trajectory.
         // Read the aim BEFORE releasing the hand-held bird: GetThrowAim must
         // still see bBirdHeld so it uses the stable ThrowBaseYaw/CarryBaseYaw
         // path — releasing first would fall back to the degenerate anchor→bird
@@ -1469,8 +1509,9 @@ void ABorn2FlapFlightPawn::LaunchFlight()
     WingWaterDepthPrev.Reset();
     Body->SetWorldLocationAndRotation(LaunchPos, Heading, false, nullptr,
                                       ETeleportType::TeleportPhysics);
-    // Charged throw: strength scales with the wheel during the SPACE wind-up; the
-    // gaze pitch adds loft. A quick tap ≈ the old 8.5 m/s hand launch.
+    // Charged throw: strength scales with the wheel during the SPACE wind-up,
+    // and the gaze pitch steers the direction (up AND down). A quick tap with a
+    // level gaze ≈ the old 8.5 m/s hand launch.
     const FVector LaunchVel = ThrowLaunchVelocity(Charge, LaunchYaw, LaunchPitch);
     Body->SetPhysicsLinearVelocity(LaunchVel);
     Body->SetPhysicsAngularVelocityInRadians(FVector::ZeroVector);
@@ -1622,13 +1663,24 @@ void ABorn2FlapFlightPawn::UpdateAvatarState(float Dt)
         return;
     }
 
-    // While walking the pilot faces their own A/D-turned facing (and keeps it
-    // after the walk ends until the next landing). Otherwise they face the
-    // bird; when carrying, the bird is in the hand, so the facing captured at
-    // pickup is used — re-anchoring to the hand-held bird would chase the
-    // pilot's own hand and spin.
+    // K-follow (bAutoFollowBird) with a free bird (not held/carried): the
+    // pilot ALWAYS turns to face the bird — even mid-walk — and tilts their
+    // head-look up/down toward it. Rotating the camera until the bird leaves
+    // the view releases the follow (ApplyPilotOrbit) and the avatar falls
+    // back to the rules below. While walking the pilot faces their own
+    // A/D-turned facing (and keeps it after the walk ends until the next
+    // landing). Otherwise they face the bird; when carrying, the bird is in
+    // the hand, so the facing captured at pickup is used — re-anchoring to
+    // the hand-held bird would chase the pilot's own hand and spin.
+    const bool bFollowFreeBird = bAutoFollowBird && !bBirdHeld && !bBirdCarried;
     float FaceYaw;
-    if (bWalkModeActive || bPilotFacingValid)
+    if (bFollowFreeBird)
+    {
+        FVector ToBird = Body->GetComponentLocation() - GroundAnchor;
+        ToBird.Z = 0.f;
+        FaceYaw = ToBird.IsNearlyZero() ? float(GroundGaze.Yaw) : ToBird.Rotation().Yaw;
+    }
+    else if (bWalkModeActive || bPilotFacingValid)
     {
         FaceYaw = PilotFacingYaw;
     }
@@ -1645,6 +1697,20 @@ void ABorn2FlapFlightPawn::UpdateAvatarState(float Dt)
             : ToBird.Rotation().Yaw;
         FaceYaw = BaseFaceYaw;
     }
+
+    // Head-look articulation for the follow mode: gaze pitch toward the bird
+    // (smoothed; the avatar renders it as a gentle whole-body tilt because
+    // UE 5.8 has no public per-bone pose API). Damped to zero close-up where
+    // the direction degenerates.
+    float HeadPitchTarget = 0.f;
+    if (bFollowFreeBird)
+    {
+        const FVector ToBird3 = Body->GetComponentLocation() - GroundAnchor;
+        if (ToBird3.Size() > 150.f)
+            HeadPitchTarget = FMath::Clamp(float(ToBird3.Rotation().Pitch), -45.f, 45.f);
+    }
+    AvatarHeadPitch = FMath::FInterpTo(AvatarHeadPitch, HeadPitchTarget, Dt, 8.f);
+    Avatar->SetHeadLookPitch(AvatarHeadPitch);
 
     // Decompose the world displacement into forward / strafe components in the
     // avatar's local frame so it picks walk / strafe / backward correctly.
@@ -2188,7 +2254,9 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         Wheel = PC->GetInputAnalogKeyState(EKeys::MouseWheelAxis);
         MuteMouseYaw = PC->IsInputKeyDown(EKeys::LeftMouseButton);
         RmbDown = PC->IsInputKeyDown(EKeys::RightMouseButton);
-        MuteMouseRoll = RmbDown;
+        // FPV keeps RMB as the flight roll-mute; in every other view the RMB
+        // owns the zoom and the mouse keeps steering the roll stick.
+        MuteMouseRoll = bFpvAirView && RmbDown;
         RmbPressed = PC->WasInputKeyJustPressed(EKeys::RightMouseButton);
         RmbReleased = PC->WasInputKeyJustReleased(EKeys::RightMouseButton);
         ResetMouse = PC->WasInputKeyJustPressed(EKeys::LeftMouseButton) ||
@@ -2197,16 +2265,34 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
         // RMB temporary zoom+aim: hold to snap the camera to the bird and zoom
         // in, release to restore the chosen view. FPV keeps RMB as the flight
         // roll-mute only (there is no aim to snap to on the bird's own nose).
+        // Release is handled first so a same-frame release+press (automated
+        // input rigs) ends the frame re-activated, never stuck off.
+        if (bRmbZoom && RmbReleased)
+        {
+            RestoreViewSnapshot();
+            bRmbZoom = false;
+        }
         if (RmbPressed && !bRmbZoom && !bFpvAirView && !bMenuOpen &&
             !IsFlightSettingsOpen() && !IsPoiOverlayOpen())
         {
             SaveViewSnapshot();
             bRmbZoom = true;
+            AnnounceZoom();   // show the zoom amount the moment it engages
         }
-        else if (bRmbZoom && RmbReleased)
+        // While the RMB zoom is held, the wheel tunes the zoom factor (2..20)
+        // instead of the flapping speed modifier; a middle click resets the
+        // factor to the default zoom.
+        if (bRmbZoom)
         {
-            RestoreViewSnapshot();
-            bRmbZoom = false;
+            const float PrevZoomFactor = RmbZoomFactor;
+            if (MmbPressed) RmbZoomFactor = RmbZoomDefault;
+            if (!FMath::IsNearlyZero(Wheel))
+                RmbZoomFactor = FMath::Clamp(RmbZoomFactor + Wheel * 1.f, 2.f, 20.f);
+            Wheel = 0.f; // consumed — no speed-modifier scroll while zooming
+            // Corner toast: re-announce the live zoom amount whenever the lens
+            // factor moves (wheel steps, MMB reset).
+            if (!FMath::IsNearlyEqual(PrevZoomFactor, RmbZoomFactor))
+                AnnounceZoom();
         }
         // Z/X rotate the camera in every mode (position-based keys — on German
         // keyboards the physical Y/X keys; Unreal's Windows virtual keys are
@@ -2361,7 +2447,11 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
             // observer's pace so the pilot can cover ground when scouting.
             const bool bRun = PC->IsInputKeyDown(EKeys::LeftShift) ||
                               PC->IsInputKeyDown(EKeys::RightShift);
-            const float WalkSpeed = bRun ? 440.f : 220.f;  // cm/s
+            // Per-character pace: each pilot walks/runs at their own speed
+            // (falls back to the shared 220/440 cm/s when no avatar is up).
+            const float WalkSpeed = bRun
+                ? (Avatar ? Avatar->GetRunSpeedCm() : 440.f)
+                : (Avatar ? Avatar->GetWalkSpeedCm() : 220.f);
             // Seed the pilot's own facing on the first walk step: toward the
             // bird (or the carry/throw base when the bird is in the hand).
             if (!bPilotFacingValid)
@@ -2614,6 +2704,11 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
             ChaseOrbitPitch  = FMath::Clamp(ChaseOrbitPitch, -80.f, 10.f);
         }
         ThrowCharge = FMath::Clamp(ThrowCharge + Wheel * 0.15f, 0.f, 1.f);
+        // Strength-shaped wind-up: the avatar's cock pose follows the charge
+        // live, so more strength = a deeper reach-back and the throw starts
+        // from that more wound-up position on release.
+        if (Avatar)
+            Avatar->SetThrowCharge(ThrowCharge);
         MouseX = MouseY = Wheel = 0.f;
         float PreviewYaw, PreviewPitch;
         GetThrowAim(PreviewYaw, PreviewPitch);

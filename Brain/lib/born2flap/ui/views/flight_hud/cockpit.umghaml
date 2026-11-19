@@ -3,6 +3,7 @@
     %VBox{ spacing: 6 }
       %SizeBox{ width: 300, height: 92 }
         %Image{ texture: "/Game/Splash/born2flap-logo.born2flap-logo" }
+      %Banner{ text: "#{camera_label}", tone: "dim", size: "s" }
       %Panel{ title: "#{t('hud.instruments')}" }
         %Stat{ label: "#{t('hud.altitude')}", value: #{altitude}, unit: "m",   tone: "good", format: "int" }
         %Stat{ label: "#{t('hud.climb')}",    value: #{climb},    unit: "m/s", signed: true, tone: "#{climb_tone}" }
@@ -17,3 +18,5 @@
         %Banner{ text: "#{wind_word}", tone: "#{wind_tone}" }
       %Banner{ text: "#{status}", tone: "normal" }
       %Banner{ text: "#{reward_text}", tone: "accent", visible: #{reward_alpha > 0.01} }
+      %Banner{ text: "#{camera_toast_text}", tone: "accent", size: "s", visible: #{camera_toast_alpha > 0.01} }
+      %Banner{ text: "#{zoom_toast_text}", tone: "info", size: "s", visible: #{zoom_toast_alpha > 0.01} }

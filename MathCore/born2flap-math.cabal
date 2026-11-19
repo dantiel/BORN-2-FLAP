@@ -188,3 +188,10 @@ executable born2flap-lever-arm-probe
   build-depends: base >=4.17 && <5, born2flap-math
   default-language: GHC2021
   ghc-options: -O1
+
+executable born2flap-pitch-loop-probe
+  main-is: PitchLoopProbe.hs
+  hs-source-dirs: test
+  build-depends: base >=4.17 && <5, born2flap-math
+  default-language: GHC2021
+  ghc-options: -O1

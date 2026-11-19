@@ -330,11 +330,19 @@ void UBorn2FlapWingMesh::SetPaintTexture(UTexture2D* Texture)
 }
 bool UBorn2FlapWingMesh::HasValidDeformation()
 {
-    if(!bReceivedShape || PeakBend<.001 || Vertices.Num()<500) return false;
-    const auto* Section=GetProcMeshSection(0); if(!Section || Section->ProcVertexBuffer.Num()!=UV.Num()) return false;
+    // A failure log pins the exact sub-check — the automation summary only
+    // prints PASS/FAIL, which leaves "which wing, which clause" invisible.
+    auto Fail = [&](const TCHAR* Why) { UE_LOG(LogTemp, Warning, TEXT("WingVisual %s: %s"), *GetName(), Why); return false; };
+    if(!bReceivedShape || PeakBend<.001 || Vertices.Num()<500) return Fail(TEXT("no solver shape received"));
+    const auto* Section=GetProcMeshSection(0);
+    if(!Section || Section->ProcVertexBuffer.Num()!=UV.Num()) return Fail(TEXT("section/UV count mismatch"));
     for(int32 I=0;I<Vertices.Num();++I)
-        if(Vertices[I].ContainsNaN() || !Normals[I].IsNormalized() || !Section->ProcVertexBuffer[I].UV0.Equals(UV[I],1.e-6)) return false;
-    if (WingDesign==2 && (FMath::Abs(GetWingTipLocal().Y)<53. || FMath::Abs(GetWingTipLocal().Y)>57.)) return false;
+    {
+        if(Vertices[I].ContainsNaN()) return Fail(TEXT("vertex NaN"));
+        if(!Normals[I].IsNormalized()) return Fail(TEXT("degenerate normal"));
+        if(!Section->ProcVertexBuffer[I].UV0.Equals(UV[I],1.e-6)) return Fail(TEXT("UV drift"));
+    }
+    if (WingDesign==2 && (FMath::Abs(GetWingTipLocal().Y)<53. || FMath::Abs(GetWingTipLocal().Y)>57.)) return Fail(TEXT("membrane tip span out of band"));
     return true;
 }
 FVector UBorn2FlapWingMesh::GetWingTipLocal() const

@@ -1,4 +1,5 @@
 #include "Avatar/Born2FlapAvatar.h"
+#include "Avatar/Born2FlapAvatarAnimInstance.h"
 #include "Avatar/Born2FlapFootsteps.h"
 #include "Components/SceneComponent.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -16,6 +17,16 @@ constexpr float StrideCm = 65.f;
 // Throw animation: total duration and the release moment (fraction 0..1).
 constexpr float ThrowDuration = 0.65f;
 constexpr float ThrowReleaseFraction = 0.45f;
+// Throw wind-up (SPACE held): clip-time advanced per real second while the
+// raise plays — deliberately slow so the reach-back reads. The hold stops at
+// the reach-back pose (a fraction of the measured hand apex), well BEFORE the
+// apex itself, which already looks like the released throw.
+constexpr float ThrowWindupRate = 0.5f;
+// The reach-back hold scales with the charged strength: a weak throw cocks at
+// a shallow reach-back, a strong one sweeps the arm further back — the throw
+// then starts from that deeper wind-up on release.
+constexpr float ThrowCockMin = 0.35f;   // of the hand apex at charge 0
+constexpr float ThrowCockMax = 0.85f;   // of the hand apex at charge 1
 // Catch animation: fallback duration when SK_FounderCatch is missing.
 constexpr float CatchDuration = 1.0f;
 // Normalise any imported character to this standing height (cm).
@@ -53,6 +64,14 @@ struct FB2FAvatarPersonDef
     // young/short pilot does not tower and a burly one does not shrink: the
     // uniform 180 cm target made some look oversized and others undersized.
     float HeightCm;
+    // Per-person locomotion: ground speed (cm/s) when walking / running, and
+    // the native speed each baked clip implies (cm/s). The avatar matches
+    // cadence to the actual speed with play-rate = speed / native, so a
+    // character's stride and pace stay individual instead of one shared gait.
+    float WalkSpeedCm;
+    float RunSpeedCm;
+    float WalkNativeCm;
+    float RunNativeCm;
     // Optional per-slot material overrides, in mesh slot order. The Mixamo
     // FBX meshes import without usable textures (their FBX texture paths point
     // at the export machine), so the PBR materials imported from the companion
@@ -62,36 +81,38 @@ struct FB2FAvatarPersonDef
 const TArray<FB2FAvatarPersonDef>& AvatarPersons()
 {
     static const TArray<FB2FAvatarPersonDef> Persons = {
-        { TEXT("John"),     TEXT("/Game/Actor/SK_Founder"),  TEXT("SK_Founder"),  TEXT("SK_Founder"),  nullptr, 182.f,
+        { TEXT("John"),     TEXT("/Game/Actor/SK_Founder"),  TEXT("SK_Founder"),  TEXT("SK_Founder"),  nullptr, 182.f, 220.f, 440.f, 120.f, 230.f,
           { nullptr, nullptr, nullptr, nullptr } },
-        { TEXT("Erika"),    TEXT("/Game/Actor/SK_Erika"),    TEXT("SK_Erika"),    TEXT("SK_Erika"),    nullptr, 170.f,
+        { TEXT("Erika"),    TEXT("/Game/Actor/SK_Erika"),    TEXT("SK_Erika"),    TEXT("SK_Erika"),    nullptr, 170.f, 210.f, 420.f, 118.f, 222.f,
           { TEXT("/Game/Actor/SK_Erika/Materials/EyeSpec_MAT.EyeSpec_MAT"),
             TEXT("/Game/Actor/SK_Erika/Materials/Akai_MAT.Akai_MAT"),
             TEXT("/Game/Actor/SK_Erika/Materials/eyelash_MAT.eyelash_MAT"),
             TEXT("/Game/Actor/SK_Erika/Materials/Body_MAT.Body_MAT") } },
-        { TEXT("Amy"),      TEXT("/Game/Actor/SK_Amy"),      TEXT("SK_Amy"),      TEXT("SK_Amy"),      nullptr, 158.f,
+        { TEXT("Amy"),      TEXT("/Game/Actor/SK_Amy"),      TEXT("SK_Amy"),      TEXT("SK_Amy"),      nullptr, 158.f, 195.f, 385.f, 112.f, 206.f,
           { TEXT("/Game/Actor/SK_Amy/Materials/Ch46_body.Ch46_body"), nullptr, nullptr, nullptr } },
-        { TEXT("Michelle"), TEXT("/Game/Actor/SK_Michelle"), TEXT("SK_Michelle"), TEXT("SK_Michelle"), nullptr, 168.f,
+        { TEXT("Michelle"), TEXT("/Game/Actor/SK_Michelle"), TEXT("SK_Michelle"), TEXT("SK_Michelle"), nullptr, 168.f, 205.f, 410.f, 115.f, 214.f,
           { TEXT("/Game/Actor/SK_Michelle/Materials/Ch03_Body.Ch03_Body"), nullptr, nullptr, nullptr } },
-        { TEXT("Sophie"),   TEXT("/Game/Actor/SK_Sophie"),   TEXT("SK_Sophie"),   TEXT("SK_Sophie"),   nullptr, 172.f,
+        { TEXT("Sophie"),   TEXT("/Game/Actor/SK_Sophie"),   TEXT("SK_Sophie"),   TEXT("SK_Sophie"),   nullptr, 172.f, 212.f, 425.f, 117.f, 218.f,
           { TEXT("/Game/Actor/SK_Sophie/Materials/Ch02_body.Ch02_body"),
             TEXT("/Game/Actor/SK_Sophie/Materials/Ch02_hair.Ch02_hair"), nullptr, nullptr } },
-        { TEXT("Kate"),     TEXT("/Game/Actor/SK_Kate"),     TEXT("SK_Kate"),     TEXT("SK_Kate"),     nullptr, 168.f,
+        { TEXT("Kate"),     TEXT("/Game/Actor/SK_Kate"),     TEXT("SK_Kate"),     TEXT("SK_Kate"),     nullptr, 168.f, 205.f, 410.f, 115.f, 214.f,
           { TEXT("/Game/Actor/SK_Kate/Materials/Ch21_body.Ch21_body"),
             TEXT("/Game/Actor/SK_Kate/Materials/Ch21_hair.Ch21_hair"), nullptr, nullptr } },
-        { TEXT("James"),    TEXT("/Game/Actor/SK_James"),    TEXT("SK_James"),    TEXT("SK_James"),    nullptr, 186.f,
+        { TEXT("James"),    TEXT("/Game/Actor/SK_James"),    TEXT("SK_James"),    TEXT("SK_James"),    nullptr, 186.f, 228.f, 460.f, 124.f, 236.f,
           { TEXT("/Game/Actor/SK_James/Materials/Ch06_body.Ch06_body"),
             TEXT("/Game/Actor/SK_James/Materials/Ch06_eyelashes.Ch06_eyelashes"),
             TEXT("/Game/Actor/SK_James/Materials/Ch06_body1.Ch06_body1"), nullptr } },
-        { TEXT("Adam"),     TEXT("/Game/Actor/SK_Adam"),     TEXT("SK_Adam"),     TEXT("SK_Adam"),     nullptr, 183.f,
+        { TEXT("Adam"),     TEXT("/Game/Actor/SK_Adam"),     TEXT("SK_Adam"),     TEXT("SK_Adam"),     nullptr, 183.f, 224.f, 452.f, 121.f, 230.f,
           { TEXT("/Game/Actor/SK_Adam/Materials/Ch08_body.Ch08_body"),
             TEXT("/Game/Actor/SK_Adam/Materials/Ch08_body1.Ch08_body1"),
             TEXT("/Game/Actor/SK_Adam/Materials/Ch08_hair.Ch08_hair"), nullptr } },
-        { TEXT("Brian"),    TEXT("/Game/Actor/SK_Brian"),    TEXT("SK_Brian"),    TEXT("SK_Brian"),    nullptr, 178.f,
+        { TEXT("Brian"),    TEXT("/Game/Actor/SK_Brian"),    TEXT("SK_Brian"),    TEXT("SK_Brian"),    nullptr, 178.f, 216.f, 434.f, 118.f, 222.f,
           { TEXT("/Game/Actor/SK_Brian/Materials/Ch01_body.Ch01_body"),
             TEXT("/Game/Actor/SK_Brian/Materials/Ch01_hair.Ch01_hair"), nullptr, nullptr } },
-        { TEXT("Alex"),     TEXT("/Game/Actor/SK_Alex"),     TEXT("SK_Alex"),     TEXT("SK_Alex"),     nullptr, 176.f,
+        { TEXT("Alex"),     TEXT("/Game/Actor/SK_Alex"),     TEXT("SK_Alex"),     TEXT("SK_Alex"),     nullptr, 176.f, 212.f, 426.f, 117.f, 218.f,
           { TEXT("/Game/Actor/SK_Alex/Materials/Ch18_Body.Ch18_Body"), nullptr, nullptr, nullptr } },
+        { TEXT("Isis"),     TEXT("/Game/Actor/SK_Isis"),     TEXT("SK_Isis"),     TEXT("SK_Isis"),     nullptr, 196.f, 198.f, 470.f, 132.f, 268.f,
+          { TEXT("/Game/Actor/SK_Isis/Materials/Material_0.Material_0"), nullptr, nullptr, nullptr } },
     };
     return Persons;
 }
@@ -127,6 +148,10 @@ ABorn2FlapAvatar::ABorn2FlapAvatar()
     Body->SetupAttachment(Root);
     Body->SetCollisionEnabled(ECollisionEnabled::NoCollision);
     Body->SetCastShadow(true);
+    // Use our single-node subclass so the head-look gaze can be layered onto
+    // the baked clips (per-bone posing has no public USkeletalMeshComponent
+    // API in UE 5.8 — the rotation is applied by the anim instance proxy).
+    Body->SetAnimInstanceClass(UBorn2FlapAvatarAnimInstance::StaticClass());
 
     BodyExtra = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("BodyExtra"));
     BodyExtra->SetupAttachment(Root);
@@ -143,6 +168,9 @@ void ABorn2FlapAvatar::BeginPlay()
     Super::BeginPlay();
     LoadPerson(PersonIndex);
     SetFirstPerson(false);
+    // The bird hangs sideways in the carry hand (dorsal side out) and eases to
+    // horizontal while the throw gesture plays.
+    CarryRoll = bCarryLeftHand ? -90.f : 90.f;
 
     // Procedural footfalls: one player per avatar, volume set by the pawn's
     // FootstepVolume preference (0..1). Pure synth — no footstep asset exists.
@@ -172,6 +200,13 @@ void ABorn2FlapAvatar::LoadPerson(int32 Index)
     ThrowHaltTime = -1.f;
     bThrowHaltComputed = false;
     const FB2FAvatarPersonDef& P = Persons[Index];
+    // Per-person locomotion: ground pace and the native clip speed the cadence
+    // is matched against. Falls back to the shared defaults when a def leaves
+    // them at zero (older import tables).
+    PersonWalkSpeed  = P.WalkSpeedCm  > 0.f ? P.WalkSpeedCm  : 220.f;
+    PersonRunSpeed   = P.RunSpeedCm   > 0.f ? P.RunSpeedCm   : 440.f;
+    PersonWalkNative = P.WalkNativeCm > 0.f ? P.WalkNativeCm : 105.f;
+    PersonRunNative  = P.RunNativeCm  > 0.f ? P.RunNativeCm  : 200.f;
     const FString Folder = FString(P.Base) + TEXT("/SkeletalMeshes/");
 
     // Mesh + skeleton come from the same glTF import; the Mixamo locomotion
@@ -197,11 +232,9 @@ void ABorn2FlapAvatar::LoadPerson(int32 Index)
             Body->SetMaterial(MatIdx, Mat);
     }
 
-    // mixamorig skeleton. Drive the second section from the leader so both
-    // X-Bot is imported as two body sections (Section0 + Section1) sharing one
-    // mixamorig skeleton. Drive the second section from the leader so both
-    // mixamorig skeleton. Drive the second section from the leader so both
-    // halves play the identical clip without a second animation graph.
+    // A person may carry a second body section sharing the same mixamorig
+    // skeleton (P.Extra): drive it from the leader component so both halves
+    // play the identical clip without a second animation graph.
     if (BodyExtra)
     {
         USkeletalMesh* ExtraMesh = P.Extra
@@ -230,7 +263,6 @@ void ABorn2FlapAvatar::LoadPerson(int32 Index)
     // Start in the relaxed idle stance. NOTE: the Standing clip is a kneel/crouch
     // (legs folded), not a standing pose, so the neutral Idle is used here.
     UAnimSequence* Initial = AnimIdle;
-    Body->SetAnimationMode(EAnimationMode::AnimationSingleNode);
     if (Initial)
     {
         CurrentAnim = Initial;
@@ -244,18 +276,45 @@ void ABorn2FlapAvatar::LoadPerson(int32 Index)
 
     // Normalise to the person's own standing height and rest the feet on the
     // ground. The skeleton root is the hips, so lift the mesh until the foot
-    // bone reaches the root.
+    // bone reaches the root. Some imports land the geometry displaced from
+    // the skeleton root along a horizontal axis (the queen's FBX round-trip
+    // puts her body ~5.7 m off the pivot), so the bounds centre is
+    // counteracted too — the body always sits on the pivot.
     if (Body->GetSkeletalMeshAsset())
     {
+        // Reset any leftover transform from a previously loaded person: the
+        // scale/location set below must be measured from identity, otherwise a
+        // switch between characters compounds the old scale into the new one.
+        Body->SetRelativeScale3D(FVector::OneVector);
+        Body->SetRelativeLocation(FVector::ZeroVector);
+
         const FBoxSphereBounds B = Body->CalcBounds(Body->GetComponentTransform());
         const float HeightLocal = B.BoxExtent.Z * 2.f;
         const float WantCm = P.HeightCm > 1.f ? P.HeightCm : TargetHeightCm;
         MeshScale = HeightLocal > 1.f ? WantCm / HeightLocal : 1.f;
+        // Guard against degenerate imports: a mesh whose bounds collapse to a
+        // sliver would otherwise scale the character to skyscraper size. A
+        // sane human mesh normalises to ~1x; clamp outliers and flag the asset.
+        if (MeshScale > 10.f || MeshScale < 0.1f)
+        {
+            UE_LOG(LogTemp, Warning,
+                TEXT("Avatar: suspicious mesh scale %.2f for %s (bounds height %.1fcm) — clamped to 1.0; re-import the mesh"),
+                MeshScale, P.Name, HeightLocal);
+            MeshScale = 1.f;
+        }
         Body->SetRelativeScale3D(FVector(MeshScale));
+        float OffsetX = 0.f, OffsetY = 0.f;
+        const FBoxSphereBounds BLocal = Body->CalcBounds(FTransform::Identity);
+        OffsetX = -BLocal.Origin.X * MeshScale;
+        OffsetY = -BLocal.Origin.Y * MeshScale;
         if (BoneLFoot != INDEX_NONE)
         {
             const float FootZ = Body->GetBoneLocation(Body->GetBoneName(BoneLFoot), EBoneSpaces::ComponentSpace).Z;
-            Body->SetRelativeLocation(FVector(0.f, 0.f, -FootZ * MeshScale));
+            Body->SetRelativeLocation(FVector(OffsetX, OffsetY, -FootZ * MeshScale));
+        }
+        else
+        {
+            Body->SetRelativeLocation(FVector(OffsetX, OffsetY, 0.f));
         }
     }
 
@@ -277,8 +336,8 @@ void ABorn2FlapAvatar::Tick(float DeltaSeconds)
     // The mesh's forward axis is not necessarily +X (the Founder faces +Y), so
     // rotate by the detected offset to actually face the target yaw.
     FQuat RootRot = FRotator(0.f, FacingYaw - ForwardYawOffset, 0.f).Quaternion();
-    const float LeanDeg = ComputeThrowLean();
-    if (FMath::Abs(LeanDeg) > 0.01f)
+    const float TiltDeg = ComputeThrowLean();
+    if (FMath::Abs(TiltDeg) > 0.01f)
     {
         // Height articulation: tilt the whole throw arc with the launch pitch
         // (lean back for a high lob, forward for a flat throw). The lean is a
@@ -287,7 +346,7 @@ void ABorn2FlapAvatar::Tick(float DeltaSeconds)
         const FVector Lateral = FRotator(0.f, FacingYaw, 0.f)
             .RotateVector(FVector::XAxisVector)
             .RotateAngleAxis(90.f, FVector::ZAxisVector);
-        RootRot = FQuat(Lateral, FMath::DegreesToRadians(-LeanDeg)) * RootRot;
+        RootRot = FQuat(Lateral, FMath::DegreesToRadians(-TiltDeg)) * RootRot;
     }
     Root->SetWorldRotation(RootRot);
 
@@ -317,22 +376,24 @@ void ABorn2FlapAvatar::Tick(float DeltaSeconds)
     else if (AbsStr > AbsFwd * 1.5f)
     {
         Target = AnimStrafe ? AnimStrafe : AnimWalk;
-        NativeSpeed = StrafeNativeSpeed;
+        // Strafe/back cadence ride the person's walk stride proportionally so
+        // a short-stepped character also side-steps and back-steps short.
+        NativeSpeed = PersonWalkNative * (StrafeNativeSpeed / WalkNativeSpeed);
     }
     else if (Fwd < -12.f)
     {
         Target = AnimWalkBack ? AnimWalkBack : AnimWalk;
-        NativeSpeed = WalkBackNativeSpeed;
+        NativeSpeed = PersonWalkNative * (WalkBackNativeSpeed / WalkNativeSpeed);
     }
     else if (Speed > 260.f)
     {
         Target = AnimRun;
-        NativeSpeed = RunNativeSpeed;
+        NativeSpeed = PersonRunNative;
     }
     else
     {
         Target = AnimWalk;
-        NativeSpeed = WalkNativeSpeed;
+        NativeSpeed = PersonWalkNative;
     }
 
     if (Target && Target != CurrentAnim)
@@ -361,26 +422,35 @@ void ABorn2FlapAvatar::Tick(float DeltaSeconds)
     else if (!bThrowing && !bCatching && !bThrowWindup)
         Body->SetPlayRate(1.f);
 
-    // Throw wind-up (SPACE held): drive the throw clip up to the halt — the
-    // first moment the carrying hand reaches its highest point (the cocked
-    // position) — and hold there. The bird rides the raised hand.
+    // Throw wind-up (SPACE held): drive the throw clip SLOWLY up to the reach-
+    // back hold — a fraction of the measured hand apex — and hold the bird
+    // there. The apex itself (hand up and already forward) is reserved for the
+    // release sweep, so the held pose must stay before it.
     if (bThrowWindup)
     {
         const float ThrowDur = AnimThrow ? AnimThrow->GetPlayLength() : ThrowDuration;
-        const float WindupTarget = ThrowHaltTime >= 0.f ? ThrowHaltTime : ThrowDur * ThrowReleaseFraction;
-        ThrowTime = FMath::Min(ThrowTime + DeltaSeconds, WindupTarget);
+        // The cock pose follows the charge live (the wheel tunes the strength
+        // while SPACE is held): constant-rate motion toward the charge-
+        // dependent reach-back, so more strength winds the arm back further
+        // and less strength eases it out again.
+        ThrowTime = FMath::FInterpConstantTo(ThrowTime, GetThrowCockTime(ThrowDur), DeltaSeconds, ThrowWindupRate);
         if (AnimThrow)
             Body->SetPosition(ThrowTime, false);
     }
 
-    // Throw release (SPACE released): complete the clip from wherever the wind-up
-    // reached. A long hold is already at the release frame (bird leaves next
-    // tick); a quick tap finishes the remaining wind-up first. Auto-return to
-    // idle/walk when the clip ends.
+    // Throw release (SPACE released): reach back FIRST — finish the wind-up
+    // part at the slow rate until the hand apex (the arm sweeps up behind the
+    // head) — then play forth at normal speed for the throw; the release fires
+    // inside the fast part at its natural frame. Auto-return to idle/walk
+    // when the clip ends.
     if (bThrowing)
     {
         const float ThrowDur = AnimThrow ? AnimThrow->GetPlayLength() : ThrowDuration;
-        ThrowTime += DeltaSeconds;
+        const float ApexTime = ThrowHaltTime >= 0.f ? ThrowHaltTime : ThrowDur * ThrowReleaseFraction;
+        if (ThrowTime < ApexTime)
+            ThrowTime = FMath::Min(ThrowTime + DeltaSeconds * ThrowWindupRate, ApexTime);
+        else
+            ThrowTime += DeltaSeconds;
         if (AnimThrow)
             Body->SetPosition(ThrowTime, false);
         if (!bReleaseFired && ThrowTime >= ThrowDur * ThrowReleaseFraction)
@@ -411,7 +481,16 @@ void ABorn2FlapAvatar::Tick(float DeltaSeconds)
         }
     }
 
-    UpdateCarrySocket();
+    UpdateCarrySocket(DeltaSeconds);
+
+    // Head-follow gaze: drive the Head bone (not the body) toward the bird.
+    // The throw/catch one-shots animate the head themselves, so suspend the
+    // look while one of those plays.
+    if (UBorn2FlapAvatarAnimInstance* HeadAnim = Cast<UBorn2FlapAvatarAnimInstance>(Body->GetAnimInstance()))
+    {
+        const bool bLookAtBird = !bThrowing && !bThrowWindup && !bCatching;
+        HeadAnim->SetHeadLook(bLookAtBird ? HeadLookPitch : 0.f, ForwardYawOffset, BoneHead);
+    }
 }
 
 int32 ABorn2FlapAvatar::FindBone(const TCHAR* Substring) const
@@ -523,6 +602,11 @@ FString ABorn2FlapAvatar::GetPersonName(int32 Index)
     return Persons[FMath::Clamp(Index, 0, Persons.Num() - 1)].Name;
 }
 
+int32 ABorn2FlapAvatar::GetPersonCount()
+{
+    return AvatarPersons().Num();
+}
+
 void ABorn2FlapAvatar::SetPlacement(const FVector& WorldFeet, float WorldYaw)
 {
     FeetWorld = WorldFeet;
@@ -556,6 +640,16 @@ void ABorn2FlapAvatar::SetThrowAimPitch(float PitchDeg)
     ThrowAimPitch = PitchDeg;
 }
 
+void ABorn2FlapAvatar::SetHeadLookPitch(float PitchDeg)
+{
+    HeadLookPitch = PitchDeg;
+}
+
+void ABorn2FlapAvatar::SetThrowCharge(float Charge01)
+{
+    ThrowCharge = FMath::Clamp(Charge01, 0.f, 1.f);
+}
+
 void ABorn2FlapAvatar::BeginThrow()
 {
     if (bThrowing)
@@ -580,6 +674,7 @@ void ABorn2FlapAvatar::BeginThrowWindup()
     CatchTime = 0.f;
     bThrowWindup = true;
     ThrowTime = 0.f;
+    ThrowCharge = 0.f;
     bReleaseFired = false;
     // Measure the throw clip's hand-apex once (per person) so the wind-up can
     // halt at the first moment the bird is lifted high instead of the release
@@ -666,8 +761,20 @@ void ABorn2FlapAvatar::ComputeThrowHalt()
     else
         ThrowHaltTime = FMath::Min(ThrowHaltTime, ReleaseAt);
 
-    UE_LOG(LogTemp, Display, TEXT("ThrowHalt %s dur=%.2fs halt=%.3fs (%.0f%%) raise=%.1fcm"),
-        *AnimThrow->GetName(), Dur, ThrowHaltTime, 100.f * ThrowHaltTime / Dur, RaiseCm);
+    UE_LOG(LogTemp, Display, TEXT("ThrowHalt %s dur=%.2fs halt=%.3fs (%.0f%%) cockRange=%.0f%%-%.0f%% raise=%.1fcm"),
+        *AnimThrow->GetName(), Dur, ThrowHaltTime, 100.f * ThrowHaltTime / Dur,
+        100.f * ThrowCockMin, 100.f * ThrowCockMax, RaiseCm);
+}
+
+float ABorn2FlapAvatar::GetThrowCockTime(float ClipDuration) const
+{
+    // The reach-back hold: a strength-shaped fraction of the measured hand
+    // apex. The apex pose itself (hand up and already forward) reads as
+    // "released", so the wind-up must stop before it — at the pose where the
+    // arm is still swept back. More throw strength = deeper wind-up, and the
+    // release sweep then starts from that more wound-up position.
+    const float Apex = ThrowHaltTime >= 0.f ? ThrowHaltTime : ClipDuration * ThrowReleaseFraction;
+    return Apex * FMath::Lerp(ThrowCockMin, ThrowCockMax, ThrowCharge);
 }
 
 void ABorn2FlapAvatar::BeginCatch()
@@ -693,11 +800,12 @@ FString ABorn2FlapAvatar::DebugThrowState() const
             : FVector::ZeroVector;
     };
     const FVector LH = BonePos(BoneLHand), RH = BonePos(BoneRHand), SP = BonePos(BoneSpine);
-    return FString::Printf(TEXT("anim=%s pos=%.2f rate=%.2f throwing=%d hands=(%.0f,%.0f,%.0f)/(%.0f,%.0f,%.0f) spine=(%.0f,%.0f,%.0f)"),
+    return FString::Printf(TEXT("anim=%s pos=%.2f rate=%.2f throwing=%d charge=%.2f hands=(%.0f,%.0f,%.0f)/(%.0f,%.0f,%.0f) spine=(%.0f,%.0f,%.0f)"),
         CurrentAnim ? *CurrentAnim->GetName() : TEXT("none"),
         Body ? Body->GetPosition() : -1.f,
         Body ? Body->GetPlayRate() : 0.f,
         bThrowing ? 1 : 0,
+        ThrowCharge,
         LH.X, LH.Y, LH.Z, RH.X, RH.Y, RH.Z, SP.X, SP.Y, SP.Z);
 }
 
@@ -735,7 +843,7 @@ void ABorn2FlapAvatar::PoseBody(bool bMoving, float Dt)
         SetBoneRotation(BoneLForeArm, FRotator(20.f, 0.f, 0.f));
         SetBoneRotation(BoneRForeArm, FRotator(20.f, 0.f, 0.f));
     }
-    UpdateCarrySocket();
+    UpdateCarrySocket(Dt);
 }
 
 float ABorn2FlapAvatar::ComputeThrowLean() const
@@ -784,7 +892,7 @@ void ABorn2FlapAvatar::PoseThrow(float Dt)
     SetBoneRotation(BoneLForeArm, FRotator(ElbowPitch, 0.f, 0.f));
     SetBoneRotation(BoneRForeArm, FRotator(ElbowPitch, 0.f, 0.f));
     SetBoneRotation(BoneSpine, FRotator(SpinePitch, 0.f, 0.f));
-    UpdateCarrySocket();
+    UpdateCarrySocket(Dt);
 
     if (!bReleaseFired && T >= ThrowReleaseFraction)
     {
@@ -798,7 +906,7 @@ void ABorn2FlapAvatar::PoseThrow(float Dt)
     }
 }
 
-void ABorn2FlapAvatar::UpdateCarrySocket()
+void ABorn2FlapAvatar::UpdateCarrySocket(float Dt)
 {
     if (!CarrySocket || !Body)
         return;
@@ -814,9 +922,12 @@ void ABorn2FlapAvatar::UpdateCarrySocket()
     // +Y), and the socket would inherit that offset from the mesh — a bird
     // attached with zero relative rotation would sit sideways in the hand.
     // Counter-rotate by the detected offset so the bird's nose points along the
-    // avatar's facing, then roll it so the overside of the wings (dorsal +Z)
-    // faces OUTWARD from the pilot — to the right for the right hand, mirrored
-    // for the left.
-    const float OutwardRoll = bCarryLeftHand ? -90.f : 90.f;
-    CarrySocket->SetRelativeRotation(FRotator(0.f, ForwardYawOffset, OutwardRoll));
+    // avatar's facing. While the throw gesture plays (wind-up or release) the
+    // bird sits HORIZONTAL in the hand — wings level, nose forward — so the
+    // release already holds the flight attitude. Carried (walking) it rolls
+    // sideways instead: the overside of the wings (dorsal +Z) faces OUTWARD
+    // from the pilot — right for the right hand, mirrored for the left.
+    const float RollTarget = (bThrowing || bThrowWindup) ? 0.f : (bCarryLeftHand ? -90.f : 90.f);
+    CarryRoll = FMath::FInterpTo(CarryRoll, RollTarget, Dt, 8.f);
+    CarrySocket->SetRelativeRotation(FRotator(0.f, ForwardYawOffset, CarryRoll));
 }

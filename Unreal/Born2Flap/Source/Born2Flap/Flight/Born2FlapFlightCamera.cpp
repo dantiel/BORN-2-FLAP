@@ -169,10 +169,52 @@ void ABorn2FlapFlightPawn::CycleCamera()
 }
 FString ABorn2FlapFlightPawn::GetCameraLabel() const
 {
-    return bGroundView        ? TEXT("PILOT / 1ST PERSON")
+    return bGroundView        ? FString(TEXT("PILOT / 1ST PERSON")) + (bAutoFollowBird ? TEXT("  | FOLLOW") : TEXT("  | FREE"))
          : bFpvAirView        ? TEXT("BIRD / ONBOARD 1ST")
-         : bThirdPersonActor  ? TEXT("PILOT / 3RD PERSON")
+         : bThirdPersonActor  ? FString(TEXT("PILOT / 3RD PERSON")) + (bAutoFollowBird ? TEXT("  | FOLLOW") : TEXT("  | FREE"))
                               : TEXT("BIRD / FOLLOW 3RD");
+}
+
+FString ABorn2FlapFlightPawn::GetCameraToastText() const
+{
+    if (FollowToastEnd <= 0.0 || !GetWorld())
+        return FString();
+    if (GetWorld()->GetTimeSeconds() >= FollowToastEnd)
+        return FString();
+    return bFollowToastAuto ? FString(TEXT("AUTO CAMERA")) : FString(TEXT("STATIC CAMERA"));
+}
+
+float ABorn2FlapFlightPawn::GetCameraToastAlpha() const
+{
+    if (FollowToastEnd <= 0.0 || !GetWorld())
+        return 0.f;
+    return FMath::Clamp(float(FollowToastEnd - GetWorld()->GetTimeSeconds()) / 0.75f, 0.f, 1.f);
+}
+
+FString ABorn2FlapFlightPawn::GetZoomToastText() const
+{
+    if (ZoomToastEnd <= 0.0 || !GetWorld())
+        return FString();
+    if (GetWorld()->GetTimeSeconds() >= ZoomToastEnd)
+        return FString();
+    return ZoomToastText;
+}
+
+float ABorn2FlapFlightPawn::GetZoomToastAlpha() const
+{
+    if (ZoomToastEnd <= 0.0 || !GetWorld())
+        return 0.f;
+    return FMath::Clamp(float(ZoomToastEnd - GetWorld()->GetTimeSeconds()) / 0.75f, 0.f, 1.f);
+}
+
+void ABorn2FlapFlightPawn::AnnounceZoom()
+{
+    // Corner toast: show the live lens factor for ~3 s (fade in the last
+    // 0.75 s) whenever the RMB zoom engages or its factor changes.
+    if (!GetWorld())
+        return;
+    ZoomToastText = FString::Printf(TEXT("ZOOM %.1fx"), RmbZoomFactor);
+    ZoomToastEnd = GetWorld()->GetTimeSeconds() + 3.0;
 }
 void ABorn2FlapFlightPawn::CalcCamera(float Dt,FMinimalViewInfo& Out)
 {
@@ -224,15 +266,23 @@ void ABorn2FlapFlightPawn::CalcCamera(float Dt,FMinimalViewInfo& Out)
         float Zoom = GroundZoom;
         if(bRmbZoom)
         {
-            // RMB held: temporarily aim straight at the bird and zoom the lens;
-            // the snapshot restores the chosen view on release.
+            // RMB held: temporarily aim straight at the bird and zoom the lens
+            // by the wheel-tunable RMB factor; the snapshot restores the chosen
+            // view on release.
             Gaze = (BirdPosition-GroundAnchor).Rotation();
-            Zoom = 0.45f;
+            Zoom = 1.f / FMath::Max(RmbZoomFactor, 1.f);
         }
         GroundCamera->SetWorldLocationAndRotation(GroundAnchor+Drift,Gaze+Tremor);
         const float Distance=FVector::Distance(BirdPosition,GroundAnchor);
         const float Fov=FMath::Clamp(75.f/(1.f+Distance/5000.f),28.f,75.f) * Zoom;
-        GroundCamera->SetFieldOfView(FMath::FInterpTo(GroundCamera->FieldOfView,FMath::Clamp(Fov,6.f,120.f),Dt,2.f));
+        // RMB zoom is a deliberate lens action: the wheel-tuned factor applies
+        // instantly. The slow interp only eases the passive distance auto-FOV —
+        // through it, a quick scroll during a short zoom hold reads as "the
+        // wheel does nothing" in the pilot view.
+        if (bRmbZoom)
+            GroundCamera->SetFieldOfView(FMath::Clamp(Fov,1.2f,120.f));
+        else
+            GroundCamera->SetFieldOfView(FMath::FInterpTo(GroundCamera->FieldOfView,FMath::Clamp(Fov,6.f,120.f),Dt,2.f));
         GroundCamera->GetCameraView(Dt,Out);
     }
     else if(bFpvAirView)
@@ -249,39 +299,45 @@ void ABorn2FlapFlightPawn::CalcCamera(float Dt,FMinimalViewInfo& Out)
     {
         if(bRmbZoom)
         {
-            // RMB held: snap the rig behind the pilot toward the bird and dolly
-            // in — the temporary zoom+aim, restored on release.
+            // RMB held: snap the rig behind the pilot toward the bird, dolly in
+            // and let the lens carry the rest. The old pure dolly saturated once
+            // the arm hit its floor — the wheel read dead above ~6x in the pilot
+            // view. With the FOV term the full 2..20 wheel range always shows.
             const FVector BirdPos = Body->GetComponentLocation();
             const float AimYaw = float((BirdPos - GroundAnchor).Rotation().Yaw);
-            const FVector CamPos = GroundAnchor - FRotator(0.f, AimYaw, 0.f).Vector() * 100.f + FVector(0.f, 0.f, 70.f);
+            const FVector CamPos = GroundAnchor - FRotator(0.f, AimYaw, 0.f).Vector() * FMath::Max(ActorArmLength / RmbZoomFactor, 60.f) + FVector(0.f, 0.f, 70.f);
             FRotator Look = (BirdPos - CamPos).Rotation();
             Look.Pitch = FMath::Clamp(Look.Pitch, -80.f, 80.f);
             Look.Roll = 0.f;
             ActorCamera->SetWorldLocationAndRotation(CamPos, Look);
+            ActorCamera->SetFieldOfView(FMath::Clamp(90.f / RmbZoomFactor, 4.f, 90.f));
         }
         else
         {
             FVector CamPos; FRotator Look;
             ComputePilotOrbit(CamPos, Look);
             ActorCamera->SetWorldLocationAndRotation(CamPos, Look);
+            ActorCamera->SetFieldOfView(90.f);
         }
         ActorCamera->GetCameraView(Dt, Out);
     }
     else
     {
-        // Chase (follower) view: rotate the spring arm around the bird (yaw
-        // inherits the body, pitch/roll are fixed). Orbit + arm length persist
-        // across MMB release; automated tests keep their own configured arm and
-        // are left untouched.
+        // Chase (follower) view: the orbit offsets rotate the spring arm around
+        // the bird (the yaw
+        // rides on the body heading via bInheritYaw) and persist across MMB
+        // release. Applied unconditionally — the desktop input test asserts
+        // exactly this coupling. Without it MMB-drag, Z/X and touch gestures
+        // would update ChaseOrbit but never move the actual chase camera.
+        CameraBoom->SetRelativeRotation(FRotator(ChaseOrbitPitch, ChaseOrbitYaw, 0));
         if (!bFlightTest && !bDesktopInputTest)
         {
-            // The chase arm always honours the persisted orbit offsets and arm
-            // length, so orbiting/zooming with MMB stays put after release (the
-            // defaults 0/-12/480 are exactly the neutral follow). A clean MMB
-            // click resets those values back to default in the pawn's Tick.
-            // RMB held temporarily dollies in toward the bird (temporary zoom).
-            CameraBoom->SetRelativeRotation(FRotator(ChaseOrbitPitch,ChaseOrbitYaw,0));
-            CameraBoom->TargetArmLength = bRmbZoom ? 150.f : ChaseArmLength;
+            // The chase arm honours the persisted arm length, so zooming with
+            // MMB stays put after release (the defaults 0/-12/480 are the
+            // neutral follow; a clean MMB click resets them in the pawn Tick).
+            // RMB held temporarily dollies in toward the bird (temporary zoom),
+            // scaled by the wheel-tunable RMB factor.
+            CameraBoom->TargetArmLength = bRmbZoom ? FMath::Max(ChaseArmLength / RmbZoomFactor, 24.f) : ChaseArmLength;
         }
         Camera->GetCameraView(Dt,Out);
     }
@@ -341,6 +397,8 @@ void ABorn2FlapFlightPawn::ApplyPilotOrbit(float DeltaYaw, float DeltaPitch)
                 bAutoFollowBird = false;
                 GroundLookYaw = CamYaw - PilotFacingYaw;
                 GroundLookPitch = CamPitch;
+                FollowToastEnd = GetWorld()->GetTimeSeconds() + 3.0;
+                bFollowToastAuto = false;
             }
         }
     }
@@ -359,6 +417,8 @@ void ABorn2FlapFlightPawn::ApplyPilotOrbit(float DeltaYaw, float DeltaPitch)
                 bAutoFollowBird = false;
                 ActorOrbitYaw = Rot.Yaw;
                 ActorOrbitPitch = Rot.Pitch;
+                FollowToastEnd = GetWorld()->GetTimeSeconds() + 3.0;
+                bFollowToastAuto = false;
             }
         }
         else
@@ -397,6 +457,10 @@ void ABorn2FlapFlightPawn::ToggleAutoFollow()
         ActorOrbitYaw = 0.f; ActorOrbitPitch = 0.f;
         bGroundGazeReady = false;   // re-seed the gaze at the bird
     }
+    // Corner toast: announce the new mode for a few seconds so the hotkey
+    // always gives visible feedback, even while the bird sits in the hand.
+    FollowToastEnd = GetWorld()->GetTimeSeconds() + 3.0;
+    bFollowToastAuto = bAutoFollowBird;
     if (auto* PC = Cast<APlayerController>(GetController()); PC && PC->PlayerCameraManager)
         PC->PlayerCameraManager->SetGameCameraCutThisFrame();
 }
@@ -409,7 +473,10 @@ void ABorn2FlapFlightPawn::ResetCameraView()
     FpvCameraAngleDeg = 0.f; FpvCameraYawDeg = 0.f;
     bActorZoomFirstPerson = false;
     bRmbZoom = false;
-    bAutoFollowBird = true;
+    RmbZoomFactor = RmbZoomDefault;
+    // J only re-centers the view — it must NOT re-enable auto-follow. The user
+    // may want a steady static camera and use J purely to reset it. K and the
+    // smart view-cone release are the only owners of the follow state.
     bGroundGazeReady = false;
     if (auto* PC = Cast<APlayerController>(GetController()); PC && PC->PlayerCameraManager)
         PC->PlayerCameraManager->SetGameCameraCutThisFrame();
@@ -448,6 +515,10 @@ void ABorn2FlapFlightPawn::RestoreViewSnapshot()
 bool ABorn2FlapFlightPawn::CheckFlightCameras()
 {
     // Exercise actual transforms, ground support, landing and hand-launch paths.
+    // Own the follow state: a K-toggle earlier in the session (desktop input
+    // stages) must not fail the gaze-tracking assertions below.
+    bAutoFollowBird = true;
+    bGroundGazeReady = false;
     const auto* Mode=Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode());
     RememberLanding(FVector(2500,0,Mode ? Mode->GroundHeight(2500,0)+12 : 12));
     const FVector Anchor=GroundAnchor;

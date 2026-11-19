@@ -126,8 +126,8 @@ defaultBirdWing = WingShape
   , wsArmAngleDeg = 0     -- no spar compensation needed when the mount is unyawed
   , wsStations =
       [ ShapeStation 0.00 0.000 0.279  6.50 0.0 defaultBirdArmSection (armStructure kestrelSpars)  -- shoulder
-      , ShapeStation 0.45 0.110 0.235  3.50 0.0 defaultBirdArmSection (armStructure kestrelSpars)  -- elbow
-      , ShapeStation 1.00 0.333 0.114  1.50 0.0 defaultBirdHandSection (handStructure kestrelSpars)  -- tip
+      , ShapeStation 0.45 0.110 0.235  3.00 0.0 defaultBirdArmSection (armStructure kestrelSpars)  -- elbow
+      , ShapeStation 1.00 0.333 0.114  0.50 0.0 defaultBirdHandSection (handStructure kestrelSpars)  -- tip
       ]
   }
 

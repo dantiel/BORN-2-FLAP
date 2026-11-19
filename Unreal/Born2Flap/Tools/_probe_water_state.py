@@ -12,9 +12,13 @@ for path in ['/Game/Shiomori/Materials/M_Water',
         u.log('PROBE %s: MISSING' % path)
         continue
     exps = lib.get_material_expressions(m)
-    u.log('PROBE %s: %d expressions, blend=%s shading=%s' % (
+    try:
+        tsn = str(m.get_editor_property('tangent_space_normal'))
+    except Exception as ex:
+        tsn = 'ERR:%s' % ex
+    u.log('PROBE %s: %d expressions, blend=%s shading=%s tangent_space_normal=%s' % (
         path, len(exps), str(m.get_editor_property('blend_mode')),
-        str(m.get_editor_property('shading_model'))))
+        str(m.get_editor_property('shading_model')), tsn))
     customs = []
     for e in exps:
         tn = type(e).__name__
@@ -36,6 +40,17 @@ for path in ['/Game/Shiomori/Materials/M_Water',
     u.log('  custom nodes=%d' % len(customs))
     for i, first in enumerate(customs):
         u.log('    custom[%d] first-line: %s' % (i, first))
+    # Full code of the emissive/body custom (the one with the HDR body glow).
+    for e in exps:
+        if type(e).__name__ == 'MaterialExpressionCustom':
+            try:
+                code = e.get_editor_property('code') or ''
+            except Exception:
+                code = ''
+            if 'water*2.4' in code or 'body=' in code or 'water*0.95' in code:
+                for ln in code.split('\n'):
+                    u.log('    EMISSIVE-LINE: %s' % ln)
+                break
     for prop in ['BASE_COLOR', 'EMISSIVE_COLOR', 'OPACITY', 'NORMAL',
                  'WORLD_POSITION_OFFSET', 'REFRACTION']:
         mp = getattr(u.MaterialProperty, 'MP_' + prop)

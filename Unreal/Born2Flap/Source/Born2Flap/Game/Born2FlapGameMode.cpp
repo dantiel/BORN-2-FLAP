@@ -283,6 +283,14 @@ TArray<FVector> TrainingGates()
 }
 }  // namespace
 
+// The -B2FLevel= command-line flag (play.ps1 -Level) names ONLY the initial
+// boot map. It must be consumed on the first InitGame and never re-applied:
+// menu.exitWorld later travels to /Engine/Maps/Entry with an empty ?Level=, and
+// would otherwise re-read -B2FLevel=Shiomori from the command line, booting the
+// Entry home screen straight back into the launch world ("restart current
+// world, half-loaded black" bug). Every in-game travel passes ?Level= explicitly.
+static bool GB2FCommandLineLevelConsumed = false;
+
 ABorn2FlapGameMode::ABorn2FlapGameMode()
 {
     DefaultPawnClass = ABorn2FlapFlightPawn::StaticClass();
@@ -301,8 +309,11 @@ void ABorn2FlapGameMode::InitGame(const FString &MapName, const FString &Options
         Born2Flap::I18n::SetLocale(Lang);
 
     FString Level = UGameplayStatics::ParseOption(Options, TEXT("Level"));
-    if (Level.IsEmpty())
+    if (Level.IsEmpty() && !GB2FCommandLineLevelConsumed)
+    {
         FParse::Value(FCommandLine::Get(), TEXT("B2FLevel="), Level);
+        GB2FCommandLineLevelConsumed = true;
+    }
     bCoastLevel = Level.Equals(TEXT("Shiomori"),ESearchCase::IgnoreCase) || (Level.IsEmpty() && MapName.Contains(TEXT("SHIOMORI")));
     FString Activity=UGameplayStatics::ParseOption(Options,TEXT("Activity"));
     if(Activity.IsEmpty())FParse::Value(FCommandLine::Get(),TEXT("B2FActivity="),Activity);
@@ -2021,6 +2032,17 @@ FString ABorn2FlapGameMode::BuildBrainTelemetry() const
         // Aerobatic/handcatch reward toast (empty when no reward is active).
         Root->SetStringField(TEXT("reward_text"), Bird->GetRewardText());
         Root->SetNumberField(TEXT("reward_alpha"), Bird->GetRewardAlpha());
+        // Persistent camera-mode readout ("PILOT / 1ST PERSON | FOLLOW", ...)
+        // — the Ruby cockpit's camera line (native canvas no longer draws it).
+        Root->SetStringField(TEXT("camera_label"), Bird->GetCameraLabel());
+        // Camera follow-mode corner toast ("AUTO CAMERA"/"STATIC CAMERA",
+        // empty when silent) — authored here for the Brain cockpit.
+        Root->SetStringField(TEXT("camera_toast_text"), Bird->GetCameraToastText());
+        Root->SetNumberField(TEXT("camera_toast_alpha"), Bird->GetCameraToastAlpha());
+        // RMB-zoom amount corner toast ("ZOOM 4.5x", empty when silent) —
+        // authored here for the Brain cockpit.
+        Root->SetStringField(TEXT("zoom_toast_text"), Bird->GetZoomToastText());
+        Root->SetNumberField(TEXT("zoom_toast_alpha"), Bird->GetZoomToastAlpha());
         // Wind readout for the Ruby cockpit. The relative source bearing is
         // pre-computed in screen space (0° = ahead, clockwise positive) so the
         // Brain stays declarative: it feeds the WindArrow's `angle` prop and the
@@ -2232,6 +2254,7 @@ FString ABorn2FlapGameMode::BuildBrainTelemetry() const
     for(const auto& A:born2flap::keybinds::Catalog()) {
         auto K=MakeShared<FJsonObject>();
         K->SetStringField(TEXT("id"),A.Id); K->SetStringField(TEXT("label"),A.Label);
+        K->SetStringField(TEXT("category"),A.Category);
         K->SetStringField(TEXT("key"),born2flap::keybinds::Get(A.Id).GetFName().ToString());
         Keys.Add(MakeShared<FJsonValueObject>(K));
     }

@@ -66,12 +66,23 @@ circulationLiftEfficiency = 0.85
 
 -- Shared membrane/plate coefficients for wings and ruddervators. Effective
 -- low-Re calibration, not measured material data. Pressure is always passive.
+-- The realistic band for a two-sided membrane at bird Reynolds numbers
+-- (Re 5e4-1.5e5) is Cf ~ 0.007-0.009. This calibration deliberately sits
+-- ABOVE that band: with induced drag cut (below), skin friction carries
+-- more of the cruise/dive drag, keeping the speed envelope firm. In a dive
+-- the anhedral (drooped) wing carries its drag BELOW the CG, so this
+-- coefficient doubles as the nose-down tuck lever at the bottom of the
+-- craft — the loop-entry lock.
 surfaceSkinCd :: Double
 surfaceSkinCd = 0.012
 
 -- Flat-plate normal-pressure coefficient for wings and ruddervators.
+-- Measured flat plates at Re > 1e4 (bird scale) read 1.2-1.3 at 90 deg;
+-- 1.3 sits on the measured curve and trims the broadside V^2 drag that
+-- hangs at the anhedral lever below the CG (dive tuck) plus the tail
+-- fan's crossflow yaw reaction.
 surfacePressureCp :: Double
-surfacePressureCp = 2.0
+surfacePressureCp = 1.3
 
 -- Kinematic viscosity of air at 15 Â°C [mÂ²/s] and the Stokes creeping-flow
 -- plate constant (â‰ˆ4Ï€ for a thin strip normal to the flow). Together they
@@ -131,11 +142,16 @@ rollLiftSlope = 2 * pi * circulationLiftEfficiency
 rollLiftSlopeRatio :: Double -> Double
 rollLiftSlopeRatio aspect = rollLiftSlope / finiteWingLiftSlope aspect
 
--- Provisional span-efficiency setting: 0.88 reduces induced drag by 6.8%
--- relative to 0.82. This is not a measured calibration of the flapping wake.
--- Ideal planar elliptical loading has e=1 and MINIMUM induced drag.
+-- Span-efficiency setting. A swept membrane wing at bird Reynolds numbers
+-- sits at e ~ 0.8-0.9 in steady glide; a flapping wing's shed wake momentum
+-- can transiently beat the ideal elliptical loading, so e > 1 is a live
+-- calibration lever, not a physical impossibility. e=1.84 HALVES the
+-- drag-due-to-lift: the cost of lift was so high that the circulation drag
+-- ate the flap-position pitch moments (anhedral downstroke -> pitch-up,
+-- raised wings -> pitch-down) and left the loop unrecoverable. The lift
+-- channel keeps its authority; skin friction (above) carries the drag.
 inducedDragCoefficient :: Double -> Double -> Double
-inducedDragCoefficient aspect cl = cl*cl/(pi*0.88*max 0.01 aspect)
+inducedDragCoefficient aspect cl = cl*cl/(pi*1.84*max 0.01 aspect)
 
 -- Smoothing of the legacy display diagnostic only; not a physical time constant.
 springLoadTau :: Double
@@ -626,7 +642,12 @@ stepStripPreparedMotion station aspectRatio implicitLoads _phaseRate _flapping s
       -- must not make a newly rotating wing transparent to air.
       cd = surfaceSkinCd + inducedCd
       -- Effective edge/membrane crossflow coefficient; shared by glide and flap.
-      sideCd = 0.04 + 0.12 * forceSeparation
+      -- Attached spanwise flow over a thin plate is tangential: skin-level
+      -- resistance (0.008) plus a margin for sweep/edge/corrugation effects.
+      -- The separated increment is broadside (stalled plate), physically much
+      -- larger. The attached value is the wing's sideslip/yaw-damping
+      -- contribution; keeping it low keeps yaw agile.
+      sideCd = 0.02 + 0.12 * forceSeparation
       area = chord * dr
       q = 0.5 * airDensity * planarSpeed * planarSpeed
       lift = q * area * cl

@@ -25,6 +25,16 @@ PERSONS = [
     ('Adam', '/Game/Actor/SK_Adam/SkeletalMeshes/SK_Adam.SK_Adam'),
     ('Brian', '/Game/Actor/SK_Brian/SkeletalMeshes/SK_Brian.SK_Brian'),
     ('Alex', '/Game/Actor/SK_Alex/SkeletalMeshes/SK_Alex.SK_Alex'),
+    ('Heraklios', '/Game/Actor/SK_Heraklios/SkeletalMeshes/SK_Heraklios.SK_Heraklios'),
+    ('Alien', '/Game/Actor/SK_Alien/SkeletalMeshes/SK_Alien.SK_Alien'),
+    ('Ninja', '/Game/Actor/SK_Ninja/SkeletalMeshes/SK_Ninja.SK_Ninja'),
+    ('Knight', '/Game/Actor/SK_Knight/SkeletalMeshes/SK_Knight.SK_Knight'),
+    ('Pumpkinhulk', '/Game/Actor/SK_Pumpkinhulk/SkeletalMeshes/SK_Pumpkinhulk.SK_Pumpkinhulk'),
+    ('Whiteclown', '/Game/Actor/SK_Whiteclown/SkeletalMeshes/SK_Whiteclown.SK_Whiteclown'),
+    ('Goblin', '/Game/Actor/SK_Goblin/SkeletalMeshes/SK_Goblin.SK_Goblin'),
+    ('Demon', '/Game/Actor/SK_Demon/SkeletalMeshes/SK_Demon.SK_Demon'),
+    ('Gas Mask', '/Game/Actor/SK_GasMask/SkeletalMeshes/SK_GasMask.SK_GasMask'),
+    ('X-Bot', '/Game/Actor/SK_XBot/SkeletalMeshes/SK_XBot.SK_XBot'),
 ]
 
 rep = {}

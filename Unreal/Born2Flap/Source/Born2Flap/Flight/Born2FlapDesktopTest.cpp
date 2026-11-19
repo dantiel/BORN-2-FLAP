@@ -3,6 +3,7 @@
 #include "Engine/Texture2D.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/PlayerInput.h"
+#include "GameFramework/SpringArmComponent.h"
 #include "InputKeyEventArgs.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
@@ -63,8 +64,10 @@ void ABorn2FlapFlightPawn::CheckDesktopInputTest(float DeltaSeconds)
         case 9: Pass &= Near(Throttle,0) && !IsUIHidden(); break;
         case 10: Pass &= RollInput > .9 && YawInput > .9 && PitchInput > .1; break;
         case 11: Pass &= RollInput > .9 && Near(YawInput,0) && PitchInput > .1; break;
-        case 12: Pass &= Near(RollInput,0) && YawInput > .9 && PitchInput > .1; break;
-        case 13: Pass &= Near(RollInput,0) && Near(YawInput,0) && PitchInput > .1; break;
+        // RMB zoom must NOT mute the roll stick (the mouse keeps banking the
+        // bird while zoomed); LMB still mutes yaw.
+        case 12: Pass &= RollInput > .9 && YawInput > .9 && PitchInput > .1; break;
+        case 13: Pass &= RollInput > .9 && Near(YawInput,0) && PitchInput > .1; break;
         case 14: Pass &= Near(RollInput,0) && Near(YawInput,0) && Near(PitchInput,0); break;
         case 15: case 18: Pass &= RollInput > .99 && YawInput > .99 && PitchInput > .99; break;
         case 16: case 19: case 20: Pass &= Near(RollInput,0) && Near(YawInput,0) && Near(PitchInput,0); break;
@@ -76,6 +79,26 @@ void ABorn2FlapFlightPawn::CheckDesktopInputTest(float DeltaSeconds)
         case 26: Pass &= RollInput < -.98 && PitchInput > .98 && Near(YawInput,0) && BirdModel==1; break;
         case 27: Pass &= RollInput < -.98 && PitchInput > .98 && Near(YawInput,0) && BirdModel==0; break;
         case 28: Pass &= RollInput > .98 && PitchInput < -.98 && YawInput < -.98 && BirdModel==2; break;
+        // Camera-verb stages: the K follow toggle, the wheel-tuned RMB zoom in
+        // BOTH pilot views, and the MMB drag really rotating the chase spring
+        // arm around the bird.
+        case 29: Pass &= bThirdPersonActor && !bGroundView && !bFpvAirView; break;
+        case 30: Pass &= bRmbZoom && bThirdPersonActor; break;
+        // The RMB-zoom corner toast must announce the live lens factor after
+        // a press + wheel step (its 3 s window is still open at the next stage).
+        case 31: Pass &= bRmbZoom && bThirdPersonActor && Near(RmbZoomFactor,5.0) &&
+                         GetZoomToastText().Contains(TEXT("ZOOM")) && GetZoomToastAlpha() > 0.f; break;
+        case 32: Pass &= bRmbZoom && bGroundView && Near(RmbZoomFactor,6.0) &&
+                         GetZoomToastText().Contains(TEXT("ZOOM")) && GetZoomToastAlpha() > 0.f; break;
+        // ChaseOrbitYaw is raw degrees (can exceed ±180); the boom stores the
+        // rotation as a quaternion, so the read-back yaw wraps. Compare on the
+        // angle circle instead of the raw value.
+        case 33: Pass &= !bGroundView && !bThirdPersonActor && !bFpvAirView &&
+                         FMath::Abs(ChaseOrbitYaw) > 10.f &&
+                         FMath::Abs(FMath::FindDeltaAngleDegrees(CameraBoom->GetRelativeRotation().Yaw,ChaseOrbitYaw)) < .5f; break;
+        case 34: Pass &= !bAutoFollowBird && FollowToastEnd > 0.0; break;
+        // J re-centers the view but must NOT re-enable auto-follow.
+        case 35: Pass &= !bAutoFollowBird; break;
         }
         if (DesktopTestStage >= 0)
         {
@@ -94,7 +117,8 @@ void ABorn2FlapFlightPawn::CheckDesktopInputTest(float DeltaSeconds)
         }
         // Only edges are injected for buttons; the engine maintains their held state.
         for (FKey K : {EKeys::W,EKeys::LeftControl,EKeys::LeftShift,EKeys::R,EKeys::LeftMouseButton,
-                      EKeys::RightMouseButton,EKeys::Left,EKeys::Down,EKeys::A,EKeys::F2,EKeys::F7})
+                      EKeys::RightMouseButton,EKeys::Left,EKeys::Down,EKeys::A,EKeys::F2,EKeys::F7,
+                      EKeys::K,EKeys::F6,EKeys::V,EKeys::MiddleMouseButton})
             if (PC->IsInputKeyDown(K)) Key(K,false);
         DesktopTestStage = Stage;
         switch (Stage)
@@ -119,14 +143,39 @@ void ABorn2FlapFlightPawn::CheckDesktopInputTest(float DeltaSeconds)
             if(FParse::Param(FCommandLine::Get(),TEXT("B2FBirdPreview")))
                 FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateWeakLambda(this,[](float){FScreenshotRequest::RequestScreenshot(TEXT("COMMON_KESTREL.png"),true,false);return false;}),.3f);
             SelectBirdModel(2); SetMouseGain(0,1); SetMouseGain(1,-1); SetMouseGain(2,-1); break;
+        case 29: Key(EKeys::F6,true); Key(EKeys::F6,false); break;
+        case 30: Key(EKeys::RightMouseButton,true); break;
+        case 31: Key(EKeys::RightMouseButton,true); Axis(EKeys::MouseWheelAxis,1); break;
+        case 32: Key(EKeys::V,true); Key(EKeys::V,false); Key(EKeys::RightMouseButton,true); Axis(EKeys::MouseWheelAxis,1); break;
+        case 33: Key(EKeys::F6,true); Key(EKeys::F6,false); Key(EKeys::V,true); Key(EKeys::V,false);
+                 Key(EKeys::MiddleMouseButton,true); Axis(EKeys::MouseX,1000); break;
+        case 34: Key(EKeys::K,true); Key(EKeys::K,false); break;
+        case 35: Key(EKeys::J,true); Key(EKeys::J,false); break;
         }
-        if (Stage >= 29)
+        if (Stage >= 36)
         {
             bDesktopTestPass &= CheckFlightCameras();
-            TInlineComponentArray<UBorn2FlapWingMesh*> Wings(this);
-            bool WingsPass=Wings.Num()==6;
+            // Enumerate the wing meshes through the shoulder children — the same
+            // path SweepWingColliders uses. AddInstanceComponent wings are not
+            // reliably enumerated by TInlineComponentArray/GetComponents, so the
+            // old count-based check flaked depending on enumeration order.
+            TArray<UBorn2FlapWingMesh*> Wings;
+            for (USceneComponent* Shoulder : { LeftShoulder.Get(), RightShoulder.Get(),
+                    RavenLeftShoulder.Get(), RavenRightShoulder.Get(),
+                    MembraneLeftShoulder.Get(), MembraneRightShoulder.Get(),
+                    TurtleLeftShoulder.Get(), TurtleRightShoulder.Get() })
+            {
+                if (!Shoulder) continue;
+                for (USceneComponent* Child : Shoulder->GetAttachChildren())
+                    if (auto* Wing = Cast<UBorn2FlapWingMesh>(Child))
+                        Wings.Add(Wing);
+            }
+            // Four silhouettes carry solver-bent wing meshes: raven (0),
+            // prototype membrane (1), kestrel (2) and the Neon turtle flippers
+            // (3) — 2 sides each. The pterosaur (5) uses shard-mesh wings.
+            bool WingsPass=Wings.Num()==8;
             for(auto* Wing : Wings) WingsPass &= Wing->HasValidDeformation();
-            UE_LOG(LogTemp,Display,TEXT("WingVisualTest %s: all three models receive solver bending, finite normals and stable UVs"),WingsPass ? TEXT("PASS") : TEXT("FAIL"));
+            UE_LOG(LogTemp,Display,TEXT("WingVisualTest %s: all wing silhouettes receive solver bending, finite normals and stable UVs (%d wings)"),WingsPass ? TEXT("PASS") : TEXT("FAIL"),Wings.Num());
             bDesktopTestPass &= WingsPass;
             if (FParse::Param(FCommandLine::Get(),TEXT("B2FSettingsCapture")))
             {
