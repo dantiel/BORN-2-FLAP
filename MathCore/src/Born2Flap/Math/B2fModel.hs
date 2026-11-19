@@ -79,7 +79,9 @@ encodeWing ws = JObject
   , ("root_height_m", JNumber (wsRootHeightM ws))
   , ("shoulder_m", JNumber (wsShoulderM ws))
   , ("mount_angle_deg", JNumber (wsMountAngleDeg ws))
+  , ("servo_pitch_deg", JNumber (wsServoPitchDeg ws))
   , ("arm_angle_deg", JNumber (wsArmAngleDeg ws))
+  , ("wing_pitch_deg", JNumber (wsWingPitchDeg ws))
   , ("stations", JArray (map encodeStation (wsStations ws)))
   ]
 
@@ -166,9 +168,11 @@ decodeWing value = do
   shoulder <- expectNumber "shoulder_m" =<< reqField "shoulder_m" fields
   rootHeight <- maybe (Right 0.04) (expectNumber "root_height_m") (lookup "root_height_m" fields)
   mount <- expectNumber "mount_angle_deg" =<< reqField "mount_angle_deg" fields
+  servoPitch <- maybe (Right 0) (expectNumber "servo_pitch_deg") (lookup "servo_pitch_deg" fields)
   arm <- expectNumber "arm_angle_deg" =<< reqField "arm_angle_deg" fields
+  wingPitch <- maybe (Right 0) (expectNumber "wing_pitch_deg") (lookup "wing_pitch_deg" fields)
   stations <- decodeStations =<< reqField "stations" fields
-  Right (WingShape spanM rootHeight shoulder mount arm stations)
+  Right (WingShape spanM rootHeight shoulder mount servoPitch arm wingPitch stations)
 
 decodeStations :: JValue -> Either String [ShapeStation]
 decodeStations (JArray xs) = traverse decodeStation xs

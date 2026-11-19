@@ -1017,16 +1017,17 @@ main = do
     else fail ("the fuselage must roll RIGIDLY with the wing plane (no free hang DOF): "
                ++ show (levelDelta,levelMx,bankedDelta,bankedMx))
   -- Exact 3D hinge kinematics: the flap velocity of every strip must be a
-  -- pure rotation about the TRUE (possibly yawed) hinge axis — v·r = 0 and
-  -- v·â = 0 — for the parallel kestrel AND the 8°-yawed raven mount. A
+  -- pure rotation about the TRUE (possibly yawed+pitched) hinge axis — v·r = 0 and
+  -- v·â = 0 — for the parallel kestrel AND the 20°-yawed, -12°-pitched raven mount. A
   -- mixed-axis decomposition would leak into one of these two projections.
   let hingeStrip model side stroke =
         let r = head (wingLoadsWithStroke True side stroke (2*side*stroke) (2*side*stroke)
                         stillInput model 0 flatState)
             (pos,_,_,_,_,v) = resultFrame r
             hinge = Vec3 0 0 (wsRootHeightM (wmWing model))
-            axis = Vec3 (cos (radians (wsMountAngleDeg (wmWing model))))
-                        (side * sin (radians (wsMountAngleDeg (wmWing model)))) 0
+            axis = let m = radians (wsMountAngleDeg (wmWing model))
+                       p = radians (wsServoPitchDeg (wmWing model))
+                   in Vec3 (cos m * cos p) (side * sin m * cos p) (sin p)
             rel = addVec pos (scaleVec (-1) hinge)
         in abs (dotV v rel) < 1e-9 && abs (dotV v axis) < 1e-9
       hingeCase model = and [hingeStrip model side stroke

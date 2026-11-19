@@ -467,27 +467,32 @@ stepStripPreparedMotion station aspectRatio implicitLoads _phaseRate _flapping s
       !chord = spanChord station
       !twist = spanTwist station
       -- Exact 3D hinge kinematics. The flap hinge axis is the body X axis
-      -- yawed by mountRad in the horizontal plane, and the WHOLE wing follows
-      -- one rigid rotation about it, with u = sideÂ·stroke so a positive stroke
+      -- yawed by mountRad in the horizontal plane and pitched by servoPitchRad,
+      -- and the WHOLE wing follows
+      -- one rigid rotation about it, with u = side*stroke so a positive stroke
       -- raises BOTH wings. Position, velocity and the section frame come from
-      -- the same transform â€” no mixed-axis decomposition, so a yawed hinge
+      -- the same transform (no mixed-axis decomposition), so a yawed+pitched hinge
       -- (forward-swept ornithopters) gets its true sweep/incidence coupling.
-      -- The servo arm yaws the neutral sweep by (mountRad âˆ’ armRad); planform
+      -- The wing mount yaws the neutral sweep by armRad ON TOP of the servo mount
+      -- (sweep0 = mountRad + armRad); planform
       -- dihedral and the aeroelastic bend slope rotate the section about the
-      -- neutral chord axis. mountRad/armRad are zero for the kestrel, so it
+      -- neutral chord axis. All four mount angles are zero for the kestrel, so it
       -- keeps pure parallel flapping.
       !mountRad = radians (wsMountAngleDeg wp)
+      !servoPitchRad = radians (wsServoPitchDeg wp)
       !armRad = radians (wsArmAngleDeg wp)
-      !hingeAxis = Vec3 (cos mountRad) (side * sin mountRad) 0
+      !wingPitchRad = radians (wsWingPitchDeg wp)
+      !hingeAxis = Vec3 (cos mountRad * cos servoPitchRad) (side * sin mountRad * cos servoPitchRad) (sin servoPitchRad)
       !u = side * stroke
-      !sweep0 = mountRad - armRad
+      !sweep0 = mountRad + armRad
+      !mountPitchRad = servoPitchRad + wingPitchRad
       !dihedralBase = spanDihed station + atan bendSlope
       -- Legacy-compatible dihedral of the POSITION/bend-offset vectors
-      -- (stroke âˆ cos mountRad about the body X axis): for a parallel hinge
+      -- (stroke scaled by cos mountRad * cos servoPitchRad about the body X axis):
       -- this is exactly the old geometry; for a yawed hinge the position
       -- itself follows the exact rotation while this scalar only orients the
       -- elastic bend offset and elastic velocity direction.
-      !dihedralApprox = stroke * cos mountRad + spanDihed station
+      !dihedralApprox = stroke * cos mountRad * cos servoPitchRad + spanDihed station
       -- Camber bias blends into the free membrane over 16% span â€” the exact
       -- withWingCamberBias envelope, applied to the cached station table
       -- instead of rebuilding the model per step.
@@ -510,8 +515,8 @@ stepStripPreparedMotion station aspectRatio implicitLoads _phaseRate _flapping s
       !normalBase = rotateAxis u hingeAxis normalS
       -- Mount incidence, geometric twist and elastic twist rotate the local
       -- surface frame exactly once, about the stroke-rotated span axis.
-      !ci = cos (incidenceRad + twist + aeroTwist)
-      !si = sin (incidenceRad + twist + aeroTwist)
+      !ci = cos (incidenceRad + twist + aeroTwist + mountPitchRad)
+      !si = sin (incidenceRad + twist + aeroTwist + mountPitchRad)
       !chordAxis = addVec (scaleVec ci chordBase) (scaleVec si normalBase)
       !normal    = addVec (scaleVec ci normalBase) (scaleVec (-si) chordBase)
       !spanAxis  = spanBase

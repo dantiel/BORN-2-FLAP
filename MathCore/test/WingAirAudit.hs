@@ -33,7 +33,7 @@ main = do
       loads u rate = wingTrialMotion
         (prepareWingSystem False 1 0 0
           (VehicleInput (1/960) (Vec3 u 0 0) zeroVec 0 0 0 0 1000 (Vec3 0 0 1))
-          model 0 [s {stripCamber=0} | s<-initialStrips])
+          model 0 0 [s {stripCamber=0} | s<-initialStrips])
         zeroVec zeroVec rate 0 (0,0)
       q u rate=hingeTorque 1 (loads u rate)
       eps=1e-5
@@ -56,7 +56,7 @@ main = do
       pair bank rate = concat [
         let angle=side*(-bank)
             input=VehicleInput (1/960) (Vec3 u 0 0) zeroVec 0 0 0 0 1000 zeroVec
-            system=prepareWingSystem False side angle 0 input model incidence [s {stripCamber=0}|s<-initialStrips]
+            system=prepareWingSystem False side angle 0 input model incidence 0 [s {stripCamber=0}|s<-initialStrips]
         in wingTrialMotion system (rotateX (-bank)(Vec3 0 0 rate)) zeroVec 0 0 (0,0)
         | side<-[-1,1]]
   forM_ [0,radians 80] $ \bank -> do

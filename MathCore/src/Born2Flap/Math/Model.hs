@@ -136,35 +136,49 @@ kestrelMembraneWing = defaultBirdWing
                      spMembraneK=freedom*spMembraneK profile})
            (shapeStructure defaultBirdWing f)
 
--- | Horizontal servo mount angle of the RavenCrow ornithopter [deg]. The flap
--- hinge axis is yawed this much in the horizontal plane, so each stroke sweeps
--- the wing fore/aft; the section's angle of attack therefore varies with its
--- up/down position — a position-dependent "drag rudder". The kestrel (and every
--- other model sharing 'defaultBirdWing') keeps this at zero = parallel, pure-
--- dihedral flapping. The servo-arm angle below cancels the neutral-sweep shift
--- this yaw introduces.
-ravenServoMountAngleDeg :: Double
-ravenServoMountAngleDeg = 8
+-- | RavenCrow ornithopter construction mount angles (fixed; no hidden servo).
+-- The flap-hinge axis is mounted at (horizontal servo mount, vertical servo
+-- mount); the wing is then fixed to the servo arm at (horizontal wing mount,
+-- vertical wing mount) deviation around the arm screw. The kestrel (and every
+-- other model sharing 'defaultBirdWing') keeps all four at zero = parallel,
+-- pure-dihedral flapping.
 
--- | Horizontal servo-arm angle [deg]: rotates the leading-edge carbon spar at
--- the servo arm so the wing's neutral (mid-stroke) sweep stays at the design
--- outline even though the servo is yawed by 'ravenServoMountAngleDeg'. Equal to
--- the mount angle ⇒ fully compensated neutral sweep; set independently to bias
--- the sweep. Future wing pairs (e.g. a dragonfly's front vs hind pair) set their
--- own mount/arm pair.
+-- | Horizontal SERVO mount angle [deg]: yaws the flap-hinge axis back in the
+-- horizontal plane (back-sweep positive). Each stroke then sweeps the wing
+-- fore/aft, so section angle of attack varies with up/down position -- a
+-- position-dependent "drag rudder". Max ~30 deg.
+ravenServoMountAngleDeg :: Double
+ravenServoMountAngleDeg = 20
+
+-- | Vertical SERVO mount angle [deg]: pitches the flap-hinge axis (nose-up
+-- positive). Shifts the stroke plane and biases the neutral incidence.
+ravenServoPitchDeg :: Double
+ravenServoPitchDeg = -12
+
+-- | Horizontal WING mount angle [deg]: fixes the wing yawed relative to the
+-- servo arm around the arm screw (back-sweep positive). Adds to the servo
+-- mount, so total neutral sweep = servo + wing = 45 deg.
 ravenServoArmAngleDeg :: Double
-ravenServoArmAngleDeg = ravenServoMountAngleDeg
+ravenServoArmAngleDeg = 25
+
+-- | Vertical WING mount angle [deg]: fixes the wing pitched relative to the
+-- servo arm (nose-up positive). Total neutral incidence = servo pitch + wing
+-- pitch = -12 + 10 = -2 deg.
+ravenWingPitchDeg :: Double
+ravenWingPitchDeg = 10
 
 -- | RavenCrow (nature valley): 0.66 m half-span (1.32 m full span), the kestrel
--- outline scaled 1.2×. Its spars are its OWN list (the kestrel construction at
--- 1.2×, written out with specific diameters/lengths so any rod can be edited
--- independently). Mass scales ~s³ (structural similarity): 50 g × 1.2³.
+-- outline scaled 1.2x. Its spars are its OWN list (the kestrel construction at
+-- 1.2x, written out with specific diameters/lengths so any rod can be edited
+-- independently). Mass scales ~s^3 (structural similarity): 50 g x 1.2^3.
 ravenModel :: WingModel
 ravenModel = mkWingModel "raven" ravenWing ravenSpars 0.086
   where
     ravenWing = (scaleWing 1.2 defaultBirdWing)
       { wsMountAngleDeg = ravenServoMountAngleDeg
+      , wsServoPitchDeg = ravenServoPitchDeg
       , wsArmAngleDeg = ravenServoArmAngleDeg
+      , wsWingPitchDeg = ravenWingPitchDeg
       }
 
 -- | Prototype (training arena): 0.495 m half-span (0.99 m full span), the
