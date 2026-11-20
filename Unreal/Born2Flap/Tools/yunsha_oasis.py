@@ -104,7 +104,7 @@ def plant_lake(imported,ground):
     # never matched the terrain, so the shore read bare). Reeds stand in the
     # shallow water and at the exact waterline; weeds/ferns fill the damp slope
     # above; palms anchor the high rim.
-    scatter(grass,1600,(0.93,1.06),-30,45,(70,130),False)   # tall reeds at the waterline
-    scatter(meadow,1200,(0.96,1.12),30,150,(30,70),False)   # low weeds on the shore slope
-    scatter(fern,560,(1.00,1.30),40,160,(50,140),False)     # leafy weeds up the bank
-    scatter(palm,26,(1.06,1.45),90,180,(700,1400),True)     # palms on the high bank
+    scatter(grass,1600,(0.93,1.06),-30,45,(70,130),False,clumps=34,clump_sigma=220)   # tall reeds in dense shoreline stands
+    scatter(meadow,1200,(0.96,1.12),30,150,(30,70),False,clumps=26,clump_sigma=160)   # low weeds in shore clumps
+    scatter(fern,560,(1.00,1.30),40,160,(50,140),False,clumps=18,clump_sigma=200)     # leafy weeds up the bank in tufts
+    scatter(palm,26,(1.06,1.45),90,180,(700,1400),True)                                # palms on the high bank
