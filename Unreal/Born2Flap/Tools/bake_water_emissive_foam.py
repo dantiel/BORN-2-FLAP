@@ -16,7 +16,7 @@ scope = dict(__file__=str(source), assets=u.AssetToolsHelpers.get_asset_tools(),
 exec(compile(ast.Module(body=defs, type_ignores=[]), str(source), 'exec'), scope)
 # Teal-family colours (the tuning invariant: deep MUST stay bright teal, never
 # near-black navy — a dark "deep" reads as a black slab under an overcast sky).
-scope['water_material']('Water', (0.10, 0.52, 0.58), rough=0.02, specular=1.0,
-                        shore_color=(0.16, 0.62, 0.55))
-scope['water_material']('Shallows', (0.08, 0.46, 0.44), shore_color=(0.16, 0.62, 0.55))
+scope['water_material']('Water', (0.08, 0.52, 0.66), rough=0.02, specular=1.0,
+                        shore_color=(0.12, 0.54, 0.60))
+scope['water_material']('Shallows', (0.08, 0.50, 0.60), shore_color=(0.12, 0.56, 0.58))
 u.log('WATER_EMISSIVE_FOAM_READY')

@@ -329,16 +329,40 @@ skirt=actor('Distant sand sea',mesh('DistantSandSea',verts,tris,sand,False),coll
 skirt.static_mesh_component.set_editor_property('affect_distance_field_lighting',False)
 skirt.static_mesh_component.set_cast_shadow(False)
 
-# Water follows the actual terrain zero-contour so the shoreline is smooth and
-# matches the crescent basin exactly: no spilled water, no dry rim, no stair-step
-# cells at the waterline (the old analytic mask overshot the shore).
-verts=[];tris=[]
-CELL=120
-for y in range(-62000,-42000,CELL):
-    for x in range(-15800,15801,CELL):
-        corners=[(x,y),(x+CELL,y),(x+CELL,y+CELL),(x,y+CELL)]
-        if all(ground(px,py)<-4 for px,py in corners):
-            k=len(verts);verts.extend((px,py,0) for px,py in corners);tris.extend([(k,k+1,k+2),(k,k+2,k+3)])
+# Water follows the actual terrain zero-contour. Marching-squares on the ground
+# field traces the smooth shoreline (ground == 0) instead of stair-stepping a
+# coarse grid of fully-submerged cells, so the crescent reads as a round spring:
+# no hard polygon edges and no uncovered gaps (black spots) between water and
+# shore. The water is a single flat sheet at Z=0.
+def water_surface(ground,x0,x1,y0,y1,cell,z=0.0):
+    verts=[];tris=[]
+    def cross(a,b,fa,fb):
+        t=0.5 if abs(fa-fb)<1e-9 else fa/(fa-fb)
+        return (a[0]+t*(b[0]-a[0]),a[1]+t*(b[1]-a[1]))
+    y=y0
+    while y<y1:
+        x=x0
+        while x<x1:
+            corners=[(x,y),(x+cell,y),(x+cell,y+cell),(x,y+cell)]
+            f=[ground(px,py) for px,py in corners]
+            inside=[fi<0 for fi in f]
+            n=sum(inside)
+            if n==4:
+                k=len(verts);verts.extend((px,py,z) for px,py in corners);tris.extend([(k,k+1,k+2),(k,k+2,k+3)])
+            elif n>0:
+                poly=[]
+                for i in range(4):
+                    j=(i+1)%4
+                    if inside[i]:poly.append(corners[i])
+                    if inside[i]!=inside[j]:poly.append(cross(corners[i],corners[j],f[i],f[j]))
+                cx=sum(p[0] for p in poly)/len(poly);cy=sum(p[1] for p in poly)/len(poly)
+                k=len(verts);verts.append((cx,cy,z));verts.extend((px,py,z) for px,py in poly)
+                for t in range(len(poly)):tris.append((k,k+1+t,k+1+(t+1)%len(poly)))
+            x+=cell
+        y+=cell
+    return verts,tris
+
+verts,tris=water_surface(ground,-15800,15800,-62000,-42000,80)
 actor('Lunya crescent spring',mesh('Lunya',verts,tris,water,False),collision=False)
 
 # Lotus: a floating pad and a cup of petals scattered on the crescent so the
