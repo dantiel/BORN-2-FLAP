@@ -92,8 +92,8 @@ every colour tweak.
 ## Durable tuning invariants (do not violate)
 
 - **Deep colour MUST stay in the teal/wave family** — never near-black.
-  Current bake (`create_shiomori_map.py:1144`): deep `(0.06, 0.30, 0.55)`,
-  shore `(0.10, 0.42, 0.58)`.
+  Current bake (`create_shiomori_map.py:1144`): deep `(0.08, 0.52, 0.66)`,
+  shore `(0.12, 0.54, 0.60)` (turquoise-blue body; foam/surf stay white).
 - **Soft Beer-Lambert**: `water = deep + (shallow - deep) * exp(-d/650)`.
   Do not tighten below ~`/450` — a `/250`-style absorption drops the ~3 m lagoon
   into a dark abyss.
