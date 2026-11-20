@@ -19,6 +19,7 @@ import unreal as u
 
 TOOLS = u.AssetToolsHelpers.get_asset_tools()
 LIB = u.EditorAssetLibrary
+MEL = u.MaterialEditingLibrary
 
 _HERE = Path(__file__).resolve()
 _PROJECT = _HERE.parents[1]
@@ -162,6 +163,138 @@ def _import_clips(base, clip_prefix, skeleton):
     return imported
 
 
+_TEXTURES_DIR = _PROJECT / 'SourceAssets/NewChars/Textures'
+
+# (source .jpg basename, channel) for the body material. The FBX references
+# these by RelativeFilename (Textures\Anuphis_Close_Anubis_*.jpg); they are NOT
+# embedded, so they must be dropped into SourceAssets/NewChars/Textures first.
+_BODY_TEX = [
+    ('Anuphis_Close_Anubis_BaseColor', 'base'),
+    ('Anuphis_Close_Anubis_Normal', 'normal'),
+    ('Anuphis_Close_Anubis_Roughness', 'roughness'),
+    ('Anuphis_Close_Anubis_Metallic', 'metallic'),
+]
+
+
+def _build_materials():
+    """Import the Anubis PBR texture set and wire a body material to slot 0.
+
+    The FBX meshes ship with unresolved external texture paths (same failure
+    mode as the Mixamo FBX set), so without a Textures folder they import
+    gray. When the textures are present this builds BaseColor/Normal and
+    Roughness/Metallic wiring like the other avatars."""
+    tex_dir = '/Game/Actor/%s/Textures' % BASE
+    mat_dir = '/Game/Actor/%s/Materials' % BASE
+    LIB.make_directory(tex_dir)
+    LIB.make_directory(mat_dir)
+
+    tex = {}
+
+    def _import_tex(png, is_normal, is_color):
+        if not png.exists():
+            return None
+        name = png.stem
+        expected = tex_dir + '/' + name
+        if LIB.does_asset_exist(expected):
+            return u.load_asset(expected)
+        factory = u.TextureFactory()
+        try:
+            factory.set_editor_property('no_alpha', True)
+        except Exception:
+            pass
+        try:
+            if is_normal:
+                factory.set_editor_property('compression_settings', u.TextureCompressionSettings.TC_NORMALMAP)
+            factory.set_editor_property('srgb', is_color)
+        except Exception:
+            pass
+        task = u.AssetImportTask()
+        task.filename = str(png)
+        task.destination_path = tex_dir
+        task.destination_name = name
+        task.automated = True
+        task.replace_existing = True
+        task.save = True
+        task.factory = factory
+        TOOLS.import_asset_tasks([task])
+        return u.load_asset(expected)
+
+    for stem, kind in _BODY_TEX:
+        png = _TEXTURES_DIR / (stem + '.jpg')
+        if not png.exists():
+            png = _TEXTURES_DIR / (stem + '.png')
+        t = _import_tex(png, is_normal=(kind == 'normal'), is_color=(kind in ('base', 'normal')))
+        if t is not None:
+            tex[kind] = t
+
+    if not tex.get('base') and not tex.get('normal'):
+        print('WARN %s: no textures found in %s — mesh will import gray. '
+              'Drop the referenced .jpg/.png files there and re-run.'
+              % (BASE, _TEXTURES_DIR))
+        return
+
+    mat_path = mat_dir + '/Anubis_Body'
+    mat = u.load_asset(mat_path) if LIB.does_asset_exist(mat_path) else None
+    if mat is None:
+        factory = u.MaterialFactoryNew()
+        mat = TOOLS.create_asset('Anubis_Body', mat_dir, u.Material, factory)
+    if mat is None:
+        print('ERROR %s: create_asset failed for Anubis_Body' % BASE)
+        return
+
+    def _sample(t, x, y, stype):
+        e = MEL.create_material_expression(mat, u.MaterialExpressionTextureSample, x, y)
+        if e is None:
+            return None
+        e.set_editor_property('texture', t)
+        try:
+            e.set_editor_property('sampler_type', stype)
+        except Exception:
+            pass
+        return e
+
+    if tex.get('base'):
+        s = _sample(tex['base'], -600, 0, u.MaterialSamplerType.SAMPLERTYPE_COLOR)
+        if s is not None:
+            MEL.connect_material_property(s, 'RGB', u.MaterialProperty.MP_BASE_COLOR)
+    if tex.get('normal'):
+        s = _sample(tex['normal'], -600, -260, u.MaterialSamplerType.SAMPLERTYPE_NORMAL)
+        if s is not None:
+            MEL.connect_material_property(s, 'RGB', u.MaterialProperty.MP_NORMAL)
+    if tex.get('roughness') and tex.get('metallic'):
+        s = _sample(tex['roughness'], -600, -520, u.MaterialSamplerType.SAMPLERTYPE_LINEAR_COLOR)
+        rough = MEL.create_material_expression(mat, u.MaterialExpressionComponentMask, -260, -560)
+        rough.set_editor_property('g', True)
+        MEL.connect_material_property(rough, '', u.MaterialProperty.MP_ROUGHNESS)
+        if s is not None:
+            MEL.connect_material_expressions(s, 'G', rough, '')
+        sm = _sample(tex['metallic'], -600, -780, u.MaterialSamplerType.SAMPLERTYPE_LINEAR_COLOR)
+        metal = MEL.create_material_expression(mat, u.MaterialExpressionComponentMask, -260, -760)
+        metal.set_editor_property('b', True)
+        MEL.connect_material_property(metal, '', u.MaterialProperty.MP_METALLIC)
+        if sm is not None:
+            MEL.connect_material_expressions(sm, 'B', metal, '')
+    else:
+        c = MEL.create_material_expression(mat, u.MaterialExpressionConstant, -600, -780)
+        c.set_editor_property('r', 0.0)
+        MEL.connect_material_property(c, '', u.MaterialProperty.MP_METALLIC)
+        c2 = MEL.create_material_expression(mat, u.MaterialExpressionConstant, -600, -900)
+        c2.set_editor_property('r', 0.6)
+        MEL.connect_material_property(c2, '', u.MaterialProperty.MP_ROUGHNESS)
+    LIB.save_asset(mat_path)
+
+    mesh = u.load_asset('/Game/Actor/%s/SkeletalMeshes/%s' % (BASE, BASE))
+    if mesh is not None and isinstance(mesh, u.SkeletalMesh):
+        mats = mesh.get_editor_property('materials')
+        if mats:
+            sm = mats[0]
+            sm.set_editor_property('material_interface', mat)
+            mats[0] = sm
+            mesh.set_editor_property('materials', mats)
+            LIB.save_loaded_asset(mesh, only_if_is_dirty=False)
+            print('MATS_%s slot0->%s' % (BASE, mat_path))
+
+
 def main():
     _delete_folder('/Game/Actor/' + BASE)
     if not SRC.exists():
@@ -171,6 +304,7 @@ def main():
     if skeleton is None:
         print('ERROR %s has no skeleton' % BASE)
         return
+    _build_materials()
     mesh = u.load_asset('/Game/Actor/%s/SkeletalMeshes/%s' % (BASE, BASE))
     if mesh is not None and isinstance(mesh, u.SkeletalMesh):
         b = mesh.get_bounds()
