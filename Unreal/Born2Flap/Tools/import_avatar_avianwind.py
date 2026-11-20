@@ -19,6 +19,7 @@ import unreal as u
 
 TOOLS = u.AssetToolsHelpers.get_asset_tools()
 LIB = u.EditorAssetLibrary
+MEL = u.MaterialEditingLibrary
 
 _HERE = Path(__file__).resolve()
 _PROJECT = _HERE.parents[1]
@@ -166,6 +167,99 @@ def _import_clips(base, clip_prefix, skeleton):
     return imported
 
 
+def _build_materials(base, fbx_name):
+    """Build a PBR material for the CC4 'Material_Pbr' slot from the .fbm
+    textures (Diffuse + Normal) and assign it to mesh slot 0. The FBX imports
+    textureless (its texture paths point at the export machine), which is the
+    'avian shows the wrong/previous pilot's texture' root cause."""
+    tex_dir = '/Game/Actor/%s/Textures' % base
+    mat_dir = '/Game/Actor/%s/Materials' % base
+    LIB.make_directory(tex_dir)
+    LIB.make_directory(mat_dir)
+
+    fbm = _CHAR_DIR / fbx_name.replace('.fbx', '.fbm')
+
+    def _import_tex(png, is_normal, is_color):
+        if not png.exists():
+            u.log_warning('import_avatar_avianwind: missing texture %s' % png)
+            return None
+        name = png.stem
+        expected = tex_dir + '/' + name
+        if LIB.does_asset_exist(expected):
+            return u.load_asset(expected)
+        factory = u.TextureFactory()
+        try:
+            factory.set_editor_property('no_alpha', True)
+        except Exception:
+            pass
+        try:
+            if is_normal:
+                factory.set_editor_property('compression_settings', u.TextureCompressionSettings.TC_NORMALMAP)
+            factory.set_editor_property('srgb', is_color)
+        except Exception:
+            pass
+        task = u.AssetImportTask()
+        task.filename = str(png)
+        task.destination_path = tex_dir
+        task.destination_name = name
+        task.automated = True
+        task.replace_existing = True
+        task.save = True
+        task.factory = factory
+        TOOLS.import_asset_tasks([task])
+        return u.load_asset(expected)
+
+    diffuse = _import_tex(fbm / 'Material_Pbr_Diffuse.png', False, True)
+    normal = _import_tex(fbm / 'Material_Pbr_Normal.png', True, False)
+
+    mat_path = mat_dir + '/Material_Pbr'
+    mat = u.load_asset(mat_path) if LIB.does_asset_exist(mat_path) else None
+    if mat is None:
+        factory = u.MaterialFactoryNew()
+        mat = TOOLS.create_asset('Material_Pbr', mat_dir, u.Material, factory)
+    if mat is None:
+        u.log_error('import_avatar_avianwind: create_asset failed for %s/Material_Pbr' % base)
+        return
+
+    def _sample(tex, x, y, stype):
+        e = MEL.create_material_expression(mat, u.MaterialExpressionTextureSample, x, y)
+        if e is None:
+            return None
+        e.set_editor_property('texture', tex)
+        try:
+            e.set_editor_property('sampler_type', stype)
+        except Exception:
+            pass
+        return e
+
+    if diffuse:
+        s = _sample(diffuse, -600, 0, u.MaterialSamplerType.SAMPLERTYPE_COLOR)
+        if s is not None:
+            MEL.connect_material_property(s, 'RGB', u.MaterialProperty.MP_BASE_COLOR)
+    if normal:
+        s = _sample(normal, -600, -260, u.MaterialSamplerType.SAMPLERTYPE_NORMAL)
+        if s is not None:
+            MEL.connect_material_property(s, 'RGB', u.MaterialProperty.MP_NORMAL)
+    c = MEL.create_material_expression(mat, u.MaterialExpressionConstant, -600, -780)
+    c.set_editor_property('r', 0.0)
+    MEL.connect_material_property(c, '', u.MaterialProperty.MP_METALLIC)
+    c2 = MEL.create_material_expression(mat, u.MaterialExpressionConstant, -600, -900)
+    c2.set_editor_property('r', 0.6)
+    MEL.connect_material_property(c2, '', u.MaterialProperty.MP_ROUGHNESS)
+    LIB.save_asset(mat_path)
+
+    mesh = u.load_asset('/Game/Actor/%s/SkeletalMeshes/%s' % (base, base))
+    if mesh is not None and isinstance(mesh, u.SkeletalMesh):
+        mats = mesh.get_editor_property('materials')
+        if mats:
+            sm = mats[0]
+            sm.set_editor_property('material_interface', mat)
+            mats[0] = sm
+            mesh.set_editor_property('materials', mats)
+            LIB.save_loaded_asset(mesh, only_if_is_dirty=False)
+            print('MATS_%s slot0->%s' % (base, mat_path))
+
+
 def main():
     for base, fbx in CHARACTERS:
         _delete_folder('/Game/Actor/' + base)
@@ -177,6 +271,7 @@ def main():
         if skeleton is None:
             u.log_error('import_avatar_avianwind: %s has no skeleton' % base)
             continue
+        _build_materials(base, fbx)
         mesh = u.load_asset('/Game/Actor/%s/SkeletalMeshes/%s' % (base, base))
         if mesh is not None and isinstance(mesh, u.SkeletalMesh):
             b = mesh.get_bounds()

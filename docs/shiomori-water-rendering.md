@@ -100,7 +100,7 @@ every colour tweak.
 - **Opacity floor 0.45**: `max(0.45 + 0.55*(1-exp(-d/110)), surf*0.95)`. The old
   depth-only `1-exp(-d/110)` went ~0.05 at the thin shoreline, letting the dark
   seabed read through the "transparent" water and blacking out the bay.
-- **Fresnel floor 0.15** (not 0.05): `refl = saturate(0.15 + (1.35 + 0.75*Sun)*Fresnel)`.
+- **Fresnel floor 0.25** (not 0.05): `refl = saturate(0.25 + (1.6 + 0.9*Sun)*Fresnel)`.
   The old floor let the water read as a black slab from directly above.
 - **World-space normals** (`tangent_space_normal = false`): the Gerstner normals
   are world-space; the default tangent-space interpretation re-rotates them and
