@@ -396,15 +396,31 @@ pad_batch.instances.set_static_mesh(pad_mesh);pad_batch.instances.set_collision_
 flower_batch=u.EditorLevelLibrary.spawn_actor_from_class(u.Born2FlapYunshaBatch,u.Vector())
 flower_batch.set_actor_label('Yunsha lotus flowers');flower_batch.tags=['Yunsha','YunshaLakeFlora']
 flower_batch.instances.set_static_mesh(petal_mesh);flower_batch.instances.set_collision_profile_name('NoCollision')
-lotus_rng=random.Random(110519);placed=0
-for attempt in range(6000):
-    if placed>=120:break
-    x=lotus_rng.uniform(-15000,15000);y=lotus_rng.uniform(-61500,-42500)
-    if not u.Born2FlapYunsha.spring_contains(x,y) or ground(x,y)>-8:continue
-    s=lotus_rng.uniform(.7,1.4);ang=lotus_rng.uniform(0,360)
-    tr=u.Transform(location=u.Vector(x,y,0),rotation=u.Rotator(yaw=ang),scale=u.Vector(s,s,s))
-    pad_batch.instances.add_instance(tr,False);flower_batch.instances.add_instance(tr,False)
-    placed+=1
+lotus_rng=random.Random(110519)
+# Lotus grows in colonies, not a uniform sprinkle: a few distinct stands hug
+# the water while long stretches of the crescent stay clear, so the spring
+# reads inhabited and natural. Bounded rejection-sampling picks colony centres
+# inside the crescent; each centre scatters a gaussian stand of varying size.
+clusters=[]
+for _ in range(6000):
+    if len(clusters)>=15:break
+    cx=lotus_rng.uniform(-14500,14500);cy=lotus_rng.uniform(-61000,-43000)
+    if not u.Born2FlapYunsha.spring_contains(cx,cy) or ground(cx,cy)>-8:continue
+    if any(math.hypot(cx-ox,cy-oy)<2600 for ox,oy in clusters):continue
+    clusters.append((cx,cy))
+placed=0
+for cx,cy in clusters:
+    stand_n=lotus_rng.choice([5,6,7,8,9,10])
+    sigma=lotus_rng.choice([260,360,520,700])
+    for _ in range(stand_n):
+        if placed>=120:break
+        ang=lotus_rng.uniform(0,360);r=abs(lotus_rng.gauss(0,sigma))
+        x=cx+r*math.cos(ang);y=cy+r*math.sin(ang)
+        if not u.Born2FlapYunsha.spring_contains(x,y) or ground(x,y)>-8:continue
+        s=lotus_rng.uniform(.7,1.4);yaw=lotus_rng.uniform(0,360)
+        tr=u.Transform(location=u.Vector(x,y,0),rotation=u.Rotator(yaw=yaw),scale=u.Vector(s,s,s))
+        pad_batch.instances.add_instance(tr,False);flower_batch.instances.add_instance(tr,False)
+        placed+=1
 
 # Authored architecture preserves its source geometry, UVs and weathering.
 def imported(name):
