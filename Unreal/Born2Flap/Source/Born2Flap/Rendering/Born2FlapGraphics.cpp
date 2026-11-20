@@ -159,6 +159,36 @@ void ApplyMotionBlur(float Amount)
     SetCVar(TEXT("r.MotionBlurQuality"), Amount <= 0.f ? 0 : 4);
 }
 
+float LoadViewDistance()
+{
+    const FString Path = PreferencesPath();
+    FConfigFile Config;
+    Config.Read(Path);
+    float Scale = 1.0f;
+    Config.GetFloat(TEXT("Graphics"), TEXT("ViewDistanceScale"), Scale);
+    return FMath::IsFinite(Scale) ? FMath::Clamp(Scale, 0.5f, 2.0f) : 1.0f;
+}
+
+void SaveViewDistance(float Scale)
+{
+    const FString Path = PreferencesPath();
+    FConfigFile Config;
+    Config.Read(Path);
+    Config.bCanSaveAllSections = true;
+    IFileManager::Get().MakeDirectory(*FPaths::GetPath(Path), true);
+    Config.SetFloat(TEXT("Graphics"), TEXT("ViewDistanceScale"),
+        FMath::Clamp(Scale, 0.5f, 2.0f));
+    Config.Write(Path);
+}
+
+void ApplyViewDistance(float Scale)
+{
+    // r.ViewDistanceScale scales every distance-based cull (static meshes,
+    // foliage, skeletal LOD, HLOD) — the single most effective performance
+    // knob for wide-open landscapes. Lower values cull closer.
+    SetCVarF(TEXT("r.ViewDistanceScale"), FMath::Clamp(Scale, 0.5f, 2.0f));
+}
+
 bool LoadShowFps()
 {
     const FString Path = PreferencesPath();

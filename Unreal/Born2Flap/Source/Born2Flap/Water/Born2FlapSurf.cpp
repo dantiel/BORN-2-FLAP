@@ -85,13 +85,19 @@ void ABorn2FlapSurf::BeginPlay()
 void ABorn2FlapSurf::Tick(float Dt)
 {
     Super::Tick(Dt);
-    Accumulator+=Dt;
-    if(Accumulator<1.f/30.f) return;
-    Accumulator=0;
     const auto* Camera=UGameplayStatics::GetPlayerCameraManager(this,0);
     if(!Camera) return;
     const FVector Cam=Camera->GetCameraLocation();
     const double CX=FMath::Clamp(FMath::GridSnap(Cam.X,200.),-34000.,34000.);
+    // Adaptive rebuild rate: full rate near the shore strip, throttled when the
+    // bird is far (over the hinterland/campus or far offshore), where the foam
+    // is a distant strip and its per-frame motion is invisible. Keeps the foam
+    // visible (no pop) while dropping ~95% of the far-distance rebuild cost.
+    const double DistToShore=FMath::Abs(Cam.Y-Born2FlapSurf::Shore(CX));
+    const float RebuildHz=DistToShore<9000. ? 20.f : 1.f;
+    Accumulator+=Dt;
+    if(Accumulator<1.f/RebuildHz) return;
+    Accumulator=0;
     const double Time=GetWorld()->GetTimeSeconds();
     auto* GM=Cast<ABorn2FlapGameMode>(GetWorld()->GetAuthGameMode());
     const auto* Director=AShiomoriWaterDirector::Get(GetWorld());
@@ -110,10 +116,12 @@ void ABorn2FlapSurf::Tick(float Dt)
         MistFX->SetWorldLocation(FVector(CX,MistY,MistZ));
     }
     Vertices.Reset();Normals.Reset();UV.Reset();Colors.Reset();
-    // Doubled along-shore tessellation (200 cm -> 100 cm columns) and more
-    // cross-shore rows erase the coarse vertical facets that read as hard
-    // "ribs" on the foam crest, so the surf shades as one continuous curl.
-    constexpr int NX=220, NY=28;
+    // Along-shore 100 cm columns erase the coarse vertical facets that read as
+    // hard "ribs" on the foam crest (kept at 220 for that reason). Cross-shore
+    // rows are trimmed to 20 — the wash/curl profiles are smooth, so the lower
+    // row count saves ~29% of the vertex upload + normal recompute with no
+    // visible faceting.
+    constexpr int NX=220, NY=20;
     for(int Wave=0;Wave<3;++Wave)
     for(int Kind=0;Kind<2;++Kind)
     for(int I=0;I<=NX;++I)
@@ -178,11 +186,15 @@ void ABorn2FlapSurf::Tick(float Dt)
                 Foam=0.8+0.2*Boil;
                 const double Lobe=.62+.38*FMath::Sin(X*.0079+Wave*2.1+Time*.9)
                     *FMath::Sin(X*.0137-Wave*1.3-Time*.7);
-                // UE_DOUBLE_PI (not the float PI macro): float-PI makes Sin(PI*V)
-                // negative at V=1 (J=NY), and Pow(negative, 0.55) = NaN — a full
-                // NaN vertex-colour row that poisons the wash edge with NaN pixels.
+                // Smooth cross-shore wash profile: a soft crest at mid-wash that
+                // eases to ZERO at both the lip (V=0) and the drained far edge
+                // (V=1) with zero slope, so the white water blends into the dry
+                // sand instead of ending in a hard line. The old Pow(Sin(pi*V),
+                // .55) cusped to 0 with infinite slope at V=1 (and risked NaN via
+                // a negative base at V=1) — that was the hard disappearance edge.
+                const double WashLobe=FMath::SmoothStep(0.,.5,V)*(1.-FMath::SmoothStep(.5,1.,V));
                 Alpha=EdgeFade*Lobe*(1-FMath::SmoothStep(1100.,3200.,Front))*FMath::SmoothStep(-550.,100.,Front)
-                    *FMath::Pow(FMath::Sin(UE_DOUBLE_PI*V),.55)*.9;
+                    *WashLobe*.9;
                 Alpha*=0.75+0.25*Boil;
             }
             // Follow the same displaced liquid surface as the ocean shader.

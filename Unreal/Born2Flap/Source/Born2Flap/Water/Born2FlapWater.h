@@ -89,6 +89,24 @@ struct FOceanParameters
     // directional spread. Kept in lock-step with the water material's HLSL
     // (see create_shiomori_map.py).
     float SampleWaveHeight(const FVector2D& P, float Time) const;
+
+    // Low-fidelity gameplay query: only the first six spectrum components (the
+    // dominant swell + first wind octaves, ~90% of the displacement amplitude).
+    // Foam/splash locking does not need the full 16-component fidelity, which
+    // stays in the GPU material for the look. Shares the cached direction
+    // vectors, so it costs ~6 cos per query instead of ~64 trig.
+    float SampleWaveHeightFast(const FVector2D& P, float Time) const;
+
+    // --- Cached Gerstner directions (perf) --------------------------------
+    // DirectionVector(PrimaryWaveDirection + DirOff[i]) depends only on the
+    // near-constant primary direction; the surf mesh used to re-derive 16 of
+    // them per vertex per query (~1.8M trig/tick wasted on direction alone).
+    // These mutable slots cache the 16 vectors and are rebuilt only when the
+    // primary direction actually changes (once per frame), then reused across
+    // the whole surf vertex loop.
+    mutable bool bDirCacheValid = false;
+    mutable float CachedDirDegrees = 0.0f;
+    mutable FVector2D CachedDirVectors[16];
 };
 
 // ---------------------------------------------------------------------------

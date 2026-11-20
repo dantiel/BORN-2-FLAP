@@ -103,7 +103,7 @@ float AShiomoriWaterDirector::GetWaterHeightAt(float X, float Y) const
         return Parameters.OceanLevel
             + OceanWaves->GetSimpleWaveHeightAtPosition(FVector(X, Y, 0.0f), 10000.0f, TimeSeconds);
     }
-    return Parameters.OceanLevel + Parameters.SampleWaveHeight(FVector2D(X, Y), TimeSeconds);
+    return Parameters.OceanLevel + Parameters.SampleWaveHeightFast(FVector2D(X, Y), TimeSeconds);
 }
 
 void AShiomoriWaterDirector::SpawnNativeOcean()
@@ -278,8 +278,23 @@ void AShiomoriWaterDirector::Tick(float DeltaSeconds)
         // KEY (FString); resolve it through the weather desk's profile table.
         const FBorn2FlapWeather Wx=Born2FlapWeather::Profile(GM->GetConditions().Weather);
         Parameters.SunMirror=FMath::Clamp(0.55f+Wx.Sunlight*0.75f,0.55f,1.3f);
+    }
+
+    // Throttle the near-static parameter pushes (11 MPC scalars + ocean MID
+    // visuals + quality level) to a 0.25 s cadence. These values only change
+    // with wind/sun (slow); pushing them every frame was pure render-thread
+    // chatter. WaveTime + WaterLOD stay per-frame below.
+    ParamPushAccum += DeltaSeconds;
+    if (ParamPushAccum >= 0.25f)
+    {
+        ParamPushAccum = 0.0f;
         ApplyParameters();
         PushOceanVisuals();
+        if (MPCInstance && MPCInstance->GetCollection())
+        {
+            const int32 Quality = FMath::Clamp(Scalability::GetQualityLevels().EffectsQuality, 0, 3);
+            MPCInstance->SetScalarParameterValue(Born2FlapWater::QualityLevel, static_cast<float>(Quality));
+        }
     }
 
     // Wind-driven native ocean waves: re-derive the Gerstner spectrum from the
@@ -307,10 +322,6 @@ void AShiomoriWaterDirector::Tick(float DeltaSeconds)
 
     using namespace Born2FlapWater;
     MPCInstance->SetScalarParameterValue(WaveTime, TimeSeconds);
-
-    // Quality level from the engine's effects scalability (0=Low .. 3=Cinematic).
-    const int32 Quality = FMath::Clamp(Scalability::GetQualityLevels().EffectsQuality, 0, 3);
-    MPCInstance->SetScalarParameterValue(QualityLevel, static_cast<float>(Quality));
 
     // Distance-based LOD (0 = very near, 1 = far). Smoothed, configurable falloff.
     if (const APlayerController* PC = UGameplayStatics::GetPlayerController(this, 0))

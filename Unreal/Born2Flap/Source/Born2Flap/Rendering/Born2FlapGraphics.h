@@ -59,6 +59,13 @@ namespace Born2FlapGraphics
     // the console level) so the menu applies it without a re-spawn.
     BORN2FLAP_API void  ApplyMotionBlur(float Amount);
 
+    // View distance: a performance knob, persisted in [Graphics]
+    // ViewDistanceScale as a multiplier on r.ViewDistanceScale (1.0 = engine
+    // default; lower culls closer and is cheaper on wide-open landscapes).
+    BORN2FLAP_API float LoadViewDistance();
+    BORN2FLAP_API void  SaveViewDistance(float Scale);
+    BORN2FLAP_API void  ApplyViewDistance(float Scale);
+
     // FPS counter: a HUD overlay toggle, persisted in [Graphics] ShowFps.
     // Defaults to ON so the frame-rate readout is visible out of the box.
     BORN2FLAP_API bool LoadShowFps();

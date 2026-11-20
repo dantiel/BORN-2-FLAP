@@ -498,11 +498,11 @@ def water_material(name, color, rough=0.08, specular=0.6, shore_color=(0.03, 0.2
   float3 water=deep+(shallow-deep)*exp(-d/650.0);
   float3 sky=float3(0.42,0.66,1.22)*lerp(0.95,1.55,Sun);
   // Schlick water fresnel (F0=0.04): mirrors the sky at grazing angles and keeps
-  // a visible sheen straight down (floor 0.15 instead of 0.05 — the old floor
+  // a visible sheen straight down (floor 0.25 instead of 0.05 — the old floor
   // let the water read as a black slab from above). Sun grades the mirror
   // (SunMirror from the weather sunlight), so the ocean follows the sky's
   // brightness: dim soft sheen under cloud, bright hard mirror in full sun.
-  float refl=saturate(0.15+(1.35+0.75*Sun)*Fresnel);
+  float refl=saturate(0.25+(1.6+0.9*Sun)*Fresnel);
   float3 col=lerp(water, sky, refl);
   float surf=smoothstep(26.0,6.0,d)*Foam;
   return lerp(col, float3(0.96,0.97,0.96), saturate(surf));''' % (
@@ -523,7 +523,7 @@ def water_material(name, color, rough=0.08, specular=0.6, shore_color=(0.03, 0.2
     em = custom(m, '''float d=max(SceneDepth-PixelDepth,0.0);
   float3 water=float3(%.6g,%.6g,%.6g);
   float3 sky=float3(0.42,0.66,1.22)*lerp(0.95,1.55,Sun);
-  float refl=saturate(0.15+(1.35+0.75*Sun)*Fresnel);
+  float refl=saturate(0.25+(1.6+0.9*Sun)*Fresnel);
   // Body glow floor: water*2.4 — the water is SELF-LUMINOUS HDR teal that
   // survives the EV-14 auto-exposure of a sunny scene (water*0.95 tonemapped
   // down to near-black against sunlit land); the sky mirror rides on top.
@@ -1141,8 +1141,8 @@ mats['Headland'] = (coastal_terrain_material(
     'Headland', (sand_d, sand_n, sand_r), (grass_d, grass_n, grass_r),
     (basalt_d, basalt_n, basalt_r), scale_cm=240.0)
     if grass_d and grass_n and grass_r else mats['Earth'])
-mats['Water'] = water_material('Water', (0.06, 0.30, 0.55), rough=0.02, specular=1.0,
-                             shore_color=(0.10, 0.42, 0.58), waves=wave_n)
+mats['Water'] = water_material('Water', (0.08, 0.52, 0.66), rough=0.02, specular=1.0,
+                              shore_color=(0.12, 0.54, 0.60), waves=wave_n)
 mats['Foam'] = pbr_material('Foam', color=(0.9, 0.94, 0.93), rough=0.35, specular=0.3)
 
 # Translucent foam with soft, noisy edges.

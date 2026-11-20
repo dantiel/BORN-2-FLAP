@@ -1,5 +1,6 @@
 #include "Avatar/Born2FlapAvatarAnimInstance.h"
 #include "BonePose.h"
+#include "Animation/Skeleton.h"
 
 namespace
 {
@@ -25,6 +26,7 @@ void FB2FAvatarAnimInstanceProxy::PreUpdate(UAnimInstance* InAnimInstance, float
         HeadLookPitch = AI->HeadLookPitch;
         ForwardYawOffset = AI->ForwardYawOffset;
         HeadSkeletonBoneIndex = AI->HeadSkeletonBoneIndex;
+        RootSkeletonBoneIndex = AI->RootSkeletonBoneIndex;
     }
 }
 
@@ -33,8 +35,34 @@ bool FB2FAvatarAnimInstanceProxy::Evaluate(FPoseContext& Output)
     // Play the clip exactly as UAnimSingleNodeInstance would, then layer the
     // head gaze on top of the result.
     FAnimSingleNodeInstanceProxy::Evaluate(Output);
+    StripRootMotion(Output);
     ApplyHeadLook(Output);
     return true;
+}
+
+void FB2FAvatarAnimInstanceProxy::StripRootMotion(FPoseContext& Output)
+{
+    if (RootSkeletonBoneIndex == INDEX_NONE || Output.Pose.GetNumBones() == 0)
+        return;
+
+    const FBoneContainer& BoneContainer = Output.Pose.GetBoneContainer();
+    const FCompactPoseBoneIndex RootIdx =
+        BoneContainer.GetCompactPoseIndexFromSkeletonIndex(RootSkeletonBoneIndex);
+    if (!RootIdx.IsValid())
+        return;
+
+    const USkeleton* SkeletonAsset = BoneContainer.GetSkeletonAsset();
+    if (!SkeletonAsset)
+        return;
+    const TArray<FTransform>& RefPose = SkeletonAsset->GetReferenceSkeleton().GetRefBonePose();
+    if (!RefPose.IsValidIndex(RootSkeletonBoneIndex))
+        return;
+
+    // Pin the Hips back to its reference translation: the Mixamo clip's forward
+    // root motion is a per-cycle ~40-70 cm translation that otherwise reads as
+    // a jump at every loop. The pawn's own movement is the only locomotion.
+    FTransform& Root = Output.Pose[RootIdx];
+    Root.SetTranslation(RefPose[RootSkeletonBoneIndex].GetTranslation());
 }
 
 void FB2FAvatarAnimInstanceProxy::ApplyHeadLook(FPoseContext& Output)

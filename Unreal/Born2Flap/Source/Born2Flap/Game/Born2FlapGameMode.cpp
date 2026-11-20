@@ -495,6 +495,7 @@ void ABorn2FlapGameMode::BeginPlay()
     // spawns, so the very first frame is already in the right Lumen/volumetric
     // configuration (and HW ray tracing is armed before scene construction).
     Born2FlapGraphics::ApplySavedOrDefault();
+    Born2FlapGraphics::ApplyViewDistance(Born2FlapGraphics::LoadViewDistance());
     // F10-while-menu-open capture (see FMenuKeyInputProcessor). The pointer
     // is wired to bMenuOpen so the processor only consumes F10 when the menu is
     // actually on screen — otherwise Escape stays free for the F8 flight desk.
@@ -1404,6 +1405,21 @@ void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, c
         born2flap::MenuSettingsSave(BrainPreferences);
         return;
     }
+    // VISUAL tab — UI scale (mobile parity) + view distance (performance).
+    if (Action == TEXT("ui.scale"))
+    {
+        BrainPreferences.UIScale = FMath::Clamp(Value, 0.5f, 2.0f);
+        born2flap::ui::theme::SetUIScale(BrainPreferences.UIScale);
+        born2flap::MenuSettingsSave(BrainPreferences);
+        return;
+    }
+    if (Action == TEXT("view.distance"))
+    {
+        const float Scale = FMath::Clamp(Value, 0.5f, 2.0f);
+        Born2FlapGraphics::SaveViewDistance(Scale);
+        Born2FlapGraphics::ApplyViewDistance(Scale);
+        return;
+    }
     auto* ActiveBird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this,0));
     auto* ActiveRc = ActiveBird ? ActiveBird->GetRcControllerMutable() : BrainRc.Get();
     if (Action.StartsWith(TEXT("rc.axis.")) || Action.StartsWith(TEXT("rc.invert.")) || Action.StartsWith(TEXT("rc.learn.axis."))) {
@@ -1641,7 +1657,7 @@ void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, c
     if (Action == TEXT("settings.page")) { SettingsPage=FMath::Clamp(FMath::RoundToInt(Value),0,6); return; }
     if (Action == TEXT("settings.page")) { SettingsPage=FMath::Clamp(FMath::RoundToInt(Value),0,4); return; }
     if (Action == TEXT("rc.page")) { RcPage=FMath::Clamp(FMath::RoundToInt(Value),0,2); return; }
-    if (Action == TEXT("preferences.page")) { PrefsPage=FMath::Clamp(FMath::RoundToInt(Value),0,3); return; }
+    if (Action == TEXT("preferences.page")) { PrefsPage=FMath::Clamp(FMath::RoundToInt(Value),0,4); return; }
     if (Action == TEXT("settings.close") || Action == TEXT("editor.close"))
     {
         if (ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
@@ -2192,6 +2208,7 @@ FString ABorn2FlapGameMode::BuildBrainTelemetry() const
         Root->SetNumberField(TEXT("display_resolution"), (double)DisplayResIndex(Settings.Resolution));
         Root->SetBoolField(TEXT("avatar_enabled"), Settings.bAvatarEnabled);
         Root->SetNumberField(TEXT("avatar_person"), Settings.AvatarPerson);
+        Root->SetNumberField(TEXT("ui_scale"), Settings.UIScale);
         // RC sender (F3 panel) + live channels.
         const FBorn2FlapRcController* Rc = Bird ? Bird->GetRcController() : BrainRc.Get();
         Root->SetBoolField(TEXT("rc"), Rc && Rc->IsPanelOpen());
@@ -2249,6 +2266,7 @@ FString ABorn2FlapGameMode::BuildBrainTelemetry() const
         Root->SetArrayField(TEXT("rc_channel_axes"),ChannelAxes);
 
     Root->SetNumberField(TEXT("graphics_quality"),Born2FlapGraphics::LoadQuality());
+    Root->SetNumberField(TEXT("view_distance"), Born2FlapGraphics::LoadViewDistance());
     Root->SetStringField(TEXT("lang"),Born2Flap::I18n::GetLocale());
     TArray<TSharedPtr<FJsonValue>> Keys;
     for(const auto& A:born2flap::keybinds::Catalog()) {

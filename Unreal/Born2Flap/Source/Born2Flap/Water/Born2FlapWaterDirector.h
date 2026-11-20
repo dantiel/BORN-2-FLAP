@@ -94,5 +94,6 @@ protected:
     void PushOceanVisuals(); // wind-driven ocean MID updates
 
     float WindUpdateAccum = 0.0f;
+    float ParamPushAccum = 0.0f;
     float TimeSeconds = 0.0f;
 };

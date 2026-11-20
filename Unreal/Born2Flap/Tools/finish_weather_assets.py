@@ -55,8 +55,8 @@ def repair_breaking_surf():
     sampled so dark that the lace term was ~0 across the strip and the churn
     floor alone read as a faint grey wash over black water. v7 boosts the
     texture signal (3.4x speckle gain, denser blend), raises the emissive floor
-    to 0.95 so the strip is WHITE even between foam puffs, and lifts the opacity
-    floor (0.55*churn + 1.05*foam) so the band reads as solid white water at
+    floor to 0.95 so the strip is WHITE even between foam puffs, and gates the opacity
+    floor (0.55 + 1.05*foam) by the vertex R so the band reads as solid white water at
     the crest. Samples from WORLD POSITION, twice (2.3x scale, different pan),
     blended with vertex-colour churn + contrast Power. Engine-standard
     expressions only — no Custom HLSL."""
@@ -115,10 +115,15 @@ def repair_breaking_surf():
     white=node(m,'Constant3Vector',constant=u.LinearColor(1.,1.,1.,1.))
     col=node(m,'Multiply');connect(white,col,'A');connect(level,col,'B')
     output(col,'EMISSIVE_COLOR')
-    # Opacity: churn floor + dense foam — opaque white water at the crest.
-    opA=node(m,'Multiply',const_b=0.55);connect(r,opA,'A')
-    opB=node(m,'Multiply',const_b=1.05);connect(foam,opB,'A')
-    op=node(m,'Add');connect(opA,op,'A');connect(opB,op,'B')
+    # Opacity: gate the churn floor + dense foam by the vertex R. R already
+    # carries every spatial fade (X-end EdgeFade, drained-edge WashLobe, wave
+    # Growth/Collapse), so multiplying the whole term by R makes the texture
+    # lace fade with that same profile instead of hard-cutting at the mesh edge.
+    # R ~ 0.9 across the body, so the crest brightness is essentially unchanged.
+    opB=node(m,'Multiply',const_b=1.05);connect(foam,opB,'A')      # 1.05*foam
+    floor=node(m,'Constant',r=0.55)                                # 0.55
+    opA=node(m,'Add');connect(floor,opA,'A');connect(opB,opA,'B')  # 0.55 + 1.05*foam
+    op=node(m,'Multiply');connect(r,op,'A');connect(opA,op,'B')    # R * (…)
     output(sat(op),'OPACITY')
     lib.recompile_material(m)
     if not ela.save_loaded_asset(m):

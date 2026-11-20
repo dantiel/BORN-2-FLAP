@@ -39,10 +39,10 @@ module Born2Flap
               apply(action, 0)
             end
           when 'preferences.page'
-            # 0 GENERAL / 1 AUDIO / 2 CONTROL / 3 KEY BINDINGS. Forwarded to C++
-            # (PrefsPage) so the page survives panel close; the session state
-            # mirrors it for the immediate visual update.
-            @state[:preferences_page] = value.to_i.clamp(0, 3)
+            # 0 GENERAL / 1 AUDIO / 2 CONTROL / 3 KEY BINDINGS / 4 VISUAL. Forwarded
+            # to C++ (PrefsPage) so the page survives panel close; the session
+            # state mirrors it for the immediate visual update.
+            @state[:preferences_page] = value.to_i.clamp(0, 4)
             apply('preferences.page', value)
           # Tab 3 is the SCENARIOS tab — it exists only when the current world
           # has scenarios (C++ clamps per world), so the session must at least

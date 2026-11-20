@@ -113,6 +113,14 @@ const TArray<FB2FAvatarPersonDef>& AvatarPersons()
           { TEXT("/Game/Actor/SK_Alex/Materials/Ch18_Body.Ch18_Body"), nullptr, nullptr, nullptr } },
         { TEXT("Isis"),     TEXT("/Game/Actor/SK_Isis"),     TEXT("SK_Isis"),     TEXT("SK_Isis"),     nullptr, 196.f, 198.f, 470.f, 132.f, 268.f,
           { TEXT("/Game/Actor/SK_Isis/Materials/Material_0.Material_0"), nullptr, nullptr, nullptr } },
+        { TEXT("Avian Wind M"), TEXT("/Game/Actor/SK_AvianWindM"), TEXT("SK_AvianWindM"), TEXT("SK_AvianWindM"), nullptr, 180.f, 220.f, 440.f, 120.f, 230.f,
+          { nullptr, nullptr, nullptr, nullptr } },
+        { TEXT("Avian Wind F"), TEXT("/Game/Actor/SK_AvianWindF"), TEXT("SK_AvianWindF"), TEXT("SK_AvianWindF"), nullptr, 170.f, 210.f, 420.f, 118.f, 222.f,
+          { nullptr, nullptr, nullptr, nullptr } },
+        { TEXT("Anubis"),  TEXT("/Game/Actor/SK_Anubis"),  TEXT("SK_Anubis"),  TEXT("SK_Anubis"),  nullptr, 200.f, 224.f, 448.f, 122.f, 232.f,
+          { nullptr, nullptr, nullptr, nullptr } },
+        { TEXT("Canary"),  TEXT("/Game/Actor/SK_Canary"),  TEXT("SK_Canary"),  TEXT("SK_Canary"),  nullptr, 130.f, 205.f, 410.f, 112.f, 214.f,
+          { nullptr, nullptr, nullptr, nullptr } },
     };
     return Persons;
 }
@@ -220,6 +228,15 @@ void ABorn2FlapAvatar::LoadPerson(int32 Index)
     }
     Body->SetSkeletalMesh(Mesh);
 
+    // Clear any leftover override materials from the previously loaded person.
+    // USkeletalMeshComponent keeps its OverrideMaterials array across
+    // SetSkeletalMesh, so a person with fewer (or no) overrides would
+    // otherwise inherit the previous person's materials — the "avian shows
+    // John's texture" / "John shows the avian's texture" leak. A null override
+    // falls back to the mesh's own imported material for that slot.
+    for (int32 MatIdx = 0; MatIdx < Body->GetNumMaterials(); ++MatIdx)
+        Body->SetMaterial(MatIdx, nullptr);
+
     // Apply the per-person PBR material overrides (imported from the companion
     // GLB; the FBX meshes themselves ship without usable textures). Kept
     // BEFORE the OriginalMaterials cache below so ApplySkin restores these.
@@ -260,6 +277,11 @@ void ABorn2FlapAvatar::LoadPerson(int32 Index)
     ResolveSkeleton();
     DetectForwardAxis();
 
+    // Strip the Mixamo root motion (the Hips' forward translation) so the baked
+    // clips play in place and the pilot stops jumping forward every gait cycle.
+    if (UBorn2FlapAvatarAnimInstance* AI = Cast<UBorn2FlapAvatarAnimInstance>(Body->GetAnimInstance()))
+        AI->SetRootBone(BoneHips);
+
     // Start in the relaxed idle stance. NOTE: the Standing clip is a kneel/crouch
     // (legs folded), not a standing pose, so the neutral Idle is used here.
     UAnimSequence* Initial = AnimIdle;
@@ -295,7 +317,13 @@ void ABorn2FlapAvatar::LoadPerson(int32 Index)
         // Guard against degenerate imports: a mesh whose bounds collapse to a
         // sliver would otherwise scale the character to skyscraper size. A
         // sane human mesh normalises to ~1x; clamp outliers and flag the asset.
-        if (MeshScale > 10.f || MeshScale < 0.1f)
+        // Guard against truly degenerate imports (a collapsed sliver whose
+        // bounds would otherwise scale the character to skyscraper size). The
+        // threshold is deliberately wide: a metres-vs-centimetres import error
+        // (e.g. the queen landing at ~2 cm and needing ~98x to reach her 196 cm
+        // target) must still normalise correctly instead of being flattened to
+        // a barely-visible 2 cm figure.
+        if (MeshScale > 200.f || MeshScale < 0.005f)
         {
             UE_LOG(LogTemp, Warning,
                 TEXT("Avatar: suspicious mesh scale %.2f for %s (bounds height %.1fcm) — clamped to 1.0; re-import the mesh"),

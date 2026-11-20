@@ -109,5 +109,15 @@ private:
     int64 NextEventId = 1;
     TArray<TSharedPtr<FJsonValue>> PendingEvents;
     FProcHandle BrainProcess;
+
+#if PLATFORM_WINDOWS
+    // Windows Job Object (KILL_ON_JOB_CLOSE) that ties the Ruby Brain's
+    // lifetime to this process. Held for the actor's lifetime; if the
+    // editor/game dies without running EndPlay (crash, task-kill, Alt+F4),
+    // the OS closes the handle and kills the Brain — preventing a permanent
+    // ruby.exe from accumulating per session and exhausting RAM.
+    void* BrainJob = nullptr;
+#endif
+
     TArray<uint8> LineBuffer;
 };

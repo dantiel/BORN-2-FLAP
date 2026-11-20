@@ -25,9 +25,9 @@ fin['repair_breaking_surf']()
 
 # 2) M_Water + M_Shallows -> bright teal, reflective, turbulent.
 cs = load_scope('create_shiomori_map.py')
-cs['water_material']('Water', (0.10, 0.52, 0.58), rough=0.02, specular=1.0,
-                     shore_color=(0.16, 0.62, 0.55))
-cs['water_material']('Shallows', (0.08, 0.46, 0.44), shore_color=(0.16, 0.62, 0.55))
+cs['water_material']('Water', (0.08, 0.52, 0.66), rough=0.02, specular=1.0,
+                     shore_color=(0.12, 0.54, 0.60))
+cs['water_material']('Shallows', (0.08, 0.50, 0.60), shore_color=(0.12, 0.56, 0.58))
 
 # 3) Foam texture facts (diagnostic).
 tex = u.load_asset('/Water/Textures/Foam/T_WaterFlow_01_Foam_Tiled')

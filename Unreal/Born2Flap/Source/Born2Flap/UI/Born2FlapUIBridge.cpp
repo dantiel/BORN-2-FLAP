@@ -22,6 +22,12 @@
 #include "UnrealClient.h"
 #include "Kismet/GameplayStatics.h"
 
+#if PLATFORM_WINDOWS
+#include "Windows/AllowWindowsPlatformTypes.h"
+#include <Windows.h>
+#include "Windows/HideWindowsPlatformTypes.h"
+#endif
+
 ABorn2FlapUIBridge::ABorn2FlapUIBridge()
 {
     PrimaryActorTick.bCanEverTick = true;
@@ -127,6 +133,17 @@ void ABorn2FlapUIBridge::EndPlay(const EEndPlayReason::Type EndPlayReason)
         FPlatformProcess::TerminateProc(BrainProcess, /*bKillTree=*/true);
     BrainProcess.Reset();
 
+#if PLATFORM_WINDOWS
+    // Releasing a KILL_ON_JOB_CLOSE job also terminates any member still alive
+    // (safety net in case TerminateProc above raced). Close after the explicit
+    // kill so the normal path stays primary.
+    if (BrainJob)
+    {
+        ::CloseHandle(static_cast<HANDLE>(BrainJob));
+        BrainJob = nullptr;
+    }
+#endif
+
     // Remove the Brain-authored UMG host from the viewport immediately, before
     // GC gets around to it. Otherwise the old menu's RootHost lingers in the
     // (persistent) game viewport across the level travel and flashes on top of
@@ -205,6 +222,35 @@ void ABorn2FlapUIBridge::SpawnBrain()
     if (BrainProcess.IsValid())
     {
         UE_LOG(LogTemp, Display, TEXT("Born2FlapUIBridge: launched brain pid=%u"), ProcessId);
+
+#if PLATFORM_WINDOWS
+        // Tie the Brain's lifetime to ours. The Brain runs a permanent `loop`
+        // (bin/umghaml_brain) and only dies when killed; EndPlay does kill it,
+        // but a crash / task-kill / Alt+F4 can skip EndPlay and orphan a full
+        // ruby.exe. A Job Object with KILL_ON_JOB_CLOSE makes the OS reap the
+        // Brain whenever this process exits for ANY reason, so a leaked Brain
+        // can never outlive the game session that spawned it.
+        HANDLE Job = ::CreateJobObjectW(nullptr, nullptr);
+        if (Job != nullptr)
+        {
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION Info{};
+            Info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            if (::SetInformationJobObject(Job, JobObjectExtendedLimitInformation, &Info, sizeof(Info)))
+            {
+                if (!::AssignProcessToJobObject(Job, BrainProcess.Get()))
+                {
+                    UE_LOG(LogTemp, Warning,
+                        TEXT("Born2FlapUIBridge: AssignProcessToJobObject failed (err=%u) — Brain will not be auto-reaped on crash"),
+                        ::GetLastError());
+                }
+                BrainJob = Job; // hold the handle for this actor's lifetime
+            }
+            else
+            {
+                ::CloseHandle(Job);
+            }
+        }
+#endif
     }
     else
     {

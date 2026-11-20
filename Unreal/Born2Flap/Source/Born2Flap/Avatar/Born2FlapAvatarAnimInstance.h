@@ -26,12 +26,20 @@ struct FB2FAvatarAnimInstanceProxy : public FAnimSingleNodeInstanceProxy
 
     // Applies the cached head-nod to the Head bone of the evaluated pose.
     void ApplyHeadLook(FPoseContext& Output);
+    // Pins the root bone (Hips) back to its reference pose each frame. The Mixamo
+    // clips carry root motion in the Hips' local translation (the body walks
+    // forward ~40-70 cm then snaps back at the loop boundary), so without this
+    // the pilot visibly "jumps" every gait cycle.
+    void StripRootMotion(FPoseContext& Output);
 
     // Gaze state, cached on the game thread (PreUpdate) and read on the worker
     // thread (Evaluate) so it never races the avatar's Tick.
     float HeadLookPitch = 0.f;
     float ForwardYawOffset = 0.f;
     int32 HeadSkeletonBoneIndex = INDEX_NONE;
+    // Skeleton index of the root (Hips) bone, written by the avatar once per
+    // person so StripRootMotion knows which bone carries the root motion.
+    int32 RootSkeletonBoneIndex = INDEX_NONE;
 };
 
 /**
@@ -59,8 +67,12 @@ public:
         HeadSkeletonBoneIndex = InHeadSkeletonBoneIndex;
     }
 
+    /** Root (Hips) bone index, written once per person for root-motion stripping. */
+    void SetRootBone(int32 InRootSkeletonBoneIndex) { RootSkeletonBoneIndex = InRootSkeletonBoneIndex; }
+
     // Read by FB2FAvatarAnimInstanceProxy (game thread, PreUpdate).
     float HeadLookPitch = 0.f;
     float ForwardYawOffset = 0.f;
     int32 HeadSkeletonBoneIndex = INDEX_NONE;
+    int32 RootSkeletonBoneIndex = INDEX_NONE;
 };
