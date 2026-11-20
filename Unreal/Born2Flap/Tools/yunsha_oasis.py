@@ -64,14 +64,33 @@ def plant_lake(imported,ground):
     grass=u.load_asset('/Game/Nature/SM_Grass1');meadow=u.load_asset('/Game/Nature/SM_Grass2')
     fern=u.load_asset('/Game/Nature/SM_Fern0');palm=imported('OasisPalm')
     def radius(x,y):return math.hypot(x/15600,(y+52000)/9600)
-    def scatter(sm,count,band,ground_lo,ground_hi,height_range,block):
+    def scatter(sm,count,band,ground_lo,ground_hi,height_range,block,clumps=0,clump_sigma=0):
         a=u.EditorLevelLibrary.spawn_actor_from_class(u.Born2FlapYunshaBatch,u.Vector())
         a.set_actor_label('Yunsha lake shore '+sm.get_name());a.tags=['Yunsha','YunshaLakeShore']
         c=a.instances;c.set_static_mesh(sm);c.set_collision_profile_name('BlockAll' if block else 'NoCollision')
         bounds=sm.get_bounds();placed=0
+        def in_band(x,y):
+            r=radius(x,y)
+            return band[0]<r<band[1] and ground_lo<ground(x,y)<ground_hi
+        # Natural vegetation grows in stands, not a uniform carpet: pick clump
+        # anchors inside the band, then gaussian-scatter each species around
+        # them. Reeds therefore read as tufts hugging the waterline.
+        anchors=[]
+        if clumps:
+            for _ in range(clumps*60):
+                if len(anchors)>=clumps:break
+                x=rng.uniform(-17500,17500);y=rng.uniform(-62800,-41600)
+                if not in_band(x,y):continue
+                if any(math.hypot(x-ax,y-ay)<clump_sigma*2.4 for ax,ay in anchors):continue
+                anchors.append((x,y))
+            if len(anchors)<2:clumps=0
         for attempt in range(count*18):
             if placed>=count:break
-            x=rng.uniform(-17500,17500);y=rng.uniform(-62800,-41600)
+            if clumps:
+                ax,ay=rng.choice(anchors)
+                x=ax+rng.gauss(0,clump_sigma);y=ay+rng.gauss(0,clump_sigma)
+            else:
+                x=rng.uniform(-17500,17500);y=rng.uniform(-62800,-41600)
             r=radius(x,y)
             if not(band[0]<r<band[1]):continue
             gh=ground(x,y)
