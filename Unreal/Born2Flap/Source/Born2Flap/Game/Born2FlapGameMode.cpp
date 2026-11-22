@@ -1351,10 +1351,27 @@ bool ABorn2FlapGameMode::IsBrainActive() const
 
 void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, const FString& Text)
 {
+    UE_LOG(LogTemp, Log, TEXT("B2F BrainAction: %s (value=%g text='%s')"), *Action, Value, *Text);
     if(Action==TEXT("graphics.quality")) {
         const int32 Q=FMath::Clamp(FMath::RoundToInt(Value),0,3);
         Born2FlapGraphics::SaveQuality(Q);
         Born2FlapGraphics::Apply(Born2FlapGraphics::ForQuality(static_cast<Born2FlapGraphics::EQuality>(Q)));
+        return;
+    }
+    // MOTION BLUR — persisted + applied live to the global pass and the bird's
+    // cameras (when in-level), mirroring the native menu's GRAPHICS section.
+    if(Action==TEXT("graphics.motionblur")) {
+        const float Amount=FMath::Clamp(Value,0.f,1.f);
+        Born2FlapGraphics::SaveMotionBlur(Amount);
+        Born2FlapGraphics::ApplyMotionBlur(Amount);
+        if(ABorn2FlapFlightPawn* P=Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this,0)))
+            P->SetMotionBlurAmount(Amount);
+        return;
+    }
+    // FPS COUNTER — toggle the HUD overlay (persisted in [Graphics] ShowFps).
+    if(Action==TEXT("graphics.fps")) {
+        const bool bOn=!Born2FlapGraphics::LoadShowFps();
+        Born2FlapGraphics::SaveShowFps(bOn);
         return;
     }
     if(Action.StartsWith(TEXT("keybind."))) {
@@ -1418,6 +1435,26 @@ void ABorn2FlapGameMode::HandleBrainAction(const FString& Action, float Value, c
         const float Scale = FMath::Clamp(Value, 0.5f, 2.0f);
         Born2FlapGraphics::SaveViewDistance(Scale);
         Born2FlapGraphics::ApplyViewDistance(Scale);
+        return;
+    }
+    // MOBILE twin-stick layout (iOS/Android). Invert touch pitch + which
+    // on-screen stick carries throttle/roll. Applied live to the pawn in-level,
+    // otherwise persisted for the next spawn (same FlightPreferences.ini store).
+    if (Action == TEXT("mobile.invert.pitch") || Action == TEXT("mobile.throttle.stick") || Action == TEXT("mobile.roll.stick"))
+    {
+        if (Action == TEXT("mobile.invert.pitch"))
+            BrainPreferences.bMobileInvertPitch = !BrainPreferences.bMobileInvertPitch;
+        else if (Action == TEXT("mobile.throttle.stick"))
+            BrainPreferences.MobileThrottleStick = FMath::Clamp(FMath::RoundToInt(Value), 0, 1);
+        else
+            BrainPreferences.MobileRollStick = FMath::Clamp(FMath::RoundToInt(Value), 0, 1);
+        if (ABorn2FlapFlightPawn* Bird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this, 0)))
+        {
+            Bird->SetMobileInvertPitch(BrainPreferences.bMobileInvertPitch);
+            Bird->SetMobileThrottleStick(BrainPreferences.MobileThrottleStick);
+            Bird->SetMobileRollStick(BrainPreferences.MobileRollStick);
+        }
+        born2flap::MenuSettingsSave(BrainPreferences);
         return;
     }
     auto* ActiveBird = Cast<ABorn2FlapFlightPawn>(UGameplayStatics::GetPlayerPawn(this,0));
@@ -2134,6 +2171,9 @@ FString ABorn2FlapGameMode::BuildBrainTelemetry() const
         Root->SetBoolField(TEXT("replay_spirits"), Settings.bReplaySpirits);
         Root->SetBoolField(TEXT("trick_toasts"), Settings.bShowTrickToasts);
         Root->SetNumberField(TEXT("control_expo"), Settings.ControlExpo);
+        Root->SetBoolField(TEXT("mobile_invert_pitch"), Settings.bMobileInvertPitch);
+        Root->SetNumberField(TEXT("mobile_throttle_stick"), Settings.MobileThrottleStick);
+        Root->SetNumberField(TEXT("mobile_roll_stick"), Settings.MobileRollStick);
         {
             const FVector Gains = Settings.MouseGains;
             TArray<TSharedPtr<FJsonValue>> GainArr;
@@ -2267,6 +2307,8 @@ FString ABorn2FlapGameMode::BuildBrainTelemetry() const
 
     Root->SetNumberField(TEXT("graphics_quality"),Born2FlapGraphics::LoadQuality());
     Root->SetNumberField(TEXT("view_distance"), Born2FlapGraphics::LoadViewDistance());
+    Root->SetNumberField(TEXT("motion_blur"), Born2FlapGraphics::LoadMotionBlur());
+    Root->SetBoolField(TEXT("show_fps"), Born2FlapGraphics::LoadShowFps());
     Root->SetStringField(TEXT("lang"),Born2Flap::I18n::GetLocale());
     TArray<TSharedPtr<FJsonValue>> Keys;
     for(const auto& A:born2flap::keybinds::Catalog()) {

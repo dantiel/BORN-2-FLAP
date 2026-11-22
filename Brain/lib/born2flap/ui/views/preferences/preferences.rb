@@ -13,7 +13,10 @@ module Born2Flap
             mouse_gains: [1, -1, 1], control_expo: 65, speed_modifier: 0.5,
             flight_safety: 1, replay_spirits: true, frontend: false,
             # AUDIO tab: on-foot pilot footsteps (0..1).
-            footstep_volume: 1
+            footstep_volume: 1,
+            # MOBILE twin-stick layout + VISUAL extras (ported from native menu).
+            mobile_invert_pitch: false, mobile_throttle_stick: 0, mobile_roll_stick: 1,
+            motion_blur: 0.0, show_fps: false
           }.merge(locals).merge(page: locals.fetch(:preferences_page,0))
           # Telemetry publishes expo as 0..1; the slider speaks 0..100 %.
           base[:control_expo] = base[:control_expo].to_f * 100

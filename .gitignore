@@ -37,6 +37,10 @@ Testing/
 # Vendored self-contained Ruby (reproducible via Tools/fetch_portable_ruby.ps1)
 ThirdParty/ruby/
 
+# Oniguruma source + build (fetched/built by Tools/build-onig-ios.sh)
+ThirdParty/oniguruma/
+ThirdParty/onig-*.tar.gz
+
 # Haskell compiler outputs
 MathCore/dist-newstyle/
 MathCore/**/*.hi

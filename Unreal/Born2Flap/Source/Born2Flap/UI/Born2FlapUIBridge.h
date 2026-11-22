@@ -28,6 +28,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "HAL/PlatformProcess.h"
+#include "UI/Born2FlapMrubyHost.h"
 #include "Born2FlapUIBridge.generated.h"
 
 class IFileHandle;
@@ -58,11 +59,19 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "UI Bridge")
     FString TelemetryPath;
 
-    // True once the Ruby Brain process has been launched. The UMGHAML
-    // authoring path is then the single UI host. When this is false the
-    // game is running WITHOUT its Brain — an error state; the native C++
+    // True once the Ruby Brain is attached. On iOS that means the in-process
+    // mruby VM (Born2FlapMrubyHost); elsewhere it means the child Ruby process.
+    // The UMGHAML authoring path is then the single UI host. When this is false
+    // the game is running WITHOUT its Brain — an error state; the native C++
     // cockpit fallback (DEPRECATED) is the only thing keeping UI alive.
-    bool IsBrainActive() const { return BrainProcess.IsValid(); }
+    bool IsBrainActive() const
+    {
+#if PLATFORM_IOS
+        return MrubyHost.IsActive();
+#else
+        return BrainProcess.IsValid();
+#endif
+    }
 
     // Semantic component action from the Brain-authored renderer (a button /
     // slider / select). Forwarded to the GameMode's central handler so game
@@ -96,8 +105,11 @@ private:
     void SpawnBrain();
     void DrainSource();
     void WriteTelemetry();
+    FString BuildTelemetryJson();
     void ApplyFrame(const TArray<uint8>& Bytes);
+    void ApplyFrameBuffer(const TArray<uint8>& Bytes);
     void DispatchCommand(const FJsonObject& Cmd);
+    FString ResolveBrainRoot() const;
 
     UPROPERTY() TObjectPtr<UBorn2FlapUIRenderer> Renderer;
     IFileHandle* FileHandle = nullptr;
@@ -109,6 +121,7 @@ private:
     int64 NextEventId = 1;
     TArray<TSharedPtr<FJsonValue>> PendingEvents;
     FProcHandle BrainProcess;
+    FBorn2FlapMrubyHost MrubyHost;
 
 #if PLATFORM_WINDOWS
     // Windows Job Object (KILL_ON_JOB_CLOSE) that ties the Ruby Brain's

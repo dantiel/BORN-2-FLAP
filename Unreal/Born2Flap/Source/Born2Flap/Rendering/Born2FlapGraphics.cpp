@@ -100,7 +100,18 @@ void Apply(const FSettings& S)
     // Shadow softness: VSM is disabled (Nanite fault), so HIGH/EPIC run the
     // conventional shadow maps through PCSS (distance-dependent penumbra)
     // while LOW/MEDIUM keep the cheap uniform filter.
+    // PCSS (r.Shadow.FilterMethod=1) needs the TDirectionalPercentageCloser
+    // ShadowProjectionPS permutation, which is only compiled for SM5/SM6
+    // platforms (bSupportsPercentageCloserShadows). The iOS/Android mobile
+    // forward renderer (METAL_ES3_1 / Vulkan ES3.1) does NOT declare support,
+    // so the shader is absent from the cooked library and requesting it
+    // hard-crashes (check() in FGlobalShaderMap::GetShader) on the first
+    // directional-light shadow projection. Never enable PCSS on mobile.
+#if PLATFORM_DESKTOP
     SetCVar(TEXT("r.Shadow.FilterMethod"), (S.bHardwareRayTracing || bEpic) ? 1 : 0);
+#else
+    SetCVar(TEXT("r.Shadow.FilterMethod"), 0);
+#endif
 }
 
 int32 LoadQuality()

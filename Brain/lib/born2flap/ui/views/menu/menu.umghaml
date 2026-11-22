@@ -1,7 +1,12 @@
 %Panel{ padding: 24 }
   %ScrollPage{}
     - if world_stage == 0
-      %Caption{ title: "#{t('menu.maps')}" }
+      %VBox{ spacing: 8 }
+        %Caption{ title: "#{t('menu.maps')}" }
+        %HBox{ spacing: 12, valign: "center" }
+          %Button{ label: "#{t('menu.prev')}", action: "menu.prevWorld", tone: "dim" }
+          %TextBlock{ text: "#{world_position} / #{world_count}", tone: "dim", size: "s" }
+          %Button{ label: "#{t('menu.next')}", action: "menu.nextWorld", tone: "dim" }
       %VBox{ spacing: 12 }
         - worlds.each_with_index do |w, i|
           %HBox{ spacing: 14 }

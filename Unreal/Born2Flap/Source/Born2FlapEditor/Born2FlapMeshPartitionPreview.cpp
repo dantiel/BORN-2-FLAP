@@ -122,10 +122,9 @@ int32 UBorn2FlapMeshPartitionPreview::ScanAndSpawnProxies(UWorld* World, bool bR
 	// Only maps that actually carry a MeshPartition actor (the headless
 	// diagnostic hook skips this gate because -nullrhi never streams it).
 	bool bHasMeshPartition = false;
-	for (TActorIterator<UE::MeshPartition::AMeshPartition> It(World); It; ++It)
 	{
-		bHasMeshPartition = true;
-		break;
+		TActorIterator<UE::MeshPartition::AMeshPartition> It(World);
+		bHasMeshPartition = static_cast<bool>(It);
 	}
 	if (bRequireMeshPartitionActor && !bHasMeshPartition)
 	{

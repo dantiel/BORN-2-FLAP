@@ -12,6 +12,7 @@
 #include "Flight/Born2FlapFlightPawn.h"
 #include "Game/Born2FlapGameMode.h"
 #include "HAL/PlatformFileManager.h"
+#include "Misc/App.h"
 #include "Misc/CommandLine.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Parse.h"
@@ -37,6 +38,26 @@ void ABorn2FlapUIBridge::BeginPlay()
 {
     Super::BeginPlay();
 
+    Renderer = NewObject<UBorn2FlapUIRenderer>(this);
+    Renderer->OnComponentAction.AddDynamic(this, &ABorn2FlapUIBridge::HandleAction);
+
+#if PLATFORM_IOS
+    // iOS: the Ruby Brain runs IN-PROCESS via mruby (no subprocess, no files —
+    // see Born2FlapMrubyHost). The Brain is the single UI host; the native C++
+    // fallback is DEPRECATED and must never be the primary path.
+    const FString BrainRoot = ResolveBrainRoot();
+    if (MrubyHost.Initialize(BrainRoot))
+    {
+        UE_LOG(LogTemp, Display,
+            TEXT("Born2FlapUIBridge: Ruby Brain running in-process (mruby) from '%s'"), *BrainRoot);
+    }
+    else
+    {
+        UE_LOG(LogTemp, Error,
+            TEXT("Born2FlapUIBridge: failed to start Ruby Brain (mruby): %s — the game must run with the Brain attached!"), *MrubyHost.GetLastError());
+    }
+    return;
+#else
     // Command-line override wins over any editor-configured defaults.
     FParse::Value(FCommandLine::Get(), TEXT("B2FUIFile="), FilePath);
     FParse::Value(FCommandLine::Get(), TEXT("B2FTelemetry="), TelemetryPath);
@@ -57,9 +78,6 @@ void ABorn2FlapUIBridge::BeginPlay()
     // regardless of the process working directory.
     FilePath     = FPaths::ConvertRelativePathToFull(FilePath);
     TelemetryPath = FPaths::ConvertRelativePathToFull(TelemetryPath);
-
-    Renderer = NewObject<UBorn2FlapUIRenderer>(this);
-    Renderer->OnComponentAction.AddDynamic(this, &ABorn2FlapUIBridge::HandleAction);
 
     // Default brain (dev): run the Ruby Brain from the repo. In a packaged build
     // the script is absent, so the native C++ cockpit remains the fallback.
@@ -104,17 +122,45 @@ void ABorn2FlapUIBridge::BeginPlay()
     }
 
     OpenSource();
+#endif
 }
 
 void ABorn2FlapUIBridge::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
-    // UI readouts run at 20 Hz independently of simulation/render FPS.
+    // UI readouts run on a fixed cadence independent of render FPS. The
+    // in-process mruby Brain is far heavier than the desktop file-tail path
+    // (JSON parse + full brain tick + possible reconcile per call), so iOS
+    // drives it at 10 Hz — plenty for a menu/cockpit — while desktop keeps
+    // 20 Hz. A settled menu also skips the tick entirely via byte dedup below.
     const double Now = FPlatformTime::Seconds();
     if (Now >= NextTelemetryTime) {
+#if PLATFORM_IOS
+        NextTelemetryTime = Now + .1;
+        // In-process Brain: build one telemetry snapshot, run a mruby tick, and
+        // apply whatever NDJSON op frames it flushed into the in-memory sink.
+        // A byte-identical snapshot skips the tick (the first is never
+        // identical: LastTelemetryJson starts empty). On a Ruby error the tick
+        // returns false and LastTelemetryJson is left unchanged so the next
+        // cadence retries instead of wedging the UI permanently.
+        if (MrubyHost.IsActive())
+        {
+            const FString Json = BuildTelemetryJson();
+            if (Json != LastTelemetryJson)
+            {
+                TArray<uint8> Frames;
+                if (MrubyHost.Tick(Json, Frames))
+                {
+                    LastTelemetryJson = Json;
+                    ApplyFrameBuffer(Frames);
+                }
+            }
+        }
+#else
         NextTelemetryTime = Now + .05;
         if (IsBrainActive()) WriteTelemetry();
         DrainSource();
+#endif
         // After the tree settled, re-sync auto-wrap TextBlocks to their
         // allotted width so multi-line descriptions measure their real height.
         if (Renderer)
@@ -132,6 +178,9 @@ void ABorn2FlapUIBridge::EndPlay(const EEndPlayReason::Type EndPlayReason)
     if (BrainProcess.IsValid())
         FPlatformProcess::TerminateProc(BrainProcess, /*bKillTree=*/true);
     BrainProcess.Reset();
+
+    // Shut down the in-process mruby VM (no-op when it was never started).
+    MrubyHost.Shutdown();
 
 #if PLATFORM_WINDOWS
     // Releasing a KILL_ON_JOB_CLOSE job also terminates any member still alive
@@ -316,6 +365,36 @@ void ABorn2FlapUIBridge::DrainSource()
     }
 }
 
+void ABorn2FlapUIBridge::ApplyFrameBuffer(const TArray<uint8>& Bytes)
+{
+    for (uint8 Byte : Bytes)
+    {
+        if (Byte == '\n')
+        {
+            ApplyFrame(LineBuffer);
+            LineBuffer.Reset();
+        }
+        else if (Byte != '\r')
+        {
+            LineBuffer.Add(Byte);
+        }
+    }
+}
+
+FString ABorn2FlapUIBridge::ResolveBrainRoot() const
+{
+#if PLATFORM_IOS
+    // mruby reads its files via the C standard library (fopen), NOT Unreal's
+    // virtual filesystem, so it needs the real on-disk bundle path. NonUFS
+    // RuntimeDependencies are staged into <bundle>/cookeddata/<game>/ (all
+    // lowercase); FPlatformProcess::ExecutablePath() is <bundle>/<GameName>.
+    const FString BundleRoot = FPaths::GetPath(FPlatformProcess::ExecutablePath());
+    return BundleRoot / TEXT("cookeddata") / FString(FApp::GetProjectName()).ToLower() / TEXT("brain");
+#else
+    return FString();
+#endif
+}
+
 void ABorn2FlapUIBridge::ForceTelemetry()
 {
     // The `loading` flag flips false→true when ShowLoadingScreen() arms the
@@ -333,11 +412,8 @@ void ABorn2FlapUIBridge::CloseRenderer()
         Renderer->Close();
 }
 
-void ABorn2FlapUIBridge::WriteTelemetry()
+FString ABorn2FlapUIBridge::BuildTelemetryJson()
 {
-    if (TelemetryPath.IsEmpty())
-        return;
-
     // The GameMode builds the full telemetry (panel state + menu catalog + POI
     // + radio + RC + splash + flight readouts). Fall back to a minimal flight
     // readout when there is no GameMode (headless/tests).
@@ -352,14 +428,19 @@ void ABorn2FlapUIBridge::WriteTelemetry()
         TActorIterator<ABorn2FlapFlightPawn> It(GetWorld());
         if (It)
             Pawn = *It;
-        if (!Pawn)
-            return;
-        FString Status = Pawn->GetFlightStatus();
-        Status.ReplaceInline(TEXT("\""), TEXT("'"));
-        Json = FString::Printf(
-            TEXT("{\"altitude\":%.1f,\"climb\":%.1f,\"speed\":%.1f,\"battery\":%.0f,\"throttle\":%.2f,\"status\":\"%s\"}"),
-            Pawn->GetAltitude(), Pawn->GetClimbRate(), Pawn->GetSpeed(),
-            Pawn->GetBattery() * 100.0f, Pawn->GetEffort(), *Status);
+        if (Pawn)
+        {
+            FString Status = Pawn->GetFlightStatus();
+            Status.ReplaceInline(TEXT("\""), TEXT("'"));
+            Json = FString::Printf(
+                TEXT("{\"altitude\":%.1f,\"climb\":%.1f,\"speed\":%.1f,\"battery\":%.0f,\"throttle\":%.2f,\"status\":\"%s\"}"),
+                Pawn->GetAltitude(), Pawn->GetClimbRate(), Pawn->GetSpeed(),
+                Pawn->GetBattery() * 100.0f, Pawn->GetEffort(), *Status);
+        }
+        else
+        {
+            Json = TEXT("{}");
+        }
     }
 
     // Inject pending UI events. The serialize→deserialize→serialize round-trip
@@ -377,6 +458,15 @@ void ABorn2FlapUIBridge::WriteTelemetry()
             FJsonSerializer::Serialize(Telemetry.ToSharedRef(), TJsonWriterFactory<>::Create(&Json));
         }
     }
+    return Json;
+}
+
+void ABorn2FlapUIBridge::WriteTelemetry()
+{
+    if (TelemetryPath.IsEmpty())
+        return;
+
+    const FString Json = BuildTelemetryJson();
 
     // Atomic telemetry write: the Ruby Brain reads this file every ~16 ms while
     // we truncate + rewrite it each tick. Writing a sibling then renaming it
@@ -393,6 +483,7 @@ void ABorn2FlapUIBridge::WriteTelemetry()
 
 void ABorn2FlapUIBridge::HandleAction(const FString& Action, float Value, const FString& Text)
 {
+    UE_LOG(LogTemp, Log, TEXT("B2F UI Action: %s (value=%g)"), *Action, Value);
     auto Event = MakeShared<FJsonObject>();
     Event->SetNumberField(TEXT("id"), NextEventId++);
     Event->SetStringField(TEXT("action"), Action);

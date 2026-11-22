@@ -30,7 +30,10 @@ module Born2Flap
         return source unless source.include?('#{')
 
         context = Context.new(locals)
-        source.gsub(INTERPOLATION) { context.instance_eval(Regexp.last_match(1)) }
+        # mruby: gsub yields the FULL match (not the capture), and
+        # Regexp.last_match's captures go stale inside gsub/scan — so strip the
+        # `#{`/`}` delimiters from the yielded match instead.
+        source.gsub(INTERPOLATION) { |match| context.instance_eval(match[2..-2]).to_s }
       end
 
       # Full inline-Ruby evaluation → plain UMGHAML (ready for HamlParser).
@@ -177,14 +180,24 @@ module Born2Flap
         end
 
         # Split a line into literal / interpolation fragments.
+        #
+        # NOTE: mruby's String#scan does NOT refresh the capture groups of
+        # Regexp.last_match (only begin/end advance), so a second `#{...}` on
+        # the same line would reuse the FIRST capture's expression (e.g. the
+        # picker button's `action` inherited `w[:title]` instead of
+        # `w[:id].downcase`, and the FLY button inherited `fly_label.inspect`
+        # instead of `world_id.downcase`). Iterate manually with
+        # Regexp#match(str, pos), which returns a fresh MatchData per hit.
         def split_interpolation(text)
           segments = []
           pos = 0
-          text.scan(INTERPOLATION) do
-            match = Regexp.last_match
+          idx = 0
+          while (match = INTERPOLATION.match(text, idx))
             segments << [:lit, text[pos...match.begin(0)]] if match.begin(0) > pos
             segments << [:expr, match[1]]
             pos = match.end(0)
+            break if match.end(0) <= idx
+            idx = match.end(0)
           end
           segments << [:lit, text[pos..]] if pos < text.length
           segments

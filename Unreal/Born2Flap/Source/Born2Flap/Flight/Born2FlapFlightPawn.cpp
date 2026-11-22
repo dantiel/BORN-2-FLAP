@@ -2353,11 +2353,16 @@ void ABorn2FlapFlightPawn::Tick(float DeltaSeconds)
             const float RollX     = bRollRight     ? RightX    : LeftX;
             const float YawX      = bRollRight     ? LeftX     : RightX;
 
-            // Throttle is a bottom-zero, latched lever. The HUD's vertical
-            // throttle slider writes LatchedThrottle via SetLatchedThrottle and
-            // holds it on release (USlider latches). The throttle stick's Y axis
-            // is no longer a throttle — its X stays yaw — so no self-centring
-            // axis drives thrust and the lever rests at the bottom = idle.
+            // Throttle is a bottom-zero, latched lever. Two controls write the
+            // SAME latch: the HUD's vertical lever (SetLatchedThrottle) and the
+            // throttle stick's Y axis — push up to raise it (it latches and
+            // holds on release, so the self-centring stick never droops back to
+            // idle), push down to lower it toward idle. Its X stays yaw.
+            const float ThrottleStickY = bThrottleRight ? RightUpY : LeftUpY;
+            if (ThrottleStickY > 0.10f)
+                LatchedThrottle = FMath::Max(LatchedThrottle, ThrottleStickY);
+            else if (ThrottleStickY < -0.10f)
+                LatchedThrottle = FMath::Clamp(LatchedThrottle + ThrottleStickY * 1.5f * Dt, 0.f, 1.f);
             const float TouchThrottle = LatchedThrottle;
             Effort = TouchThrottle;
             WDown  = TouchThrottle > 0.05f;

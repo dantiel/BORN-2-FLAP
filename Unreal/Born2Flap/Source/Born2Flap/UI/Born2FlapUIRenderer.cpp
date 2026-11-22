@@ -1861,10 +1861,10 @@ void UBorn2FlapUIRenderer::ApplyCompositeProps(UBorn2FlapComposite* C, const FPr
             {
                 // `alpha` (0..1) fades the whole banner in/out — the HUD drives
                 // it every tick for the pop-in/fade-out reward toasts.
-                FLinearColor C = ToneColor;
+                FLinearColor BannerColor = ToneColor;
                 if (Props.count("alpha"))
-                    C.A *= FMath::Clamp((float)Num(Props.at("alpha"), 1.0), 0.f, 1.f);
-                Text->SetColorAndOpacity(FSlateColor(C));
+                    BannerColor.A *= FMath::Clamp((float)Num(Props.at("alpha"), 1.0), 0.f, 1.f);
+                Text->SetColorAndOpacity(FSlateColor(BannerColor));
             }
         }
         StyleText(Text, Props);

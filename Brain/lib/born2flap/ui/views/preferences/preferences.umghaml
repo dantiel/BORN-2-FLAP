@@ -17,6 +17,10 @@
         %Toggle{ label: "#{t('settings.airborne_camera')}", value: #{camera_fpv}, on: "FPV", off: "CHASE", action: "camera.fpv" }
         %Slider{ label: "#{t('settings.fpv_camera_angle')}", value: #{fpv_angle}, min: -45, max: 45, step: 1, unit: "°", action: "camera.angle" }
         %Toggle{ label: "#{t('settings.invert_free_look')}", value: #{freelook_invert}, action: "camera.freelook.invert" }
+        %TextBlock{ text: "#{t('settings.mobile_controls')}", tone: "accent", size: "s" }
+        %Toggle{ label: "#{t('settings.mobile_invert_pitch')}", value: #{mobile_invert_pitch}, on: "ON", off: "OFF", action: "mobile.invert.pitch" }
+        %Dropdown{ label: "#{t('settings.mobile_throttle_stick')}", options: ["#{t('settings.mobile_left')}", "#{t('settings.mobile_right')}"], value: #{mobile_throttle_stick}, action: "mobile.throttle.stick" }
+        %Dropdown{ label: "#{t('settings.mobile_roll_stick')}", options: ["#{t('settings.mobile_left')}", "#{t('settings.mobile_right')}"], value: #{mobile_roll_stick}, action: "mobile.roll.stick" }
       - if page == 1
         %Slider{ label: "#{t('settings.wingbeat_volume')}", value: #{wingbeat_volume}, min: 0, max: 4, step: 0.05, action: "audio.wingbeat", tooltip: "Changes wingbeat audio only; wind and surf are unaffected." }
         %Slider{ label: "#{t('settings.radio_volume')}", value: #{radio_volume}, min: 0, max: 1, step: 0.05, action: "radio.volume" }
@@ -44,6 +48,8 @@
         %Select{ label: "#{t('settings.graphics_quality')}", options: ["LOW", "MEDIUM", "HIGH", "EPIC"], value: #{graphics_quality}, action: "graphics.quality", tooltip: "Lower tiers reduce lighting and volumetric effects. Hardware features depend on GPU support." }
         %Slider{ label: "#{t('settings.ui_scale')}", value: #{ui_scale}, min: 0.5, max: 2.0, step: 0.05, unit: "×", action: "ui.scale", tooltip: "#{t('settings.ui_scale_hint')}" }
         %Slider{ label: "#{t('settings.view_distance')}", value: #{view_distance}, min: 0.5, max: 2.0, step: 0.05, unit: "×", action: "view.distance", tooltip: "#{t('settings.view_distance_hint')}" }
+        %Slider{ label: "#{t('settings.motion_blur')}", value: #{motion_blur}, min: 0, max: 1, step: 0.05, action: "graphics.motionblur", tooltip: "Blurs fast motion for a smoother look." }
+        %Toggle{ label: "#{t('settings.show_fps')}", value: #{show_fps}, on: "ON", off: "OFF", action: "graphics.fps" }
         %Dropdown{ label: "WINDOW MODE", options: ["FULLSCREEN", "BORDERLESS", "WINDOWED"], value: #{display_mode}, action: "display.mode" }
         %Toggle{ label: "FOLLOW SYSTEM RESOLUTION", value: #{display_follow_system}, on: "ON", off: "OFF", action: "display.follow_system" }
         %Dropdown{ label: "RESOLUTION", options: ["NATIVE", "3840×2160", "2560×1440", "1920×1080", "1600×900", "1366×768", "1280×720"], value: #{display_resolution}, action: "display.resolution" }

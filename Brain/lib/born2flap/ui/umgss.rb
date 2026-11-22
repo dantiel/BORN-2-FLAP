@@ -168,8 +168,8 @@ module Born2Flap
           case value
           when /\A-?\d+\z/      then value.to_i
           when /\A-?\d+\.\d+\z/ then value.to_f
-          when /\A"(.*)"\z/m    then Regexp.last_match(1)
-          when /\A'(.*)'\z/m    then Regexp.last_match(1)
+          when /\A"(.*)"\z/m    then $1
+          when /\A'(.*)'\z/m    then $1
           when "true"           then true
           when "false"          then false
           when "nil"            then nil

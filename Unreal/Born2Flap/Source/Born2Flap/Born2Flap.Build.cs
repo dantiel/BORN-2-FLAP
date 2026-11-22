@@ -46,6 +46,28 @@ public class Born2Flap : ModuleRules
                 PublicAdditionalLibraries.Add(IosMathLib);
                 PublicSystemLibraries.Add("iconv");
             }
+
+            // In-process Ruby Brain runtime: mruby 3.2.0 cross-compiled to
+            // arm64-apple-ios (Tools/build-mruby-ios.sh) + the regexp engine
+            // oniguruma 6.9.10 (Tools/build-onig-ios.sh). Both are static
+            // archives (dlopen forbidden on iOS); the regexp gem's onig_*
+            // symbols resolve against libonig-ios.a at link time. mruby-math
+            // needs libm (a no-op symlink into libSystem on iOS, but declared
+            // for parity with the host link).
+            string IosMrubyLib = Path.GetFullPath(Path.Combine(ModuleDirectory,
+                "../../../../ThirdParty/mruby/build-ios/ios-arm64/lib/libmruby.a"));
+            string IosOnigLib = Path.GetFullPath(Path.Combine(ModuleDirectory,
+                "../../../../ThirdParty/oniguruma/dist/lib/libonig.a"));
+            if (File.Exists(IosMrubyLib) && File.Exists(IosOnigLib))
+            {
+                PublicAdditionalLibraries.Add(IosMrubyLib);
+                PublicAdditionalLibraries.Add(IosOnigLib);
+                PublicSystemLibraries.Add("m");
+                PublicIncludePaths.Add(Path.GetFullPath(Path.Combine(ModuleDirectory,
+                    "../../../../ThirdParty/mruby/include")));
+                PublicIncludePaths.Add(Path.GetFullPath(Path.Combine(ModuleDirectory,
+                    "../../../../ThirdParty/oniguruma/dist/include")));
+            }
         }
 
         if (Target.Platform == UnrealTargetPlatform.Android)
@@ -67,6 +89,20 @@ public class Born2Flap : ModuleRules
         {
             string RepoRoot = Path.GetFullPath(Path.Combine(ModuleDirectory, "../../../.."));
             foreach (string Folder in new[] { "Brain/lib", "Brain/bin", "ThirdParty/ruby" })
+            {
+                string SourceRoot = Path.Combine(RepoRoot, Folder);
+                if (!Directory.Exists(SourceRoot)) continue;
+                foreach (string Source in Directory.EnumerateFiles(SourceRoot, "*", SearchOption.AllDirectories))
+                    RuntimeDependencies.Add("$(ProjectDir)/" + Folder + "/" + Path.GetRelativePath(SourceRoot, Source).Replace('\\', '/'), Source, StagedFileType.NonUFS);
+            }
+        }
+        // iOS: ship the Brain sources (lib + mruby shim) so the in-process
+        // mruby host can load the exact same Ruby UI. No bin/ scripts and no
+        // vendored interpreter — the VM is statically linked (libmruby.a above).
+        if (Target.Platform == UnrealTargetPlatform.IOS)
+        {
+            string RepoRoot = Path.GetFullPath(Path.Combine(ModuleDirectory, "../../../.."));
+            foreach (string Folder in new[] { "Brain/lib", "Brain/mruby" })
             {
                 string SourceRoot = Path.Combine(RepoRoot, Folder);
                 if (!Directory.Exists(SourceRoot)) continue;
